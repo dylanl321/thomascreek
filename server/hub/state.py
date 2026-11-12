@@ -23,6 +23,7 @@ from .home import HomeModel
 from .notify import Notifier
 from .policy import Policy, Subject
 from .push import APNs
+from .onepassword import OnePasswordSync
 from .timers import Timers
 from .vault import Vault
 from .vpn import Vpn
@@ -57,6 +58,7 @@ class Hub:
         self.show_player = ShowPlayer(config.show_player, vault)
         self.firewalla = Firewalla(config.firewalla, vault, db)
         self.apns = APNs(config.apns, vault)
+        self.onepassword = OnePasswordSync(config.onepassword, vault)
         self.vpn = Vpn(config.vpn, vault, db)
         self.home = HomeModel(self)
         self.notify = Notifier(self)
@@ -124,6 +126,9 @@ class Hub:
 
     # -- lifecycle -------------------------------------------------------
     async def start(self) -> None:
+        if self.onepassword.enabled:
+            await self.onepassword.sync_safely()
+            self.onepassword.start()
         try:
             self.vpn.bring_up()
         except Exception as exc:  # noqa: BLE001
@@ -134,6 +139,7 @@ class Hub:
     async def stop(self) -> None:
         await self.home.stop()
         await self.timers.stop()
+        await self.onepassword.stop()
         for a in self.adapters:
             await a.close()
         await self.apns.close()

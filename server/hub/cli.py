@@ -2,7 +2,7 @@
 
   hub serve                          start the hub
   hub init-key PATH                  write a new 32-byte master key file
-  hub secrets list|set NAME|delete NAME
+  hub secrets list|set NAME|delete NAME|sync   (sync: copy from 1Password now)
   hub check                          read-only connection test of every service
   hub people list | add NAME ROLE
   hub devices list | assign DEVICE PERSON | revoke DEVICE
@@ -53,9 +53,11 @@ def cmd_secrets(args: argparse.Namespace) -> int:
         for n in v.names():
             print(n)
         return 0
-    if not args.name:
+    if not args.name and args.action != "sync":
         print("secret name required", file=sys.stderr)
         return 2
+    if args.action == "sync":
+        return _sync_onepassword()
     if args.action == "delete":
         print("deleted" if v.delete(args.name) else "not found")
         return 0
@@ -72,6 +74,26 @@ def cmd_secrets(args: argparse.Namespace) -> int:
     v.set(args.name, value)
     print(f"stored {args.name}")
     return 0
+
+
+def _sync_onepassword() -> int:
+    from .onepassword import OnePasswordSync
+
+    cfg = load_config()
+    if not cfg.onepassword.enabled:
+        print("onepassword.enabled is false in the config", file=sys.stderr)
+        return 1
+    sync = OnePasswordSync(cfg.onepassword, _vault())
+    if not sync.enabled:
+        print(f"store the service account token first: hub secrets set {cfg.onepassword.token_secret}", file=sys.stderr)
+        return 1
+    report = asyncio.run(sync.sync())
+    for n in report.stored:
+        print(f"updated {n}")
+    for n, why in sorted(report.errors.items()):
+        print(f"failed  {n}: {why}")
+    print(report.summary())
+    return 1 if report.errors else 0
 
 
 def cmd_people(args: argparse.Namespace) -> int:
@@ -158,6 +180,11 @@ def cmd_check(_args: argparse.Namespace) -> int:
             except Exception as exc:  # noqa: BLE001
                 bad += 1
                 print(f"  !!  {title}: {exc}")
+        if h.onepassword.enabled:
+            r = await h.onepassword.sync_safely()
+            print(f"  {'ok' if r and not r.errors else '!!'}  1Password: {r.summary() if r else h.onepassword.last_error}")
+        else:
+            print("  -   1Password: not set up")
         print(f"  {'ok' if h.apns.enabled else '-'}   Push: {'ready' if h.apns.enabled else 'not set up'}")
         print(f"  {'ok' if h.vpn.enabled else '-'}   VPN: {h.config.vpn.provider}")
         print(f"  dry run: {h.config.hub.dry_run}; live actions: {', '.join(h.config.hub.live_actions) or 'none'}")
@@ -174,7 +201,7 @@ def main(argv: list[str] | None = None) -> None:
     k = sub.add_parser("init-key")
     k.add_argument("path")
     s = sub.add_parser("secrets")
-    s.add_argument("action", choices=["list", "set", "delete"])
+    s.add_argument("action", choices=["list", "set", "delete", "sync"])
     s.add_argument("name", nargs="?")
     sub.add_parser("check")
     p = sub.add_parser("people")

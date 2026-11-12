@@ -48,6 +48,24 @@ hub secrets list
 Recommended: give the hub its own **non-admin Home Assistant user** and token, a
 **read-only TrueNAS API key** for a dedicated user, and a Plex token for a managed user.
 
+### Or: from 1Password
+
+Instead of pasting each value, keep them in a 1Password vault named
+`Thomas Creek Hub`, one item per secret, titled with the secret's name above
+(`home_assistant.token`, `plex.token`, ...). Put the value in the item's
+password or credential field; store the APNs `.p8` as a Document item titled
+`apns.auth_key_p8`. Create a service account with read access to that vault,
+set `onepassword.enabled: true`, and store its token once:
+
+```sh
+hub secrets set onepassword.service_account_token
+hub secrets sync          # copies now; the hub also syncs on start and hourly
+```
+
+The values are copied into the hub's own vault, so the hub keeps working if
+1Password is unreachable, and a token rotated in 1Password reaches the hub
+within the hour. Names and counts are logged, never values.
+
 ## 4. Check every connection (read-only)
 
 ```sh

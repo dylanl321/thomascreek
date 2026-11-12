@@ -62,6 +62,17 @@ apns:
   key_secret: apns.auth_key_p8           # contents of the AuthKey_XXXX.p8 file
   topic: me.dlewis.thomascreek
 
+# Optional: copy credentials from 1Password into the vault on start and hourly.
+# Needs a service account with read access to the vault below; store its token
+# once with:  hub secrets set onepassword.service_account_token
+# Items in that vault titled like a hub secret name (home_assistant.token,
+# apns.auth_key_p8, ...) are copied; refs covers items that live elsewhere.
+onepassword:
+  enabled: false
+  vault: Thomas Creek Hub
+  refs: {}            # e.g. {plex.token: "op://Media/Plex/token"}
+  refresh_s: 3600
+
 vpn:
   provider: none     # wg-cli to turn on the built-in VPN
   endpoint: PUBLIC_NAME_OR_IP:51820

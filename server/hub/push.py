@@ -8,6 +8,7 @@ device token is dead, and the hub forgets it.
 from __future__ import annotations
 
 import logging
+import re
 import time
 from typing import Any
 
@@ -31,6 +32,16 @@ class PushResult:
         return self.status == 410 or self.reason in ("BadDeviceToken", "Unregistered", "DeviceTokenNotForTopic")
 
 
+def normalize_pem(text: str) -> str:
+    """Rebuild a PEM key whose line breaks were lost (pasted into one field)."""
+    m = re.search(r"-----BEGIN ([A-Z ]+)-----(.*?)-----END \1-----", text, re.S)
+    if not m:
+        return text
+    body = re.sub(r"\s+", "", m.group(2))
+    lines = [body[i:i + 64] for i in range(0, len(body), 64)]
+    return f"-----BEGIN {m.group(1)}-----\n" + "\n".join(lines) + f"\n-----END {m.group(1)}-----\n"
+
+
 class APNs:
     def __init__(self, cfg: ApnsConfig, vault: Vault):
         self.cfg = cfg
@@ -48,10 +59,10 @@ class APNs:
     def _provider_token(self) -> str:
         if self._jwt and time.time() - self._jwt_at < 50 * 60:
             return self._jwt
-        key = self.vault.require(self.cfg.key_secret)
+        key = normalize_pem(str(self.vault.require(self.cfg.key_secret)))
         self._jwt = jwt.encode(
             {"iss": self.cfg.team_id, "iat": int(time.time())},
-            str(key),
+            key,
             algorithm="ES256",
             headers={"kid": self.cfg.key_id},
         )

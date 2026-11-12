@@ -12,6 +12,7 @@ dependencies = [
   "pyyaml>=6",
   "websockets>=13",
   "zeroconf>=0.132",
+  "onepassword-sdk>=0.4",
 ]
 
 [project.optional-dependencies]

@@ -210,3 +210,92 @@ def test_lights_page_cookie_reaches_absolute_paths(hub, people, home_client):
         assert layout.calls[0].request.headers["Authorization"] == "Bearer app-token-value"
         # WLED control stays admin-only.
         assert home_client.get("/wled/api/info").status_code == 403
+
+
+# -- 1Password sync ---------------------------------------------------------
+
+class _F:
+    def __init__(self, title, value, field_type="CONCEALED"):
+        self.title, self.value, self.field_type = title, value, field_type
+
+
+class _Item:
+    def __init__(self, id, title, fields=(), document=None):
+        self.id, self.title, self.fields, self.document = id, title, list(fields), document
+
+
+class _FakeOP:
+    def __init__(self, items, refs=None):
+        self._items = {i.id: i for i in items}
+        outer = self
+
+        class Vaults:
+            async def list(self):
+                return [type("V", (), {"id": "v1", "title": "Thomas Creek Hub"})()]
+
+        class Files:
+            async def read(self, vid, iid, attr):
+                return b"-----BEGIN PRIVATE KEY-----\nABC\n-----END PRIVATE KEY-----\n"
+
+        class Items:
+            files = Files()
+
+            async def list(self, vid):
+                return list(outer._items.values())
+
+            async def get(self, vid, iid):
+                return outer._items[iid]
+
+        class Secrets:
+            async def resolve(self, ref):
+                return (refs or {})[ref]
+
+        self.vaults, self.items, self.secrets = Vaults(), Items(), Secrets()
+
+
+async def test_onepassword_sync_copies_named_items(tmp_path):
+    from hub.config import OnePasswordConfig
+    from hub.onepassword import OnePasswordSync
+    from hub.vault import Vault, generate_master_key, load_master_key
+
+    kf = tmp_path / "k"
+    kf.write_text(generate_master_key())
+    v = Vault(tmp_path / "vault.json", load_master_key(kf))
+    v.set("onepassword.service_account_token", "ops_x")
+    v.set("plex.token", "same")
+    cfg = OnePasswordConfig(enabled=True, refs={"mealie.token": "op://Other/Mealie/credential"})
+    s = OnePasswordSync(cfg, v)
+    fake = _FakeOP(
+        [
+            _Item("1", "home_assistant.token", [_F("username", "hub", "TEXT"), _F("credential", "  ha-secret \n")]),
+            _Item("2", "plex.token", [_F("password", "same")]),
+            _Item("3", "apns.auth_key_p8", document=object()),
+            _Item("4", "Some Login", [_F("password", "nope")]),
+            _Item("5", "frigate.password", [_F("notes", "x", "TEXT")]),
+            _Item("6", "onepassword.service_account_token", [_F("credential", "evil")]),
+        ],
+        refs={"op://Other/Mealie/credential": "mealie-secret"},
+    )
+
+    async def fake_client():
+        return fake
+
+    s._client = fake_client
+    r = await s.sync()
+    assert v.get("home_assistant.token") == "ha-secret"
+    assert v.get("apns.auth_key_p8").startswith("-----BEGIN PRIVATE KEY-----\nABC")
+    assert v.get("mealie.token") == "mealie-secret"
+    assert v.get("onepassword.service_account_token") == "ops_x"
+    assert not v.has("Some Login")
+    assert sorted(r.stored) == ["apns.auth_key_p8", "home_assistant.token", "mealie.token"]
+    assert r.unchanged == ["plex.token"]
+    assert set(r.errors) == {"frigate.password", "onepassword.service_account_token"}
+
+
+def test_normalize_pem_rebuilds_lines():
+    from hub.push import normalize_pem
+
+    flat = "-----BEGIN PRIVATE KEY----- " + "A" * 100 + " -----END PRIVATE KEY-----"
+    out = normalize_pem(flat)
+    assert out.splitlines()[1] == "A" * 64 and out.splitlines()[2] == "A" * 36
+    assert out.endswith("-----END PRIVATE KEY-----\n")

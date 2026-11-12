@@ -71,6 +71,15 @@ class ShowPlayerConfig(ServiceConfig):
     )
 
 
+class OnePasswordConfig(BaseModel):
+    """Copy credentials from 1Password into the vault (see hub/onepassword.py)."""
+    enabled: bool = False
+    token_secret: str = "onepassword.service_account_token"
+    vault: str | None = "Thomas Creek Hub"
+    refs: dict[str, str] = Field(default_factory=dict)   # hub secret name -> op://vault/item/field
+    refresh_s: int = 3600
+
+
 class ApnsConfig(BaseModel):
     enabled: bool = False
     team_id: str | None = None
@@ -168,6 +177,7 @@ class Config(BaseModel):
     show_player: ShowPlayerConfig = Field(default_factory=lambda: ShowPlayerConfig(enabled=False, token_secret="show_player.app_token"))
     firewalla: FirewallaConfig = Field(default_factory=FirewallaConfig)
     apns: ApnsConfig = Field(default_factory=ApnsConfig)
+    onepassword: OnePasswordConfig = Field(default_factory=OnePasswordConfig)
     vpn: VpnConfig = Field(default_factory=VpnConfig)
     child_policy: ChildPolicy = Field(default_factory=ChildPolicy)
     guest: GuestInfo = Field(default_factory=GuestInfo)
