@@ -4106,15 +4106,19 @@
    "VpnBody": {
     "properties": {
      "wg_public_key": {
-      "type": "string",
-      "maxLength": 64,
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 64
+       },
+       {
+        "type": "null"
+       }
+      ],
       "title": "Wg Public Key"
      }
     },
     "type": "object",
-    "required": [
-     "wg_public_key"
-    ],
     "title": "VpnBody"
    }
   }

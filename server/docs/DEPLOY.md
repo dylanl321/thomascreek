@@ -89,7 +89,24 @@ With `dry_run: true`, add action names to `hub.live_actions` and restart the app
 for example `[light.set, scene.run]` first. With `dry_run: false` everything is live. Names: see docs/API.md, plus `lights.control`,
 `media.approve`, `chores.done`, `chores.redeem`, `shopping.add`.
 
-## Built-in VPN (optional)
+## VPN through the Firewalla (recommended)
+
+The Firewalla stays the VPN server; the hub only hands its client configs to phones.
+
+1. In the Firewalla app: VPN Server, WireGuard, turn it on, then add one client per
+   phone you expect away from home (five is plenty). Name them anything.
+2. Export each client's config file (Share) and save it as `vpn.pool.1.conf`,
+   `vpn.pool.2.conf`, ...
+3. Put the files in the hub's drop folder (`data/import/`). Within 15 seconds they
+   are moved into the vault and wiped.
+4. In `config.yaml` set `vpn.provider: pool`, `allowed_ips` to the home ranges (so
+   only home traffic uses the tunnel) and `home_ssids`. Restart.
+
+Each approved phone gets a free client. When a phone is removed, its client is
+deleted from the vault, because that phone still has its key: delete the same
+client on the Firewalla, make a new one, and drop it in under the same name.
+
+## Built-in VPN (alternative: the hub is the server)
 
 1. In `config.yaml` set `vpn.provider: wg-cli`, `vpn.endpoint` (public name or IP and port), `allowed_ips`, `dns`, `home_ssids`.
 2. In `compose.yaml` set `HUB_VPN_NAT: "1"` (keeps `cap_add: NET_ADMIN`).

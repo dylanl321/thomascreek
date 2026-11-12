@@ -74,7 +74,7 @@ onepassword:
   refresh_s: 3600
 
 vpn:
-  provider: none     # wg-cli to turn on the built-in VPN
+  provider: none     # pool: hand out Firewalla WireGuard clients; wg-cli: the hub's own server
   endpoint: PUBLIC_NAME_OR_IP:51820
   subnet: 10.77.0.0/24
   dns: [192.168.1.1]

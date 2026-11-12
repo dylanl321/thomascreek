@@ -89,7 +89,10 @@ class ApnsConfig(BaseModel):
 
 
 class VpnConfig(BaseModel):
-    provider: str = "none"  # "none" | "wg-cli"
+    provider: str = "none"  # "none" | "wg-cli" | "pool"
+    # provider "pool": WireGuard client configs made on another server (Firewalla),
+    # stored as vault secrets named <pool_prefix><n>, one handed to each phone.
+    pool_prefix: str = "vpn.pool."
     interface: str = "wg0"
     endpoint: str | None = None  # host:port the phones dial from outside
     subnet: str = "10.77.0.0/24"

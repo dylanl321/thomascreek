@@ -101,7 +101,7 @@ class Hub:
         if addr.is_loopback:
             return False
         # A phone on the hub's own WireGuard tunnel is away, not home.
-        if addr in self.vpn.net:
+        if self.vpn.is_tunnel_address(addr):
             return False
         return any(addr in n for n in self._home_nets)
 

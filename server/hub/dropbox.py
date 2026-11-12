@@ -31,7 +31,7 @@ def import_dropped(vault: Vault, folder: Path | None = None) -> list[str]:
     for f in sorted(folder.iterdir()):
         if not f.is_file() or f.name.startswith("."):
             continue
-        name = f.name.removesuffix(".txt")
+        name = f.name.removesuffix(".txt").removesuffix(".conf")
         try:
             if not NAME_RE.match(name):
                 # Removed anyway: a misnamed file may still hold a credential.

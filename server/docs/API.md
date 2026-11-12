@@ -189,6 +189,11 @@ Admin: `GET /v1/network/devices` (everything Firewalla sees, with `linked_to`),
 `POST /v1/vpn/config {wg_public_key}` ->
 `{interface:{addresses, dns}, peer:{public_key, endpoint, allowed_ips, persistent_keepalive}, home_ssids}`.
 503 `vpn_unavailable` until Dylan turns the VPN on. Only for assigned (active) devices.
+With the Firewalla pool (`vpn.provider: pool`) the hub hands out one of the client
+configs made on the Firewalla, so the reply also carries `interface.private_key` (and
+`peer.preshared_key` when the Firewalla set one): use those instead of the phone's own
+key. `wg_public_key` may be left out then. 400 `vpn_unavailable` means every client is
+in use.
 A phone connecting through the tunnel counts as "away" (so cameras still ask for Face ID).
 
 ## Assets

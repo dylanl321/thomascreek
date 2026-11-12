@@ -371,3 +371,43 @@ async def test_frigate_has_camera_uses_frigate_names():
     await f.close()
     off = Frigate(FrigateConfig(enabled=False, url="http://frigate.test:5000"), None)
     assert not await off.has_camera("driveway")
+
+
+def _client_conf(n: int) -> str:
+    priv = base64.b64encode(X25519PrivateKey.generate().private_bytes(
+        serialization.Encoding.Raw, serialization.PrivateFormat.Raw, serialization.NoEncryption())).decode()
+    return (f"[Interface]\nPrivateKey = {priv}\nAddress = 10.11.12.{n + 1}/32\nDNS = 10.11.12.1\n\n"
+            f"[Peer]\nPublicKey = {wg_pub()}\nAllowedIPs = 0.0.0.0/0\nEndpoint = home.example.invalid:51820\n"
+            "PersistentKeepalive = 25\n")
+
+
+def test_vpn_pool_hands_out_firewalla_clients(hub, people, home_client, tmp_path):
+    from hub.dropbox import import_dropped
+
+    hub.config.vpn.provider = "pool"
+    hub.config.vpn.allowed_ips = ["10.0.0.0/22"]
+    r = home_client.post("/v1/vpn/config", json={}, headers=people["phones"]["Avery"].h)
+    assert r.status_code == 503  # nothing in the pool yet
+    drop = tmp_path / "import"
+    drop.mkdir()
+    for n in (1, 2):
+        (drop / f"vpn.pool.{n}.conf").write_text(_client_conf(n))
+    assert import_dropped(hub.vault, drop) == ["vpn.pool.1", "vpn.pool.2"]
+
+    avery, theo = people["phones"]["Avery"], people["phones"]["Theo"]
+    a = home_client.post("/v1/vpn/config", json={}, headers=avery.h).json()
+    assert a["interface"]["addresses"] == ["10.11.12.2/32"] and a["interface"]["private_key"]
+    assert a["peer"]["endpoint"] == "home.example.invalid:51820"
+    assert a["peer"]["allowed_ips"] == ["10.0.0.0/22", "10.11.12.1/32"]
+    # Asking again returns the same client; a second phone gets the other one.
+    assert home_client.post("/v1/vpn/config", json={}, headers=avery.h).json() == a
+    t = home_client.post("/v1/vpn/config", json={}, headers=theo.h).json()
+    assert t["interface"]["addresses"] == ["10.11.12.3/32"]
+    assert not hub.is_home("10.11.12.2")
+    # Pool used up.
+    others = [p for name, p in people["phones"].items() if name not in ("Avery", "Theo")]
+    if others:
+        assert home_client.post("/v1/vpn/config", json={}, headers=others[0].h).status_code == 400
+    # Removing a phone retires its client: the old phone still has that key.
+    hub.revoke_device(hub.db.device(avery.device_id))
+    assert not hub.vault.has("vpn.pool.1") and hub.vault.has("vpn.pool.2")

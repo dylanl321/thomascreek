@@ -309,7 +309,8 @@ async def systems(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[st
 
 # -- VPN -----------------------------------------------------------------
 class VpnBody(BaseModel):
-    wg_public_key: str = Field(max_length=64)
+    # Required for the hub's own WireGuard; ignored with a pooled (Firewalla) config.
+    wg_public_key: str | None = Field(default=None, max_length=64)
 
 
 @router.post("/vpn/config")
