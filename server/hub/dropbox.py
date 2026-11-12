@@ -1,7 +1,8 @@
 """Secret drop folder: `<data>/import/<secret name>` files are moved into the vault.
 
 Lets a trusted helper on the LAN (Dylan's Hermes agent, through the TrueNAS
-file API) hand the hub credentials without anyone printing them. The hub reads
+file API, or Dylan from the Files app over the NAS's SMB share) hand the hub
+credentials without anyone printing them. The hub reads
 each file, stores it under the file's name, overwrites and deletes the file.
 Only names are logged.
 """
@@ -26,7 +27,13 @@ def drop_dir() -> Path:
 
 def import_dropped(vault: Vault, folder: Path | None = None) -> list[str]:
     folder = folder or drop_dir()
-    folder.mkdir(mode=0o700, parents=True, exist_ok=True)
+    folder.mkdir(parents=True, exist_ok=True)
+    try:
+        # A write-only drop box: anyone with access to the share can put a file in,
+        # nobody but the hub can list or read what is there.
+        folder.chmod(0o1733)
+    except OSError:
+        pass
     stored: list[str] = []
     for f in sorted(folder.iterdir()):
         if not f.is_file() or f.name.startswith("."):
