@@ -170,6 +170,7 @@ kids' player), `request` posts `/v1/requests`, `chore` posts `/v1/chores/{id}/do
 New deep links: search?q=, remote/<entity>, climate, music, calendar, shopping, inventory, pipeline, hubweb,
 vpnpool, downloads. Spotlight indexes rooms, devices, cameras and screens (identifier = deep link). Siri:
 "Search Thomas Creek". The "Ask Thomas Creek" row calls `Router.ask`, which opens the assistant with the words.
+<<<<<<< HEAD
 
 ## Media requests and tracking (2026-11-12)
 
@@ -184,3 +185,33 @@ Jellyseerr is the source of truth, so requests made on its website or from a Ple
 - `GET /v1/media/title/{media_id}` -> `{media_id, kind, title, year, poster_url, summary, rating, runtime_min, genres, seasons:[{n,name,episodes,status}], availability, request_id, plex_id}`.
 - `GET /v1/media/search` `requestable` now uses the discover item shape above (it used `MediaItem` with a string year, which the app couldn't decode).
 - "Ready to watch" push (`thomascreek://media/requests/{id}`) goes once per request to the person who asked, matched by the app's own record or by Jellyseerr display name = hub first name. Requests already ready when the hub first looks aren't announced.
+=======
+## Smart "Right now" cards
+
+`GET /v1/home` now carries `weather` ({temp, condition, symbol, high, low, sunrise, sunset}) and `smart`, a list of
+cards the hub picked for this person right now, highest priority first. `GET /v1/smart` returns just
+`{cards, weather}`; the event stream sends `{"type":"smart"}` when they may have changed (and device events can
+change them too), so the app refetches `/v1/smart`.
+
+Card: `{id, rule, priority, tint (accent|warn|bad|kid|night|sun), symbol (SF Symbol), eyebrow, title, detail?,
+items?: [{title, value?, url?}], image? (hub path), emoji?, ref? (deep link), why, style? ("picture" for the
+picture-first layout), buttons: [...]}`.
+
+Button kinds:
+- `action`: `{action, target?, params, secure}` → `POST /v1/actions` (Face ID when `secure`). `steps.run` takes
+  `{steps: [{action, target, params}], label}` and runs several taps in one (lights, switches, fans, locks,
+  garage, media); each step passes the normal policy and the strongest tier any step needs applies.
+- `open`: `{url}` deep link.
+- `call`: `{method, path}` e.g. `POST /v1/cameras/events/{id}/wrong` ("Not a package").
+- `done`: just closes the card.
+`done` on any button is the toast text after it worked.
+
+`POST /v1/smart/dismiss {id, rule, handled}`: handled=true after a button worked; false is "Not now", which hides
+the card until 4 am (30 min for safety cards). Three "Not now" in a row on one rule mutes it for that person
+(reply has `muted: true`, `rule_title`). `GET /v1/smart/settings` → `{muted, rules}`; `POST /v1/smart/settings
+{rule, muted}`.
+
+Hub config `smart:` dinner_time, dinner_lead_min, lockup_time, trash_night, bedtimes {name: "HH:MM"}, wake_time,
+latitude/longitude (default: Home Assistant's), goodnight_mode, off_rules. Weather is Open-Meteo, falling back
+to the first `weather.*` entity.
+>>>>>>> origin/main

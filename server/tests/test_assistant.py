@@ -132,3 +132,23 @@ def test_deletes_wait_and_private_routes_are_closed(hub, home_client, people, ai
     assert "error" not in chores or "403" not in chores.get("error", "")
     desc = next(t for t in fake.requests[0]["tools"] if t["name"] == "hub_get")["description"]
     assert "/v1/vpn" not in desc and "/v1/admin" not in desc and "/v1/auth" not in desc
+
+
+def test_big_results_are_trimmed_whole_never_cut_mid_json():
+    from hub.assistant import _fit
+    out = {"devices": [{"id": f"light.l{i}", "name": f"Light {i}", "state": {"on": True}} for i in range(2000)],
+           "status": "ok"}
+    text = _fit(out, limit=5000)
+    j = json.loads(text)  # still valid JSON
+    assert len(text) <= 5000 and j["status"] == "ok"
+    assert 0 < len(j["devices"]) < 2000 and j["more"].startswith(f"{2000 - len(j['devices'])} more devices")
+    small = {"devices": [1, 2]}
+    assert json.loads(_fit(small)) == small
+
+
+def test_house_active_lists_only_what_is_on(hub, home_client, people, ai):
+    fake = ai([[("house", {"kind": "light", "active": True})], "Done."])
+    ask(home_client, people["phones"]["Avery"], "which lights are on?")
+    res = fake.results(1)[0]
+    assert res["devices"] and all(d["state"].get("on") for d in res["devices"])
+    assert "actions_by_kind" in res and all("actions" not in d for d in res["devices"])

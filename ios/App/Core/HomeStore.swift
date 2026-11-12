@@ -185,6 +185,7 @@ final class HomeStore {
             guard let d = e.data.flatMap({ Self.decode(DeviceItem.self, $0) }), var h = home else { return }
             if let i = h.devices?.firstIndex(where: { $0.id == d.id }) { h.devices?[i] = d } else { h.devices?.append(d) }
             home = h
+            refreshSmart(after: 2)  // a door locked or a light went off: the cards may change
         case "status":
             guard let s = e.data.flatMap({ Self.decode(HomeSnapshot.HouseStatus.self, $0) }), var h = home else { return }
             h.status = s; home = h
@@ -212,10 +213,82 @@ final class HomeStore {
         case "app_update":
             Task { await AppUpdate.shared.check(force: true) }
             return
+        case "smart":
+            refreshSmart(after: 0.5)
+            return
         default:
             Task { await loadHome() }
         }
         AppSettings.cachedHome = home
+    }
+
+    // MARK: smart cards
+
+    private var smartTask: Task<Void, Never>?
+
+    /// Fetch just the "Right now" cards, coalescing bursts of events into one request.
+    func refreshSmart(after delay: Double = 0) {
+        smartTask?.cancel()
+        smartTask = Task { [weak self] in
+            if delay > 0 { try? await Task.sleep(for: .seconds(delay)) }
+            guard !Task.isCancelled else { return }
+            guard let list: SmartList = try? await HubClient.shared.get("/v1/smart") else { return }
+            guard let self, var h = self.home else { return }
+            h.smart = list.cards
+            if let w = list.weather { h.weather = w }
+            self.home = h
+            AppSettings.cachedHome = h
+        }
+    }
+
+    /// Hide a card here at once, then tell the hub ("Not now", or handled after a button worked).
+    func dismissSmart(_ card: SmartCard, handled: Bool) {
+        if var h = home { h.smart?.removeAll { $0.id == card.id }; home = h }
+        Task {
+            struct Reply: Decodable { var muted: Bool?; var ruleTitle: String? }
+            if let r: Reply = try? await HubClient.shared.post("/v1/smart/dismiss", ["id": card.id, "rule": card.rule, "handled": handled]),
+               r.muted == true {
+                show("Won't suggest \(r.ruleTitle ?? "that") again", "Turn it back on in Profile → Suggestions")
+            }
+        }
+    }
+
+    /// A card's button.
+    func use(_ b: SmartCard.Button, on card: SmartCard, router: Router) {
+        switch b.kind {
+        case "open":
+            if let u = b.url.flatMap(URL.init(string:)) { router.open(u) }
+        case "done":
+            if let d = b.done { show(d) }
+            dismissSmart(card, handled: true)
+        case "call":
+            guard let path = b.path else { return }
+            Task {
+                do {
+                    try await HubClient.shared.send(path)
+                    if let d = b.done { show(d) }
+                    dismissSmart(card, handled: true)
+                } catch { show(error.localizedDescription, isError: true) }
+            }
+        default:
+            guard let action = b.action else { return }
+            let params = (b.params?.hubBody as? [String: Any]) ?? [:]
+            let confirm = b.secure == true ? "Confirm: \(b.title)" : nil
+            Task {
+                do {
+                    let r = try await HubClient.shared.action(action, target: b.target, params: params, confirm: confirm)
+                    if r.dryRun == true { show("Practice mode", r.message ?? "Nothing was changed") }
+                    else { show(b.done ?? r.message ?? "Done") }
+                    dismissSmart(card, handled: true)
+                    await loadHome()
+                } catch HubClient.HubError.cancelled {
+                } catch HubClient.HubError.forbidden(_, let message) {
+                    show(message ?? "That isn't allowed.", isError: true)
+                } catch {
+                    show(error.localizedDescription, isError: true)
+                }
+            }
+        }
     }
 
     private static func decode<T: Decodable>(_ t: T.Type, _ v: JSONValue) -> T? {

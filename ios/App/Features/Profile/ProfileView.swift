@@ -29,6 +29,11 @@ struct ProfileView: View {
                         }
                     } footer: { Text(store.role == .child ? "Chores, requests and quiet hours." : "Doorbell, cameras, garage, leaks and quiet hours. Each person picks their own.") }
                 }
+                if store.me?.style != .little {
+                    Section {
+                        NavigationLink { SuggestionsView() } label: { Label("Suggestions on Home", systemImage: "sparkles") }
+                    } footer: { Text("The \"Right now\" cards. Turn any kind of suggestion off or back on.") }
+                }
                 Section {
                     NavigationLink { OfflineStorageView() } label: {
                         LabeledContent("Storage and downloads", value: byteSize(OfflineCache.usage().reduce(0) { $0 + $1.bytes }))
