@@ -17,6 +17,7 @@ enum Destination: Hashable {
     case kitchen(String?), dinners, recipes
     case trips, trip(Int), tripDay(Int, String)
     case systems, storage, activity, people, kidNet, vpnPool, hubWeb, youtube
+    case today, leaving, intercom, guestPasses, bedtimes, feedback
 }
 
 @MainActor
@@ -149,6 +150,13 @@ final class Router {
         case "hubweb": show(.systems, .hubWeb)
         case "vpnpool": show(.systems, .vpnPool)
         case "downloads": showOffline = true
+        case "today": show(.home, .today)
+        case "leaving", "lastout": if !kid { show(.home, .leaving) }
+        case "intercom", "announce": if !kid { show(.family, .intercom) }
+        case "guests", "guestpass": if !kid { show(.family, .guestPasses) }
+        case "bedtime", "bedtimes": if !kid { show(.family, .bedtimes) }
+        case "feedback": if role == .admin { show(.systems, .feedback) }
+        case "tell": TellDylan.shared.open()
         default: show(.home)
         }
     }

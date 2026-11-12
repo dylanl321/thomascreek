@@ -238,6 +238,14 @@ class HubSettings(BaseModel):
     # e.g. [{name: Theo, role: child, ui_style: kid}]. Never edits or removes
     # anyone, so later changes in the app stick. Safe to leave in place.
     seed_people: list[dict[str, Any]] = Field(default_factory=list)
+    # Secure actions a grown-up may run from a widget, Control Center, CarPlay or the Watch without
+    # the Face ID step (the phone must be unlocked, or the Watch on the wrist). Never door unlocks.
+    quick_actions: list[str] = Field(default_factory=lambda: ["garage.set"])  # Dylan chose this, 2026-11-12
+
+    @field_validator("quick_actions")
+    @classmethod
+    def _no_unlock(cls, v: list[str]) -> list[str]:
+        return [a for a in v if a in ("garage.set",)]
 
     @field_validator("home_networks", "trusted_proxies")
     @classmethod

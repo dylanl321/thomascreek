@@ -45,6 +45,7 @@ struct KidHomeView: View {
     @Environment(HomeStore.self) private var store
     @Environment(Router.self) private var router
     @State private var board: ChoreBoard? = AppSettings.cachedChores
+    @State private var asking = false
 
     private var little: Bool { store.me?.style == .little }
     private var color: Color { little ? Theme.little : Theme.kid }
@@ -57,6 +58,7 @@ struct KidHomeView: View {
                 if !store.reachable { KidNap() }
                 // Dinner and the next trip have their own cards on this screen.
                 RightNowSection(hide: ["my_dinner", "trip"], kid: true)
+                if !little { WhosHomeRow() }
                 if store.me?.can(.tripsView) == true { KidTripCard(little: little, color: color) }
                 if little { littleHome } else { kidHome }
             }
@@ -67,6 +69,7 @@ struct KidHomeView: View {
         .task { await loadChores() }
         .task { if store.me?.can(.tripsView) == true { await TripStore.shared.load() } }
         .refreshable { await loadChores(); await store.refreshAll(); if store.me?.can(.tripsView) == true { await TripStore.shared.load(force: true) } }
+        .sheet(isPresented: $asking) { AskGrownUpSheet() }
     }
 
     private var header: some View {
@@ -109,6 +112,10 @@ struct KidHomeView: View {
             .card()
         }
         InternetChip()
+        HStack(spacing: 10) {
+            KidActionTile(emoji: "🙋", title: "Ask a parent", color: color) { asking = true }
+            KidActionTile(emoji: "🎁", title: "Rewards", color: .orange) { router.show(.chores) }
+        }
         let todo = (board?.items ?? []).filter { !$0.done }
         if !todo.isEmpty {
             SectionHeader(title: "Still to do") { MoreButton("All") { router.show(.chores) } }
@@ -146,6 +153,8 @@ struct KidHomeView: View {
             BigPictureButton(emoji: "💡", title: "Lights", colors: [.orange, .red]) { router.show(.myRoom) }
             BigPictureButton(emoji: "📺", title: "Shows", colors: [.blue, .indigo]) { router.show(.watch) }
             BigPictureButton(emoji: "⭐", title: "Jobs \(board?.doneCount ?? 0)/\(board?.items.count ?? 0)", colors: [.pink, Theme.little]) { router.show(.chores) }
+            BigPictureButton(emoji: "🎁", title: "Prizes", colors: [.orange, .yellow]) { router.show(.chores) }
+            BigPictureButton(emoji: "🙋", title: "Ask a grown-up", colors: [.teal, .green]) { asking = true }
             if store.holidaySeason {
                 BigPictureButton(emoji: "✨", title: "Light show", colors: [.purple, Color(red: 0.23, green: 0.16, blue: 0.56)]) { router.go(.holiday) }
             }
@@ -460,5 +469,25 @@ extension ChoreBoard {
     /// Ticked while offline: show it done (the hub gets it when home is back).
     mutating func markDone(_ id: String) {
         if let i = items.firstIndex(where: { $0.id == id }) { items[i].done = true }
+    }
+}
+
+/// A smaller picture button for the 9-year-old's home.
+struct KidActionTile: View {
+    let emoji: String
+    let title: String
+    let color: Color
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Text(emoji).font(.system(size: 30))
+                Text(title).font(Theme.kidFont(18, .semibold)).foregroundStyle(.white)
+                Spacer(minLength: 0)
+            }
+            .padding(14).frame(maxWidth: .infinity, minHeight: 64)
+            .background(color.gradient, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        }
+        .buttonStyle(.plain)
     }
 }

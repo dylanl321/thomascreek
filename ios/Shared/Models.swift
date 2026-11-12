@@ -176,6 +176,7 @@ enum Capability: String {
     case networkManage = "network.manage", networkAsk = "network.ask"
     case systems, people, activity
     case tripsView = "trips.view", tripsPlan = "trips.plan"
+    case guests
 }
 
 // MARK: - The house snapshot (GET /v1/home)

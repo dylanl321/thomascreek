@@ -171,3 +171,20 @@ def test_welcome_mode_on_arrival(hub, home_client, people):
     # Only the light step ran; arriving never unlocks a door.
     assert ("light", "turn_on", {"entity_id": "light.living_room"}) in [(d, s, {"entity_id": x.get("entity_id")}) for d, s, x in hub.calls]
     assert not any(d == "lock" for d, _, _ in hub.calls)
+
+
+def test_quick_garage(hub, home_client, people):
+    hub.config.hub.dry_run = False
+    ph = people["phones"]["Avery"]
+    body = {"action": "garage.set", "target": "cover.large_garage", "params": {"open": True}, "quick": True}
+    # Without the quick flag (the app itself) it still asks for Face ID.
+    plain = {k: v for k, v in body.items() if k != "quick"}
+    assert home_client.post("/v1/actions", json=plain, headers=ph.h).status_code == 428
+    r = home_client.post("/v1/actions", json=body, headers=ph.h)
+    assert r.status_code == 200, r.text
+    assert hub.db.one("SELECT source FROM activity WHERE action='garage.set'")["source"] == "quick"
+    # Never for children, and never a door unlock.
+    kid = home_client.post("/v1/actions", json=body, headers=people["phones"]["Theo"].h)
+    assert kid.status_code == 403
+    unlock = {"action": "lock.set", "target": "lock.front_door", "params": {"locked": False}, "quick": True}
+    assert home_client.post("/v1/actions", json=unlock, headers=ph.h).status_code == 428

@@ -103,7 +103,15 @@ class Welcome(BaseModel):
 @router.get("/me/welcome")
 async def get_welcome(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
     modes = [{"id": m.id, "name": m.name, "symbol": m.symbol} for m in h.config.modes if c.subject.role in m.roles]
-    return {"mode": h.household.welcome_mode(c.subject.person_id), "modes": modes}
+    out: dict[str, Any] = {"mode": h.household.welcome_mode(c.subject.person_id), "modes": modes}
+    if c.subject.role in ("admin", "adult", "child"):
+        try:
+            loc = await h.smart.weather._location()  # the house, for the phone's arrive/leave circle
+        except Exception:  # noqa: BLE001
+            loc = None
+        if loc:
+            out["location"] = {"lat": loc[0], "lon": loc[1]}
+    return out
 
 
 @router.put("/me/welcome")
