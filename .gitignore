@@ -1,0 +1,9 @@
+.DS_Store
+*.xcodeproj/
+build/
+DerivedData/
+xcuserdata/
+*.p8
+*.pem
+.env
+__pycache__/
