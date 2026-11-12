@@ -24,8 +24,8 @@ if TYPE_CHECKING:
 
 FAVORITE_KINDS = ("room", "device", "camera", "mode", "media", "recipe", "youtube")
 MAX_FAVORITES = 60
-HOME_SECTIONS = ("rightnow", "status", "favorites", "modes", "kids", "playing", "cameras", "holiday",
-                 "trip", "today", "systems", "who")
+HOME_SECTIONS = ("whos_home", "rightnow", "status", "favorites", "modes", "kids", "playing", "cameras", "holiday",
+                 "trip", "today", "systems")
 
 _ID = re.compile(r"^[A-Za-z0-9_.:\-/]{1,200}$")
 _APP_KEY = re.compile(r"^app\.[a-z0-9_.]{1,60}$")

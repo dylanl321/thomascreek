@@ -18,9 +18,6 @@ from .policy import Subject, Target
 if TYPE_CHECKING:
     from .state import Hub
 
-# A phone seen on home Wi-Fi this recently counts as "home" when no presence sensor says otherwise.
-WHO_HOME_WINDOW_S = 45 * 60
-
 log = logging.getLogger("hub.home")
 
 DOMAIN_KIND = {
@@ -450,14 +447,6 @@ class HomeModel:
             if p.get("presence_entity"):  # presence is opt-in per person
                 st = self.states.get(p["presence_entity"])
                 row["home"] = (st or {}).get("state") == "home" if st else None
-            if s.role != "guest" and p["role"] != "guest":
-                # "Who's home": a phone of theirs talked to the hub from home Wi-Fi recently.
-                seen = self.hub.db.one("SELECT MAX(last_home_at) AS t FROM devices WHERE person_id=? AND status='active'",
-                                       [p["id"]])
-                if seen and seen["t"]:
-                    row["seen_home_at"] = iso(seen["t"])
-                    if row.get("home") is None and time.time() - seen["t"] < WHO_HOME_WINDOW_S:
-                        row["home"] = True
             out.append(row)
         return out
 

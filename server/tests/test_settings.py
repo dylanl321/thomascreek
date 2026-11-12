@@ -1,8 +1,6 @@
-"""Per-person settings and favorites, live sync, parents editing a child's, View as, and Tell Dylan."""
+"""Per-person settings and favorites, live sync, parents editing a child's, and View as."""
 
 from __future__ import annotations
-
-import base64
 
 from .conftest import Phone
 
@@ -177,30 +175,3 @@ def test_only_an_admin_can_view_as(people, home_client):
     assert r.status_code == 403
     r = home_client.get("/v1/me", headers={**people["phones"]["Dylan"].h, "X-TC-View-As": "per_nobody"})
     assert r.status_code == 404
-
-
-def test_tell_dylan_lands_in_his_inbox_with_the_screenshot(hub, people, home_client):
-    jpeg = b"\xff\xd8\xff\xe0" + b"0" * 64
-    r = home_client.post("/v1/feedback", headers=people["phones"]["Avery"].h,
-                         json={"text": "Where did the oven go?", "screen": "House", "image": base64.b64encode(jpeg).decode()})
-    assert r.status_code == 200, r.text
-    inbox = hub.db.all("SELECT * FROM inbox WHERE person_id=?", [people["dylan"]["id"]])
-    assert any("Avery says (on House)" == i["title"] and i["body"] == "Where did the oven go?" for i in inbox)
-    d = people["phones"]["Dylan"].h
-    items = home_client.get("/v1/feedback", headers=d).json()["items"]
-    assert items[0]["text"] == "Where did the oven go?" and items[0]["image_url"]
-    img = home_client.get(items[0]["image_url"], headers=d)
-    assert img.status_code == 200 and img.content == jpeg
-    assert home_client.get("/v1/feedback", headers=people["phones"]["Avery"].h).status_code == 403
-    bad = home_client.post("/v1/feedback", headers=people["phones"]["Avery"].h,
-                           json={"text": "x", "image": base64.b64encode(b"GIF89a").decode()})
-    assert bad.status_code == 400
-
-
-def test_whos_home_uses_phones_seen_on_home_wifi(people, home_client, away_client):
-    home_client.get("/v1/me", headers=people["phones"]["Theo"].h)
-    away_client.get("/v1/me", headers=people["phones"]["Avery"].h)
-    snap = home_client.get("/v1/home", headers=people["phones"]["Dylan"].h).json()
-    who = {p["name"]: p for p in snap["people"]}
-    assert who["Dylan"]["home"] is True and who["Theo"]["home"] is True
-    assert "home" not in who["Avery"] and "seen_home_at" not in who["Avery"]

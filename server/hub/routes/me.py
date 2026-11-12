@@ -1,20 +1,15 @@
-"""Settings and favorites that follow a person, "View as", and "Tell Dylan" feedback."""
+"""Settings and favorites that follow a person, and "View as"."""
 
 from __future__ import annotations
 
-import base64
-import binascii
-import time
 from typing import Any
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
-from ..db import new_id
 from ..settings import SettingsError
 from ..state import Hub
-from .deps import Caller, caller, error, hub, need
+from .deps import Caller, caller, error, hub
 
 router = APIRouter(prefix="/v1", tags=["settings"])
 
@@ -217,55 +212,3 @@ async def view_as_mark(body: ViewAsBody, c: Caller = Depends(caller), h: Hub = D
     h.db.log("people.view_as", "ok", person_id=me.person_id, device_id=c.device["id"],
              target=body.person_id, detail="start" if body.person_id else "stop")
     return {"ok": True}
-
-
-# -- Tell Dylan ------------------------------------------------------------------
-
-class FeedbackBody(BaseModel):
-    text: str = Field(min_length=1, max_length=2000)
-    screen: str | None = Field(default=None, max_length=200)
-    image: str | None = Field(default=None, max_length=3_000_000)  # base64 JPEG screenshot
-
-
-@router.post("/feedback")
-async def feedback(body: FeedbackBody, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
-    s = c.viewer or c.subject
-    if not s.person_id:
-        raise error(403, "not_assigned", "This device isn't assigned to anyone yet")
-    image: bytes | None = None
-    if body.image:
-        try:
-            image = base64.b64decode(body.image, validate=True)
-        except (binascii.Error, ValueError):
-            raise error(400, "bad_image", "The screenshot didn't come through") from None
-        if not image.startswith(b"\xff\xd8"):
-            raise error(400, "bad_image", "Screenshots must be JPEG")
-    fid = new_id("fbk")
-    h.db.execute("INSERT INTO feedback (id, ts, person_id, device_id, screen, body, image) VALUES (?,?,?,?,?,?,?)",
-                 [fid, time.time(), s.person_id, c.device["id"], body.screen, body.text.strip(), image])
-    person = h.db.person(s.person_id) or {}
-    where = f" (on {body.screen})" if body.screen else ""
-    await h.notify.send(title=f"{person.get('name', 'Someone')} says{where}", body=body.text.strip()[:400],
-                        cat="systems", level="maintenance", roles=["admin"], ref=f"thomascreek://feedback/{fid}",
-                        exclude_person=s.person_id if s.role == "admin" else None)
-    h.db.log("feedback.send", "ok", person_id=s.person_id, device_id=c.device["id"], target=fid)
-    return {"ok": True, "id": fid}
-
-
-@router.get("/feedback")
-async def feedback_list(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
-    need(h, c, "people")
-    rows = h.db.all("SELECT f.id, f.ts, f.person_id, f.screen, f.body, f.image IS NOT NULL AS has_image, p.name "
-                    "FROM feedback f LEFT JOIN people p ON p.id=f.person_id ORDER BY f.ts DESC LIMIT 100")
-    return {"items": [{"id": r["id"], "ts": r["ts"], "person_id": r["person_id"], "name": r["name"],
-                       "screen": r["screen"], "text": r["body"],
-                       "image_url": f"/v1/feedback/{r['id']}.jpg" if r["has_image"] else None} for r in rows]}
-
-
-@router.get("/feedback/{fid}.jpg")
-async def feedback_image(fid: str, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> Response:
-    need(h, c, "people")
-    row = h.db.one("SELECT image FROM feedback WHERE id=?", [fid])
-    if not row or not row["image"]:
-        raise error(404, "not_found", "No screenshot")
-    return Response(row["image"], media_type="image/jpeg", headers={"Cache-Control": "private, max-age=86400"})

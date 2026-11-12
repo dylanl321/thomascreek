@@ -320,7 +320,6 @@ and `ios/docs/hub-contract.md` for the request shapes.
 | `POST /v1/me/favorites/{kind}/order` | anyone assigned | reorder |
 | `/v1/people/{id}/settings`, `/v1/people/{id}/favorites/...` | adults for children, admin for anyone | the same, for someone else (logged) |
 | `GET` / `POST /v1/me/view-as` | admin | who can be previewed; log start/stop |
-| `POST /v1/feedback`, `GET /v1/feedback`, `GET /v1/feedback/{id}.jpg` | anyone / admin / admin | "Tell Dylan" |
 
 Each change sends a `settings` event (`{version, device_id}`) to the person's own devices.
 

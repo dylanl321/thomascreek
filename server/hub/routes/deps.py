@@ -81,8 +81,7 @@ def caller(request: Request, h: Hub = Depends(hub), *, allow_cookie: bool = Fals
         raise error(401, "revoked", "This device was removed from the house")
     ip = caller_ip(request, h)
     at_home = h.is_home(ip)
-    now = time.time()
-    h.db.update("devices", "id", device["id"], {"last_seen_at": now, **({"last_home_at": now} if at_home else {})})
+    h.db.update("devices", "id", device["id"], {"last_seen_at": time.time()})
     subject = h.subject_for(device, at_home)
     view_as = request.headers.get(VIEW_AS_HEADER)
     if not view_as:
