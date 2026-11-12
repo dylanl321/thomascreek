@@ -292,9 +292,10 @@ final class HomeStore {
     }
 
     private static func decode<T: Decodable>(_ t: T.Type, _ v: JSONValue) -> T? {
-        // Keys were already camel-cased when the event was decoded, so re-encode without conversion.
+        // Nested object keys inside a JSONValue can still be snake_case (camera_name, thumb_url), so
+        // decode with the hub decoder. Keys that are already camelCase pass through it unchanged.
         guard let data = try? JSONEncoder().encode(v) else { return nil }
-        return try? JSONDecoder().decode(T.self, from: data)
+        return try? HubClient.decoder.decode(T.self, from: data)
     }
 
     // MARK: actions
