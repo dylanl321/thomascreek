@@ -12,6 +12,7 @@ struct HomeView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 HeroHeader(title: greeting(me?.firstName), subtitle: dateLine, show3D: true)
+                VPNNotice()
                 if !store.reachable {
                     // Everyone sees the offline strip; Dylan also gets the likely cause.
                     if store.role == .admin { OfflineCard() }
@@ -444,5 +445,43 @@ struct SystemsStrip: View {
             .card(padding: 12)
         }
         .buttonStyle(.plain)
+    }
+}
+
+
+/// A clear line on Home whenever the away-from-home VPN is set up or connected, with a one-tap Off.
+struct VPNNotice: View {
+    @Environment(Router.self) private var router
+    @Environment(HomeStore.self) private var store
+    var body: some View {
+        let vpn = VPN.shared
+        let connected = vpn.status == .connected || vpn.status == .connecting || vpn.status == .reasserting
+        if vpn.isAvailable && (vpn.mode != .off || connected) {
+            HStack(spacing: 12) {
+                Image(systemName: connected ? "lock.shield.fill" : "lock.shield")
+                    .font(.title3).foregroundStyle(connected ? Theme.accent : Theme.dim)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(connected ? "VPN is on" : "VPN ready").font(.subheadline.weight(.semibold))
+                    Text(connected ? "Home traffic is going through Thomas Creek's tunnel"
+                         : vpn.mode == .away ? "Turns on by itself when you leave home Wi-Fi" : "Set to always on")
+                        .font(.caption).foregroundStyle(Theme.dim)
+                }
+                Spacer(minLength: 8)
+                Button("Turn off") {
+                    Task {
+                        do { try await vpn.setMode(.off); store.show("VPN turned off") }
+                        catch { store.show(error.localizedDescription, isError: true) }
+                    }
+                }
+                .buttonStyle(.borderedProminent).tint(Theme.crit).controlSize(.small)
+            }
+            .padding(12)
+            .background(Theme.card, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(connected ? Theme.accent : Theme.line, lineWidth: 1))
+            .contentShape(Rectangle())
+            .onTapGesture { router.showProfile = true }
+            .accessibilityElement(children: .combine)
+            .accessibilityHint("Opens VPN settings in Profile")
+        }
     }
 }
