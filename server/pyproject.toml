@@ -15,6 +15,7 @@ dependencies = [
   "onepassword-sdk>=0.4",
   "dbus-fast>=2.21",
   "python-multipart>=0.0.9",
+  "yt-dlp[default,deno]>=2026.10",
   "anthropic>=2.8",
 ]
 

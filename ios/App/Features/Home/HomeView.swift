@@ -135,6 +135,7 @@ struct HeroHeader: View {
                     }
                     .foregroundStyle(.white)
                 }
+                SearchButton().padding(9).background(.ultraThinMaterial, in: Circle()).foregroundStyle(.white)
                 BellButton().padding(9).background(.ultraThinMaterial, in: Circle()).foregroundStyle(.white)
             }
             .padding(14)

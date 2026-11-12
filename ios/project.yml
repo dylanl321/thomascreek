@@ -59,6 +59,7 @@ targets:
         NSSpeechRecognitionUsageDescription: Turns what you say to Thomas Creek into text, on this iPhone when it can.
         NSLocalNetworkUsageDescription: Finds the Thomas Creek hub on your home Wi-Fi.
         NSBonjourServices: [_thomascreek._tcp]
+        CoreSpotlightContinuation: true
         LSApplicationQueriesSchemes: [itms-beta]
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true

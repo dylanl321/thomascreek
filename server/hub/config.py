@@ -112,6 +112,19 @@ class VpnConfig(BaseModel):
     server_key_secret: str = "wireguard.server_private_key"
 
 
+class YouTubeConfig(BaseModel):
+    """Kids' YouTube (hub/youtube.py). Files go to `dir` (default <data>/youtube); app only, not a Plex library."""
+    enabled: bool = True
+    dir: str | None = None
+    cap_gb: float = 100
+    channel_latest: int = 10      # a channel brings its newest N uploads, then each new one
+    playlist_max: int = 50
+    max_height: int = 1080
+    max_duration_s: int = 3 * 3600
+    check_every_s: int = 3 * 3600
+    auto_update: bool = True      # pip install -U yt-dlp once a day
+
+
 class AssistantConfig(BaseModel):
     """Ask Thomas Creek (hub/assistant.py)."""
 
@@ -240,6 +253,7 @@ class Config(BaseModel):
     apns: ApnsConfig = Field(default_factory=ApnsConfig)
     onepassword: OnePasswordConfig = Field(default_factory=OnePasswordConfig)
     vpn: VpnConfig = Field(default_factory=VpnConfig)
+    youtube: YouTubeConfig = Field(default_factory=YouTubeConfig)
     app_update: AppUpdateConfig = Field(default_factory=AppUpdateConfig)
     assistant: AssistantConfig = Field(default_factory=AssistantConfig)
     child_policy: ChildPolicy = Field(default_factory=ChildPolicy)

@@ -35,6 +35,7 @@ struct SystemsView: View {
                 RowsCard {
                     NavigationLink(value: Destination.storage) { InfoRow("internaldrive.fill", "Storage and apps", nil, chevron: true) }
                     NavigationLink(value: Destination.pipeline) { InfoRow("arrow.down.circle.fill", "Media pipeline", nil, chevron: true) }
+                    NavigationLink(value: Destination.youtube) { InfoRow("play.rectangle.fill", "Kids' YouTube", "What the kids added, remove or block", chevron: true) }
                     NavigationLink(value: Destination.kidNet) { InfoRow("wifi", "Network and device time", nil, chevron: true) }
                     NavigationLink(value: Destination.vpnPool) { InfoRow("lock.shield", "Away-from-home VPN", nil, chevron: true) }
                     NavigationLink(value: Destination.activity) { InfoRow("clock.arrow.circlepath", "Activity log", nil, chevron: true) }

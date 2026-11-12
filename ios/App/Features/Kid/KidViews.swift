@@ -77,6 +77,11 @@ struct KidHomeView: View {
                 if !little { Text(Date.now.formatted(.dateTime.weekday(.wide))).foregroundStyle(Theme.dim) }
             }
             Spacer()
+            Button { router.showSearch = true } label: {
+                Image(systemName: "magnifyingglass").font(little ? .title2.weight(.bold) : .title3)
+                    .padding(little ? 12 : 8).background(color.opacity(0.15), in: Circle())
+            }
+            .foregroundStyle(color).accessibilityLabel(little ? "Find" : "Search")
             if little { SayButton(text: "Hi \(name)! You have \(board?.points ?? 0) stars.").foregroundStyle(color) }
             else { BellButton() }
         }
@@ -301,6 +306,8 @@ struct KidWatchView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 DownloadsEntry(tint: little ? Theme.little : Theme.kid)
+                YouTubeShelf(tint: little ? Theme.little : Theme.kid)
+                if !items.isEmpty { SectionHeader(little ? "Movies and shows" : "Rated for you") }
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: little ? 150 : 120), spacing: 14)], spacing: 16) {
                     ForEach(items) { m in Poster(item: m).onTapGesture { picked = m } }
                 }

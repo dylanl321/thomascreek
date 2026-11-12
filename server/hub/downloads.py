@@ -55,6 +55,7 @@ class Job:
     error: str | None = None
     path: Path | None = None
     passthrough: str | None = None  # Plex part key streamed as is
+    keep_file: bool = False  # path is the hub's own copy (a YouTube video): never deleted here
     created_at: float = field(default_factory=time.time)
     task: asyncio.Task | None = None
 
@@ -68,6 +69,16 @@ def options(media: dict[str, Any]) -> list[dict[str, Any]]:
     """What can be offered for one title, with sizes close to what Plex really produces."""
     dur_s = (media.get("duration_ms") or 0) / 1000
     size = media.get("size") or 0
+    if media.get("local_path"):
+        # A YouTube video the hub already saved as an iPhone MP4: the file itself, or a smaller copy.
+        out = [{"quality": "original", "label": "Original", "detail": f"{media.get('resolution') or 'Full'} · the saved file, starts at once",
+                "bytes": size or None, "instant": True}]
+        small_kbps = 1100 + 96
+        orig_kbps = size * 8 / 1000 / dur_s if dur_s and size else None
+        if dur_s and (orig_kbps is None or orig_kbps > small_kbps * 1.4):
+            out.append({"quality": "small", "label": "Small", "detail": "480p · converted by the hub",
+                        "bytes": int(dur_s * small_kbps * 1000 / 8), "instant": False})
+        return out
     orig_kbps = size * 8 / 1000 / dur_s if dur_s and size else None
     out: list[dict[str, Any]] = []
     mode = original_mode(media)
@@ -122,6 +133,14 @@ class Downloads:
         job = Job(id=secrets.token_hex(8), item_id=item_id, quality=quality, device_id=device_id,
                   person_id=person_id, item=item)
         self.jobs[job.id] = job
+        if media.get("local_path"):
+            if quality == "original":
+                job.path, job.keep_file = Path(media["local_path"]), True
+                job.bytes = media.get("size")
+                job.status, job.progress = "ready", 1.0
+                return job
+            job.task = asyncio.create_task(self._prepare(job, media, "local_small"))
+            return job
         mode = original_mode(media) if quality == "original" else "transcode"
         if mode == "direct":
             job.passthrough = media["part_key"]
@@ -157,7 +176,7 @@ class Downloads:
                     "at": time.time(), "job": job.id, "item": job.item_id, "quality": job.quality, "mode": mode,
                     "error": str(exc)[:300]}]
                 job.status, job.error = "failed", "The hub couldn't prepare this title. Try another quality."
-                if job.path:
+                if job.path and not job.keep_file:
                     job.path.unlink(missing_ok=True)
 
     async def _stop_transcode(self, job: Job) -> None:
@@ -175,6 +194,8 @@ class Downloads:
         # interrupted job (e.g. a hub restart) must not block the next one.
         headers = (f"X-Plex-Token: {token}\r\nX-Plex-Client-Identifier: tc-dl-{job.id}\r\n"
                    "X-Plex-Product: Thomas Creek Hub\r\nX-Plex-Platform: iOS\r\n")
+        if mode == "local_small":
+            return media["local_path"], []
         if mode in ("remux", "remux_audio"):
             return f"{base}{media['part_key']}", ["-headers", headers]
         spec = QUALITIES[job.quality]
@@ -196,9 +217,11 @@ class Downloads:
         final = self.root / f"{job.id}.mp4"
         job.path = tmp
         src, extra = self._input_for(job, media, mode)
+        codec = (["-c:v", "libx264", "-preset", "veryfast", "-crf", "27", "-vf", "scale=-2:480", "-c:a", "aac", "-b:a", "96k"]
+                 if mode == "local_small" else
+                 ["-c", "copy", *(["-c:a", "aac", "-b:a", "256k", "-ac", "2"] if mode == "remux_audio" else [])])
         args = [ffmpeg, "-hide_banner", "-nostdin", "-loglevel", "error", *extra, "-i", src,
-                "-map", "0:v:0", "-map", "0:a:0?", "-c", "copy",
-                *(["-c:a", "aac", "-b:a", "256k", "-ac", "2"] if mode == "remux_audio" else []),
+                "-map", "0:v:0", "-map", "0:a:0?", *codec,
                 "-sn", "-dn", "-movflags", "+faststart",
                 "-tag:v", "hvc1" if (media.get("video_codec") or "").lower() in ("hevc", "h265") and mode != "transcode" else "avc1",
                 "-progress", "pipe:1", "-y", str(tmp)]
@@ -226,7 +249,7 @@ class Downloads:
         gone = 0
         for jid, j in list(self.jobs.items()):
             if now - j.created_at > KEEP_S and j.status != "preparing":
-                if j.path:
+                if j.path and not j.keep_file:
                     j.path.unlink(missing_ok=True)
                 del self.jobs[jid]
                 gone += 1

@@ -172,6 +172,15 @@ FILE_TTL_S = 24 * 3600
 async def _downloadable(h: Hub, c: Caller, item_id: str) -> tuple[dict[str, Any], dict[str, Any]]:
     """The title and its file info, if this person may watch it. Children: rated titles only, no asking."""
     _watch_cap(h, c)
+    if item_id.startswith("yt-"):
+        # A YouTube video the hub saved (hub/youtube.py): the whole family may watch what the kids added.
+        v = h.youtube.video(item_id[3:])
+        path = h.youtube.file(v) if v else None
+        if v is None or path is None:
+            raise error(404, "not_found", "That video isn't ready yet")
+        media = {"local_path": str(path), "size": v.get("bytes"), "duration_ms": int((v.get("duration_s") or 0) * 1000),
+                 "video_codec": "h264", "container": "mp4", "resolution": f"{v['height']}p" if v.get("height") else None}
+        return h.youtube.item(v), media
     try:
         item = await h.plex.metadata(item_id)
         media = await h.plex.media_info(item_id) if item else None
@@ -290,6 +299,10 @@ async def report_progress(item_id: str, body: ProgressBody, c: Caller = Depends(
                           h: Hub = Depends(hub)) -> dict[str, Any]:
     """Where a downloaded title was stopped (sent when the phone is back online)."""
     _watch_cap(h, c)
+    if item_id.startswith("yt-"):
+        if h.youtube.video(item_id[3:]):
+            h.youtube.played(item_id[3:], body.offset_s, body.watched)
+        return {"ok": True}
     try:
         await h.plex.report_progress(item_id, int(body.offset_s * 1000),
                                      int(body.duration_s * 1000) if body.duration_s else None, body.watched)
