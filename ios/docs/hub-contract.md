@@ -117,3 +117,5 @@ More routes
 - SSE `camera_event` with one event in the same shape; the app prepends it to Home and the Cameras feed.
 - Home shows recent events, not live tiles. Live view only on the camera screen via the pass.
 - TV remote: media device state may carry `commands` (only these buttons are shown), `sources` and `source`, `volume` 0-100 and `muted`. New `media.command` params: `{command:"source", source}` and `{command:"volume", volume}`.
+- Activity entries decode leniently: `id` string or number, `t` epoch seconds or ISO (`at` as fallback).
+- `GET /v1/pipeline` -> `{requests, downloads, recent, upcoming, failures:[{source,error}], services}`; the app shows Problems, Requests, Downloading, Coming up, Recently added. Download `progress` may be 0-1 or 0-100.

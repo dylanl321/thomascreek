@@ -437,6 +437,31 @@ struct ActivityEntry: Codable, Hashable, Identifiable {
     var date: Date { Date(timeIntervalSince1970: t) }
     /// "Opened the large garage door" style line.
     var what: String { detail ?? [action, target].compactMap { $0 }.joined(separator: " ") }
+
+    private enum K: String, CodingKey { case id, t, at, who, action, target, outcome, detail, source }
+    /// Lenient: id may be a number or a string, and the time may be epoch seconds or ISO text.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: K.self)
+        if let s = try? c.decode(String.self, forKey: .id) { id = s }
+        else if let n = try? c.decode(Int.self, forKey: .id) { id = String(n) }
+        else { id = UUID().uuidString }
+        if let n = try? c.decode(Double.self, forKey: .t) { t = n }
+        else if let s = (try? c.decode(String.self, forKey: .t)) ?? (try? c.decode(String.self, forKey: .at)), let d = ISO.parse(s) { t = d.timeIntervalSince1970 }
+        else { t = 0 }
+        who = try? c.decode(String.self, forKey: .who)
+        action = try? c.decode(String.self, forKey: .action)
+        target = try? c.decode(String.self, forKey: .target)
+        outcome = try? c.decode(String.self, forKey: .outcome)
+        detail = try? c.decode(String.self, forKey: .detail)
+        source = try? c.decode(String.self, forKey: .source)
+    }
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: K.self)
+        try c.encode(id, forKey: .id); try c.encode(t, forKey: .t)
+        try c.encodeIfPresent(who, forKey: .who); try c.encodeIfPresent(action, forKey: .action)
+        try c.encodeIfPresent(target, forKey: .target); try c.encodeIfPresent(outcome, forKey: .outcome)
+        try c.encodeIfPresent(detail, forKey: .detail); try c.encodeIfPresent(source, forKey: .source)
+    }
 }
 struct ActivityList: Codable {
     var items: [ActivityEntry]
@@ -496,11 +521,31 @@ struct CameraEvents: Codable { var items: [CameraEvent]; var nextBefore: String?
 struct CameraList: Codable { var cameras: [Camera] }
 struct StreamInfo: Codable { var hlsUrl: String; var expiresAt: String? }
 
+/// Requests (Overseerr), active downloads, what was recently added, what's coming up, and anything broken.
 struct Pipeline: Codable, Hashable {
-    var downloads: [Download]
+    var requests: [Request]?
+    var downloads: [Download]?
+    var recent: [Item]?
+    var upcoming: [Item]?
     var failures: [Failure]?
-    struct Download: Codable, Hashable, Identifiable { var title: String; var progress: Double; var etaS: Double?; var state: String; var id: String { title } }
-    struct Failure: Codable, Hashable, Identifiable { var title: String; var detail: String?; var id: String { title } }
+    struct Request: Codable, Hashable {
+        var kind: String?; var title: String; var year: Int?; var posterUrl: String?
+        var status: String?; var mediaStatus: String?; var requestedBy: String?; var requestedAt: String?
+        var stableID: String { title + (requestedAt ?? "") }
+    }
+    struct Download: Codable, Hashable, Identifiable {
+        var title: String; var progress: Double?; var etaS: Double?; var state: String?; var source: String?; var error: String?
+        var id: String { title }
+    }
+    struct Item: Codable, Hashable, Identifiable {
+        var kind: String?; var title: String; var detail: String?; var at: String?; var source: String?; var hasFile: Bool?
+        var id: String { title + (detail ?? "") + (at ?? "") }
+        var date: Date? { at.flatMap(ISO.parse) }
+    }
+    struct Failure: Codable, Hashable, Identifiable {
+        var source: String?; var error: String?; var title: String?; var detail: String?
+        var id: String { (source ?? "") + (error ?? title ?? "") }
+    }
 }
 
 struct ActionReply: Codable { var ok: Bool?; var message: String?; var dryRun: Bool? }

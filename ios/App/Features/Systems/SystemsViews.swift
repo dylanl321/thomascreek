@@ -106,6 +106,7 @@ struct ActivityView: View {
     @State private var before: String?
     @State private var done = false
     @State private var filter = "all"
+    @State private var failed = false
 
     var body: some View {
         List {
@@ -116,6 +117,9 @@ struct ActivityView: View {
                 Text("Doors").tag("doors")
             }
             .pickerStyle(.segmented)
+            if done && items.isEmpty {
+                Text(failed ? "Couldn't reach the hub." : "Nothing logged yet.").foregroundStyle(Theme.dim)
+            }
             ForEach(items) { e in
                 VStack(alignment: .leading, spacing: 3) {
                     Text(e.what).font(.subheadline.weight(.medium))
@@ -129,13 +133,15 @@ struct ActivityView: View {
         .scrollContentBackground(.hidden).background(Backdrop())
         .navigationTitle("Activity")
         .task(id: filter) { items = []; before = nil; done = false; await load() }
+        .refreshable { items = []; before = nil; done = false; await load() }
     }
 
     private func load() async {
         var q = ["limit": "50"]
         if filter != "all" { q["category"] = filter }
         if let before { q["before"] = before }
-        guard let l: ActivityList = try? await HubClient.shared.get("/v1/activity", q) else { return }
+        guard let l: ActivityList = try? await HubClient.shared.get("/v1/activity", q) else { failed = true; done = true; return }
+        failed = false
         items += l.items
         before = l.before
         done = l.before == nil || l.items.isEmpty

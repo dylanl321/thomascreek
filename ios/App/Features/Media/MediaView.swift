@@ -418,28 +418,81 @@ enum RequestStatus {
 
 struct PipelineView: View {
     @State private var p: Pipeline?
+    @State private var failed = false
     var body: some View {
         List {
             if let p {
-                Section("Downloads") {
-                    if p.downloads.isEmpty { Text("Nothing downloading").foregroundStyle(Theme.dim) }
-                    ForEach(p.downloads) { d in
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack { Text(d.title).font(.subheadline.weight(.semibold)); Spacer(); Text(d.state).font(.caption).foregroundStyle(Theme.dim) }
-                            ProgressBar(value: d.progress)
-                            if let eta = d.etaS { Text("\(Int(eta / 60)) min left").font(.caption2).foregroundStyle(Theme.dim) }
+                if let f = p.failures, !f.isEmpty {
+                    Section("Problems") {
+                        ForEach(f) { x in
+                            InfoRow("exclamationmark.triangle.fill", color: Theme.crit, (x.source ?? x.title ?? "Service").capitalized, x.error ?? x.detail)
                         }
                     }
                 }
-                if let f = p.failures, !f.isEmpty {
-                    Section("Problems") {
-                        ForEach(f) { InfoRow("exclamationmark.triangle.fill", color: Theme.crit, $0.title, $0.detail) }
+                Section("Requests") {
+                    let r = p.requests ?? []
+                    if r.isEmpty { Text("No open requests").foregroundStyle(Theme.dim) }
+                    ForEach(r, id: \.stableID) { q in
+                        HStack(spacing: 12) {
+                            HubImage(path: q.posterUrl) { Theme.card2.overlay(Image(systemName: q.kind == "tv" ? "tv" : "film").foregroundStyle(Theme.dim)) }
+                                .frame(width: 40, height: 60).clipShape(RoundedRectangle(cornerRadius: 6))
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(q.title + (q.year.map { " (\($0))" } ?? "")).font(.subheadline.weight(.semibold))
+                                Text([q.requestedBy.map { "Asked by \($0)" }, q.mediaStatus ?? q.status].compactMap { $0 }.joined(separator: " · "))
+                                    .font(.caption).foregroundStyle(Theme.dim)
+                            }
+                        }
                     }
                 }
+                Section("Downloading") {
+                    let d = p.downloads ?? []
+                    if d.isEmpty { Text("Nothing downloading").foregroundStyle(Theme.dim) }
+                    ForEach(d) { d in
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack { Text(d.title).font(.subheadline.weight(.semibold)).lineLimit(2); Spacer(); Text(d.state ?? "").font(.caption).foregroundStyle(Theme.dim) }
+                            if let pr = d.progress { ProgressBar(value: pr > 1 ? pr / 100 : pr) }
+                            if let e = d.error { Text(e).font(.caption2).foregroundStyle(Theme.warn) }
+                            else if let eta = d.etaS, eta > 0 { Text(eta < 3600 ? "\(Int(eta / 60)) min left" : "\(Int(eta / 3600)) h left").font(.caption2).foregroundStyle(Theme.dim) }
+                        }
+                    }
+                }
+                Section("Coming up") {
+                    let u = p.upcoming ?? []
+                    if u.isEmpty { Text("Nothing scheduled").foregroundStyle(Theme.dim) }
+                    ForEach(u) { item($0, upcoming: true) }
+                }
+                Section("Recently added") {
+                    let r = p.recent ?? []
+                    if r.isEmpty { Text("Nothing new yet").foregroundStyle(Theme.dim) }
+                    ForEach(r) { item($0, upcoming: false) }
+                }
+            } else if failed {
+                ContentUnavailableView("Couldn't load the pipeline", systemImage: "arrow.down.circle", description: Text("The hub didn't answer. Pull to try again."))
             } else { ProgressView() }
         }
         .scrollContentBackground(.hidden).background(Backdrop())
-        .navigationTitle("Downloads")
-        .task { while !Task.isCancelled { p = try? await HubClient.shared.get("/v1/pipeline"); try? await Task.sleep(for: .seconds(5)) } }
+        .navigationTitle("Media pipeline")
+        .refreshable { await load() }
+        .task { while !Task.isCancelled { await load(); try? await Task.sleep(for: .seconds(8)) } }
+    }
+
+    private func load() async {
+        do { p = try await HubClient.shared.get("/v1/pipeline"); failed = false } catch { if p == nil { failed = true } }
+    }
+
+    private func item(_ i: Pipeline.Item, upcoming: Bool) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: i.kind == "episode" || i.kind == "tv" ? "tv" : i.kind == "music" || i.kind == "album" ? "music.note" : "film")
+                .foregroundStyle(Theme.accent).frame(width: 24)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(i.title).font(.subheadline.weight(.semibold)).lineLimit(2)
+                if let d = i.detail { Text(d).font(.caption).foregroundStyle(Theme.dim).lineLimit(2) }
+            }
+            Spacer()
+            VStack(alignment: .trailing, spacing: 2) {
+                if let date = i.date { Text(date.formatted(.relative(presentation: .named))).font(.caption2).foregroundStyle(Theme.dim) }
+                if upcoming, i.hasFile == true { Image(systemName: "checkmark.circle.fill").font(.caption).foregroundStyle(Theme.accent) }
+            }
+        }
     }
 }
