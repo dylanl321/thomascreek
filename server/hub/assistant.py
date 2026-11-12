@@ -33,7 +33,8 @@ log = logging.getLogger("hub.assistant")
 CONV_IDLE_S = 20 * 60
 MAX_TURNS = 24  # user turns kept in one conversation before it starts fresh
 RESULT_CHARS = 20000
-MAX_IMAGE_BYTES = 3_500_000  # the API takes up to 5 MB per image
+MAX_IMAGE_BYTES = 3_500_000
+NO_PICTURE = "You did not see this camera: don't describe what might be there, just say you couldn't get a picture."  # the API takes up to 5 MB per image
 RATE_WINDOW_S = 600
 RATE_MAX = 40
 
@@ -42,6 +43,10 @@ DENY = re.compile(
     r"^/v1/(admin|auth|enroll|hello|ping|events|assistant|vpn|push|devices/(push|prefs|activity)|app/)"
     r"|/(stream|hls|file|mjpeg|webrtc|player|pass)(/|$)|\.(jpg|mp4)$|/(art|image|assets|player-art|picture)(/|$)"
 )
+# Changes to shared family records wait for a tap on Confirm, like deletes: chores and calendar
+# events, trip plans (reads of TREK's tools excepted), people and phones.
+ASK_FIRST = re.compile(r"^/v1/(family/items|trip-tools/(?!(list|get|search)_)|people|devices/[^/]+/(assign|revoke))")
+
 # binary_sensor device classes the assistant can read, and how to say on / off.
 SENSOR_WORDS: dict[str, tuple[str, str]] = {
     "door": ("open", "closed"), "window": ("open", "closed"), "opening": ("open", "closed"),
@@ -64,12 +69,12 @@ How to work:
 - You act as the person asking. Each tool call goes through the house's own permission checks, so try what they ask; if the hub says no, tell them plainly in one short sentence. Never look for a way around a refusal.
 - For a child, a refused ask can usually become a request to a parent (POST /v1/requests). Offer that, or just do it when they clearly want it ("can I have more iPad time").
 - When the hub says Face ID is needed, the app will show a confirm card. Say in a few words what will happen once they confirm, and never say it is done.
-- Deletes always wait for the person to tap Confirm. Same rule.
+- Deletes, and adding or changing chores, calendar events, trips, people or phones, wait for the person to tap Confirm. Same rule: say what will happen once they confirm, never that it is done.
 - Find exact ids with `house` (devices, rooms, scenes, modes) or a search endpoint before acting. Do several independent things in parallel.
 - Replies are often read aloud: one or two short sentences, plain words, no lists or markdown unless they asked for detail. Use the room and device names people use. Times in the house's time zone.
 - If something is ambiguous and getting it wrong matters (which door, which kid), ask one short question. Otherwise pick the obvious reading and do it.
 - Chores, routines and family calendar events live on the family board: list, add, change or remove them with /v1/family/items. To change a trip, read GET /v1/trip-tools for TREK's planning tools and their inputs, then POST /v1/trip-tools/{name} with {"arguments": {...}} (removals use DELETE).
-- Use `look` to see a camera when the question is about what is there right now.
+- Use `look` to see a camera when the question is about what is there right now. Describe only what a picture you actually received shows. If `look` gives an error, or you didn't call it, say you couldn't see that camera: never guess or invent what a camera shows.
 - You can't change the app's code, network firewall rules, storage, or anyone's permissions."""
 
 
@@ -463,22 +468,49 @@ class Assistant:
 
     async def _look(self, ctx: dict[str, Any], camera: str, event_id: str) -> dict[str, Any]:
         """A JPEG from the hub's own camera route, as the caller (so the cameras permission applies)."""
+        if not event_id:
+            found = self._camera(camera)
+            if isinstance(found, dict):
+                return found
+            camera = found
         ref = event_id or camera
         if not ref or not re.fullmatch(r"[\w.\-]+", ref):
-            return {"error": "give a camera id or an event id"}
+            return {"error": "give a camera id or an event id. " + NO_PICTURE}
         path = f"/v1/cameras/events/{ref}/snapshot.jpg" if event_id else f"/v1/cameras/{ref}/snapshot.jpg"
         transport = httpx.ASGITransport(app=ctx["app"], client=(ctx["ip"] or "127.0.0.1", 50000))
         async with httpx.AsyncClient(transport=transport, base_url="https://hub.internal", timeout=20) as cl:
             r = await cl.get(path, headers={"authorization": ctx["auth"], "x-tc-via": "ask"})
         if r.status_code == 403:
-            return {"error": "not allowed for this person"}
+            return {"error": "not allowed for this person. " + NO_PICTURE}
         if r.status_code >= 400 or not r.content:
-            return {"error": f"no picture ({r.status_code})"}
+            why = "the camera isn't sending pictures right now" if r.status_code >= 500 else "no such camera or event"
+            return {"error": f"No picture: {why}. " + NO_PICTURE}
         if len(r.content) > MAX_IMAGE_BYTES:
-            return {"error": "picture too large"}
+            return {"error": "picture too large. " + NO_PICTURE}
         kind = r.headers.get("content-type", "image/jpeg").split(";")[0]
         return {"_image": (kind if kind.startswith("image/") else "image/jpeg", base64.b64encode(r.content).decode()),
                 "about": f"event {event_id}" if event_id else f"camera {camera}, live"}
+
+    def _camera(self, ref: str) -> str | dict[str, Any]:
+        """A camera id from an id or words in its name ("driveway" -> "140_driveway"); an error the model
+        can't mistake for a picture when it's unknown or offline."""
+        from .routes.cameras import camera_list
+
+        try:
+            cams = camera_list(self.hub) if self.hub.frigate.enabled else []
+        except Exception:  # noqa: BLE001
+            cams = []
+        if not cams:
+            return ref  # no Frigate list: let the camera route decide
+        words = [w for w in re.split(r"[\W_]+", ref.lower()) if w]
+        hits = [c for c in cams if c["id"] == ref] or [
+            c for c in cams if words and all(w in f"{c['id']} {c.get('name') or ''}".lower() for w in words)]
+        if len(hits) != 1:
+            return {"error": ("No camera matches that. " if not hits else "More than one camera matches. ")
+                    + NO_PICTURE, "cameras": [{"id": c["id"], "name": c.get("name")} for c in (hits or cams)]}
+        if hits[0].get("online") is False:
+            return {"error": f"{hits[0].get('name') or hits[0]['id']} is offline, so there is no picture. " + NO_PICTURE}
+        return hits[0]["id"]
 
     def _sensors(self, s: Subject, rooms: dict[str, str], hit: Any, active: bool) -> list[dict[str, Any]]:
         """Door, window, motion, presence, leak and smoke sensors: read-only, in rooms this person can see."""
@@ -516,7 +548,7 @@ class Assistant:
         conv: Conversation = ctx["conv"]
         turn: Turn = ctx["turn"]
         label = summary or f"{method} {path}"
-        if method == "DELETE":
+        if method == "DELETE" or (method in ("POST", "PATCH", "PUT") and ASK_FIRST.search(path)):
             return self._confirm(conv, turn, "tap", method, path, query, body, label)
 
         transport = httpx.ASGITransport(app=ctx["app"], client=(ctx["ip"] or "127.0.0.1", 50000))

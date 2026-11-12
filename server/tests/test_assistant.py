@@ -254,3 +254,34 @@ def test_nas_app_restart_needs_admin_face_id_and_spares_the_hub(hub, home_client
     assert dylan.secure_post("/v1/actions", {"action": "system.app_restart", "target": "thomascreek-hub"}).status_code == 400
     avery = people["phones"]["Avery"]
     assert avery.secure_post("/v1/actions", {"action": "system.app_restart", "target": "plex"}).status_code == 403
+
+
+def test_chores_and_trips_wait_for_a_tap(hub, home_client, people, ai):
+    fake = ai([[("hub_change", {"method": "POST", "path": "/v1/family/items", "summary": "Add chore: test chore",
+                                "body": {"title": "test chore", "kind": "chore", "people": ["Theo"]}})],
+               "Tap Confirm to add it."])
+    r = ask(home_client, people["phones"]["Avery"], "add a chore: test chore for Theo").json()
+    assert [c["kind"] for c in r["confirms"]] == ["tap"] and r["confirms"][0]["path"] == "/v1/family/items"
+    assert r["changed"] is False
+    fake = ai([[("hub_change", {"method": "POST", "path": "/v1/trip-tools/create_trip", "body": {}})], "Confirm?"])
+    assert ask(home_client, people["phones"]["Avery"], "plan a beach trip").json()["confirms"][0]["kind"] == "tap"
+
+
+def test_look_never_hands_over_an_offline_or_unknown_camera(hub, home_client, people, ai):
+    async def jpg(*_a, **_k):
+        return b"\xff\xd8 stale frame"
+    hub.frigate.latest_jpg = jpg
+    hub.config.frigate.enabled = True
+    hub.config.frigate.url = "http://frigate.test:5000"
+    hub.frigate._info = {"140_driveway": {"online": False}, "140_creek": {"online": True}, "140_creek_ptz": {"online": True}}
+    fake = ai([[("look", {"camera": "driveway"})], "I couldn't get a picture."])
+    ask(home_client, people["phones"]["Avery"], "show me the driveway camera")
+    res = fake.results(1)[0]
+    assert "offline" in res["error"] and "don't describe" in res["error"]
+    assert '"type": "image"' not in json.dumps(fake.requests[1]["messages"])
+    fake = ai([[("look", {"camera": "creek"})], "Which one?"])
+    ask(home_client, people["phones"]["Avery"], "show me the creek")
+    assert "More than one" in fake.results(1)[0]["error"] and len(fake.results(1)[0]["cameras"]) == 2
+    fake = ai([[("look", {"camera": "creek ptz"})], "Clear."])
+    ask(home_client, people["phones"]["Avery"], "show me the creek ptz")
+    assert fake.requests[1]["messages"][-1]["content"][0]["content"][0]["type"] == "image"
