@@ -26,6 +26,7 @@ CATEGORIES = [
     {"id": "media", "title": "Movies and shows", "detail": "When something you asked for is ready", "default": True},
     {"id": "chores", "title": "Chores and rewards", "detail": "Reminders and approvals", "default": True},
     {"id": "holiday", "title": "Holiday lights", "detail": "Show start, look changes", "default": False},
+    {"id": "kitchen", "title": "Kitchen", "detail": "Oven preheated, timers, oven left on", "default": True},
     {"id": "house", "title": "House alerts", "detail": "Freezer, leaks, things left on", "default": True},
     {"id": "systems", "title": "Servers and network", "detail": "NAS, apps, internet (admin)", "default": True},
     {"id": "devices", "title": "New devices", "detail": "A phone or tablet joined (admin)", "default": True},

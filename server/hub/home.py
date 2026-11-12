@@ -29,7 +29,7 @@ KIND_ACTIONS = {
     "light": ["light.set"], "fan": ["fan.set"], "switch": ["switch.set"], "climate": ["climate.set"],
     "lock": ["lock.set"], "garage": ["garage.set"], "media": ["media.command", "media.volume", "media.play"],
     "speaker": ["media.command", "media.volume", "speaker.group"], "vacuum": ["vacuum.start"],
-    "valve": ["valve.run"], "shower": ["shower.preheat"], "oven": ["oven.set"], "camera": ["camera.view"],
+    "valve": ["valve.run"], "shower": ["shower.preheat"], "oven": ["oven.set", "oven.timer"], "camera": ["camera.view"],
 }
 
 SYMBOLS = {
@@ -65,6 +65,10 @@ def kind_for(state: dict[str, Any]) -> str | None:
         return "speaker" if "group_members" in attrs else "media"
     if domain == "sensor" and attrs.get("device_class") in ("temperature", "humidity", "moisture"):
         return "sensor"
+    if domain == "water_heater":
+        from .kitchen import is_oven
+
+        return "oven" if is_oven(state) else "shower"
     return DOMAIN_KIND.get(domain)
 
 
@@ -174,6 +178,12 @@ def device_state(kind: str, st: dict[str, Any], link: dict[str, Any] | None = No
         out["value"] = s
     elif kind == "sensor":
         out.update(value=s, unit=a.get("unit_of_measurement"))
+    elif kind == "oven":
+        from .kitchen import oven_state
+
+        o = oven_state(st)
+        out.update(on=o["on"], current_temp=o["current_temp"], target_temp=o["target_temp"], mode=o["mode"],
+                   modes=o["modes"], remote_ready=o["remote_ready"], available=o["available"])
     elif kind == "shower":
         out.update(current_temp=a.get("current_temperature"), target_temp=a.get("temperature"), on=s not in ("off",))
     return out
@@ -275,7 +285,8 @@ class HomeModel:
             try:
                 today = await self.hub.mealie.today()
                 dinner = next((m for m in today if m.get("meal") == "dinner"), today[0] if today else None)
-                self.dinner = {"title": dinner["title"], "image_url": dinner.get("image_url")} if dinner else None
+                self.dinner = ({"title": dinner["title"], "image_url": dinner.get("image_url"), "slug": dinner.get("slug")}
+                               if dinner else None)
             except Exception as exc:  # noqa: BLE001
                 log.info("meal read failed: %s", exc)
         if self.hub.family_board.enabled:

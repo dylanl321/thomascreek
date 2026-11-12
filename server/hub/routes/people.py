@@ -123,6 +123,10 @@ async def inbox_act(item_id: str, body: InboxAct, request: Request, c: Caller = 
             await assign_device(device_id, AssignBody(person_id=pid), request, c, h)
         elif body.action == "revoke":
             await revoke_device(device_id, request, c, h)
+    elif ref.startswith("thomascreek://kitchen/"):
+        from . import kitchen as kitchen_routes
+
+        await kitchen_routes.inbox_action(request, c, h, ref.rsplit("/", 1)[-1], body.action)
     elif ref.startswith("thomascreek://requests/"):
         req_id = ref.rsplit("/", 1)[-1]
         await media_routes.decide_request(req_id, body.action, request, c, h)
