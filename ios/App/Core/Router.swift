@@ -68,6 +68,8 @@ final class Router {
         case "dinners", "meals": kid ? show(.home) : show(.family, .meals)
         case "recipes": kid ? show(.home) : show(.family, .recipes)
         case "recipe": if parts.count > 1 { show(kid ? .home : .family, .recipe(parts[1])) }
+        case "kids": if !kid { show(.home, .kidNet) }
+        case "event": if parts.count > 1, !kid { show(.house, .cameraEvent(parts[1])) }
         case "chores": kid ? show(.chores) : show(.family, .chores)
         case "trips", "trip":
             let id = parts.count > 1 ? Int(parts[1]) : nil

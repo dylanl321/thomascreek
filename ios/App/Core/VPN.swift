@@ -54,9 +54,11 @@ final class VPN {
     func ensureInstalled() async {
         guard isAvailable, !checked else { return }
         guard mode != .off else {
-            // Earlier builds turned the tunnel on by themselves; respect Off by removing it.
-            if let managers = try? await NETunnelProviderManager.loadAllFromPreferences(), !managers.isEmpty { await remove() }
-            status = .invalid
+            // Off: keep the setup (so Connect works away from home) but never connect by itself.
+            if let mgr = try? await NETunnelProviderManager.loadAllFromPreferences().first {
+                if mgr.isOnDemandEnabled { mgr.isOnDemandEnabled = false; try? await mgr.saveToPreferences() }
+                status = mgr.connection.status
+            } else { status = .invalid }
             return
         }
         checked = true
@@ -119,6 +121,14 @@ final class VPN {
     /// Away: off on home Wi-Fi, on anywhere else. Always: on everywhere.
     private func applyRules(_ mgr: NETunnelProviderManager, homeSsids: [String]?) async throws {
         var rules: [NEOnDemandRule] = []
+        if mode == .off {
+            mgr.isOnDemandEnabled = false
+            mgr.isEnabled = true
+            try await mgr.saveToPreferences()
+            try await mgr.loadFromPreferences()
+            status = mgr.connection.status
+            return
+        }
         if mode == .away, let ssids = homeSsids, !ssids.isEmpty {
             let home = NEOnDemandRuleDisconnect(); home.interfaceTypeMatch = .wiFi; home.ssidMatch = ssids
             rules.append(home)
@@ -137,8 +147,12 @@ final class VPN {
         AppSettings.vpnMode = m.rawValue
         checked = false
         if m == .off {
-            await remove()
-            status = .invalid
+            if let mgr = try? await NETunnelProviderManager.loadAllFromPreferences().first {
+                mgr.isOnDemandEnabled = false
+                try? await mgr.saveToPreferences()
+                mgr.connection.stopVPNTunnel()
+                status = mgr.connection.status
+            } else { status = .invalid }
             return
         }
         let managers = try await NETunnelProviderManager.loadAllFromPreferences()
@@ -150,10 +164,37 @@ final class VPN {
         checked = true
     }
 
-    /// Stop the tunnel now without changing the setting (it comes back on its own when on-demand applies).
+    /// Whether a tunnel setup exists on this phone (the hub has to be reachable once to make one).
+    private(set) var isSetUp = false
+
+    /// The Connect button: set up if needed (needs the hub once), then connect now.
+    func connectNow() async throws {
+        var mgr = try await NETunnelProviderManager.loadAllFromPreferences().first
+        if mgr == nil || (mgr?.protocolConfiguration as? NETunnelProviderProtocol)?.providerConfiguration?["wg"] == nil {
+            try await reinstall()
+            mgr = try await NETunnelProviderManager.loadAllFromPreferences().first
+        }
+        guard let mgr else { return }
+        if !mgr.isEnabled { mgr.isEnabled = true; try await mgr.saveToPreferences(); try await mgr.loadFromPreferences() }
+        isSetUp = true
+        try mgr.connection.startVPNTunnel()
+        status = mgr.connection.status
+    }
+
+    /// The Disconnect button: stop now, and stop it reconnecting by itself (setting goes to Off).
     func disconnectNow() async {
+        if mode != .off { try? await setMode(.off) }
         guard let mgr = try? await NETunnelProviderManager.loadAllFromPreferences().first else { return }
         mgr.connection.stopVPNTunnel()
+        status = mgr.connection.status
+    }
+
+    /// Read the current state (for the Home card on appear).
+    func refreshStatus() async {
+        guard isAvailable else { return }
+        let mgr = try? await NETunnelProviderManager.loadAllFromPreferences().first
+        isSetUp = (mgr?.protocolConfiguration as? NETunnelProviderProtocol)?.providerConfiguration?["wg"] != nil
+        status = mgr?.connection.status ?? .invalid
     }
 
     func remove() async {

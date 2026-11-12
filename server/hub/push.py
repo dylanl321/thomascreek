@@ -138,7 +138,7 @@ class APNs:
 def alert_payload(title: str, body: str | None, *, cat: str, inbox_id: str | None = None,
                   ref: str | None = None, category: str | None = None, level: str = "fyi",
                   thread: str | None = None, silent: bool = False, image: str | None = None,
-                  interruption: str | None = None) -> dict[str, Any]:
+                  interruption: str | None = None, extra: dict[str, Any] | None = None) -> dict[str, Any]:
     aps: dict[str, Any] = {"alert": {"title": title, "body": body or ""}}
     if not silent:
         aps["sound"] = "default"
@@ -148,7 +148,7 @@ def alert_payload(title: str, body: str | None, *, cat: str, inbox_id: str | Non
         aps["thread-id"] = thread
     aps["interruption-level"] = "passive" if silent else interruption or {
         "act_now": "time-sensitive", "decision": "active", "maintenance": "passive", "fyi": "passive"}.get(level, "active")
-    out: dict[str, Any] = {"aps": aps, "cat": cat}
+    out: dict[str, Any] = {"aps": aps, "cat": cat, **(extra or {})}
     if image:
         # The app's notification extension downloads this hub path and attaches the picture.
         aps["mutable-content"] = 1

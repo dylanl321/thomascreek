@@ -68,6 +68,7 @@ class Notifier:
         silent: bool = False,
         image: str | None = None,
         interruption: str | None = None,
+        extra: dict[str, Any] | None = None,
     ) -> list[str]:
         assert level in LEVELS
         db = self.hub.db
@@ -85,7 +86,7 @@ class Notifier:
                                  person_id=p["id"])
             await self._push_person(p["id"], title, body, cat=cat, level=level, inbox_id=iid, ref=ref,
                                     category=push_category, silent=silent, image=image,
-                                    interruption=interruption)
+                                    interruption=interruption, extra=extra)
         return ids
 
     async def _push_person(self, person_id: str, title: str, body: str | None, **kw: Any) -> None:
@@ -101,7 +102,7 @@ class Notifier:
             payload = alert_payload(title, body, cat=kw["cat"], inbox_id=kw.get("inbox_id"), ref=kw.get("ref"),
                                     category=kw.get("category"), level=kw.get("level", "fyi"), thread=kw["cat"],
                                     silent=kw.get("silent", False), image=kw.get("image"),
-                                    interruption=kw.get("interruption"))
+                                    interruption=kw.get("interruption"), extra=kw.get("extra"))
             res = await apns.send(d["apns_token"], payload, env=d.get("apns_env") or "production",
                                   collapse_id=kw.get("inbox_id"))
             if res.token_dead:
