@@ -78,6 +78,8 @@ class ActionRunner:
         home = self.hub.home
         if action == "mode.run":
             return self._plan_mode(s, target_id, params)
+        if action == "steps.run":
+            return self._plan_steps(s, params)
         if action == "scene.run":
             if not target_id or not target_id.startswith("scene.") or target_id not in home.states:
                 raise ActionError(404, "not_found", "That scene isn't in the house")
@@ -213,6 +215,30 @@ class ActionRunner:
                 tier = sub.decision.tier
             calls.extend(sub.calls)
         return Plan("mode.run", Target(entity_id=mode.id), params, Decision(True, tier, "mode"), calls, label=mode.name)
+
+    def _plan_steps(self, s: Subject, params: dict[str, Any]) -> Plan:
+        """Several taps in one (a smart card's "Goodnight"): each step is planned and allowed on its own,
+        and the whole thing needs the strongest confirmation any step needs."""
+        from .smart import STEP_ACTIONS
+
+        steps = params.get("steps")
+        label = str(params.get("label") or "Steps")[:60]
+        if not isinstance(steps, list) or not steps or len(steps) > 40:
+            raise ActionError(400, "bad_params", "steps must be a list of 1 to 40 actions")
+        tier = "everyday"
+        calls: list[tuple[str, str, dict[str, Any]]] = []
+        for step in steps:
+            if not isinstance(step, dict) or step.get("action") not in STEP_ACTIONS:
+                raise ActionError(400, "bad_params", "That step can't be combined")
+            sub = self.plan(s, step["action"], step.get("target"), step.get("params") or {})
+            if not sub.decision.allowed:
+                return Plan("steps.run", Target(), params, Decision(False, reason=f"step {step['action']} not allowed"),
+                            label=label)
+            if TIERS.index(sub.decision.tier) > TIERS.index(tier):
+                tier = sub.decision.tier
+            calls.extend(sub.calls)
+        return Plan("steps.run", Target(), {"label": label, "steps": steps}, Decision(True, tier, "steps"), calls,
+                    label=label)
 
     def _plan_network(self, s: Subject, action: str, person_id: str | None, params: dict[str, Any]) -> Plan:
         person = self.hub.db.person(person_id)

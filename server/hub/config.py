@@ -155,6 +155,24 @@ class ChildPolicy(BaseModel):
     ratings: list[str] = Field(default_factory=lambda: ["G", "PG", "TV-Y", "TV-Y7", "TV-Y7-FV", "TV-G", "TV-PG"])
 
 
+class SmartConfig(BaseModel):
+    """The "Right now" cards on Home. Times are local, "HH:MM"."""
+
+    enabled: bool = True
+    dinner_time: str = "18:15"
+    dinner_lead_min: int = 90          # the dinner card shows this long before dinner
+    lockup_time: str = "21:30"         # "Lock up for the night" from here until 3 am
+    trash_night: str | None = "thursday"  # evening before pickup; None hides the card
+    # Bedtime per person (first name or person id) -> "HH:MM". Children without one use
+    # 19:30 on the picture-first layout and child_policy.bedtime otherwise.
+    bedtimes: dict[str, str] = Field(default_factory=lambda: {"Adeline": "19:30", "Theo": "20:30"})
+    wake_time: str = "07:00"           # a bedtime pause lasts until this time
+    latitude: float | None = None      # default: Home Assistant's location
+    longitude: float | None = None
+    goodnight_mode: str | None = None  # a mode id to run for "Goodnight" instead of the card's own steps
+    off_rules: list[str] = Field(default_factory=list)  # rule ids switched off for everyone
+
+
 class GuestInfo(BaseModel):
     wifi_ssid: str | None = None
     wifi_password_secret: str = "guest_wifi.password"
@@ -239,6 +257,7 @@ class Config(BaseModel):
     app_update: AppUpdateConfig = Field(default_factory=AppUpdateConfig)
     assistant: AssistantConfig = Field(default_factory=AssistantConfig)
     child_policy: ChildPolicy = Field(default_factory=ChildPolicy)
+    smart: SmartConfig = Field(default_factory=SmartConfig)
     guest: GuestInfo = Field(default_factory=GuestInfo)
     areas: dict[str, AreaOverride] = Field(default_factory=dict)
     floors: list[dict[str, Any]] = Field(default_factory=list)
