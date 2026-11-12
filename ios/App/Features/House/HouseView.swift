@@ -75,7 +75,7 @@ struct HouseView: View {
     private var ovenLine: String {
         let ovens = (store.home?.devices ?? []).filter { $0.kind == .oven }
         if let on = ovens.first(where: { $0.isOn }) { return DeviceSymbols.value(on) }
-        return store.home?.today?.dinner?.title.map { "Tonight: \($0)" } ?? "Ovens and quick start"
+        return store.home?.today?.dinner.map { "Tonight: \($0.title)" } ?? "Ovens and quick start"
     }
 
     private var appliancesLine: String {

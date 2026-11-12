@@ -994,7 +994,7 @@ struct RecipeEditor: View {
         }
     }
 
-    private func body() -> [String: Any] {
+    private func requestBody() -> [String: Any] {
         var b: [String: Any] = [
             "title": draft.title.trimmingCharacters(in: .whitespaces),
             "ingredients": draft.ingredients.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty },
@@ -1020,8 +1020,8 @@ struct RecipeEditor: View {
             defer { saving = false }
             do {
                 let r: SavedRecipe = slug == nil
-                    ? try await HubClient.shared.post("/v1/meals/recipes", body())
-                    : try await HubClient.shared.call("PUT", "/v1/meals/recipes/\(slug!)", body: body())
+                    ? try await HubClient.shared.post("/v1/meals/recipes", requestBody())
+                    : try await HubClient.shared.call("PUT", "/v1/meals/recipes/\(slug!)", body: requestBody())
                 if r.dryRun == true { store.show("Practice mode"); dismiss(); return }
                 let saved = r.slug ?? slug
                 if let saved, let img = newPhoto ?? (usePhoto ? photo?.jpegData(compressionQuality: 0.8) : nil) {
