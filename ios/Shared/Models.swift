@@ -111,6 +111,7 @@ enum Capability: String {
     case inventoryEdit = "inventory.edit", inventorySearch = "inventory.search"
     case networkManage = "network.manage", networkAsk = "network.ask"
     case systems, people, activity
+    case tripsView = "trips.view", tripsPlan = "trips.plan"
 }
 
 // MARK: - The house snapshot (GET /v1/home)

@@ -14,6 +14,7 @@ enum Destination: Hashable {
     case holiday, holidayControllers, house3D
     case remote(String), music, watch, requests, pipeline
     case calendar, meals, recipe(String), shopping, chores, inventory
+    case trips, trip(Int), tripDay(Int, String)
     case systems, storage, activity, people, kidNet, vpnPool
 }
 
@@ -61,6 +62,10 @@ final class Router {
         case "camera": if parts.count > 1 { show(.house, .camera(parts[1])) } else { show(.house, .cameras) }
         case "doors", "garage": show(.house, .doors)
         case "chores": kid ? show(.chores) : show(.family, .chores)
+        case "trips", "trip":
+            let id = parts.count > 1 ? Int(parts[1]) : nil
+            let tab: AppTab = kid ? .home : .family
+            show(tab, id.map { Destination.trip($0) } ?? (kid ? nil : Destination.trips))
         case "requests": kid ? show(.watch) : show(.media, .requests)
         case "media": show(kid ? .watch : .media)
         case "systems", "storage": show(.systems, parts.first == "storage" ? .storage : nil)
