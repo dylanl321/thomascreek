@@ -166,3 +166,29 @@ deleted in the Firewalla app.
 ## House assets
 
 Put `house-model-web.json` and the house photo under `data/assets/` (they stay out of the public repo).
+
+
+## Reaching the hub away from home (reverse proxy)
+
+The hub can be published through Nginx Proxy Manager (or any reverse proxy) so phones work off home Wi-Fi without the VPN.
+
+1. Proxy host: `hub.<your domain>` → scheme `https`, the hub's LAN address, port 8443. Let's Encrypt certificate, Force SSL, HTTP/2, websockets on. Advanced box:
+
+   ```nginx
+   location ~ ^/(admin|v1/admin/|docs|redoc|openapi\.json) { return 404; }
+   location / {
+       proxy_pass $forward_scheme://$server:$port;
+       proxy_set_header Host $host;
+       proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+       proxy_set_header X-Forwarded-Proto $scheme;
+       proxy_ssl_verify off;
+       proxy_buffering off;
+       proxy_read_timeout 3600s;
+       proxy_send_timeout 3600s;
+       client_max_body_size 50m;
+   }
+   ```
+
+2. Hub config: `trusted_proxies: [<the proxy's address or Docker network>]` and `remote_url: https://hub.<your domain>`. `home_networks` must not include the proxy's network.
+3. The hub believes X-Forwarded-For only from a trusted proxy, and reads it from the right (the address the proxy saw), so a caller can't claim to be at home. Enrolling, the web page and Home Assistant alerts stay home-only. Sign-in steps are rate-limited per caller away from home.
+4. The app learns `remote_url` from `/v1/me` and falls back to it when the home address doesn't answer. On that host it accepts the public certificate only if the chain runs through a Let's Encrypt root (ISRG Root X1, X2 or YE).
