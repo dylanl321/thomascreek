@@ -15,7 +15,7 @@ enum Destination: Hashable {
     case remote(String), music, watch, requests, pipeline
     case calendar, meals, recipe(String), shopping, chores, inventory
     case trips, trip(Int), tripDay(Int, String)
-    case systems, storage, activity, people, kidNet, vpnPool
+    case systems, storage, activity, people, kidNet, vpnPool, hubWeb
 }
 
 @MainActor

@@ -100,6 +100,7 @@ struct DestinationView: View {
         case .people: PeopleView()
         case .kidNet: KidNetView()
         case .vpnPool: VPNPoolView()
+        case .hubWeb: HubWebPageView()
         }
     }
 }
