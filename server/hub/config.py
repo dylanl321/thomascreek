@@ -75,6 +75,7 @@ class TrekConfig(ServiceConfig):
     """TREK trip planner. `url` is how the hub reaches it on the LAN; `web_url` is
     the address a phone opens for "Plan in TREK" (the proxied site, if there is one)."""
     web_url: str | None = None
+    token_secret: str | None = "trek.api_key"
     # Trip ids children and the kitchen tablet never see (surprises, adults-only trips).
     hidden_from_children: list[int] = Field(default_factory=list)
 
