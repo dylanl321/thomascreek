@@ -49,6 +49,38 @@ enum AppSettings {
         set { defaults.set(newValue, forKey: "prefs") }
     }
 
+    // MARK: offline
+
+    /// Trips an adult switched on (or off) for offline, overriding "kept while it's close".
+    static var offlineTripsOn: Set<Int> {
+        get { Set(defaults.array(forKey: "offlineTripsOn") as? [Int] ?? []) }
+        set { defaults.set(Array(newValue), forKey: "offlineTripsOn") }
+    }
+    static var offlineTripsOff: Set<Int> {
+        get { Set(defaults.array(forKey: "offlineTripsOff") as? [Int] ?? []) }
+        set { defaults.set(Array(newValue), forKey: "offlineTripsOff") }
+    }
+    /// Films download over Wi-Fi only unless this is on.
+    static var downloadOnCellular: Bool {
+        get { defaults.bool(forKey: "downloadOnCellular") }
+        set { defaults.set(newValue, forKey: "downloadOnCellular") }
+    }
+    /// Remove a downloaded title a week after it was watched to the end.
+    static var removeWatchedDownloads: Bool {
+        get { defaults.object(forKey: "removeWatchedDownloads") as? Bool ?? true }
+        set { defaults.set(newValue, forKey: "removeWatchedDownloads") }
+    }
+    /// Away-from-home VPN: "off" (default; nothing installed), "away" (connects off home Wi-Fi) or "always".
+    static var vpnMode: String {
+        get { defaults.string(forKey: "vpnMode") ?? "off" }
+        set { defaults.set(newValue, forKey: "vpnMode") }
+    }
+    /// Quality picked last time, offered first next time.
+    static var downloadQuality: String {
+        get { defaults.string(forKey: "downloadQuality") ?? "original" }
+        set { defaults.set(newValue, forKey: "downloadQuality") }
+    }
+
     // MARK: caches so the app and widgets open with something on screen
 
     static var cachedMe: Me? {

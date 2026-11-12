@@ -142,18 +142,70 @@ final class TripStore {
     var failed: String?
     private var loadedAt: Date?
 
+    /// When the list was last fetched from home (nil: showing a saved copy, see `savedAt`).
+    var savedAt: Date?
+
     func load(force: Bool = false) async {
+        if list == nil { list = HubClient.saved("/v1/trips"); savedAt = OfflineCache.savedAt(path: "/v1/trips") }
         if !force, let at = loadedAt, Date.now.timeIntervalSince(at) < 120 { return }
         do {
-            list = try await HubClient.shared.get("/v1/trips", as: TripList.self)
+            let r = try await HubClient.shared.fetch("/v1/trips", as: TripList.self)
+            list = r.value; savedAt = r.savedAt ?? .now
             failed = nil
-            loadedAt = .now
+            if r.savedAt == nil { loadedAt = .now; Task { await saveForOffline() } }
         } catch {
             failed = error.localizedDescription
         }
     }
 
-    func detail(_ id: Int) async throws -> Trip { try await HubClient.shared.get("/v1/trips/\(id)", as: Trip.self) }
+    func detail(_ id: Int) async throws -> Trip {
+        try await HubClient.shared.get("/v1/trips/\(id)", keep: isKept(id), as: Trip.self)
+    }
+
+    // MARK: offline
+
+    /// Trips kept on the phone: on now, starting within two weeks, or back less than a week ago,
+    /// plus any an adult switched on by hand (and minus any switched off).
+    func isKept(_ id: Int) -> Bool {
+        if AppSettings.offlineTripsOff.contains(id) { return false }
+        if AppSettings.offlineTripsOn.contains(id) { return true }
+        guard let t = list?.trips.first(where: { $0.id == id }) else { return false }
+        return Self.autoKeep(t)
+    }
+
+    static func autoKeep(_ t: Trip) -> Bool {
+        if t.isOn { return true }
+        let today = Calendar.current.startOfDay(for: .now)
+        if let s = t.start, s >= today, s.timeIntervalSince(today) <= 14 * 86400 { return true }
+        if let e = t.end, e < today, today.timeIntervalSince(e) <= 7 * 86400 { return true }
+        return false
+    }
+
+    func setKept(_ id: Int, _ on: Bool) {
+        var a = AppSettings.offlineTripsOn, b = AppSettings.offlineTripsOff
+        a.remove(id); b.remove(id)
+        if on != list.flatMap({ $0.trips.first { $0.id == id } }).map(Self.autoKeep) ?? false { if on { a.insert(id) } else { b.insert(id) } }
+        AppSettings.offlineTripsOn = a; AppSettings.offlineTripsOff = b
+        Task { await saveForOffline() }
+    }
+
+    var keptTrips: [Trip] { (list?.trips ?? []).filter { isKept($0.id) } }
+
+    /// Fetch every kept trip in full and draw each day's map as a picture (maps need signal).
+    func saveForOffline() async {
+        guard let list else { return }
+        for t in list.trips {
+            if isKept(t.id) {
+                guard let full = try? await HubClient.shared.get("/v1/trips/\(t.id)", keep: true, as: Trip.self) else { continue }
+                for day in full.days ?? [] where TripMapPicture.load(trip: t.id, date: day.date) == nil {
+                    await TripMapPicture.make(trip: t.id, day: day)
+                }
+            } else {
+                OfflineCache.unkeep(path: "/v1/trips/\(t.id)")
+                TripMapPicture.remove(trip: t.id)
+            }
+        }
+    }
 }
 
 // MARK: - Look
@@ -317,6 +369,7 @@ struct TripView: View {
     @State private var trip: Trip?
     @State private var failed: String?
     @State private var section: Part = .plan
+    @State private var savedAt: Date?
 
     enum Part: String, CaseIterable { case plan = "Plan", bookings = "Bookings", stay = "Stay", ideas = "Ideas" }
 
@@ -333,6 +386,7 @@ struct TripView: View {
                         Spacer()
                         if !trip.countdown.isEmpty, !trip.isPast { Pill(text: trip.isOn ? trip.countdown : "\(trip.countdown) to go") }
                     }
+                    TripOfflineRow(trip: trip, savedAt: savedAt)
                     Picker("Section", selection: $section) {
                         ForEach(Part.allCases, id: \.self) { Text($0.rawValue) }
                     }
@@ -360,8 +414,13 @@ struct TripView: View {
     }
 
     private func load() async {
-        do { trip = try await TripStore.shared.detail(tripID); failed = nil }
-        catch { failed = error.localizedDescription }
+        if trip == nil, let saved: Trip = HubClient.saved("/v1/trips/\(tripID)") {
+            trip = saved; savedAt = OfflineCache.savedAt(path: "/v1/trips/\(tripID)")
+        }
+        do {
+            let r = try await HubClient.shared.fetch("/v1/trips/\(tripID)", keep: TripStore.shared.isKept(tripID), as: Trip.self)
+            trip = r.value; savedAt = r.savedAt; failed = nil
+        } catch { if trip == nil { failed = error.localizedDescription } }
     }
 
     @ViewBuilder private func plan(_ t: Trip) -> some View {
@@ -503,6 +562,7 @@ struct BookingRow: View {
 struct TripDayView: View {
     let tripID: Int
     let date: String
+    @Environment(HomeStore.self) private var store
     @Environment(\.openURL) private var openURL
     @State private var trip: Trip?
 
@@ -517,7 +577,15 @@ struct TripDayView: View {
                         Text(day.name).font(.title2.weight(.bold))
                     }
                     let pins = day.places.enumerated().compactMap { i, p in p.coordinate.map { (i + 1, p.name, $0) } }
-                    if !pins.isEmpty {
+                    if !pins.isEmpty, !store.reachable, let pic = TripMapPicture.load(trip: tripID, date: date) {
+                        Image(uiImage: pic).resizable().scaledToFill()
+                            .frame(height: 220).frame(maxWidth: .infinity)
+                            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                            .overlay(alignment: .bottomLeading) {
+                                Label("Saved map", systemImage: "arrow.down.circle.fill").font(.caption.weight(.semibold))
+                                    .padding(.horizontal, 8).padding(.vertical, 4).background(.ultraThinMaterial, in: Capsule()).padding(8)
+                            }
+                    } else if !pins.isEmpty {
                         Map(initialPosition: .automatic) {
                             ForEach(pins, id: \.0) { n, name, c in Marker(name, monogram: Text("\(n)"), coordinate: c).tint(Theme.accent) }
                             if pins.count > 1 { MapPolyline(coordinates: pins.map(\.2)).stroke(Theme.accent, style: StrokeStyle(lineWidth: 3, dash: [6, 5])) }
@@ -763,6 +831,88 @@ struct KidTripCard: View {
                 }
                 .card(padding: 10)
             }
+        }
+    }
+}
+
+// MARK: - Offline
+
+/// "Kept for offline" on a trip: when it was saved, and (for adults) a switch.
+struct TripOfflineRow: View {
+    @Environment(HomeStore.self) private var store
+    let trip: Trip
+    let savedAt: Date?
+    private let trips = TripStore.shared
+
+    var body: some View {
+        let kept = trips.isKept(trip.id)
+        HStack(spacing: 12) {
+            IconBadge(symbol: kept ? "arrow.down.circle.fill" : "icloud", color: kept ? Theme.accent : Theme.dim, size: 34)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(kept ? "Kept for offline" : "Not kept offline").font(.subheadline.weight(.semibold))
+                Text(detail(kept)).font(.caption).foregroundStyle(Theme.dim)
+            }
+            Spacer()
+            if store.role == .admin || store.role == .adult {
+                Toggle("Keep offline", isOn: Binding(get: { kept }, set: { trips.setKept(trip.id, $0) })).labelsHidden()
+            }
+        }
+        .card(padding: 12)
+    }
+
+    private func detail(_ kept: Bool) -> String {
+        let when = savedAt.map { "Saved \(Freshness.text($0))" } ?? "Up to date"
+        if !kept { return store.reachable ? "Turn on to take it on the road" : when }
+        return TripStore.autoKeep(trip) && !AppSettings.offlineTripsOn.contains(trip.id)
+            ? "\(when) · kept by itself while it's close" : when
+    }
+}
+
+/// Each day's map drawn once as a picture, for when there's no signal.
+enum TripMapPicture {
+    static func name(_ trip: Int, _ date: String) -> String { "trip-\(trip)-\(date).jpg" }
+
+    static func load(trip: Int, date: String) -> UIImage? {
+        OfflineCache.loadFile(name(trip, date), kind: .kept, category: .trips).flatMap(UIImage.init(data:))
+    }
+
+    static func remove(trip: Int) {
+        let dir = OfflineCache.dir(.kept, OfflineCache.Category.trips.rawValue)
+        for f in (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
+        where f.lastPathComponent.hasPrefix("trip-\(trip)-") { try? FileManager.default.removeItem(at: f) }
+    }
+
+    @MainActor
+    static func make(trip: Int, day: TripDay) async {
+        let coords = day.places.compactMap(\.coordinate)
+        guard !coords.isEmpty else { return }
+        let o = MKMapSnapshotter.Options()
+        var rect = MKMapRect.null
+        for c in coords { let p = MKMapPoint(c); rect = rect.union(MKMapRect(x: p.x, y: p.y, width: 1, height: 1)) }
+        let pad = max(rect.size.width, rect.size.height) * 0.25 + 2000
+        o.mapRect = rect.insetBy(dx: -pad, dy: -pad)
+        o.size = CGSize(width: 390, height: 220)
+        o.scale = 3
+        guard let shot = try? await MKMapSnapshotter(options: o).start() else { return }
+        let r = UIGraphicsImageRenderer(size: o.size)
+        let img = r.image { ctx in
+            shot.image.draw(at: .zero)
+            let pts = coords.map(shot.point(for:))
+            let tint = UIColor(Theme.accent)
+            if pts.count > 1 {
+                let path = UIBezierPath(); path.move(to: pts[0]); pts.dropFirst().forEach { path.addLine(to: $0) }
+                path.lineWidth = 3; path.setLineDash([6, 5], count: 2, phase: 0); tint.setStroke(); path.stroke()
+            }
+            for (i, p) in pts.enumerated() {
+                let dot = CGRect(x: p.x - 11, y: p.y - 11, width: 22, height: 22)
+                tint.setFill(); UIBezierPath(ovalIn: dot).fill()
+                let s = NSAttributedString(string: "\(i + 1)", attributes: [.font: UIFont.boldSystemFont(ofSize: 12), .foregroundColor: UIColor.white])
+                let sz = s.size(); s.draw(at: CGPoint(x: p.x - sz.width / 2, y: p.y - sz.height / 2))
+            }
+            _ = ctx
+        }
+        if let d = img.jpegData(compressionQuality: 0.8) {
+            OfflineCache.storeFile(d, name: name(trip, day.date), kind: .kept, category: .trips)
         }
     }
 }

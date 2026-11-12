@@ -55,6 +55,8 @@ struct Freshness: View {
             Circle().fill(stale ? Theme.dim : Color.green).frame(width: 6, height: 6)
             if stale, let d = date ?? store.lastUpdate {
                 Text(d, format: .relative(presentation: .named, unitsStyle: .abbreviated))
+            } else if !store.reachable {
+                Text("Offline")
             } else {
                 Text("Live")
             }
@@ -281,13 +283,22 @@ struct HubImage<Placeholder: View>: View {
     private func load() async {
         guard let path, !path.isEmpty else { return }
         if let cached = ImageCache.shared.object(forKey: path as NSString) { image = cached; return }
+        // A saved copy shows at once (and offline); posters and photos rarely change.
+        if let d = OfflineCache.loadImage(path: path), let img = UIImage(data: d) {
+            ImageCache.shared.setObject(img, forKey: path as NSString); image = img
+            return
+        }
         do {
             var req: URLRequest
             if path.hasPrefix("http") { req = URLRequest(url: URL(string: path)!) }
             else { req = try await HubClient.shared.authorizedRequest(path) }
             req.timeoutInterval = 15
-            let (data, _) = try await HubClient.session.data(for: req)
-            if let img = UIImage(data: data) { ImageCache.shared.setObject(img, forKey: path as NSString); image = img }
+            let (data, resp) = try await HubClient.session.data(for: req)
+            guard (resp as? HTTPURLResponse).map({ (200..<300).contains($0.statusCode) }) ?? true else { return }
+            if let img = UIImage(data: data) {
+                ImageCache.shared.setObject(img, forKey: path as NSString); image = img
+                OfflineCache.storeImage(data, path: path)
+            }
         } catch {}
     }
 }

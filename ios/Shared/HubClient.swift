@@ -109,8 +109,38 @@ actor HubClient {
         catch { throw HubError.server(0, "The hub sent something this version of the app doesn't understand (\(path)).") }
     }
 
-    func get<T: Decodable>(_ path: String, _ query: [String: String] = [:], as: T.Type = T.self) async throws -> T {
-        try await call("GET", path, query: query)
+    /// GET a reply, saving a copy for offline use. When home can't be reached (or the service behind
+    /// the hub is down), the saved copy is returned instead. `keep` files it with the copies that
+    /// aren't trimmed (trips that are coming up).
+    func get<T: Decodable>(_ path: String, _ query: [String: String] = [:], keep: Bool = false, as: T.Type = T.self) async throws -> T {
+        try await fetch(path, query, keep: keep, as: T.self).value
+    }
+
+    /// Like `get`, and says whether the answer is a saved copy (and from when).
+    func fetch<T: Decodable>(_ path: String, _ query: [String: String] = [:], keep: Bool = false,
+                             as: T.Type = T.self) async throws -> (value: T, savedAt: Date?) {
+        let cacheable = OfflineCache.cacheable(path)
+        let data: Data
+        var savedAt: Date?
+        do {
+            data = try await raw("GET", path, query: query)
+            if cacheable { OfflineCache.store(data, path: path, query: query, keep: keep) }
+        } catch let e as HubError {
+            switch e {
+            case .unreachable, .server(500..., _):
+                guard cacheable, let saved = OfflineCache.load(path: path, query: query) else { throw e }
+                data = saved.data; savedAt = saved.savedAt
+                if e == .unreachable { NotificationCenter.default.post(name: .hubUnreachable, object: nil) }
+            default: throw e
+            }
+        }
+        do { return (try Self.decoder.decode(T.self, from: data), savedAt) }
+        catch { throw HubError.server(0, "The hub sent something this version of the app doesn't understand (\(path)).") }
+    }
+
+    /// The saved copy only, for showing something before the hub answers.
+    static func saved<T: Decodable>(_ path: String, _ query: [String: String] = [:], as: T.Type = T.self) -> T? {
+        OfflineCache.load(path: path, query: query).flatMap { try? decoder.decode(T.self, from: $0.data) }
     }
 
     func post<T: Decodable>(_ path: String, _ body: [String: Any] = [:], confirm: String? = nil, as: T.Type = T.self) async throws -> T {
@@ -225,6 +255,7 @@ actor HubClient {
 
     private func revoked() async {
         signOut()
+        OfflineCache.wipeAll()
         AppSettings.deviceID = nil
         DeviceKeys.reset()
     }
@@ -232,6 +263,11 @@ actor HubClient {
     static func errorBody(_ data: Data) -> [String: Any]? {
         try? JSONSerialization.jsonObject(with: data) as? [String: Any]
     }
+}
+
+extension Notification.Name {
+    /// A screen fell back to a saved copy because home didn't answer.
+    static let hubUnreachable = Notification.Name("hubUnreachable")
 }
 
 /// For calls whose reply body doesn't matter.

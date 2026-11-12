@@ -205,8 +205,16 @@ struct ShoppingView: View {
         guard !t.isEmpty, let id = listID ?? data?.lists.first?.id else { return }
         newItem = ""
         Task {
-            do { try await HubClient.shared.send("/v1/shopping/\(id)/items", ["text": t]); await load() }
-            catch { store.show(error.localizedDescription, isError: true) }
+            do {
+                if try await Outbox.shared.send("/v1/shopping/\(id)/items", ["text": t], label: "\(t) (shopping)") { await load() }
+                else {
+                    // Offline: show it on the list straight away; it's sent when home is back.
+                    if let i = data?.lists.firstIndex(where: { $0.id == id }) {
+                        data?.lists[i].items.append(.init(id: "pending-\(UUID().uuidString)", text: t, done: false))
+                    }
+                    store.show("Added", "It's sent when home is back")
+                }
+            } catch { store.show(error.localizedDescription, isError: true) }
         }
     }
 

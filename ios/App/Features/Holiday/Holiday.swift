@@ -98,7 +98,7 @@ struct HolidayHomeCard: View {
                     ForEach([Look.elegant, .twinkle, .festive, .calm, .off]) { l in
                         Button { model.run(l == .off ? "Lights off" : "\(l.title) on") { try await LightsAPI.look(l) } } label: {
                             Image(systemName: l.symbol).frame(maxWidth: .infinity, minHeight: 36)
-                                .foregroundStyle(s?.currentLook == l && s?.running != true ? .black : l.tint)
+                                .foregroundStyle(s?.currentLook == l && s?.running != true ? l.onText : l.tint)
                                 .background(s?.currentLook == l && s?.running != true ? l.tint : l.tint.opacity(0.18), in: RoundedRectangle(cornerRadius: 10))
                         }
                         .buttonStyle(.plain).accessibilityLabel(l.title)
@@ -134,7 +134,7 @@ struct KidLightsView: View {
                                     Text(l.title).font(Theme.kidFont(22))
                                 }
                                 .frame(maxWidth: .infinity, minHeight: 130)
-                                .foregroundStyle(model.status?.currentLook == l ? .black : l.tint)
+                                .foregroundStyle(model.status?.currentLook == l ? l.onText : l.tint)
                                 .background(model.status?.currentLook == l ? l.tint : l.tint.opacity(0.18), in: RoundedRectangle(cornerRadius: 26))
                             }
                             .buttonStyle(.plain)

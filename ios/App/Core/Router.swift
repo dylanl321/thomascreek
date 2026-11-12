@@ -29,6 +29,8 @@ final class Router {
     /// A WireGuard .conf handed to the app (Files or the Firewalla share sheet); admins add it to the hub's pool.
     var vpnImport: URL?
     var showProfile = false
+    /// Storage and downloads (from the offline strip).
+    var showOffline = false
     var showSearch = false
 
     func path(_ tab: AppTab) -> Binding<[Destination]> {

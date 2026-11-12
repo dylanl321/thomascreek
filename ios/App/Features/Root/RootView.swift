@@ -55,6 +55,9 @@ struct MainTabs: View {
         .animation(.spring(duration: 0.35), value: AppUpdate.shared.showBanner)
         .sheet(isPresented: $router.showInbox) { InboxView() }
         .sheet(isPresented: $router.showProfile) { ProfileView() }
+        .sheet(isPresented: $router.showOffline) {
+            NavigationStack { OfflineStorageView().toolbar { Button("Done") { router.showOffline = false } } }
+        }
         .sheet(item: Binding(get: { router.vpnImport.map(IdentifiedURL.init) }, set: { router.vpnImport = $0?.url })) { f in VPNImportSheet(file: f.url) }
         .sheet(item: Binding(get: { store.askParent }, set: { store.askParent = $0 })) { a in AskParentSheet(ask: a) }
     }
@@ -64,7 +67,8 @@ struct MainTabs: View {
     private func stack<V: View>(_ tab: AppTab, @ViewBuilder _ root: () -> V) -> some View {
         NavigationStack(path: router.path(tab)) {
             root()
-                .navigationDestination(for: Destination.self) { DestinationView(destination: $0) }
+                .offlineStrip()
+                .navigationDestination(for: Destination.self) { DestinationView(destination: $0).offlineStrip() }
         }
     }
 }
@@ -165,3 +169,4 @@ struct BellButton: View {
 extension View {
     func topBar() -> some View { modifier(TopBar()) }
 }
+
