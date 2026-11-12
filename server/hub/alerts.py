@@ -28,6 +28,8 @@ from zoneinfo import ZoneInfo
 if TYPE_CHECKING:
     from .state import Hub
 
+from .db import new_id
+
 log = logging.getLogger("hub.alerts")
 
 WEBHOOK_SECRET = "alerts.webhook_token"
@@ -59,6 +61,10 @@ DEFAULT_PREFS: dict[str, Any] = {
     "away_doors": False,    # an outside door opens while nobody is home
     "entities": {},         # extra Home Assistant entities -> bool
     "automations": True,    # alerts sent by Home Assistant automations
+    # Firewalla alarms about the house network (Dylan only).
+    "network": {"new_device": True, "security": True, "internet": True, "vpn": False, "offline": False},
+    # Firewalla alarms about the kids' devices (parents).
+    "kids": {"adult": True, "bedtime": True, "gaming": False, "video": False, "bandwidth": False},
     "quiet": {"on": False, "from": "22:00", "to": "06:30", "ring_urgent": True},
 }
 DEFAULT_CAMERA_WORDS = ("frontdoor", "front_door", "sidedoor", "side_door")
@@ -79,6 +85,8 @@ class Alerts:
         self.ws_connected = False
         self.ws_error: str | None = None
         self.sent = 0
+        self._hist_last: dict[str, float] = {}
+        self._pruned = 0.0
 
     # -- settings ----------------------------------------------------------
     def sources(self) -> dict[str, Any]:
@@ -111,8 +119,8 @@ class Alerts:
             out["quiet"] = {"on": True, "from": "21:00", "to": "07:00", "ring_urgent": False}
             out["hazards"] = False
         for k, v in (saved or {}).items():
-            if k == "quiet" and isinstance(v, dict):
-                out["quiet"].update(v)
+            if k in ("quiet", "network", "kids") and isinstance(v, dict):
+                out[k].update(v)
             elif k in out:
                 out[k] = v
         return out
@@ -139,6 +147,8 @@ class Alerts:
                 ents = dict(cur.get("entities") or {})
                 ents.update({e: bool(on) for e, on in v.items() if e in offered})
                 cur[k] = {e: on for e, on in ents.items() if e in offered}
+            elif k in ("network", "kids") and isinstance(v, dict):
+                cur[k] = {**cur[k], **{kk: vv for kk, vv in v.items() if kk in cur[k] and isinstance(vv, bool)}}
             elif k == "quiet" and isinstance(v, dict):
                 q = dict(cur["quiet"])
                 for qk in ("on", "ring_urgent"):
@@ -257,16 +267,56 @@ class Alerts:
         self._last[k] = now
         return True
 
+    # -- history: every alert, pushed or not ----------------------------------
+    HISTORY_KINDS = ("camera", "package", "doorbell", "house", "doors", "kids", "network", "media")
+    KEEP_DAYS = 30
+
+    def record(self, kind: str, title: str, body: str | None, people: list[dict[str, Any]], *,
+               ref: str | None = None, image: str | None = None, key: str | None = None, gap: float = 0,
+               payload: dict[str, Any] | None = None, now: float | None = None) -> str | None:
+        """One line in the alert history for everyone who could get this alert, whether or not
+        they turned its push on. `key`+`gap` keep a busy source (a driveway camera) to one line per gap."""
+        now = now or time.time()
+        if not people:
+            return None
+        if key and gap and now - self._hist_last.get(key, 0) < gap:
+            return None
+        if key:
+            self._hist_last[key] = now
+        hid = new_id("alh")
+        self.hub.db.insert("alert_log", {
+            "id": hid, "ts": now, "kind": kind, "title": title, "body": body, "ref": ref, "image": image,
+            "people": "," + ",".join(p["id"] for p in people) + ",", "payload": payload or {}})
+        if now - self._pruned > 3600:
+            self._pruned = now
+            self.hub.db.execute("DELETE FROM alert_log WHERE ts < ?", [now - self.KEEP_DAYS * 86400])
+        return hid
+
+    def history(self, person_id: str, kind: str | None = None, before: float | None = None,
+                limit: int = 50) -> list[dict[str, Any]]:
+        sql = "SELECT * FROM alert_log WHERE people LIKE ?"
+        args: list[Any] = [f"%,{person_id},%"]
+        if kind:
+            sql += " AND kind IN (" + ",".join("?" * len(kind.split(","))) + ")"
+            args += kind.split(",")
+        if before:
+            sql += " AND ts < ?"
+            args.append(before)
+        sql += " ORDER BY ts DESC LIMIT ?"
+        args.append(max(1, min(limit, 200)))
+        return [{k: v for k, v in r.items() if k != "people"} for r in self.hub.db.all(sql, args)]
+
     async def _deliver(self, people: list[tuple[dict[str, Any], dict[str, Any]]], *, title: str, body: str | None,
                        cat: str, urgent: bool = False, level: str = "fyi", ref: str | None = None,
-                       image: str | None = None, push_category: str | None = None, group: str | None = None) -> int:
+                       image: str | None = None, push_category: str | None = None, group: str | None = None,
+                       extra: dict[str, Any] | None = None) -> int:
         n = 0
         for person, prefs in people:
             silent = self._quiet_now(prefs["quiet"]) and not (urgent and prefs["quiet"].get("ring_urgent", True))
             await self.hub.notify.send(
                 title=title, body=body, cat=cat, level=("act_now" if urgent and not silent else level),
                 person_ids=[person["id"]], ref=ref, group_key=group, push_category=push_category,
-                silent=silent, image=image, interruption=None if urgent else "active",
+                silent=silent, image=image, interruption=None if urgent else "active", extra=extra,
             )
             n += 1
         self.sent += n
@@ -279,6 +329,8 @@ class Alerts:
         if e.get("false_positive"):
             return 0
         cam, label = e.get("camera") or "", e.get("label") or ""
+        if self.suppressed(cam, label, (e.get("data") or {}).get("box")):
+            return 0
         sub = e.get("sub_label")
         if isinstance(sub, list):
             sub = sub[0] if sub else None
@@ -288,13 +340,21 @@ class Alerts:
         image = f"/v1/cameras/events/{e['id']}/snapshot.jpg" if e.get("has_snapshot", True) else None
         ref = f"thomascreek://camera/{cam}"
         if label in PACKAGE_LABELS:
+            self.record("package", f"Package at the {cam_title.lower()}", f"{cam_title} camera", self._people(),
+                        ref=ref, image=image, key=f"pkg:{cam}", gap=1800, now=now,
+                        payload={"event_id": e["id"], "label": label, "camera": cam})
             who = [(p, pr) for p in self._people() if (pr := self.prefs(p["id"]))["on"] and pr["package"]
                    and self._cooled(p["id"], cam, "package", 1800, now)]
             return await self._deliver(who, title=f"Package at the {cam_title.lower()}", body=f"{cam_title} camera",
-                                       cat="cameras", ref=ref, image=image, group=f"cam:{cam}")
+                                       cat="cameras", ref=ref, image=image, group=f"cam:{cam}",
+                                       push_category="CAMERA_PACKAGE", extra={"event_id": e["id"], "label": label})
         group = next((g for g, labels in LABEL_GROUPS.items() if label in labels), None)
         if not group:
             return 0
+        what = LABEL_TITLES[group] if group != "car" or label == "car" else label.capitalize()
+        body = f"{sub} · {cam_title}" if sub else f"{cam_title} camera"
+        self.record("camera", f"{what} at the {cam_title.lower()}", body, self._people(), ref=ref, image=image,
+                    key=f"cam:{cam}:{group}", gap=60, now=now, payload={"event_id": e["id"], "label": label, "camera": cam})
         away = None
         who = []
         for p in self._people():
@@ -311,10 +371,9 @@ class Alerts:
                 who.append((p, pr))
         if not who:
             return 0
-        what = LABEL_TITLES[group] if group != "car" or label == "car" else label.capitalize()
-        body = f"{sub} · {cam_title}" if sub else f"{cam_title} camera"
         return await self._deliver(who, title=f"{what} at the {cam_title.lower()}", body=body, cat="cameras",
-                                   ref=ref, image=image, group=f"cam:{cam}")
+                                   ref=ref, image=image, group=f"cam:{cam}", push_category=f"CAMERA_{group.upper()}",
+                                   extra={"event_id": e["id"], "label": label})
 
     # -- Home Assistant ------------------------------------------------------
     async def on_state(self, eid: str, old: dict[str, Any] | None, new: dict[str, Any] | None,
@@ -334,6 +393,8 @@ class Alerts:
         if eid in self.doorbells() and (eid.startswith("event.") or n in OPEN_STATES):
             cam = src["doorbell_camera"] or next(iter(self.default_cameras()), None)
             image = f"/v1/cameras/{cam}/snapshot.jpg" if cam else None
+            self.record("doorbell", "Someone's at the front door", "Doorbell pressed", self._people(),
+                        ref=f"thomascreek://camera/{cam}" if cam else None, image=image, key=f"bell:{eid}", gap=20, now=now)
             who = [(p, pr) for p in self._people() if (pr := self.prefs(p["id"]))["on"] and pr["doorbell"]
                    and self._cooled(p["id"], eid, "doorbell", 20, now)]
             sent += await self._deliver(who, title="Someone's at the front door", body="Doorbell pressed",
@@ -343,12 +404,16 @@ class Alerts:
         if eid in self.hazards() and n == "on":
             dc = (new.get("attributes") or {}).get("device_class")
             what = {"moisture": "Water leak", "smoke": "Smoke", "gas": "Gas", "carbon_monoxide": "Carbon monoxide"}[dc]
+            self.record("house", f"{what}: {name}", "Detected just now", self._people(("admin", "adult", "child")),
+                        key=f"hz:{eid}", gap=300, now=now)
             who = [(p, pr) for p in self._people(("admin", "adult", "child")) if (pr := self.prefs(p["id"]))["on"]
                    and pr["hazards"] and self._cooled(p["id"], eid, "hazard", 300, now)]
             sent += await self._deliver(who, title=f"{what}: {name}", body="Detected just now", cat="house",
                                         urgent=True, group="hazard")
         # Outside doors while nobody is home
         if eid in src["outside_doors"] and n in OPEN_STATES and self.nobody_home():
+            self.record("doors", f"{name} opened", "Nobody is home", self._people(), ref="thomascreek://doors",
+                        key=f"door:{eid}", gap=120, now=now)
             who = [(p, pr) for p in self._people() if (pr := self.prefs(p["id"]))["on"] and pr["away_doors"]
                    and self._cooled(p["id"], eid, "away_door", 120, now)]
             sent += await self._deliver(who, title=f"{name} opened", body="Nobody is home", cat="doors",
@@ -357,6 +422,8 @@ class Alerts:
         # Extra entities Dylan offered
         if any(x["entity_id"] == eid for x in src["extra"]):
             label = next((x.get("name") for x in src["extra"] if x["entity_id"] == eid), None) or name
+            self.record("house", label, f"Now {self._state_words(new)}", self._people(("admin", "adult", "child")),
+                        key=f"ha:{eid}", gap=60, now=now)
             who = [(p, pr) for p in self._people(("admin", "adult", "child")) if (pr := self.prefs(p["id"]))["on"]
                    and (pr["entities"] or {}).get(eid) and self._cooled(p["id"], eid, "entity", 60, now)]
             sent += await self._deliver(who, title=label, body=f"Now {self._state_words(new)}", cat="house",
@@ -393,6 +460,8 @@ class Alerts:
                 continue
             self._garage_sent[eid] = changed
             mins = int((now - since) // 60)
+            self.record("doors", f"{self._name(st, eid)} is open", f"Open for {mins} minutes", self._people(),
+                        ref="thomascreek://garage", now=now)
             who = [(p, pr) for p in self._people() if (pr := self.prefs(p["id"]))["on"] and pr["garage"]]
             sent += await self._deliver(who, title=f"{self._name(st, eid)} is open", body=f"Open for {mins} minutes",
                                         cat="doors", level="decision", ref="thomascreek://garage",
@@ -414,8 +483,148 @@ class Alerts:
                     chosen[p["id"]] = p
         who = [(p, pr) for p in chosen.values() if (pr := self.prefs(p["id"]))["on"] and pr["automations"]]
         image = f"/v1/cameras/{camera}/snapshot.jpg" if camera else None
+        self.record("house", title, message, list(chosen.values()),
+                    ref=f"thomascreek://camera/{camera}" if camera else None, image=image)
         return await self._deliver(who, title=title, body=message, cat="house", urgent=urgent,
                                    ref=f"thomascreek://camera/{camera}" if camera else None, image=image, group="automation")
+
+    # -- "That's not a person" ----------------------------------------------
+    def suppressions(self) -> list[dict[str, Any]]:
+        return list(self.hub.db.kv_get("alerts.suppress") or [])
+
+    def suppressed(self, cam: str, label: str, box: list[float] | None) -> bool:
+        if not box or len(box) != 4:
+            return False
+        for s in self.suppressions():
+            if s["camera"] == cam and s["label"] == label and _iou(s["box"], box) >= 0.35:
+                return True
+        return False
+
+    async def mark_wrong(self, event_id: str, person_id: str | None) -> dict[str, Any]:
+        """Someone says this detection was wrong. Frigate+ learns from it (when Frigate+ is set up), the
+        hub stops alerting for that object in that spot, and its alerts leave everyone's inbox."""
+        e = await self.hub.frigate.event(event_id)
+        cam, label = e.get("camera") or "", e.get("label") or ""
+        box = (e.get("data") or {}).get("box")
+        taught = False
+        try:
+            await self.hub.frigate.mark_false_positive(event_id)
+            taught = True
+        except Exception as exc:  # noqa: BLE001  (no Frigate+, no snapshot, already sent)
+            log.info("Frigate+ false positive for %s: %s", event_id, exc)
+        rule = None
+        if box and len(box) == 4:
+            rules = [s for s in self.suppressions() if not (s["camera"] == cam and s["label"] == label and _iou(s["box"], box) >= 0.8)]
+            rule = {"id": secrets.token_hex(6), "camera": cam, "label": label, "box": [round(float(x), 4) for x in box],
+                    "event_id": event_id, "by": person_id, "at": time.time()}
+            rules.append(rule)
+            self.hub.db.kv_set("alerts.suppress", rules[-200:])
+        self.hub.db.execute("UPDATE inbox SET acked_at=? WHERE acked_at IS NULL AND ref LIKE ? AND title LIKE ?",
+                            [time.time(), f"thomascreek://camera/{cam}%", f"{LABEL_TITLES.get(label, label.capitalize())}%"])
+        self.hub.db.execute("DELETE FROM alert_log WHERE payload LIKE ?", [f'%"event_id": {json.dumps(event_id)}%'])
+        self.hub.db.log("cameras.wrong", "ok", person_id=person_id, target=event_id,
+                        params={"camera": cam, "label": label, "frigate_plus": taught}, source="app")
+        return {"camera": cam, "label": label, "frigate_plus": taught, "ignored_spot": rule}
+
+    def forget_suppression(self, rule_id: str) -> bool:
+        rules = self.suppressions()
+        left = [s for s in rules if s["id"] != rule_id]
+        self.hub.db.kv_set("alerts.suppress", left)
+        return len(left) != len(rules)
+
+    # -- Firewalla alarms -----------------------------------------------------
+    NETWORK_TYPES = {5: "new_device", 1: "security", 2: "security", 14: "security", 16: "security",
+                     15: "internet", 11: "vpn", 13: "vpn", 7: "offline"}
+    KID_TYPES = {10: "adult", 9: "gaming", 8: "video", 3: "bandwidth"}
+
+    def kid_for_device(self, dev: dict[str, Any]) -> dict[str, Any] | None:
+        """The child a Firewalla device belongs to: linked by the hub, or in a Firewalla group named after them."""
+        mac = str(dev.get("mac") or dev.get("id") or "").upper()
+        kids = self.hub.db.people_with_role("child")
+        if mac:
+            row = self.hub.db.one("SELECT person_id FROM network_rules WHERE upper(mac)=?", [mac])
+            if row:
+                return next((k for k in kids if k["id"] == row["person_id"]), None)
+        group = ((dev.get("group") or {}).get("name") if isinstance(dev.get("group"), dict) else None) or ""
+        dname = str(dev.get("name") or "")
+        for k in kids:
+            first = k["name"].split()[0].lower()
+            if group.lower() == first or re.match(rf"^{re.escape(first)}('s|s)?\b", dname.lower()):
+                return k
+        return None
+
+    def _bedtime(self, now: float) -> bool:
+        bed = self.hub.config.child_policy.bedtime or "20:30"
+        return self._quiet_now({"on": True, "from": bed, "to": "06:30"}, now)
+
+    async def on_firewalla(self, a: dict[str, Any], now: float | None = None) -> int:
+        now = now or time.time()
+        t = int(a.get("type") or 0)
+        dev = a.get("device") or {}
+        dname = dev.get("name") or dev.get("mac") or "A device"
+        msg = a.get("message") or ""
+        kid = self.kid_for_device(dev) if dev else None
+        sent = 0
+        if kid:
+            kind = self.KID_TYPES.get(t)
+            if t in (6, 8, 9) and self._bedtime(now):
+                kind = "bedtime"
+            if kind:
+                titles = {"adult": f"Adult site on {kid['name']}'s {dname}",
+                          "gaming": f"{kid['name']} is gaming", "video": f"{kid['name']} is watching video",
+                          "bandwidth": f"{kid['name']}'s {dname} is using a lot of data",
+                          "bedtime": f"{kid['name']}'s {dname} is up past bedtime"}
+                self.record("kids", titles[kind], msg or None, self._people(), ref="thomascreek://kids",
+                            key=f"kid:{dev.get('mac') or dname}:{kind}", gap=1800, now=now,
+                            payload={"kid": kid["name"], "kind": kind})
+                who = [(p, pr) for p in self._people() if (pr := self.prefs(p["id"]))["on"] and pr["kids"].get(kind)
+                       and self._cooled(p["id"], f"fw:{dev.get('mac') or dname}", kind, 1800, now)]
+                sent += await self._deliver(who, title=titles[kind], body=msg or None, cat="house",
+                                            urgent=False, level="decision" if kind == "adult" else "fyi",
+                                            ref="thomascreek://kids", group=f"kid:{kid['id']}")
+                return sent
+        kind = self.NETWORK_TYPES.get(t)
+        if kind:
+            title = {"new_device": f"New device on the network: {dname}", "security": "Network security alert",
+                     "internet": "Internet connection changed", "vpn": "VPN alert", "offline": f"{dname} went offline"}[kind]
+            self.record("network", title, msg or None, self._people(("admin",)), ref="thomascreek://systems",
+                        now=now, payload={"kind": kind})
+            who = [(p, pr) for p in self._people(("admin",)) if (pr := self.prefs(p["id"]))["on"] and pr["network"].get(kind)
+                   and self._cooled(p["id"], f"fw:{a.get('aid')}", kind, 60, now)]
+            sent += await self._deliver(who, title=title, body=msg or None, cat="systems",
+                                        level="decision" if kind == "security" else "fyi", ref="thomascreek://systems",
+                                        group=f"fw:{kind}")
+        return sent
+
+    async def poll_firewalla(self) -> int:
+        fw = self.hub.firewalla
+        if not fw.enabled:
+            return 0
+        rows = await fw.alarms(limit=50)
+        last = float(self.hub.db.kv_get("alerts.firewalla_ts") or 0)
+        newest = max([last] + [float(a.get("ts") or 0) for a in rows])
+        sent = 0
+        if last:  # the first look only sets where to start
+            for a in sorted(rows, key=lambda r: float(r.get("ts") or 0)):
+                if float(a.get("ts") or 0) > last:
+                    try:
+                        sent += await self.on_firewalla(a)
+                    except Exception as exc:  # noqa: BLE001
+                        log.warning("Firewalla alarm %s: %s", a.get("aid"), exc)
+        if newest != last:
+            self.hub.db.kv_set("alerts.firewalla_ts", newest)
+        return sent
+
+    # -- media someone asked for is ready ---------------------------------------
+    async def poll_media(self) -> None:
+        if not self.hub.jellyseerr.enabled:
+            return
+        from .routes.media import _refresh_media_status
+
+        rows = self.hub.db.all("SELECT * FROM requests WHERE kind='media' AND status IN ('approved','downloading') "
+                               "AND external_id IS NOT NULL")
+        if rows:
+            await _refresh_media_status(self.hub, rows)
 
     # -- background --------------------------------------------------------
     def start(self) -> None:
@@ -431,12 +640,18 @@ class Alerts:
         self._ws_task = self._tick_task = None
 
     async def _ticker(self) -> None:
+        n = 0
         while True:
             await asyncio.sleep(30)
-            try:
-                await self.check_garages()
-            except Exception as exc:  # noqa: BLE001
-                log.warning("garage check: %s", exc)
+            n += 1
+            for name, job, every in (("garage check", self.check_garages, 1), ("Firewalla alarms", self.poll_firewalla, 2),
+                                     ("media ready", self.poll_media, 4)):
+                if n % every:
+                    continue
+                try:
+                    await job()
+                except Exception as exc:  # noqa: BLE001
+                    log.info("%s: %s", name, exc)
 
     def _ws_url(self) -> str:
         url = (self.hub.config.home_assistant.url or "").rstrip("/")
@@ -486,3 +701,12 @@ class Alerts:
             self.ws_connected = False
             await asyncio.sleep(delay)
             delay = min(delay * 2, 120)
+
+
+def _iou(a: list[float], b: list[float]) -> float:
+    """Overlap of two Frigate boxes [x, y, w, h] (0..1)."""
+    ax2, ay2, bx2, by2 = a[0] + a[2], a[1] + a[3], b[0] + b[2], b[1] + b[3]
+    iw, ih = max(0.0, min(ax2, bx2) - max(a[0], b[0])), max(0.0, min(ay2, by2) - max(a[1], b[1]))
+    inter = iw * ih
+    union = a[2] * a[3] + b[2] * b[3] - inter
+    return inter / union if union > 0 else 0.0

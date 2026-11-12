@@ -82,6 +82,10 @@ class Firewalla:
     async def resume_rule(self, rule_id: str) -> None:
         await self._req("POST", f"/rules/{quote(rule_id)}/resume")
 
+    async def alarms(self, limit: int = 50) -> list[dict[str, Any]]:
+        data = await self._req("GET", "/alarms", params={"limit": limit, "sortBy": "ts:desc"})
+        return data.get("results", data) if isinstance(data, dict) else (data or [])
+
     async def ping(self) -> None:
         await self.boxes()
 

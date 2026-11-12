@@ -126,6 +126,19 @@ SCHEMA = [
         updated_at REAL NOT NULL
     )""",
     """
+    CREATE TABLE IF NOT EXISTS alert_log (
+        id TEXT PRIMARY KEY,
+        ts REAL NOT NULL,
+        kind TEXT NOT NULL,
+        title TEXT NOT NULL,
+        body TEXT,
+        ref TEXT,
+        image TEXT,
+        people TEXT NOT NULL,
+        payload TEXT NOT NULL DEFAULT '{}'
+    )""",
+    "CREATE INDEX IF NOT EXISTS alert_log_ts ON alert_log(ts)",
+    """
     CREATE TABLE IF NOT EXISTS hub_kv (
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL,

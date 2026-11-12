@@ -358,6 +358,7 @@ struct CameraEventView: View {
                         }
                         .buttonStyle(.borderedProminent).tint(Theme.accent).controlSize(.large)
                     }
+                    WrongDetectionButton(eventID: e.id, label: e.label)
                 } else if failed {
                     EmptyCard(symbol: "video.slash", title: "That event is gone", detail: "Frigate may have cleaned it up already.")
                 } else { LoadingCard() }
@@ -381,5 +382,44 @@ struct CameraEventView: View {
             Text(v).multilineTextAlignment(.trailing)
         }
         .font(.subheadline).padding(.vertical, 6)
+    }
+}
+
+
+/// "Not a person": Frigate+ learns from it and the hub stops alerting for that spot.
+struct WrongDetectionButton: View {
+    @Environment(HomeStore.self) private var store
+    let eventID: String
+    let label: String
+    @State private var done = false
+    @State private var busy = false
+
+    static func title(_ label: String) -> String {
+        switch label {
+        case "person": "Not a person"
+        case "car", "truck", "motorcycle", "bus": "Not a car"
+        case "package": "Not a package"
+        case "dog", "cat", "deer", "bear", "horse", "fox", "raccoon": "Not an animal"
+        default: "Wrong detection"
+        }
+    }
+
+    var body: some View {
+        Button {
+            busy = true
+            Task {
+                defer { busy = false }
+                do {
+                    try await HubClient.shared.send("/v1/cameras/events/\(eventID)/wrong")
+                    done = true
+                    store.show("Got it", "Frigate learns from this, and you won't get alerts for that spot.")
+                } catch { store.show(error.localizedDescription, isError: true) }
+            }
+        } label: {
+            Label(done ? "Marked as wrong" : Self.title(label), systemImage: done ? "checkmark" : "hand.thumbsdown")
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.bordered).controlSize(.large)
+        .disabled(done || busy)
     }
 }

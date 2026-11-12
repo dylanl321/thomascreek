@@ -47,6 +47,12 @@ def _view(h: Hub, c: Caller) -> dict[str, Any]:
         "gaps": list(GAPS),
         "found": h.alerts.summary(),
     }
+    if role != "admin":
+        prefs.pop("network", None)
+    if grown:
+        out["found"]["kids"] = [p["name"] for p in h.db.people_with_role("child")]
+        out["found"]["network"] = h.firewalla.enabled
+        out["found"]["ignored"] = len(h.alerts.suppressions())
     if not grown:
         found = out["found"]
         out["found"] = {"extra": found["extra"], "hazards": found["hazards"], "listening": found["listening"]}
@@ -104,6 +110,33 @@ async def test_alert(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict
         h.db.update("devices", "id", c.device["id"], {"apns_token": None})
     return {"ok": res.ok, "picture": bool(cam), "status": res.status, "reason": res.reason,
             "env": c.device.get("apns_env") or "production"}
+
+
+# -- history: every alert, pushed or not --------------------------------------
+HISTORY_TITLES = {"camera": "Cameras", "package": "Packages", "doorbell": "Doorbell", "doors": "Doors and garage",
+                  "house": "House", "kids": "Kids", "network": "Network", "media": "Media"}
+
+
+def _history_kinds(role: str) -> list[str]:
+    if role == "admin":
+        return list(HISTORY_TITLES)
+    if role in ALERT_ROLES:
+        return [k for k in HISTORY_TITLES if k != "network"]
+    return ["house", "media"]
+
+
+@router.get("/history")
+async def history(kind: str | None = None, before: float | None = None, limit: int = 50,
+                  c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """Everything that could have alerted this person, whether or not they turned its push on."""
+    pid = _person(c)
+    allowed = _history_kinds(c.subject.role)
+    kinds = [k for k in (kind.split(",") if kind else allowed) if k in allowed]
+    if not kinds:
+        return {"items": [], "kinds": [{"id": k, "title": HISTORY_TITLES[k]} for k in allowed]}
+    items = h.alerts.history(pid, ",".join(kinds), before, limit)
+    return {"items": items, "kinds": [{"id": k, "title": HISTORY_TITLES[k]} for k in allowed],
+            "keep_days": h.alerts.KEEP_DAYS}
 
 
 # -- Dylan: what's on offer -----------------------------------------------

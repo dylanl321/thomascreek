@@ -115,6 +115,10 @@ class Frigate(Adapter):
     async def event(self, event_id: str) -> dict[str, Any]:
         return await self.get_json(f"/api/events/{quote(event_id)}")
 
+    async def mark_false_positive(self, event_id: str) -> None:
+        """Send the event to Frigate+ as a false positive (needs Frigate+ and a snapshot)."""
+        await self.request("PUT", f"/api/events/{quote(event_id)}/false_positive")
+
     async def event_snapshot(self, event_id: str) -> bytes:
         return (await self.request("GET", f"/api/events/{quote(event_id)}/snapshot.jpg", params={"bbox": 1})).content
 
