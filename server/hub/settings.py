@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 
 FAVORITE_KINDS = ("room", "device", "camera", "mode", "media", "recipe", "youtube")
 MAX_FAVORITES = 60
-HOME_SECTIONS = ("whos_home", "rightnow", "status", "favorites", "modes", "kids", "playing", "cameras", "holiday",
+HOME_SECTIONS = ("whos_home", "rightnow", "status", "favorites", "modes", "kids", "playing", "printer", "cameras", "holiday",
                  "trip", "today", "systems")
 
 _ID = re.compile(r"^[A-Za-z0-9_.:\-/]{1,200}$")
