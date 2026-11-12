@@ -182,12 +182,13 @@ struct PeopleView: View {
                     Section {
                         ForEach(p.devices ?? []) { d in
                             HStack {
-                                Image(systemName: d.status == "revoked" ? "iphone.slash" : "iphone")
+                                Image(systemName: d.status == "revoked" ? "iphone.slash" : (d.test == true ? "hammer" : "iphone"))
                                 VStack(alignment: .leading) {
                                     Text(d.name)
                                     if let s = d.lastSeen { Text("Seen \(clock(s))").font(.caption).foregroundStyle(Theme.dim) }
                                 }
                                 Spacer()
+                                if d.test == true { Pill(text: "Test") }
                                 if d.id == AppSettings.deviceID { Pill(text: "This phone") }
                             }
                             .swipeActions {

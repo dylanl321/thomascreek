@@ -27,18 +27,7 @@ final class Enrollment {
         // 2. Register.
         store.phase = .enrolling
         do {
-            let publicKey = try DeviceKeys.devicePublicKey()
-            var body: [String: Any] = [
-                "device_name": UIDevice.current.name,
-                "model": Self.modelName,
-                "platform": UIDevice.current.userInterfaceIdiom == .pad ? "ipados" : "ios",
-                "os_version": UIDevice.current.systemVersion,
-                "app_version": Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "",
-                "public_key": publicKey,
-            ]
-            if let secure = try? DeviceKeys.securePublicKey() { body["secure_public_key"] = secure }
-            if let t = PushRegistration.shared.token { body["apns_token"] = t; body["apns_env"] = PushRegistration.apsEnvironment }
-            let r: EnrollReply = try await HubClient.shared.call("POST", "/v1/enroll", body: body, auth: false)
+            let r = try await register()
             AppSettings.deviceID = r.deviceId
             await store.enrolled(status: r.status)
         } catch HubClient.HubError.unreachable {
@@ -47,6 +36,49 @@ final class Enrollment {
         } catch {
             store.phase = .failed(error.localizedDescription)
         }
+    }
+
+    /// A Simulator that joined before the Mac had a test key: enroll again with the key so the hub lets it in.
+    func upgradeTestDevice() async {
+        guard Self.testKey != nil, !running else { return }
+        running = true; defer { running = false }
+        if let r = try? await register(), r.status == "active" { await HomeStore.shared.enrolled(status: r.status) }
+    }
+
+    private func register() async throws -> EnrollReply {
+        let publicKey = try DeviceKeys.devicePublicKey()
+        var body: [String: Any] = [
+            "device_name": UIDevice.current.name,
+            "model": Self.modelName,
+            "platform": UIDevice.current.userInterfaceIdiom == .pad ? "ipados" : "ios",
+            "os_version": UIDevice.current.systemVersion,
+            "app_version": Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "",
+            "public_key": publicKey,
+        ]
+        if let secure = try? DeviceKeys.securePublicKey() { body["secure_public_key"] = secure }
+        if let t = PushRegistration.shared.token { body["apns_token"] = t; body["apns_env"] = PushRegistration.apsEnvironment }
+        #if targetEnvironment(simulator)
+        body["simulator"] = true
+        if let key = Self.testKey { body["test_key"] = key }
+        #endif
+        return try await HubClient.shared.call("POST", "/v1/enroll", body: body, auth: false)
+    }
+
+    /// Simulator builds only: the hub test key Dylan made on the hub web page (Test simulators), so
+    /// each new Simulator joins as him without an approval. Read from the Mac running the Simulator:
+    /// the THOMASCREEK_TEST_KEY environment variable (SIMCTL_CHILD_THOMASCREEK_TEST_KEY with simctl),
+    /// else ~/.thomascreek/test-key. Real phones never compile this in.
+    static var testKey: String? {
+        #if targetEnvironment(simulator)
+        let env = ProcessInfo.processInfo.environment
+        if let k = env["THOMASCREEK_TEST_KEY"]?.trimmingCharacters(in: .whitespacesAndNewlines), !k.isEmpty { return k }
+        guard let home = env["SIMULATOR_HOST_HOME"] else { return nil }
+        let k = (try? String(contentsOfFile: home + "/.thomascreek/test-key", encoding: .utf8))?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return (k?.isEmpty == false) ? k : nil
+        #else
+        return nil
+        #endif
     }
 
     /// "iPhone16,2" style identifier; the hub turns it into a friendly name for Dylan's notification.
