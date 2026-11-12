@@ -107,7 +107,7 @@ async def test_apns_request_shape(hub):
         res = await apns.send("abcd", alert_payload("Hi", "there", cat="doors"), env="sandbox")
         assert res.ok
         req = route.calls[0].request
-        assert req.headers["apns-topic"] == "me.dlewis.christmaslights"
+        assert req.headers["apns-topic"] == "me.dlewis.thomascreek"
         assert req.headers["authorization"].startswith("bearer ")
         assert json.loads(req.content)["cat"] == "doors"
         assert (await apns.send("dead", {"aps": {}})).token_dead

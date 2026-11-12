@@ -1,62 +1,57 @@
 # Running the hub on TrueNAS
 
-Nothing in these steps changes Home Assistant or any other system: the hub
-starts in practice mode (`dry_run: true`), reads real data, and only logs what it
-would have done. Turn actions on later, one at a time.
-
 ## 1. Datasets
 
 Create two datasets (names are examples):
 
 - `POOL/apps/thomascreek-hub/data`: config, vault, database, TLS key, house assets. Include it in snapshots.
-- `POOL/apps/thomascreek-hub/secrets`: only the master key file. Root-only permissions. Back up the key **offline**, separately from the data snapshots; the vault is useless without it, and the key alone is useless without the vault.
+- `POOL/apps/thomascreek-hub/secrets`: only the master key file. Back up the key **offline**, separately from the data snapshots; the vault is useless without it, and the key alone is useless without the vault.
 
-## 2. Build the image on the NAS
+## 2. Install as a custom app
+
+Apps > Discover Apps > Custom App > Install via YAML, paste `compose.yaml` with the
+two host paths filled in (and the branch in the build URL if it is not `main`).
+TrueNAS builds the image straight from GitHub; no registry is involved.
+Host networking is used so Bonjour works on home Wi-Fi and the hub sees each
+phone's real address.
+
+On first start the hub writes the master key into the secrets folder (root-only,
+never printed), makes its TLS certificate and an empty vault.
+
+The config lives in `data/config.yaml` (start from `config.example.yaml`), or in a
+file named by `HUB_CONFIG_FILE`. `dry_run: true` is practice mode: reads are real
+and writes are only logged. `dry_run: false` makes every action live.
+
+## 3. Secrets
+
+Open a shell in the container (Apps > thomascreek-hub > Shell, or
+`docker exec -it ix-thomascreek-hub-hub-1 sh`) and store each credential. Each
+command prompts without echo and never prints the value back:
 
 ```sh
-git clone https://github.com/dylanl321/thomascreek && cd thomascreek/server
-docker build -t thomascreek-hub:0.1.0 .
-```
-
-## 3. Master key, config, secrets
-
-```sh
-docker run --rm -v /mnt/POOL/apps/thomascreek-hub/secrets:/s thomascreek-hub:0.1.0 init-key /s/hub_master_key
-cp config.example.yaml /mnt/POOL/apps/thomascreek-hub/data/config.yaml   # then edit addresses
-```
-
-Store each credential (prompts without echo, never printed back):
-
-```sh
-alias hub='docker run --rm -it -v /mnt/POOL/apps/thomascreek-hub/data:/data \
-  -v /mnt/POOL/apps/thomascreek-hub/secrets/hub_master_key:/run/secrets/hub_master_key:ro thomascreek-hub:0.1.0'
 hub secrets set home_assistant.token
 hub secrets set plex.token
 hub secrets set truenas.api_key
 hub secrets set jellyseerr.api_key
+hub secrets set sonarr.api_key
+hub secrets set radarr.api_key
 hub secrets set mealie.token
 hub secrets set homebox.password
 hub secrets set show_player.app_token
 hub secrets set frigate.password          # only if using Frigate's authenticated port
-hub secrets set firewalla.msp_token       # only with Firewalla MSP
+hub secrets set firewalla.msp_token
 hub secrets set guest_wifi.password
-hub secrets set apns.auth_key_p8 < AuthKey_XXXXXXXXXX.p8
+hub secrets set apns.auth_key_p8          # paste the .p8 contents, then Ctrl-D
 hub secrets list
 ```
 
 Recommended: give the hub its own **non-admin Home Assistant user** and token, a
 **read-only TrueNAS API key** for a dedicated user, and a Plex token for a managed user.
 
-## 4. Install as a custom app
-
-Apps > Discover Apps > Custom App > Install via YAML, paste `compose.yaml` with the
-two host paths filled in. Host networking is used so Bonjour works on home Wi-Fi
-and the hub sees each phone's real address.
-
-Then check every connection (read-only):
+## 4. Check every connection (read-only)
 
 ```sh
-docker exec -it thomascreek-hub hub check
+hub check
 ```
 
 ## 5. Make Dylan the admin
@@ -64,17 +59,16 @@ docker exec -it thomascreek-hub hub check
 Open the app on home Wi-Fi; it enrolls itself. Then:
 
 ```sh
-docker exec -it thomascreek-hub hub devices list
-docker exec -it thomascreek-hub hub bootstrap-admin Dylan dev_xxxxxxxx
+hub devices list
+hub bootstrap-admin Dylan dev_xxxxxxxx
 ```
 
 Every later phone shows up as a "New iPhone joined" notice on Dylan's phone.
 
 ## 6. Turn things on, one at a time
 
-Add action names to `hub.live_actions` in `config.yaml` and restart the app, for
-example `[light.set, scene.run]` first. `dry_run: false` makes everything live; leave
-it `true` and use the list. Names: see docs/API.md, plus `lights.control`,
+With `dry_run: true`, add action names to `hub.live_actions` and restart the app,
+for example `[light.set, scene.run]` first. With `dry_run: false` everything is live. Names: see docs/API.md, plus `lights.control`,
 `media.approve`, `chores.done`, `chores.redeem`, `shopping.add`.
 
 ## Built-in VPN (optional)

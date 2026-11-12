@@ -47,7 +47,7 @@ show_player:
   enabled: true
   url: http://SHOW_PLAYER:8770
   token_secret: show_player.app_token
-  token_header: X-App-Token
+  token_header: Authorization   # show_player.py expects "Bearer <APP_TOKEN>"
 
 firewalla:
   enabled: false
@@ -60,7 +60,7 @@ apns:
   team_id: YOUR_TEAM_ID
   key_id: KEYID
   key_secret: apns.auth_key_p8           # contents of the AuthKey_XXXX.p8 file
-  topic: me.dlewis.christmaslights
+  topic: me.dlewis.thomascreek
 
 vpn:
   provider: none     # wg-cli to turn on the built-in VPN

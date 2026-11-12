@@ -76,7 +76,7 @@ class ApnsConfig(BaseModel):
     team_id: str | None = None
     key_id: str | None = None
     key_secret: str = "apns.auth_key_p8"
-    topic: str = "me.dlewis.christmaslights"
+    topic: str = "me.dlewis.thomascreek"
 
 
 class VpnConfig(BaseModel):
@@ -187,7 +187,9 @@ def master_key_path() -> Path:
 
 
 def load_config(path: Path | None = None) -> Config:
-    path = path or data_dir() / "config.yaml"
+    if path is None:
+        override = os.environ.get("HUB_CONFIG_FILE")
+        path = Path(override) if override else data_dir() / "config.yaml"
     if not path.exists():
         return Config()
     raw = yaml.safe_load(path.read_text()) or {}
