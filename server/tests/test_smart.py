@@ -122,6 +122,7 @@ def test_away_cards(hub, people):
     hub.home.states["person.dylan"] = {"entity_id": "person.dylan", "state": "not_home", "attributes": {}}
     hub.home.states["lock.front_door"]["state"] = "unlocked"
     dylan = subj(hub, people["dylan"], people["phones"]["Dylan"])
+    dylan.at_home = False  # looking from outside the house
     cards = hub.smart.cards(dylan, at(hub, h=11))
     assert cards[0]["rule"] == "away_unlocked" and cards[0]["buttons"][0]["action"] == "lock.set"
     lights = next(c for c in cards if c["rule"] == "away_lights")
@@ -180,3 +181,28 @@ def test_weather_shape_finds_rain_and_tonights_low():
 
 def test_hm():
     assert hm("18:15", 0) == 1095 and hm("bad", 7) == 7
+
+
+def test_not_away_when_the_viewer_or_a_kid_is_home(hub, people):
+    hub.home.states["person.dylan"] = {"entity_id": "person.dylan", "state": "not_home", "attributes": {}}
+    hub.home.states["lock.front_door"]["state"] = "unlocked"
+    dylan = subj(hub, people["dylan"], people["phones"]["Dylan"])
+    dylan.at_home = False
+    hub.smart.kids_online = True
+    assert "away_unlocked" not in rules(hub.smart.cards(dylan, at(hub, h=19)))
+    assert "away_lights" not in rules(hub.smart.cards(dylan, at(hub, h=19)))
+    hub.smart.kids_online = False
+    dylan.at_home = True
+    assert "away_unlocked" not in rules(hub.smart.cards(dylan, at(hub, h=19)))
+
+
+def test_one_lock_listed_once_even_with_two_entities(hub, people):
+    for eid in ("lock.home_connect_620", "lock.home_connect_620_2"):
+        hub.home.states[eid] = {"entity_id": eid, "state": "unlocked",
+                                "attributes": {"friendly_name": "Home Connect 620 Connected Smart Lock"}}
+    dylan = subj(hub, people["dylan"], people["phones"]["Dylan"])
+    lock = next(c for c in hub.smart.cards(dylan, at(hub, h=22, mi=5)) if c["rule"] == "lockup")
+    names = [i["title"] for i in lock["items"]]
+    assert names.count("Home Connect 620 Connected Smart Lock") == 1
+    steps = lock["buttons"][0]["params"]["steps"]
+    assert {s["target"] for s in steps if s["action"] == "lock.set"} >= {"lock.home_connect_620", "lock.home_connect_620_2"}
