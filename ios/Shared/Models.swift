@@ -597,3 +597,44 @@ extension Me {
         guest = try c.decodeIfPresent(GuestInfo.self, forKey: .guest)
     }
 }
+
+// The hub sends `year` as text ("2024") and can leave `title` null when a lookup fails;
+// decode both leniently so one odd row doesn't blank the whole pipeline.
+extension Pipeline.Request {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        kind = try c.decodeIfPresent(String.self, forKey: .kind)
+        title = (try? c.decodeIfPresent(String.self, forKey: .title)) ?? "Untitled"
+        year = (try? c.decodeIfPresent(Int.self, forKey: .year))
+            ?? (try? c.decodeIfPresent(String.self, forKey: .year)).flatMap { $0.flatMap { Int($0) } }
+        posterUrl = try? c.decodeIfPresent(String.self, forKey: .posterUrl)
+        status = try? c.decodeIfPresent(String.self, forKey: .status)
+        mediaStatus = try? c.decodeIfPresent(String.self, forKey: .mediaStatus)
+        requestedBy = try? c.decodeIfPresent(String.self, forKey: .requestedBy)
+        requestedAt = try? c.decodeIfPresent(String.self, forKey: .requestedAt)
+    }
+}
+
+extension Pipeline.Download {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        title = (try? c.decodeIfPresent(String.self, forKey: .title)) ?? "Untitled"
+        progress = try? c.decodeIfPresent(Double.self, forKey: .progress)
+        etaS = try? c.decodeIfPresent(Double.self, forKey: .etaS)
+        state = try? c.decodeIfPresent(String.self, forKey: .state)
+        source = try? c.decodeIfPresent(String.self, forKey: .source)
+        error = try? c.decodeIfPresent(String.self, forKey: .error)
+    }
+}
+
+extension Pipeline.Item {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        kind = try? c.decodeIfPresent(String.self, forKey: .kind)
+        title = (try? c.decodeIfPresent(String.self, forKey: .title)) ?? "Untitled"
+        detail = try? c.decodeIfPresent(String.self, forKey: .detail)
+        at = try? c.decodeIfPresent(String.self, forKey: .at)
+        source = try? c.decodeIfPresent(String.self, forKey: .source)
+        hasFile = try? c.decodeIfPresent(Bool.self, forKey: .hasFile)
+    }
+}
