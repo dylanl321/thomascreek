@@ -1,0 +1,58 @@
+# The full app with the built-in VPN. Needs Go for the WireGuard bridge:
+#   brew install go xcodegen && cd ios && xcodegen --spec project-vpn.yml
+# XcodeGen merges this over project.yml and appends lists, so only the tunnel is added here.
+include:
+  - project.yml
+packages:
+  WireGuardKit:
+    url: https://git.zx2c4.com/wireguard-apple
+    # 1.0.15-26. Later tags and master declare swift-tools-version 5.3 but use
+    # .iOS(.v15), which Xcode 27's manifest compiler rejects.
+    revision: 10da5cfdef362889b438cfbeff867a74e6d717fd
+targets:
+  ThomasCreek:
+    dependencies:
+      - target: ThomasCreekTunnel
+    entitlements:
+      properties:
+        com.apple.developer.networking.networkextension: [packet-tunnel-provider]
+  ThomasCreekTunnel:
+    type: app-extension
+    platform: iOS
+    sources:
+      - Tunnel
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(BUNDLE_ID).tunnel
+        PRODUCT_NAME: ThomasCreekTunnel
+        SKIP_INSTALL: YES
+        ENABLE_BITCODE: NO
+    info:
+      path: Tunnel/Info.plist
+      properties:
+        CFBundleDisplayName: Thomas Creek Tunnel
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        AppGroup: $(APP_GROUP)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.networkextension.packet-tunnel
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).PacketTunnelProvider
+    entitlements:
+      path: Tunnel/Tunnel.entitlements
+      properties:
+        com.apple.security.application-groups: [$(APP_GROUP)]
+        com.apple.developer.networking.networkextension: [packet-tunnel-provider]
+    dependencies:
+      - target: WireGuardGoBridgeiOS
+      - package: WireGuardKit
+  # Builds wireguard-go into libwg-go.a with the Makefile that ships inside the package.
+  WireGuardGoBridgeiOS:
+    type: ""
+    platform: iOS
+    legacy:
+      toolPath: /usr/bin/make
+      passSettings: true
+      workingDirectory: ${BUILD_DIR%Build/*}SourcePackages/checkouts/wireguard-apple/Sources/WireGuardKitGo
+    settings:
+      base:
+        SDKROOT: iphoneos
