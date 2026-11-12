@@ -667,6 +667,8 @@ def test_refusal_reason_is_shown_and_status_json_is_home_only(hub, home_client, 
     assert away_client.get("/admin/status.json").status_code == 403
     rows = {r["id"]: r for r in home_client.get("/admin/status.json").json()}
     assert rows["trek"]["error"].endswith("(API_TOKEN_INVALID)") and "trek_x" not in str(rows)
+    detail = home_client.get("/admin/status.json?detail=1").json()
+    assert "ffmpeg" in detail and detail["download_failures"] == [] and "trek_x" not in str(detail)
 
 
 def test_trek_key_shape_is_explained(hub):

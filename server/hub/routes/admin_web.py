@@ -14,6 +14,7 @@ import asyncio
 import hashlib
 import html
 import json
+import os
 import re
 import secrets
 import time
@@ -425,7 +426,21 @@ or text files named after a key (for example trek.api_key.txt). Each goes to the
 async def status_json(request: Request, h: Hub = Depends(hub)) -> JSONResponse:
     """Home network only: each service's health (no keys, no values). For checking a deploy."""
     _home_only(request, h)
-    return JSONResponse([{k: s.get(k) for k in ("id", "ok", "last_ok", "error")} for s in h.health()])
+    rows = [{k: s.get(k) for k in ("id", "ok", "last_ok", "error")} for s in h.health()]
+    if request.query_params.get("detail"):
+        import shutil
+        import subprocess
+
+        ff = shutil.which("ffmpeg")
+        try:
+            ver = subprocess.run([ff, "-version"], capture_output=True, text=True, timeout=5).stdout.splitlines()[0] \
+                if ff else "not installed"
+        except Exception as exc:  # noqa: BLE001
+            ver = f"failed: {type(exc).__name__}"
+        dl = getattr(h, "downloads", None)
+        return JSONResponse({"services": rows, "build": os.environ.get("HUB_BUILD"), "ffmpeg": ver,
+                             "download_failures": list(getattr(dl, "failures", []))})
+    return JSONResponse(rows)
 
 
 @pages.get("/admin")

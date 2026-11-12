@@ -109,6 +109,8 @@ class Downloads:
         self.root = root
         self.jobs: dict[str, Job] = {}
         self._slots = asyncio.Semaphore(MAX_JOBS)
+        # The last few failures with ffmpeg's own last line, for the LAN status page (no tokens in them).
+        self.failures: list[dict[str, Any]] = []
 
     # -- jobs ---------------------------------------------------------------
     async def start(self, item_id: str, quality: str, media: dict[str, Any], item: dict[str, Any],
@@ -141,6 +143,9 @@ class Downloads:
                 await self._run_ffmpeg(job, media, mode)
             except Exception as exc:  # noqa: BLE001
                 log.warning("download %s failed: %s", job.id, exc)
+                self.failures = [*self.failures[-9:], {
+                    "at": time.time(), "job": job.id, "item": job.item_id, "quality": job.quality, "mode": mode,
+                    "error": str(exc)[:300]}]
                 job.status, job.error = "failed", "The hub couldn't prepare this title. Try another quality."
                 if job.path:
                     job.path.unlink(missing_ok=True)
