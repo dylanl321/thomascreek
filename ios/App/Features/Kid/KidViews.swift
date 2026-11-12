@@ -299,6 +299,8 @@ struct KidWatchView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 DownloadsEntry(tint: little ? Theme.little : Theme.kid)
+                YouTubeShelf(tint: little ? Theme.little : Theme.kid)
+                if !items.isEmpty { SectionHeader(little ? "Movies and shows" : "Rated for you") }
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: little ? 150 : 120), spacing: 14)], spacing: 16) {
                     ForEach(items) { m in Poster(item: m).onTapGesture { picked = m } }
                 }
