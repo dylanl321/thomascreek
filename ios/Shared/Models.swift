@@ -244,7 +244,8 @@ struct CalendarEvent: Codable, Hashable, Identifiable {
     var stableID: String { id ?? "\(title)-\(start)" }
     /// Calendars often send all-day events as a bare date or as midnight-to-midnight without the flag.
     var isAllDay: Bool {
-        if let allDay { return allDay }
+        // The board's export marks timed-looking midnight tasks all_day=false, so only trust `true`.
+        if allDay == true { return true }
         if start.count <= 10 { return true }
         guard let s = ISO.parse(start) else { return false }
         let cal = Calendar.current
@@ -252,7 +253,7 @@ struct CalendarEvent: Codable, Hashable, Identifiable {
         guard let e = end.flatMap(ISO.parse) else { return true }
         let hours = e.timeIntervalSince(s) / 3600
         let rest = hours.truncatingRemainder(dividingBy: 24)
-        return hours >= 23 && (rest < 1 || rest > 23)
+        return hours <= 0 || (hours >= 23 && (rest < 1 || rest > 23))
     }
 }
 struct Dinner: Codable, Hashable { var title: String; var imageUrl: String?; var emoji: String?; var recipeId: String? }
@@ -605,6 +606,13 @@ enum ISO {
         if let d = f.date(from: s) { return d }
         f.formatOptions = [.withInternetDateTime]
         if let d = f.date(from: s) { return d }
+        // Floating local time with no zone ("2026-11-12T16:00:00"), as the calendar export sends.
+        let local = DateFormatter()
+        local.locale = Locale(identifier: "en_US_POSIX"); local.timeZone = .current
+        for fmt in ["yyyy-MM-dd'T'HH:mm:ss", "yyyy-MM-dd'T'HH:mm"] {
+            local.dateFormat = fmt
+            if let d = local.date(from: s) { return d }
+        }
         f.formatOptions = [.withFullDate]
         f.timeZone = .current
         return f.date(from: s)
