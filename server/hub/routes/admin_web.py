@@ -199,7 +199,11 @@ form.edit{display:grid;gap:8px;padding:8px 0 4px}textarea,input[type=text]{width
 button{font:inherit;padding:7px 14px;border-radius:8px;border:1px solid var(--acc);background:var(--acc);color:#fff;cursor:pointer}
 button.ghost{background:transparent;color:var(--bad);border-color:var(--line)}.code{font:600 34px ui-monospace,Menlo,monospace;letter-spacing:4px}
 .flash{padding:10px 14px;border-radius:10px;background:var(--card);border:1px solid var(--line);margin:12px 0}
-h3{font-size:15px;margin:22px 0 8px}.field{padding:14px 0;border-top:1px solid var(--line)}.field:first-child{border-top:0}
+h3{font-size:13px;margin:22px 0 6px;color:var(--dim);text-transform:uppercase;letter-spacing:.04em;font-weight:600}
+details.key{border-top:1px solid var(--line)}details.key:first-child{border-top:0}
+details.key>summary{list-style:none;display:flex;justify-content:space-between;align-items:center;gap:12px;padding:11px 0;color:var(--fg)}
+details.key>summary::-webkit-details-marker{display:none}details.key>summary>span:first-child::before{content:"›";display:inline-block;width:14px;color:var(--dim);transition:transform .15s}
+details.key[open]>summary>span:first-child::before{transform:rotate(90deg)}.kbody{padding:0 0 12px 14px}.field{padding:14px 0;border-top:1px solid var(--line)}.field:first-child{border-top:0}
 .fhead{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:2px}
 .factions{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px}.fform{display:flex;flex-wrap:wrap;gap:8px;align-items:center;flex:1}
 .fform input[type=password]{flex:1;min-width:200px;font:13px ui-monospace,Menlo,monospace;padding:8px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--fg)}
@@ -316,9 +320,9 @@ def _field_html(h: Hub, csrf: str, name: str, label: str, kind: str, note: str) 
     remove = (f"<form method=post action=/admin/secrets/delete class=inline><input type=hidden name=csrf value={csrf}>"
               f"<input type=hidden name=name value='{e(name)}'><button class=ghost "
               f"onclick=\"return confirm('Remove the saved {e(label)}?')\">Remove</button></form>" if have else "")
-    return f"""<div class=field><div class=fhead><b>{e(label)}</b>{badge}</div><div class=dim>{e(note)}</div>
+    return f"""<details class=key><summary><span>{e(label)}</span>{badge}</summary><div class=kbody><div class=dim>{e(note)}</div>
 <div class=factions><form method=post action=/admin/secrets enctype=multipart/form-data class=fform>
-<input type=hidden name=csrf value={csrf}><input type=hidden name=name value='{e(name)}'>{inp}<button>{'Replace' if have else 'Save'}</button></form>{remove}</div></div>"""
+<input type=hidden name=csrf value={csrf}><input type=hidden name=name value='{e(name)}'>{inp}<button>{'Replace' if have else 'Save'}</button></form>{remove}</div></div></details>"""
 
 
 def _sections_html(h: Hub, csrf: str) -> str:
@@ -342,22 +346,22 @@ def _sections_html(h: Hub, csrf: str) -> str:
                         f"<input type=hidden name=name value='{e(c['name'])}'><button class=ghost "
                         f"onclick=\"return confirm('Remove this VPN client?')\">Remove</button></form></div></div>")
         out.append(f"""<h3>Away-from-home VPN</h3><div class=card>
-<div class=field><div class=fhead><b>Firewalla VPN clients</b><span class=pill-{'ok' if rows else 'miss'}>{len(rows)} saved</span></div>
-<div class=dim>In the Firewalla app, VPN Server, WireGuard: share each client's .conf file, then choose them all here at once.
-A file named after a person (LAUREN.conf) is kept for that person; the others go to any phone.</div>
+<details class=key><summary><span>Add Firewalla VPN clients</span><span class=pill-{'ok' if rows else 'miss'}>{len(rows)} saved</span></summary>
+<div class=kbody><div class=dim>In the Firewalla app, VPN Server, WireGuard: share each client's .conf file, then choose them all here at once.
+A file named after someone in the hub (LAUREN.conf) is kept for that person; the others go to any phone.</div>
 <div class=factions><form method=post action=/admin/vpn enctype=multipart/form-data class=fform>
-<input type=hidden name=csrf value={csrf}><input type=file name=files multiple accept=".conf,text/plain" required><button>Add</button></form></div></div>
+<input type=hidden name=csrf value={csrf}><input type=file name=files multiple accept=".conf,text/plain" required><button>Add</button></form></div></div></details>
 {''.join(rows)}</div>""")
     # House model
     from ..config import data_dir
 
     have_model = (data_dir() / "assets" / "house-model-web.json").is_file()
-    out.append(f"""<h3>3D house</h3><div class=card><div class=field><div class=fhead><b>House model</b>
-<span class=pill-{'ok' if have_model else 'miss'}>{'Saved' if have_model else 'Missing'}</span></div>
-<div class=dim>The house-model-web.json file for the app's 3D view.</div>
+    out.append(f"""<h3>3D house</h3><div class=card><details class=key><summary><span>House model</span>
+<span class=pill-{'ok' if have_model else 'miss'}>{'Saved' if have_model else 'Missing'}</span></summary>
+<div class=kbody><div class=dim>The house-model-web.json file for the app's 3D view.</div>
 <div class=factions><form method=post action=/admin/house-model enctype=multipart/form-data class=fform>
 <input type=hidden name=csrf value={csrf}><input type=file name=file accept=".json,application/json" required>
-<button>{'Replace' if have_model else 'Save'}</button></form></div></div></div>""")
+<button>{'Replace' if have_model else 'Save'}</button></form></div></div></details></div>""")
     # Anything else in the vault the sections don't cover.
     known = {f[0] for sec in SECTIONS for f in sec["fields"]} | NEVER_EDIT
     extra = [n for n in sorted(h.vault.names()) if n not in known and not n.startswith(h.config.vpn.pool_prefix)]
@@ -408,11 +412,11 @@ def _status_page(h: Hub, claims: dict[str, Any], flash: str | None) -> str:
 <div class=row><div>Devices</div><div class=dim>{e(dev)}</div></div>
 <div class=row><div>TLS pin</div><div class=dim><code>{e(pin or '')}</code></div></div></div>
 <h2>Keys and files</h2><p class=dim>Values are never shown again; saving replaces the old one right away.</p>
-<div class=card><div class=field><div class=fhead><b>Upload several files at once</b></div>
-<div class=dim>Choose any mix: the Firewalla VPN .conf files, the AuthKey_….p8 push key, house-model-web.json,
+<div class=card><details class=key><summary><span>Upload several files at once</span><span class=dim>VPN, push key, house model…</span></summary>
+<div class=kbody><div class=dim>Choose any mix: the Firewalla VPN .conf files, the AuthKey_….p8 push key, house-model-web.json,
 or text files named after a key (for example trek.api_key.txt). Each goes to the right place.</div>
 <div class=factions><form method=post action=/admin/upload enctype=multipart/form-data class=fform>
-<input type=hidden name=csrf value={csrf}><input type=file name=files multiple required><button>Upload</button></form></div></div></div>
+<input type=hidden name=csrf value={csrf}><input type=file name=files multiple required><button>Upload</button></form></div></div></details></div>
 {sections_html}
 """)
 
