@@ -15,6 +15,7 @@ struct CamerasView: View {
     @State private var cameraFilter: String?
     @State private var labelFilter: String?
     @State private var loadingMore = false
+    @State private var loadError: String?
 
     private var allCameras: [Camera] { cameras ?? store.home?.cameras ?? [] }
     private var labels: [String] {
@@ -62,7 +63,9 @@ struct CamerasView: View {
         }
         .scrollClipDisabled()
         if let events {
-            if events.isEmpty {
+            if let loadError, events.isEmpty {
+                EmptyCard(symbol: "exclamationmark.triangle", title: "Couldn't load camera events", detail: loadError)
+            } else if events.isEmpty {
                 EmptyCard(symbol: "video.badge.checkmark", title: "Nothing spotted",
                           detail: "When the cameras see a person, car or animal it shows up here.")
             } else {
@@ -97,10 +100,9 @@ struct CamerasView: View {
         if let cameraFilter { q["camera"] = cameraFilter }
         if let labelFilter { q["label"] = labelFilter }
         if !reset, let nextBefore { q["before"] = nextBefore }
-        guard let page: CameraEvents = try? await HubClient.shared.get("/v1/cameras/events", q) else {
-            if reset && events == nil { events = [] }
-            return
-        }
+        let page: CameraEvents
+        do { page = try await HubClient.shared.get("/v1/cameras/events", q); loadError = nil }
+        catch { loadError = error.localizedDescription; if reset { events = [] }; return }
         events = reset ? page.items : (events ?? []) + page.items.filter { n in !(events ?? []).contains { $0.id == n.id } }
         nextBefore = page.nextBefore
     }

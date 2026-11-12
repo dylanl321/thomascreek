@@ -23,6 +23,7 @@ final class HomeStore {
     var inbox: [InboxItem] = []
     /// Newest Frigate detections across all cameras (Home and the Cameras section).
     var recentEvents: [CameraEvent]?
+    var recentEventsError: String?
     var lastUpdate: Date?
     var reachable = true
     var unreachableSince: Date?
@@ -81,7 +82,13 @@ final class HomeStore {
 
     func loadRecentEvents() async {
         guard me?.can(.cameras) == true else { recentEvents = nil; return }
-        if let e: CameraEvents = try? await HubClient.shared.get("/v1/cameras/events", ["limit": "20"]) { recentEvents = e.items }
+        do {
+            let e: CameraEvents = try await HubClient.shared.get("/v1/cameras/events", ["limit": "20"])
+            recentEvents = e.items; recentEventsError = nil
+        } catch {
+            recentEventsError = error.localizedDescription
+            if recentEvents == nil { recentEvents = [] }
+        }
     }
 
     func loadMe() async {

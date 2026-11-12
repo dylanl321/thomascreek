@@ -321,6 +321,7 @@ struct HouseNowPlayingCard: View {
 /// Newest detections, newest first. Tapping one opens its clip; "See all" opens the Cameras section.
 struct RecentEventsStrip: View {
     @Environment(Router.self) private var router
+    @Environment(HomeStore.self) private var store
     let events: [CameraEvent]?
     var body: some View {
         if let events, !events.isEmpty {
@@ -335,6 +336,8 @@ struct RecentEventsStrip: View {
             .scrollClipDisabled()
         } else if events == nil {
             LoadingCard()
+        } else if let err = store.recentEventsError {
+            EmptyCard(symbol: "exclamationmark.triangle", title: "Couldn't load camera events", detail: err)
         } else {
             EmptyCard(symbol: "video.badge.checkmark", title: "Quiet so far today", detail: "People, cars and animals the cameras spot show up here.")
         }
