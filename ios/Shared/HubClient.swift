@@ -235,10 +235,17 @@ struct Empty: Codable {}
 
 /// Certificate pinning for the hub's self-signed certificate. The pin (hex SHA-256 of the certificate's
 /// SubjectPublicKeyInfo) comes from the hub's Bonjour record, read on home Wi-Fi at enrollment.
-final class HubPinning: NSObject, URLSessionDelegate, @unchecked Sendable {
+final class HubPinning: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
     static let shared = HubPinning()
 
     func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge,
+                    completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+        let (d, c) = Self.evaluate(challenge)
+        completionHandler(d, c)
+    }
+
+    /// Streaming tasks (`bytes(for:)`, downloads) get the server-trust challenge at task level.
+    func urlSession(_ session: URLSession, task: URLSessionTask, didReceive challenge: URLAuthenticationChallenge,
                     completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
         let (d, c) = Self.evaluate(challenge)
         completionHandler(d, c)
