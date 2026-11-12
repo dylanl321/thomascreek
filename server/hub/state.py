@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from .actions import ActionRunner
+from .alerts import Alerts
 from .adapters.cameras import Frigate
 from .adapters.family import FamilyBoard, Homebox, Mealie, ShowPlayer
 from .adapters.firewalla import Firewalla
@@ -68,6 +69,7 @@ class Hub:
         self.home = HomeModel(self)
         self.downloads = Downloads(self, (Path(db._path).parent if db._path != ":memory:" else Path("/tmp")) / "downloads")
         self.notify = Notifier(self)
+        self.alerts = Alerts(self)
         self.actions = ActionRunner(self)
         self.timers = Timers(self)
         self._home_nets = [ipaddress.ip_network(n, strict=False) for n in config.hub.home_networks]
@@ -159,6 +161,7 @@ class Hub:
             log.error("VPN did not come up: %s", exc)
         self.home.start()
         self.timers.start()
+        self.alerts.start()
         from .dropbox import watch
 
         self._dropbox = asyncio.create_task(watch(self.vault))
@@ -209,6 +212,10 @@ class Hub:
                         self.frigate.last_event[cam] = item
                     if after is not None and e["id"] not in seen and (e.get("start_time") or 0) >= after:
                         self.bus.publish({"type": "camera_event", "data": item})
+                        try:
+                            await self.alerts.on_frigate(e)
+                        except Exception as exc:  # noqa: BLE001
+                            log.warning("camera alert failed: %s", exc)
                     seen.add(e["id"])
                 if rows:
                     after = max([after or 0] + [r.get("start_time") or 0 for r in rows])
@@ -225,6 +232,7 @@ class Hub:
     async def stop(self) -> None:
         await self.home.stop()
         await self.timers.stop()
+        await self.alerts.stop()
         await self.onepassword.stop()
         if getattr(self, "_dropbox", None):
             self._dropbox.cancel()
