@@ -667,3 +667,15 @@ def test_refusal_reason_is_shown_and_status_json_is_home_only(hub, home_client, 
     assert away_client.get("/admin/status.json").status_code == 403
     rows = {r["id"]: r for r in home_client.get("/admin/status.json").json()}
     assert rows["trek"]["error"].endswith("(API_TOKEN_INVALID)") and "trek_x" not in str(rows)
+
+
+def test_trek_key_shape_is_explained(hub):
+    import asyncio
+
+    hub.config.trek.enabled, hub.config.trek.url = True, "http://trek.test"
+    hub.vault.set("trek.api_key", "mcp_abc")
+    with pytest.raises(Exception):
+        asyncio.run(hub.trek.ping())
+    assert "start with trek_" in hub.trek.last_error
+    hub.vault.set("trek.api_key", "Bearer trek_abc ")
+    assert hub.trek.auth_headers()["Authorization"] == "Bearer trek_abc"

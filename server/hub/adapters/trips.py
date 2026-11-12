@@ -16,7 +16,7 @@ import time
 from datetime import date, timedelta
 from typing import Any
 
-from .base import Adapter
+from .base import Adapter, AdapterError
 
 CACHE_S = 60.0
 # No ?include=: TREK then returns every section the key may read, instead of refusing a narrow key.
@@ -31,14 +31,31 @@ class Trek(Adapter):
         super().__init__(cfg, vault)
         self._cache: dict[str, tuple[float, Any]] = {}
 
+    def api_key(self) -> str | None:
+        key = (self.secret(self.cfg.token_secret) or "").strip()
+        if key.lower().startswith("bearer "):
+            key = key[7:].strip()
+        return key or None
+
     def auth_headers(self) -> dict[str, str]:
-        key = self.secret(self.cfg.token_secret)
+        key = self.api_key()
         headers = {"Accept": "application/json"}
         if key:
             headers["Authorization"] = f"Bearer {key}"
         if (self.cfg.url or "").startswith("http://"):
             headers["X-Forwarded-Proto"] = "https"
         return headers
+
+    async def request(self, method: str, path: str, **kw: Any):
+        key = self.api_key()
+        if not key:
+            self._fail("the TREK API key is not saved yet")
+            raise AdapterError(self.last_error)
+        if not key.startswith("trek_"):
+            # TREK only looks up keys that start with trek_ (Settings, Integrations, API keys).
+            self._fail("the saved TREK key is not a TREK API key (those start with trek_)")
+            raise AdapterError(self.last_error)
+        return await super().request(method, path, **kw)
 
     async def _cached(self, key: str, path: str, **kw: Any) -> Any:
         hit = self._cache.get(key)
