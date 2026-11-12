@@ -54,7 +54,7 @@ struct SearchView: View {
 
     @ViewBuilder private var idle: some View {
         if !recent.isEmpty {
-            SectionHeader("Recent") { MoreButton("Clear") { recent = []; Self.saveRecent([]) } }
+            SectionHeader(title: "Recent") { MoreButton("Clear") { recent = []; Self.saveRecent([]) } }
             FlowChips(items: recent) { query = $0 }
         }
         SectionHeader(little ? "Try" : "Look for")
