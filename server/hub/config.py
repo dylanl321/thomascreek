@@ -76,6 +76,9 @@ class TrekConfig(ServiceConfig):
     the address a phone opens for "Plan in TREK" (the proxied site, if there is one)."""
     web_url: str | None = None
     token_secret: str | None = "trek.api_key"
+    # Changing trips goes through TREK's MCP server with a machine client (OAuth client_credentials).
+    mcp_client_id_secret: str = "trek.mcp_client_id"
+    mcp_client_secret_secret: str = "trek.mcp_client_secret"
     # Trip ids children and the kitchen tablet never see (surprises, adults-only trips).
     hidden_from_children: list[int] = Field(default_factory=list)
 
