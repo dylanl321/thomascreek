@@ -154,4 +154,4 @@ last snapshot at once (LocalSearch), then the hub's groups; `pending` types are 
 kids' player), `request` posts `/v1/requests`, `chore` posts `/v1/chores/{id}/done`; otherwise `deep_link`.
 New deep links: search?q=, remote/<entity>, climate, music, calendar, shopping, inventory, pipeline, hubweb,
 vpnpool, downloads. Spotlight indexes rooms, devices, cameras and screens (identifier = deep link). Siri:
-"Search Thomas Creek". `Router.askAssistant` receives the text from the "Ask Thomas Creek" row.
+"Search Thomas Creek". The "Ask Thomas Creek" row calls `Router.ask`, which opens the assistant with the words.

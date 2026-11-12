@@ -24,7 +24,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from pydantic import BaseModel, Field
 
-from .. import __version__
+from .. import __version__, testkeys
 from ..crypto import CryptoError
 from ..onepassword import NAME_RE
 from ..state import Hub
@@ -62,6 +62,7 @@ DESCRIPTIONS = {
     "onepassword.service_account_token": "1Password service account token",
     "guest_wifi.password": "Guest Wi-Fi password",
     "trek.api_key": "TREK API key",
+    "anthropic.api_key": "Claude API key for the Ask Thomas Creek assistant",
     "appstore.auth_key_p8": "App Store Connect API key (.p8 file), for spotting new app builds",
     "appstore.key_id": "App Store Connect API key ID",
     "appstore.issuer_id": "App Store Connect issuer ID",
@@ -272,6 +273,11 @@ SECTIONS: list[dict[str, Any]] = [
          "(also in ~/.appstoreconnect/config as ASC_ISSUER_ID)."),
         ("appstore.key_id", "Key ID", "text", "Only if the file was renamed: the 10-character Key ID next to the key."),
     ]},
+    {"title": "AI assistant (Claude API key)", "always": True, "fields": [
+        ("anthropic.api_key", "Claude API key", "text",
+         "Powers Ask Thomas Creek (chat and voice). console.anthropic.com: Settings, API keys, Create key. "
+         "It starts with sk-ant-. Setting a monthly spend limit there (Settings, Limits) is a good idea."),
+    ]},
     {"title": "Home Assistant", "service": "home_assistant", "fields": [
         ("home_assistant.token", "Long-lived access token", "text",
          "Home Assistant: your profile, Security tab, Long-lived access tokens, Create token."),
@@ -414,13 +420,14 @@ def _app_update_html(h: Hub, csrf: str) -> str:
     else:
         check = "Add the App Store Connect key under Keys and files so the hub spots new builds by itself, or type the build below."
     rows, behind = [], 0
-    for d in h.db.all("SELECT d.name, d.app_version, d.last_seen_at, p.name AS person FROM devices d "
+    for d in h.db.all("SELECT d.name, d.app_version, d.last_seen_at, d.kind, p.name AS person FROM devices d "
                       "LEFT JOIN people p ON p.id = d.person_id WHERE d.status='active' ORDER BY d.last_seen_at DESC"):
         b = _build_of(d.get("app_version"))
         old = bool(latest and b is not None and b < latest)
         behind += old
         label = e(d["app_version"]) if b is not None else "<span class=dim>not reported yet</span>"
-        rows.append(f"<div class=row><div>{e(d['name'])} <span class=dim>{e(d.get('person') or '')}</span></div>"
+        tag = " · test" if d.get("kind") == "test" else ""
+        rows.append(f"<div class=row><div>{e(d['name'])} <span class=dim>{e(d.get('person') or '')}{tag}</span></div>"
                     f"<div class=dim>{label}{' · <b>behind</b>' if old else ''} · {_ago(d.get('last_seen_at'))}</div></div>")
     pill = (f"<span class=pill-miss>{behind} behind</span>" if behind else
             ("<span class=pill-ok>All current</span>" if latest else "<span class=dim>off</span>"))
@@ -437,7 +444,47 @@ can't use the app until they update. Turn on TestFlight's Automatic Updates and 
 {''.join(rows) or '<div class=row><div class=dim>No phones yet</div></div>'}</div></details></div>"""
 
 
-def _status_page(h: Hub, claims: dict[str, Any], flash: str | None) -> str:
+def _test_keys_html(h: Hub, csrf: str, new_key: str | None = None) -> str:
+    """Test simulators: keys that let Simulator builds join as Dylan without approving each one."""
+    e = html.escape
+    rows = []
+    sims = 0
+    for k in testkeys.keys(h):
+        person = h.db.person(k["person_id"]) or {"name": "?"}
+        exp = time.strftime("%b %-d, %Y", time.localtime(k["expires_at"])) if k.get("expires_at") else "never"
+        expired = bool(k.get("expires_at") and k["expires_at"] < time.time())
+        devs = testkeys.active_devices(h, k["id"])
+        sims += len(devs)
+        dev_rows = "".join(
+            f"<div class=row><div>{e(d['name'])} <span class=dim>{e(d.get('app_version') or '')}</span></div>"
+            f"<div class=dim>seen {_ago(d.get('last_seen_at'))} "
+            f"<form method=post action=/admin/test-device-remove style='display:inline'><input type=hidden name=csrf value={csrf}>"
+            f"<input type=hidden name=id value={e(d['id'])}><button class=ghost>Remove</button></form></div></div>"
+            for d in devs)
+        rows.append(f"""<div class=row><div><b>{e(k['label'])}</b> <span class=dim>joins as {e(person['name'])} ·
+made {_ago(k['created_at'])} · {'<b>expired</b>' if expired else 'expires ' + exp} · last used {_ago(k.get('last_used_at'))}</span></div>
+<form method=post action=/admin/test-key-revoke><input type=hidden name=csrf value={csrf}><input type=hidden name=id value={e(k['id'])}>
+<button class=ghost>Turn off</button></form></div>{dev_rows or '<div class=row><div class=dim>No simulators yet</div></div>'}""")
+    shown = ""
+    if new_key:
+        cmd = (f"mkdir -p ~/.thomascreek && printf %s '{new_key}' > ~/.thomascreek/test-key "
+               f"&& chmod 600 ~/.thomascreek/test-key")
+        shown = f"""<div class=flash style="margin:10px 0"><b>New test key.</b> It is shown only this once. On the Mac that runs the
+Simulators, paste this into Terminal (it saves the key where Simulator builds look for it):
+<pre id=tkcmd style="white-space:pre-wrap;word-break:break-all;user-select:all">{e(cmd)}</pre>
+<button type=button onclick="navigator.clipboard.writeText(document.getElementById('tkcmd').textContent).then(()=>this.textContent='Copied')">Copy</button></div>"""
+    pill = (f"<span class=pill-ok>{sims} simulator{'s' if sims != 1 else ''}</span>" if rows else "<span class=dim>off</span>")
+    return f"""<div class=card style="margin-top:10px"><details class=key{' open' if new_key else ''}><summary><span>Test simulators</span>{pill}</summary>
+<div class=kbody><div class=dim>A test key lets Simulator builds of the app join as you without approving each one. The app sends it only
+from the Simulator, and only on home Wi-Fi; real phones still wait for you. Simulators get a <b>Test</b> tag and no VPN client.
+Turning a key off removes every simulator it let in.</div>{shown}
+{''.join(rows)}
+<form method=post action=/admin/test-key class=fform style="margin:10px 0"><input type=hidden name=csrf value={csrf}>
+<input name=label placeholder="Name, e.g. Dylan's Mac" maxlength=60 value="Dylan's Mac"><button>Make a test key</button></form>
+</div></details></div>"""
+
+
+def _status_page(h: Hub, claims: dict[str, Any], flash: str | None, new_key: str | None = None) -> str:
     e = html.escape
     csrf = _csrf(claims)
     # Services
@@ -472,6 +519,7 @@ def _status_page(h: Hub, claims: dict[str, Any], flash: str | None) -> str:
 <div class=row><div>Devices</div><div class=dim>{e(dev)}</div></div>
 <div class=row><div>TLS pin</div><div class=dim><code>{e(pin or '')}</code></div></div></div>
 {_app_update_html(h, csrf)}
+{_test_keys_html(h, csrf, new_key)}
 <h2>Keys and files</h2><p class=dim>Values are never shown again; saving replaces the old one right away.</p>
 <div class=card><details class=key><summary><span>Upload several files at once</span><span class=dim>VPN, push key, house model…</span></summary>
 <div class=kbody><div class=dim>Choose any mix: the Firewalla VPN .conf files, the AuthKey_….p8 push key, house-model-web.json,
@@ -760,3 +808,29 @@ async def house_model(request: Request, h: Hub = Depends(hub)) -> Response:
     h.db.log("admin.asset_set", "ok", person_id=claims.get("per"), device_id=claims.get("dev"), target="house-model",
              source="web")
     return _back("Saved the house model.")
+
+
+@pages.post("/admin/test-key")
+async def make_test_key(request: Request, h: Hub = Depends(hub)) -> Response:
+    claims, form = await _form_session(request, h)
+    label = str(form.get("label") or "").strip() or "Test simulators"
+    _, key = testkeys.create(h, claims["per"], label, created_by=claims.get("per"))
+    # Rendered straight into the reply (not a redirect) so the key never sits in a URL or the history.
+    return HTMLResponse(_status_page(h, claims, "Made a test key.", new_key=key), headers=_headers())
+
+
+@pages.post("/admin/test-key-revoke")
+async def revoke_test_key(request: Request, h: Hub = Depends(hub)) -> Response:
+    claims, form = await _form_session(request, h)
+    n = testkeys.revoke(h, str(form.get("id") or ""), by=claims.get("per"))
+    return _back(f"Turned the test key off and removed {n} simulator{'s' if n != 1 else ''}.")
+
+
+@pages.post("/admin/test-device-remove")
+async def remove_test_device(request: Request, h: Hub = Depends(hub)) -> Response:
+    claims, form = await _form_session(request, h)
+    d = h.db.device(str(form.get("id") or ""))
+    if d is None or d.get("kind") != "test":
+        return _back("That isn't a test simulator.")
+    h.revoke_device(d, reason="test simulator removed on the web page")
+    return _back(f"Removed {d['name']}.")

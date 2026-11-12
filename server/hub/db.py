@@ -139,11 +139,29 @@ SCHEMA = [
     )""",
     "CREATE INDEX IF NOT EXISTS alert_log_ts ON alert_log(ts)",
     """
+    CREATE TABLE IF NOT EXISTS test_keys (
+        id TEXT PRIMARY KEY,
+        key_hash TEXT NOT NULL UNIQUE,
+        label TEXT NOT NULL,
+        person_id TEXT NOT NULL,
+        created_by TEXT,
+        created_at REAL NOT NULL,
+        expires_at REAL,
+        revoked_at REAL,
+        last_used_at REAL
+    )""",
+    """
     CREATE TABLE IF NOT EXISTS hub_kv (
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL,
         updated_at REAL NOT NULL
     )""",
+]
+
+# Columns added after the first deploy: (table, column, definition). Added on start if missing.
+ADDED_COLUMNS = [
+    ("devices", "kind", "TEXT NOT NULL DEFAULT 'phone'"),   # phone | test (a simulator joined with a test key)
+    ("devices", "test_key_id", "TEXT"),
 ]
 
 JSON_COLUMNS = {"areas", "shared_areas", "grants", "denies", "prefs", "activity", "actions", "payload", "params"}
@@ -179,6 +197,10 @@ class DB:
             self._conn.execute("PRAGMA foreign_keys=ON")
             for stmt in SCHEMA:
                 self._conn.execute(stmt)
+            for table, col, ddl in ADDED_COLUMNS:
+                have = {r[1] for r in self._conn.execute(f"PRAGMA table_info({table})")}
+                if col not in have:
+                    self._conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}")
 
     # -- low level -------------------------------------------------------
     def execute(self, sql: str, args: Iterable[Any] = ()) -> sqlite3.Cursor:

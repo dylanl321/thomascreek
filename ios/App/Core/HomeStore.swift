@@ -61,6 +61,9 @@ final class HomeStore {
             Task.detached(priority: .background) { OfflineCache.trim() }
         }
         if me != nil && phase == .launching { phase = me?.role == .pending ? .pending : .ready }
+        #if targetEnvironment(simulator)
+        if phase == .pending || me?.role == .pending { await Enrollment.shared.upgradeTestDevice() }
+        #endif
         await refreshAll()
         openStream()
     }

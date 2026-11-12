@@ -161,14 +161,15 @@ actor HubClient {
     }
 
     func raw(_ method: String, _ path: String, query: [String: String] = [:], body: Data? = nil,
-             auth: Bool = true, confirm: String? = nil, retried: Bool = false) async throws -> Data {
+             auth: Bool = true, confirm: String? = nil, retried: Bool = false, timeout: TimeInterval? = nil) async throws -> Data {
         let list = bases()
         guard !list.isEmpty else { throw HubError.unreachable }
         var bearer: String?
         if auth { bearer = try await accessToken() }
         var lastError: Error = HubError.unreachable
         for base in list {
-            let req = request(base, method, path, query: query, body: body, bearer: bearer, confirmHeader: nil)
+            var req = request(base, method, path, query: query, body: body, bearer: bearer, confirmHeader: nil)
+            if let timeout { req.timeoutInterval = max(req.timeoutInterval, timeout) }
             let data: Data, resp: URLResponse
             do { (data, resp) = try await session.data(for: req) }
             catch { lastError = HubError.unreachable; continue }
@@ -182,7 +183,7 @@ actor HubClient {
                 throw HubError.notEnrolled
             case 401 where auth && !retried:
                 signOut()
-                return try await raw(method, path, query: query, body: body, auth: auth, confirm: confirm, retried: true)
+                return try await raw(method, path, query: query, body: body, auth: auth, confirm: confirm, retried: true, timeout: timeout)
             case 428:
                 guard let confirm else { throw HubError.confirmRequired }
                 let nonce = (Self.errorBody(data)?["nonce"] as? String)

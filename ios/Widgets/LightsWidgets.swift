@@ -7,6 +7,7 @@ import ActivityKit
 struct HomeWidgetBundle: WidgetBundle {
     var body: some Widget {
         HouseWidget()
+        AskControl()
         ModesWidget()
         ChoresWidget()
         StatusWidget()
@@ -276,5 +277,16 @@ struct NextSceneControl: ControlWidget {
             ControlWidgetButton(action: NextSceneIntent()) { Label("Next Scene", systemImage: "forward.fill") }
         }
         .displayName("Next Scene")
+    }
+}
+
+/// Control Center and Action Button: open Thomas Creek listening.
+struct AskControl: ControlWidget {
+    var body: some ControlWidgetConfiguration {
+        StaticControlConfiguration(kind: "AskThomasCreek") {
+            ControlWidgetButton(action: OpenAskIntent()) { Label("Talk to Thomas Creek", systemImage: "mic.fill") }
+        }
+        .displayName("Talk to Thomas Creek")
+        .description("Opens Thomas Creek ready to listen.")
     }
 }

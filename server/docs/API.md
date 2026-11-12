@@ -38,9 +38,15 @@ the TXT record, for a phone that reached the hub by a typed address.
 
 `POST /v1/enroll` (home Wi-Fi only)
 ```
-{device_name, model?, platform?, app_version?, public_key, secure_public_key?, apns_token?, apns_env?}
+{device_name, model?, platform?, app_version?, public_key, secure_public_key?, apns_token?, apns_env?,
+ simulator?: bool, test_key?: "tctest_..."}
 -> {device_id, status: "pending" | "active"}
 ```
+- **Test simulators:** with `simulator: true` and a live `test_key` (made on `/admin`, Test simulators) the device is
+  `active` at once for the key's person (Dylan), with no approval card, `kind: "test"` (shown as `test: true` in
+  `/v1/people`) and no VPN client (`/v1/vpn/config` -> 403 `test_device`). A bad, expired or turned-off key, or a key
+  without `simulator: true`, is `403 bad_test_key`. Still home Wi-Fi only. Turning a key off removes its devices.
+  A pending device that enrolls again with a key is upgraded. Only the key's SHA-256 is stored.
 - `public_key`: Secure Enclave P-256 key, base64 X9.63 uncompressed (`SecKeyCopyExternalRepresentation`) or DER SPKI.
 - `secure_public_key`: a second SE key created with `.biometryCurrentSet`. Without it the device can never do secure-tier actions.
 - Same key again returns the same `device_id` (idempotent). Dylan gets a push "New iPhone joined" with **Choose person** / **Remove**.

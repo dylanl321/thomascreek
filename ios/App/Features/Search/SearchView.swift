@@ -160,8 +160,7 @@ struct SearchView: View {
     private var askRow: some View {
         Button {
             remember(query)
-            router.askAssistant = query
-            dismiss()
+            router.ask(query)
         } label: {
             HStack(spacing: 12) {
                 IconBadge(symbol: "sparkles", color: tint, size: 38)

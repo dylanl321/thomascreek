@@ -55,6 +55,8 @@ targets:
         NSSupportsLiveActivities: true
         NSSupportsLiveActivitiesFrequentUpdates: true
         NSFaceIDUsageDescription: Face ID confirms it's you before a door, lock, camera or oven changes.
+        NSMicrophoneUsageDescription: Lets you talk to Thomas Creek. Your voice is turned into text on this iPhone.
+        NSSpeechRecognitionUsageDescription: Turns what you say to Thomas Creek into text, on this iPhone when it can.
         NSLocalNetworkUsageDescription: Finds the Thomas Creek hub on your home Wi-Fi.
         NSBonjourServices: [_thomascreek._tcp]
         CoreSpotlightContinuation: true

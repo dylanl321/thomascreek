@@ -35,13 +35,29 @@ final class Router {
     var showSearch = false
     /// Words to put in the search box when it opens (Spotlight, Siri, thomascreek://search?q=).
     var searchQuery: String?
-    /// A question handed from search to the assistant ("Ask Thomas Creek"); the assistant screen watches this.
-    var askAssistant: String?
+    /// Ask Thomas Creek, the quick chat and voice panel.
+    var showAssistant = false
 
     /// Open search, optionally with words already typed.
     func startSearch(_ q: String? = nil) {
         searchQuery = q
         showSearch = true
+    }
+
+    /// Hand a question from search to Ask Thomas Creek, once the search sheet has gone.
+    func ask(_ q: String) {
+        showSearch = false
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(450))
+            showAssistant = true
+            AssistantModel.shared.send(q, screen: screenName)
+        }
+    }
+
+    /// Where the person is, so "turn that off" can mean the thing on screen.
+    var screenName: String {
+        let top = paths[tab]?.last.map { " › \(String(describing: $0))" } ?? ""
+        return tab.rawValue.capitalized + top
     }
 
     func path(_ tab: AppTab) -> Binding<[Destination]> {
@@ -67,6 +83,9 @@ final class Router {
         let kid = role == .child
         switch parts.first ?? "" {
         case "home", "": show(.home)
+        case "ask", "talk":
+            showAssistant = true
+            if parts.first == "talk" { Task { await AssistantModel.shared.startListening(screen: screenName) } }
         case "show", "lights", "holiday": kid ? show(.home, .holiday) : show(.house, .holiday)
         case "house3d": show(.house, .house3D)
         case "controllers": show(.house, .holidayControllers)

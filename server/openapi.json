@@ -6220,6 +6220,23 @@
        }
       ],
       "title": "Apns Env"
+     },
+     "simulator": {
+      "type": "boolean",
+      "title": "Simulator",
+      "default": false
+     },
+     "test_key": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 100
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Test Key"
      }
     },
     "type": "object",
