@@ -679,3 +679,9 @@ def test_trek_key_shape_is_explained(hub):
     assert "start with trek_" in hub.trek.last_error
     hub.vault.set("trek.api_key", "Bearer trek_abc ")
     assert hub.trek.auth_headers()["Authorization"] == "Bearer trek_abc"
+
+
+def test_trek_block_without_token_secret_still_uses_the_saved_key():
+    from hub.config import Config
+
+    assert Config(**{"trek": {"enabled": True, "url": "http://trek.test"}}).trek.token_secret == "trek.api_key"
