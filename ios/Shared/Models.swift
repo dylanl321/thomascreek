@@ -190,6 +190,8 @@ struct HomeSnapshot: Codable, Hashable {
     var seasonal: Seasonal?
     var weather: Weather?
     var smart: [SmartCard]?
+    /// 3D printers (the workshop), when this person may see them.
+    var printers: [PrinterSummary]?
 
     struct HouseStatus: Codable, Hashable {
         var level: String
@@ -863,3 +865,28 @@ extension JSONValue {
         }
     }
 }
+
+// MARK: - Workshop (3D printers)
+
+struct PrinterJob: Codable, Hashable {
+    var name: String
+    var progress: Int?
+    var minutesLeft: Int?
+    var finishAt: Double?
+    var layer: Int?
+    var layers: Int?
+    var stage: String?
+}
+
+/// The short version in /v1/home, for the House tile and the Home card.
+struct PrinterSummary: Codable, Hashable, Identifiable {
+    var id: String
+    var name: String
+    var model: String?
+    var state: String
+    var online: Bool?
+    var setUp: Bool?
+    var job: PrinterJob?
+    var color: String?
+}
+

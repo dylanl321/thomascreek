@@ -192,6 +192,13 @@ final class HomeStore {
         case "now_playing":
             guard let n = e.data.flatMap({ Self.decode([NowPlaying].self, $0) }), var h = home else { return }
             h.nowPlaying = n; home = h
+        case "printer":
+            // Live printer status: refresh the Home summary and hand the full status to an open Workshop.
+            guard let st = e.data.flatMap({ Self.decode(PrinterStatus.self, $0) }), var h = home else { return }
+            let sum = PrinterSummary(id: st.id, name: st.name, model: st.model, state: st.state, online: st.online,
+                                     setUp: st.setUp, job: st.job, color: st.activeTray?.color)
+            if let i = h.printers?.firstIndex(where: { $0.id == st.id }) { h.printers?[i] = sum; home = h }
+            NotificationCenter.default.post(name: .printerStatus, object: st)
         case "hello":
             return
         case "camera_event":

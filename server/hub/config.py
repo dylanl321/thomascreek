@@ -147,6 +147,25 @@ class AppUpdateConfig(BaseModel):
     check_minutes: int = 15
 
 
+class PrinterEntry(BaseModel):
+    """One Bambu printer. Host, serial and access code can live in the vault as
+    printer.<id>.host / .serial / .access_code so they're added on the admin page."""
+    id: str = "h2s"
+    name: str = "H2S"
+    model: str = "H2S"
+    host: str | None = None
+    serial: str | None = None
+    # Where project_file finds a file uploaded over FTPS.
+    file_url_prefix: str = "file:///sdcard/"
+
+
+class PrintersConfig(BaseModel):
+    enabled: bool = True
+    printers: list[PrinterEntry] = Field(default_factory=lambda: [PrinterEntry()])
+    # Push "done" / "stopped" / "needs you" to whoever started the print (admins otherwise).
+    notify: bool = True
+
+
 class ChildPolicy(BaseModel):
     climate_min: float = 66
     climate_max: float = 74
@@ -256,6 +275,7 @@ class Config(BaseModel):
     youtube: YouTubeConfig = Field(default_factory=YouTubeConfig)
     app_update: AppUpdateConfig = Field(default_factory=AppUpdateConfig)
     assistant: AssistantConfig = Field(default_factory=AssistantConfig)
+    printers: PrintersConfig = Field(default_factory=PrintersConfig)
     child_policy: ChildPolicy = Field(default_factory=ChildPolicy)
     smart: SmartConfig = Field(default_factory=SmartConfig)
     guest: GuestInfo = Field(default_factory=GuestInfo)

@@ -38,7 +38,7 @@ RATE_MAX = 40
 # Never reachable from the assistant: sign-in, keys, raw media/camera bytes, device plumbing.
 DENY = re.compile(
     r"^/v1/(admin|auth|enroll|hello|ping|events|assistant|vpn|push|devices/(push|prefs|activity)|app/)"
-    r"|/(stream|hls|file|mjpeg|webrtc|player|pass)(/|$)|\.(jpg|mp4)$|/(art|image|assets|player-art)(/|$)"
+    r"|/(stream|hls|file|mjpeg|webrtc|player|pass)(/|$)|\.(jpg|png|mp4)$|/(art|image|assets|player-art)(/|$)"
 )
 # Catalog sections hidden from people without the matching capability (the endpoints refuse anyway).
 TAG_CAPS: dict[str, tuple[str, ...]] = {
@@ -198,7 +198,10 @@ class Assistant:
                 "vol_up|vol_down|volume|source|up|down|left|right|select|back|home, volume, source}; "
                 "media.volume {volume}; speaker.group {members[]}; announce {text, rooms[]} (no target); "
                 "vacuum.start; valve.run {minutes}; oven.set {mode, temp, minutes}; oven.timer {minutes}; "
-                "shower.preheat; network.pause / network.grant {minutes} (target = child's person id); "
+                "shower.preheat; printer.control {command pause|resume|stop}; printer.light {on}; "
+                "printer.speed {speed silent|standard|sport|ludicrous}; printer.temp {heater nozzle|bed|chamber, temp °C}; "
+                "printer.print {model_id, plate, ams_mapping[]} (target = printer id from GET /v1/printers, e.g. h2s; "
+                "models from GET /v1/printers/library); network.pause / network.grant {minutes} (target = child's person id); "
                 "system.app_restart (target app name). Use ids from `house`."),
              "input_schema": {"type": "object", "additionalProperties": False, "required": ["action", "summary"],
                               "properties": {

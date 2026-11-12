@@ -56,7 +56,7 @@ struct HouseView: View {
             if !(h?.devices(kind: .valve).isEmpty ?? true) {
                 SectionTile(symbol: "drop.fill", title: "Outdoor", detail: "Irrigation") { router.go(.outdoor) }
             }
-            if !(h?.devices(kind: .printer).isEmpty ?? true) {
+            if !(h?.printers?.isEmpty ?? true) {
                 SectionTile(symbol: "printer.fill", title: "Workshop", detail: printersLine) { router.go(.workshop) }
             }
         }
@@ -83,8 +83,11 @@ struct HouseView: View {
         return on == 0 ? "All off" : "\(on) on"
     }
     private var printersLine: String {
-        let p = (store.home?.devices(kind: .printer) ?? []).filter { $0["state"]?.string == "printing" }.count
-        return p == 0 ? "Idle" : "\(p) printing"
+        let list = store.home?.printers ?? []
+        if let p = list.first(where: { $0.state == "printing" }), let pct = p.job?.progress { return "\(p.job?.name ?? p.name) · \(pct)%" }
+        if list.contains(where: { $0.state == "done" }) { return "Print done" }
+        if list.contains(where: { $0.state == "paused" }) { return "Paused" }
+        return list.allSatisfy { $0.online == false } ? "Offline" : "Ready"
     }
 }
 

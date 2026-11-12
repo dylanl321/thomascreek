@@ -14,6 +14,7 @@ struct HomeView: View {
                 HeroHeader(title: greeting(me?.firstName), subtitle: dateLine, show3D: true)
                 VPNNotice()
                 RightNowSection()
+                ForEach(home?.activePrinters ?? []) { PrinterNowCard(printer: $0) }
                 if !store.reachable {
                     // Everyone sees the offline strip; Dylan also gets the likely cause.
                     if store.role == .admin { OfflineCard() }

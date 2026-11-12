@@ -10,7 +10,7 @@ enum AppTab: String, Hashable {
 /// Every screen a deep link, notification or card can open.
 enum Destination: Hashable {
     case room(String)
-    case climate, doors, cameras, camera(String), cameraEvent(String), appliances, outdoor, workshop
+    case climate, doors, cameras, camera(String), cameraEvent(String), appliances, outdoor, workshop, printLibrary
     case holiday, holidayControllers, house3D
     case remote(String), music, watch, requests, pipeline, askMedia, mediaTitle(String), mediaRequest(String)
     case calendar, meals, recipe(String), shopping, chores, inventory
@@ -101,6 +101,9 @@ final class Router {
         case "recipes": kid ? show(.home) : show(.family, .recipes)
         case "recipe": if parts.count > 1 { show(kid ? .home : .family, .recipe(parts[1])) }
         case "kids": if !kid { show(.home, .kidNet) }
+        case "workshop", "printer", "printers":
+            let lib = parts.count > 1 && parts[1] == "library"
+            kid ? show(.home, lib ? .printLibrary : .workshop) : show(.house, lib ? .printLibrary : .workshop)
         case "event": if parts.count > 1, !kid { show(.house, .cameraEvent(parts[1])) }
         case "chores": kid ? show(.chores) : show(.family, .chores)
         case "trips", "trip":

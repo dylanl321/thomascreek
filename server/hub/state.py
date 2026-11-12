@@ -34,6 +34,7 @@ from .policy import Policy, Subject
 from .push import APNs
 from .onepassword import OnePasswordSync
 from .kitchen import Kitchen
+from .bambu import Workshop
 from .timers import Timers
 from .vault import Vault
 from .vpn import Vpn
@@ -83,6 +84,7 @@ class Hub:
         self.actions = ActionRunner(self)
         self.timers = Timers(self)
         self.kitchen = Kitchen(self)
+        self.workshop = Workshop(self, config.printers, data / "printers")
         self.smart = Smart(self)
         self.assistant = Assistant(self)
         self._home_nets = [ipaddress.ip_network(n, strict=False) for n in config.hub.home_networks]
@@ -95,7 +97,7 @@ class Hub:
                 self.homebox, self.family_board, self.trek, self.show_player, self.firewalla]
 
     def health(self) -> list[dict[str, Any]]:
-        return [a.health() for a in self.adapters]
+        return [a.health() for a in self.adapters] + self.workshop.health()
 
     # -- network position -------------------------------------------------
     def client_ip(self, peer: str | None, forwarded_for: str | None) -> str | None:
@@ -203,6 +205,7 @@ class Hub:
         self.timers.start()
         self.youtube.start()
         self.kitchen.start()
+        self.workshop.start()
         self.smart.start()
         self.alerts.start()
         from .dropbox import watch
@@ -278,6 +281,7 @@ class Hub:
         await self.timers.stop()
         await self.youtube.stop()
         await self.kitchen.stop()
+        await self.workshop.stop()
         await self.smart.stop()
         await self.alerts.stop()
         await self.onepassword.stop()

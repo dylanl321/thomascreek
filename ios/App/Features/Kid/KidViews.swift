@@ -57,6 +57,7 @@ struct KidHomeView: View {
                 if !store.reachable { KidNap() }
                 // Dinner and the next trip have their own cards on this screen.
                 RightNowSection(hide: ["my_dinner", "trip"], kid: true)
+                ForEach(store.home?.activePrinters ?? []) { PrinterNowCard(printer: $0, kid: true) }
                 if store.me?.can(.tripsView) == true { KidTripCard(little: little, color: color) }
                 if little { littleHome } else { kidHome }
             }

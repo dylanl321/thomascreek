@@ -90,6 +90,8 @@ class ActionRunner:
             return self._plan_network(s, action, target_id, params)
         if action == "announce":
             return self._plan_announce(s, params)
+        if action.startswith("printer."):
+            return self._plan_printer(s, action, target_id, params)
 
         kinds = ACTION_KINDS.get(action)
         if kinds is None:
@@ -249,6 +251,71 @@ class ActionRunner:
         return Plan(action, Target(entity_id=person_id), params, d, custom={"person": person, "minutes": minutes},
                     label=person["name"])
 
+    def _plan_printer(self, s: Subject, action: str, printer_id: str | None, params: dict[str, Any]) -> Plan:
+        from .bambu import HEATERS, SPEED_LEVELS, PrinterError
+
+        try:
+            p = self.hub.workshop.get(printer_id or "")
+        except PrinterError as exc:
+            raise ActionError(exc.status, exc.error, exc.message) from None
+        if action not in ("printer.control", "printer.light", "printer.speed", "printer.temp", "printer.print"):
+            raise ActionError(400, "unknown_action", f"Unknown action {action}")
+        clean: dict[str, Any] = {}
+        if action == "printer.control":
+            if params.get("command") not in ("pause", "resume", "stop"):
+                raise ActionError(400, "bad_params", "command must be pause, resume or stop")
+            clean["command"] = params["command"]
+        elif action == "printer.light":
+            clean["on"] = bool(params.get("on", True))
+        elif action == "printer.speed":
+            if params.get("speed") not in SPEED_LEVELS:
+                raise ActionError(400, "bad_params", "speed must be silent, standard, sport or ludicrous")
+            clean["speed"] = params["speed"]
+        elif action == "printer.temp":
+            heater = params.get("heater")
+            if heater not in HEATERS:
+                raise ActionError(400, "bad_params", "heater must be nozzle, bed or chamber")
+            try:
+                temp = int(params.get("temp"))  # type: ignore[arg-type]
+            except (TypeError, ValueError):
+                raise ActionError(400, "bad_params", "temp must be a number of °C") from None
+            if not 0 <= temp <= HEATERS[heater][1]:
+                raise ActionError(400, "bad_params", f"{heater} must be 0 to {HEATERS[heater][1]}°C")
+            clean.update(heater=heater, temp=temp)
+        else:
+            if not params.get("model_id"):
+                raise ActionError(400, "bad_params", "model_id is required")
+            clean = {k: params[k] for k in ("model_id", "plate", "ams_mapping", "bed_leveling", "timelapse") if k in params}
+        target = Target(entity_id=p.id, kind="printer")
+        d = self.hub.policy.decide(s, action, target, clean)
+        return Plan(action, target, clean, d, custom={"printer": p.id}, label=p.entry.name)
+
+    async def _run_printer(self, s: Subject, plan: Plan) -> str:
+        from .bambu import PrinterError
+
+        ws = self.hub.workshop
+        p = ws.get(plan.custom["printer"])
+        q = plan.params
+        name = p.entry.name
+        try:
+            if plan.action == "printer.control":
+                await p.control(q["command"])
+                return {"pause": f"{name} paused", "resume": f"{name} is printing again",
+                        "stop": f"Stopped the print on the {name}"}[q["command"]]
+            if plan.action == "printer.light":
+                await p.set_light(q["on"])
+                return f"{name} light {'on' if q['on'] else 'off'}"
+            if plan.action == "printer.speed":
+                await p.set_speed(q["speed"])
+                return f"{name} speed: {q['speed']}"
+            if plan.action == "printer.temp":
+                await p.set_temp(q["heater"], q["temp"])
+                return f"{q['heater'].capitalize()} set to {q['temp']}°C" if q["temp"] else f"{q['heater'].capitalize()} heater off"
+            title = await ws.print_model(p.id, q["model_id"], q, s.person_id)
+            return f"Printing {title} on the {name}"
+        except PrinterError as exc:
+            raise ActionError(exc.status, exc.error, exc.message) from None
+
     def _plan_announce(self, s: Subject, params: dict[str, Any]) -> Plan:
         text = str(params.get("text", "")).strip()[:300]
         if not text:
@@ -303,7 +370,7 @@ class ActionRunner:
             raise ActionError(502, "failed", f"The house didn't respond: {exc}") from exc
         db.log(plan.action, outcome, person_id=s.person_id, device_id=s.device_id,
                target=plan.target.entity_id, params=_safe(plan.params), detail=detail, source=source)
-        if live and plan.target.entity_id:
+        if live and plan.target.entity_id and not plan.action.startswith("printer."):
             self.hub.bus.publish({"type": "device", "entity_id": plan.target.entity_id})
         await self._notice(s, plan, outcome)
         return {"ok": True, "message": msg, "dry_run": not live}
@@ -317,6 +384,8 @@ class ActionRunner:
         return f"{label}: {p.get('mode') or 'Bake'}{temp}. You'll get a notice when it's hot."
 
     async def _run_custom(self, s: Subject, plan: Plan) -> str:
+        if plan.action.startswith("printer."):
+            return await self._run_printer(s, plan)
         fw = self.hub.firewalla
         person = plan.custom["person"]
         rules = fw.rules_for(person["id"])
