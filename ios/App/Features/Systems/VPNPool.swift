@@ -83,7 +83,10 @@ struct VPNImportSheet: View {
             }
             .padding(24)
             .toolbar { Button(result == nil ? "Cancel" : "Done") { done?(); dismiss() } }
-            .task { text = Self.read(file) ; if text == nil { error = "Couldn't read that file." } }
+            .task {
+                text = Self.read(file)
+                if text == nil { error = "Couldn't read that file." }
+            }
         }
     }
 
