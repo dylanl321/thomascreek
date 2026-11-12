@@ -396,7 +396,7 @@ struct SystemsStrip: View {
         HStack(spacing: 10) {
             tile("Storage", pool.map { "\(Int($0.used))%" } ?? "–", pool?.scrubPct.map { "Scrub \(Int($0))%" }, bar: pool.map { $0.used / 100 }) { router.show(.systems, .storage) }
             let apps = systems.apps
-            tile("Apps", apps.map { "\($0.total - $0.crashed)/\($0.total)" } ?? "–",
+            tile("Apps", apps.flatMap { a in a.total.map { "\($0 - a.crashed)/\($0)" } } ?? "–",
                  apps.map { $0.crashed > 0 ? "\($0.crashed) crashed" : "Running" }, bad: (apps?.crashed ?? 0) > 0) { router.show(.systems, .storage) }
             tile("Internet", systems.internet.map { $0.up ? "Up" : "Down" } ?? "–",
                  systems.internet?.downMbps.map { "\(Int($0)) Mbps" }, bad: systems.internet?.up == false) { router.show(.systems) }
