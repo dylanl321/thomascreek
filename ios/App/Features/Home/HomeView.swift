@@ -88,7 +88,8 @@ struct HomeView: View {
 
 // MARK: - Hero
 
-/// The house art with the greeting, the profile avatar, the 3D chip and the inbox bell over it.
+/// The house art with the profile avatar, the 3D chip and the inbox bell over it.
+/// The date and greeting sit up in the sky, under the buttons, so they never cover the house.
 struct HeroHeader: View {
     @Environment(HomeStore.self) private var store
     @Environment(Router.self) private var router
@@ -98,22 +99,24 @@ struct HeroHeader: View {
     var height: CGFloat = 230
 
     var body: some View {
-        ZStack(alignment: .bottomLeading) {
+        ZStack(alignment: .topLeading) {
             HubImage(path: "/v1/assets/header") {
                 Image("HomeHeader").resizable().scaledToFill()
             }
             .frame(height: height).frame(maxWidth: .infinity).clipped()
-            LinearGradient(colors: [.clear, .black.opacity(0.55)], startPoint: .center, endPoint: .bottom)
-            VStack(alignment: .leading, spacing: 2) {
+            LinearGradient(colors: [.black.opacity(0.35), .clear], startPoint: .top, endPoint: .center)
+            VStack(alignment: .leading, spacing: 0) {
                 if store.me?.dryRun == true {
                     Text("Practice mode · nothing really changes").font(.caption2.weight(.bold)).foregroundStyle(.black)
                         .padding(.horizontal, 8).padding(.vertical, 3).background(Theme.warn, in: Capsule()).padding(.bottom, 4)
                 }
                 Text(subtitle).font(.subheadline.weight(.medium)).foregroundStyle(.white.opacity(0.8))
-                Text(title).font(.system(.largeTitle, design: .rounded, weight: .bold)).foregroundStyle(.white)
-                    .lineLimit(1).minimumScaleFactor(0.7)
+                Text(title).font(.system(.title, design: .rounded, weight: .bold)).foregroundStyle(.white)
+                    .lineLimit(1).minimumScaleFactor(0.6)
+                    .shadow(color: .black.opacity(0.35), radius: 6, y: 1)
             }
-            .padding(18)
+            .padding(.horizontal, 18)
+            .padding(.top, 62) // clears the avatar / 3D / bell row
         }
         .overlay(alignment: .top) {
             HStack {
