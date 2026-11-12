@@ -15,8 +15,9 @@ struct DeviceTile: View {
             .opacity(device.isAvailable ? 1 : 0.55)
             .contextMenu { menu }
             .sheet(isPresented: $detail) { DeviceDetailSheet(deviceID: device.id) }
-            // Watering is never one stray tap away: starting a zone always asks how long first.
-            .confirmationDialog("Water \(device.displayName)?", isPresented: $askWater, titleVisibility: .visible) {
+            // Watering is never one stray tap away: starting a zone always asks how long first. An alert, not a
+            // confirmation dialog, so Cancel always shows (iOS turns a dialog on a tile into a popover without it).
+            .alert("Water \(device.displayName)?", isPresented: $askWater) {
                 ForEach([5, 10, 15, 30], id: \.self) { m in
                     Button("Water \(m) min") { water(m) }
                 }
