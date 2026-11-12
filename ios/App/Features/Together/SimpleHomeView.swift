@@ -64,7 +64,7 @@ struct SimpleHomeView: View {
                         BigRow(symbol: "megaphone.fill", title: "Intercom", color: .purple) { router.go(.intercom) }
                     }
                     BigRow(symbol: "mic.fill", title: "Ask Thomas Creek", color: .blue) { router.showAssistant = true }
-                    BigRow(symbol: "envelope.fill", title: "Tell Dylan", color: .pink) { TellDylan.shared.open() }
+                    BigRow(symbol: "envelope.fill", title: store.role == .admin ? "Send yourself a note" : "Tell Dylan", color: .pink) { TellDylan.shared.open() }
                 }
                 .padding(.top, 6)
             }

@@ -36,12 +36,14 @@ struct FamilySettingsSection: View {
                 }
             }
             Button { TellDylan.shared.open() } label: {
-                Label(store.me?.firstName == "Dylan" ? "Send yourself a note" : "Tell Dylan", systemImage: "envelope.badge")
+                Label(store.role == .admin ? "Send yourself a note" : "Tell Dylan", systemImage: "envelope.badge")
             }
         } header: {
             Text("Family")
         } footer: {
-            Text("You can also shake your phone anywhere to tell Dylan something, with a picture of the screen.")
+            Text(store.role == .admin
+                 ? "When the family shakes their phones to tell you something, it shows up in your inbox and under Systems."
+                 : "You can also shake your phone anywhere to tell Dylan something, with a picture of the screen.")
         }
         .task { if grownUp { welcome = try? await HubClient.shared.get("/v1/me/welcome") } }
     }

@@ -10,6 +10,8 @@ final class FamilyStore {
     var today: TodayInfo? = HubClient.saved("/v1/today")
     var people: [FamilyMember] = []
     var loadedAt: Date?
+    /// Why the last Today load failed, while there's nothing to show yet.
+    var error: String?
     private var loading = false
 
     var family: [FamilyMember] { people.isEmpty ? (today?.family ?? []) : people }
@@ -19,11 +21,23 @@ final class FamilyStore {
         if !force, let t = loadedAt, -t.timeIntervalSinceNow < 60 { return }
         loading = true
         defer { loading = false }
-        if let t: TodayInfo = try? await HubClient.shared.get("/v1/today") {
+        do {
+            let t: TodayInfo = try await HubClient.shared.get("/v1/today")
             today = t
             people = t.family ?? people
             loadedAt = .now
+            error = nil
+        } catch {
+            self.error = Self.message(error)
         }
+    }
+
+    /// Plain words for a failed family call. A 404 means the hub is older than this app.
+    static func message(_ error: Error) -> String {
+        if case HubClient.HubError.server(404, _) = error {
+            return "This needs the latest hub update. It will work once the hub is updated."
+        }
+        return error.localizedDescription
     }
 
     func loadPresence() async {

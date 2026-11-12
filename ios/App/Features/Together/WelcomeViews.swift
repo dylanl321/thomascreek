@@ -129,7 +129,9 @@ struct WelcomePages: View {
                      })),
                 Page(emoji: "🚗", title: "Arriving and leaving", text: "Leave last and the app checks the doors and garage for you. Come home to the lights on.",
                      action: ("Turn on", { PresenceMonitor.shared.enable() })),
-                Page(emoji: "💬", title: "Just ask", text: "Tap the Ask button or say \"Hey Siri, ask Thomas Creek\" to do anything by voice. Shake your phone to tell Dylan something."),
+                Page(emoji: "💬", title: "Just ask", text: "Tap the Ask button or say \"Hey Siri, ask Thomas Creek\" to do anything by voice. " + (role == .admin
+                     ? "When someone shakes their phone to tell you something, it lands in your inbox with a picture of their screen."
+                     : "Shake your phone to tell Dylan something.")),
             ]
         }
     }

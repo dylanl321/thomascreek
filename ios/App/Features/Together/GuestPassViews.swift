@@ -38,7 +38,13 @@ struct GuestPassesView: View {
                 if list != nil && live.isEmpty && old.isEmpty {
                     EmptyCard(symbol: "ticket", title: "No passes yet", detail: "Make one when someone comes to stay.")
                 }
-                if let error { Text(error).font(.footnote).foregroundStyle(Theme.crit) }
+                if let error {
+                    if list == nil {
+                        EmptyCard(symbol: "exclamationmark.triangle", title: "Guest passes didn't load", detail: error)
+                    } else {
+                        Text(error).font(.footnote).foregroundStyle(Theme.crit)
+                    }
+                }
             }
             .screen()
         }
@@ -54,7 +60,7 @@ struct GuestPassesView: View {
 
     private func load() async {
         do { list = try await HubClient.shared.get("/v1/guest-passes"); error = nil }
-        catch { self.error = error.localizedDescription }
+        catch { self.error = FamilyStore.message(error) }
     }
 
     private func revoke(_ p: GuestPass) async {

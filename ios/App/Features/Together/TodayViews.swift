@@ -148,7 +148,16 @@ struct TodayView: View {
                 if let mine = t?.chores?.mine { myChores(mine) }
                 if let beds = t?.kidsBedtimes, !beds.isEmpty { bedtimes(beds) }
                 if let trip = t?.trip { tripCard(trip) }
-                if t == nil { LoadingCard() }
+                if t == nil {
+                    if let err = family.error {
+                        VStack(spacing: 12) {
+                            EmptyCard(symbol: "exclamationmark.triangle", title: "Today didn't load", detail: err)
+                            Button("Try again") { Task { await family.load(force: true) } }.buttonStyle(.bordered)
+                        }
+                    } else {
+                        LoadingCard()
+                    }
+                }
             }
             .screen()
         }

@@ -4,6 +4,7 @@ import SwiftUI
 struct IntercomView: View {
     @Environment(HomeStore.self) private var store
     @State private var info: IntercomInfo?
+    @State private var loadError: String?
     @State private var rooms: Set<String> = []
     @State private var text = ""
     @State private var sending: String?
@@ -72,11 +73,17 @@ struct IntercomView: View {
         .background(Backdrop())
         .navigationTitle("Intercom")
         .navigationBarTitleDisplayMode(.inline)
-        .task { info = try? await HubClient.shared.get("/v1/intercom") }
+        .task { await load() }
+        .refreshable { await load() }
+    }
+
+    private func load() async {
+        do { info = try await HubClient.shared.get("/v1/intercom"); loadError = nil }
+        catch { loadError = FamilyStore.message(error) }
     }
 
     private var roomsLine: String {
-        guard let rs = info?.rooms else { return "Finding speakers…" }
+        guard let rs = info?.rooms else { return loadError.map { "Couldn't find the speakers. \($0)" } ?? "Finding speakers…" }
         if rs.isEmpty { return "No speakers found in Home Assistant" }
         if rooms.isEmpty { return "Plays on every speaker in the house" }
         return "Plays in " + rs.filter { rooms.contains($0.id) }.map(\.name).joined(separator: ", ")
