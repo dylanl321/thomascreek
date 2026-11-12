@@ -193,6 +193,23 @@ def _job_out(h: Hub, job: Any) -> dict[str, Any]:
     return out
 
 
+@router.get("/media/{item_id}/episodes")
+async def episodes(item_id: str, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """A show's episodes, to pick which to download. Children: only shows with an allowed rating."""
+    _watch_cap(h, c)
+    try:
+        show = await h.plex.metadata(item_id)
+        if show is None or not _rating_ok(h, c, show):
+            raise error(404, "not_found", "That isn't in the library")
+        items = await h.plex.episodes(item_id)
+    except AdapterError as exc:
+        raise error(503, "unavailable", str(exc)) from None
+    # Episodes often carry no rating of their own; they inherit the show's.
+    for i in items:
+        i["rating"] = i.get("rating") or show.get("rating")
+    return {"items": _filter(h, c, items)}
+
+
 @router.get("/media/{item_id}/download")
 async def download_options(item_id: str, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
     from ..downloads import options

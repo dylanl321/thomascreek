@@ -136,3 +136,17 @@ def test_cleanup_keeps_fresh_jobs(tmp_path, hub):
                       status="ready")
     assert d.cleanup() == 0 and "a" in d.jobs
     assert httpx  # imported for respx
+
+
+def test_show_episodes_inherit_rating(plex, people):
+    theo = people["phones"]["Theo"]
+    show = {"MediaContainer": {"Metadata": [{"ratingKey": "9", "type": "show", "title": "Bluey", "contentRating": "TV-Y"}]}}
+    eps = {"MediaContainer": {"Metadata": [
+        {"ratingKey": "10", "type": "episode", "title": "Keepy Uppy", "grandparentTitle": "Bluey", "parentIndex": 1, "index": 4},
+        {"ratingKey": "11", "type": "episode", "title": "Late one", "grandparentTitle": "Bluey", "contentRating": "TV-14"}]}}
+    with respx.mock(assert_all_called=False) as mock:
+        mock.get(f"{PLEX}/library/metadata/9").respond(json=show)
+        mock.get(f"{PLEX}/library/metadata/9/allLeaves").respond(json=eps)
+        r = theo.client.get("/v1/media/9/episodes", headers=theo.h)
+        assert [i["id"] for i in r.json()["items"]] == ["10"]
+        assert r.json()["items"][0]["title"] == "Bluey: Keepy Uppy"

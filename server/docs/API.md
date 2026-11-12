@@ -159,6 +159,7 @@ SSE `camera_event` carries one item when Frigate records a new event.
 
 ### Downloads for offline viewing
 No approval step: anyone who may watch a title may download it (children: rated titles only).
+- `GET /v1/media/{id}/episodes` -> `{items}`: a show's episodes (rating inherited from the show), to pick what to download.
 - `GET /v1/media/{id}/download` -> `{item, options:[{quality:"original|high|small", label, detail, bytes?, instant}]}`. Films and episodes only. `original` is offered only when an iPhone can play the file (H.264/HEVC video, AAC/AC3/EAC3/MP3/ALAC/FLAC/Opus audio); `instant` means it's already an MP4 and streams straight from Plex.
 - `POST /v1/media/{id}/download {quality}` -> job `{id, item_id, quality, status:"preparing|ready|failed", progress 0-1, bytes?, error?, item, url?, expires_at?}`. Original MKV files are rewrapped to MP4 without re-encoding; `high` (720p, 4 Mbps) and `small` (480p, 1.5 Mbps) are converted by Plex and stitched into one MP4 by ffmpeg. Asking again for the same title and quality returns the same job.
 - `GET /v1/media/downloads/{job_id}` -> the job (only to the phone that started it). Each reply carries a fresh `url`.

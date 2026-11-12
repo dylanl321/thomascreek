@@ -74,6 +74,10 @@ class Plex(Adapter):
         items = data.get("MediaContainer", {}).get("Metadata", [])
         return self._item(items[0]) if items else None
 
+    async def episodes(self, show_id: str) -> list[dict[str, Any]]:
+        data = await self.get_json(f"/library/metadata/{quote(show_id)}/allLeaves")
+        return [self._item(m) for m in data.get("MediaContainer", {}).get("Metadata", [])]
+
     async def media_info(self, item_id: str) -> dict[str, Any] | None:
         """The first file behind a title: what the hub needs to offer it for download."""
         data = await self.get_json(f"/library/metadata/{quote(item_id)}")
