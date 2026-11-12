@@ -62,6 +62,8 @@ struct HomeView: View {
             .screen()
         }
         .background(Backdrop())
+        // With the navigation bar hidden nothing covers the status bar, so headings scrolled under the clock.
+        .safeAreaInset(edge: .top, spacing: 0) { Color.clear.frame(height: 0).background(.bar) }
         .refreshable { await store.refreshAll(); await loadTrips(force: true) }
         .toolbar(.hidden, for: .navigationBar)
         .task { await loadTrips() }
@@ -373,7 +375,7 @@ struct TodayCard: View {
     let today: Today
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ForEach(today.events ?? [], id: \.stableID) { e in
+            ForEach((today.events ?? []).sorted { ($0.isAllDay ? 0 : 1, ISO.parse($0.start) ?? .distantFuture) < ($1.isAllDay ? 0 : 1, ISO.parse($1.start) ?? .distantFuture) }, id: \.stableID) { e in
                 HStack(alignment: .top, spacing: 12) {
                     Text(e.isAllDay ? "All day" : clock(e.start)).font(.subheadline.monospacedDigit()).foregroundStyle(Theme.dim)
                         .frame(width: 70, alignment: .leading)
