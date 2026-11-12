@@ -10,6 +10,7 @@ Every action passes through four gates, in order:
 from __future__ import annotations
 
 import logging
+import re
 import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
@@ -65,7 +66,24 @@ def hex_to_rgb(v: str) -> list[int]:
     return [int(v[i:i + 2], 16) for i in (0, 2, 4)]
 
 
+VALVE_DEFAULT_MIN = 10
+SELF_APP = "thomascreek-hub"  # restarting it would cut off the request asking for it
+
+
 class ActionRunner:
+    def _valve_timers(self, eid: str) -> list[dict[str, Any]]:
+        return [t for t in self.hub.timers.pending("ha_call")
+                if ((t.get("payload") or {}).get("data") or {}).get("entity_id") == eid]
+
+    def _clear_valve_timer(self, eid: str) -> None:
+        for t in self._valve_timers(eid):
+            self.hub.db.execute("DELETE FROM timers WHERE id=?", [t["id"]])
+
+    def valve_remaining(self, eid: str) -> int | None:
+        """Seconds until a running zone's automatic stop, or None when nothing is scheduled."""
+        ts = self._valve_timers(eid)
+        return max(0, int(ts[0]["due_at"] - time.time())) if ts else None
+
     def __init__(self, hub: "Hub"):
         self.hub = hub
 
@@ -92,6 +110,15 @@ class ActionRunner:
             return self._plan_announce(s, params)
         if action.startswith("printer."):
             return self._plan_printer(s, action, target_id, params)
+        if action == "system.app_restart":
+            app = str(target_id or params.get("app") or "")
+            if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,62}", app):
+                raise ActionError(400, "bad_target", "Name the NAS app to restart")
+            if app == SELF_APP:
+                raise ActionError(400, "not_allowed", "The hub can't restart itself")
+            d = self.hub.policy.decide(s, action, Target(entity_id=app, kind="system"), params)
+            return Plan(action, Target(entity_id=app, kind="system"), params, d, custom={"app_restart": app},
+                        label=f"Restart {app}")
 
         kinds = ACTION_KINDS.get(action)
         if kinds is None:
@@ -188,6 +215,9 @@ class ActionRunner:
             return [("vacuum", "start", t)]
         if action == "valve.run":
             dom = eid.split(".", 1)[0]
+            if p.get("on") is False:
+                off = ("valve", "close_valve") if dom == "valve" else ("switch", "turn_off")
+                return [(off[0], off[1], t)]
             on = ("valve", "open_valve") if dom == "valve" else ("switch", "turn_on")
             return [(on[0], on[1], t)]
         if action == "oven.set":
@@ -357,11 +387,16 @@ class ActionRunner:
                     await self.hub.kitchen.start_timer(plan.target.entity_id, minutes,  # type: ignore[arg-type]
                                                        None if auto is None else bool(auto))
                     msg = f"Timer set for {minutes} min"
-                if plan.action == "valve.run" and plan.params.get("minutes"):
+                if plan.action == "valve.run":
+                    # Water never runs open-ended: every start sets its own stop (default 10 min).
                     eid = plan.target.entity_id
-                    off = ("valve", "close_valve") if eid.startswith("valve.") else ("switch", "turn_off")  # type: ignore[union-attr]
-                    self.hub.timers.add(time.time() + 60 * int(plan.params["minutes"]), "ha_call",
-                                        {"domain": off[0], "service": off[1], "data": {"entity_id": eid}})
+                    self._clear_valve_timer(eid)  # type: ignore[arg-type]
+                    if plan.params.get("on") is not False:
+                        minutes = max(1, min(180, int(plan.params.get("minutes") or VALVE_DEFAULT_MIN)))
+                        off = ("valve", "close_valve") if eid.startswith("valve.") else ("switch", "turn_off")  # type: ignore[union-attr]
+                        self.hub.timers.add(time.time() + 60 * minutes, "ha_call",
+                                            {"domain": off[0], "service": off[1], "data": {"entity_id": eid}})
+                        msg = f"Watering for {minutes} min"
         except ActionError:
             raise
         except Exception as exc:  # noqa: BLE001
@@ -386,6 +421,10 @@ class ActionRunner:
     async def _run_custom(self, s: Subject, plan: Plan) -> str:
         if plan.action.startswith("printer."):
             return await self._run_printer(s, plan)
+        if "app_restart" in plan.custom:
+            app = plan.custom["app_restart"]
+            await self.hub.truenas.restart_app(app)
+            return f"Restarting {app}"
         fw = self.hub.firewalla
         person = plan.custom["person"]
         rules = fw.rules_for(person["id"])
