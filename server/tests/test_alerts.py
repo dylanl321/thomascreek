@@ -268,12 +268,16 @@ async def test_media_ready_is_pushed_without_opening_the_app(hub, people, sent):
     hub.db.insert("requests", {"id": rid, "created_at": time.time(), "kind": "media", "requester_id": people["theo"]["id"],
                                "title": "Bluey", "payload": {}, "status": "approved", "external_id": "77"})
 
-    async def status(ext):
-        return {"media": {"status": 5}}
+    async def all_requests(take=100):
+        return [{"id": 77, "status": 2, "media": {"mediaType": "tv", "tmdbId": 5, "status": 5}}]
+
+    async def details(kind, tmdb, fresh=False):
+        return {"name": "Bluey"}
 
     hub.config.jellyseerr.enabled = True
     hub.config.jellyseerr.url = "http://js.test"
-    hub.jellyseerr.request_status = status  # type: ignore[method-assign]
+    hub.jellyseerr.all_requests = all_requests  # type: ignore[method-assign]
+    hub.jellyseerr.details = details  # type: ignore[method-assign]
     await hub.alerts.poll_media()
     assert hub.db.one("SELECT status FROM requests WHERE id=?", [rid])["status"] == "ready"
     assert [s["title"] for s in sent] == ["Bluey is ready to watch"] and who(hub, sent) == ["Theo"]

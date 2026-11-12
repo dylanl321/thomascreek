@@ -170,3 +170,17 @@ kids' player), `request` posts `/v1/requests`, `chore` posts `/v1/chores/{id}/do
 New deep links: search?q=, remote/<entity>, climate, music, calendar, shopping, inventory, pipeline, hubweb,
 vpnpool, downloads. Spotlight indexes rooms, devices, cameras and screens (identifier = deep link). Siri:
 "Search Thomas Creek". The "Ask Thomas Creek" row calls `Router.ask`, which opens the assistant with the words.
+
+## Media requests and tracking (2026-11-12)
+
+Jellyseerr is the source of truth, so requests made on its website or from a Plex watchlist show up too. Nobody needs approval (Dylan); children only see and ask for titles whose US rating is in `child_policy.ratings`, and only see their own requests.
+
+- `GET /v1/media/requests?scope=mine|all&filter=active|ready|all` -> `{items:[Req], counts:{active,ready}}`. Children always get `mine`.
+- `Req` = `{id, media_id:"movie:123|tv:456", kind, title, year, poster_url, who, person_id, mine, via:"Jellyseerr|Plex watchlist"|null, created_at, updated_at, plex_id, status, status_text, detail?, progress? (0-1), eta_s?, seasons:[{n,status}]}`; `status` is `waiting|searching|downloading|partial|ready|failed|declined|removed`. Progress comes from Jellyseerr's Sonarr/Radarr sync (`media.downloadStatus`).
+- `GET /v1/media/requests/{id}` -> `Req` + `can_cancel`, `can_retry`.
+- `POST /v1/media/requests {media_id, seasons?:[int]}` -> `Req`. 409 `already_available` if it's on Plex; 403 `ask_parent` for a child and a title outside their ratings.
+- `DELETE /v1/media/requests/{id}` (own, or any for grown-ups; 409 once downloading or on Plex). `POST /v1/media/requests/{id}/retry` (grown-ups).
+- `GET /v1/media/discover?q=` (blank: trending) -> `{items:[{media_id, kind, title, year, poster_url, summary, availability:"ready|partial|downloading|requested"|null, request_id, plex_id, rating?}]}`.
+- `GET /v1/media/title/{media_id}` -> `{media_id, kind, title, year, poster_url, summary, rating, runtime_min, genres, seasons:[{n,name,episodes,status}], availability, request_id, plex_id}`.
+- `GET /v1/media/search` `requestable` now uses the discover item shape above (it used `MediaItem` with a string year, which the app couldn't decode).
+- "Ready to watch" push (`thomascreek://media/requests/{id}`) goes once per request to the person who asked, matched by the app's own record or by Jellyseerr display name = hub first name. Requests already ready when the hub first looks aren't announced.

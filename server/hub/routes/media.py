@@ -58,9 +58,14 @@ async def search(q: str, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> 
         raise error(503, "unavailable", str(exc)) from None
     out: dict[str, Any] = {"items": items}
     # Not in the library yet? Offer things that can be requested.
-    if h.policy.has(c.subject, "media.request") and h.jellyseerr.enabled and c.subject.role != "child":
+    if h.policy.has(c.subject, "media.request") and h.jellyseerr.enabled:
+        from .media_requests import _allowed_for_child, _childlike, _result
+
         try:
-            out["requestable"] = await h.jellyseerr.search(q)
+            have = {(i["title"] or "").lower() for i in items}
+            found = [_result(r) for r in await h.jellyseerr.search_raw(q) if r.get("title") or r.get("name")]
+            found = [f for f in found if f["availability"] != "ready" and (f["title"] or "").lower() not in have]
+            out["requestable"] = (await _allowed_for_child(h, found)) if _childlike(c) else found[:12]
         except AdapterError:
             pass
     return out
@@ -360,13 +365,7 @@ async def _refresh_media_status(h: Hub, rows: list[dict[str, Any]]) -> None:
         if new != r["status"]:
             h.db.update("requests", "id", r["id"], {"status": new})
             r["status"] = new
-            if new == "ready":
-                person = h.db.one("SELECT * FROM people WHERE id=?", [r["requester_id"]])
-                h.alerts.record("media", f"{r['title']} is ready to watch", "On Plex now", [person] if person else [],
-                                ref=f"thomascreek://watch/{r['id']}", payload={"request_id": r["id"]})
-                await h.notify.send(person_ids=[r["requester_id"]], level="fyi", cat="media",
-                                    title=f"{r['title']} is ready to watch", body=None,
-                                    ref=f"thomascreek://watch/{r['id']}")
+            # The "ready to watch" push is sent by media_requests.push_ready, once per request.
 
 
 @router.post("/requests")
@@ -388,8 +387,8 @@ async def create_request(body: RequestBody, c: Caller = Depends(caller), h: Hub 
                              "title": title, "payload": payload, "poster_url": body.poster_url, "status": "waiting"})
     h.db.log("request.create", "ok", person_id=s.person_id, device_id=c.device["id"], target=rid,
              params={"kind": body.kind, "title": title})
-    # Adults asking for a movie don't need anyone's approval.
-    if body.kind == "media" and h.policy.has(s, "media.approve"):
+    # Nobody needs approval for a movie or show (Dylan, 2026-11-12).
+    if body.kind == "media":
         await _approve(h, c, h.db.one("SELECT * FROM requests WHERE id=?", [rid]))  # type: ignore[arg-type]
     else:
         who = h.db.person(s.person_id)["name"]  # type: ignore[index]

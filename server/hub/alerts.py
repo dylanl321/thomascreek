@@ -619,12 +619,9 @@ class Alerts:
     async def poll_media(self) -> None:
         if not self.hub.jellyseerr.enabled:
             return
-        from .routes.media import _refresh_media_status
+        from .routes.media_requests import push_ready
 
-        rows = self.hub.db.all("SELECT * FROM requests WHERE kind='media' AND status IN ('approved','downloading') "
-                               "AND external_id IS NOT NULL")
-        if rows:
-            await _refresh_media_status(self.hub, rows)
+        await push_ready(self.hub)
 
     # -- background --------------------------------------------------------
     def start(self) -> None:
