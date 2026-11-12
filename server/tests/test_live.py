@@ -40,6 +40,9 @@ def test_live_camera_events_end_to_end(hub, people, home_client):
     cams = home_client.get("/v1/cameras", headers=dylan.h).json()["cameras"]
     print("cameras:", [(c["id"], c["width"], c["height"], c["online"]) for c in cams])
     assert cams and all(c["width"] for c in cams)
+    for cam in cams:
+        snap = home_client.get(cam["snapshot_url"] + "?m=1", headers=dylan.h)
+        print("snapshot", cam["id"], snap.status_code, snap.text[:120] if snap.status_code != 200 else len(snap.content))
     per = home_client.get(f"/v1/cameras/{first['camera']}/events", headers=dylan.h)
     assert per.status_code == 200, per.text
     kid = people["phones"]["Theo"]
