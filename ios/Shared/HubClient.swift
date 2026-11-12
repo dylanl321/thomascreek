@@ -171,7 +171,9 @@ actor HubClient {
             var req = request(base, method, path, query: query, body: body, bearer: bearer, confirmHeader: nil)
             if let timeout { req.timeoutInterval = max(req.timeoutInterval, timeout) }
             let data: Data, resp: URLResponse
-            do { (data, resp) = try await session.data(for: req) }
+            // Slow calls (the assistant thinks for a while) use the long-lived session: the regular one
+            // gives up after 10 s of silence whatever the request's own timeout says.
+            do { (data, resp) = try await (timeout == nil ? session : Self.streamSession).data(for: req) }
             catch { lastError = HubError.unreachable; continue }
             lastGood = base
             let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
