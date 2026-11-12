@@ -550,3 +550,59 @@ def test_frigate_cameras_events_and_home(hub, people, home_client):
         assert home_client.get("/v1/cameras/driveway/snapshot.jpg", headers=dylan.h).status_code == 404
         home = home_client.get("/v1/home", headers=dylan.h).json()
         assert [c["id"] for c in home["cameras"]] == ["140_creek", "140_garden"]
+
+
+def test_admin_web_page_code_sign_in_and_secrets(hub, people, home_client, away_client):
+    import re as _re
+
+    dylan = people["phones"]["Dylan"]
+    assert away_client.get("/admin").status_code == 403  # home network only
+    page = home_client.get("/admin")
+    assert page.status_code == 200 and "Hub web page" in page.text
+    code = _re.search(r"class=code>([A-Z0-9-]+)<", page.text).group(1)
+    pid = _re.search(r"const id='([^']+)'", page.text).group(1)
+    assert home_client.get(f"/admin/login/poll?id={pid}").json() == {"ok": False}
+    # Avery is not an admin.
+    assert people["phones"]["Avery"].secure_post("/v1/admin/web-approve", {"code": code}).status_code == 403
+    assert dylan.secure_post("/v1/admin/web-approve", {"code": code.lower()}).status_code == 200
+    r = home_client.get(f"/admin/login/poll?id={pid}")
+    assert r.json() == {"ok": True} and "tc_admin" in r.cookies
+    status = home_client.get("/admin")
+    assert "Keys and tokens" in status.text and "home_assistant.token" in status.text
+    csrf = _re.search(r"name=csrf value=([0-9a-f]+)", status.text).group(1)
+    # Without the form token nothing is saved.
+    assert home_client.post("/admin/secrets", data={"name": "plex.token", "value": "x"}).status_code == 403
+    r = home_client.post("/admin/secrets", data={"csrf": csrf, "name": "apns.auth_key_p8"},
+                         files={"file": ("AuthKey_ABCDE12345.p8", b"-----BEGIN PRIVATE KEY-----\nAAA\n-----END PRIVATE KEY-----\n")},
+                         follow_redirects=False)
+    assert r.status_code == 303
+    assert str(hub.vault.get("apns.key_id")) == "ABCDE12345" and hub.vault.has("apns.auth_key_p8")
+    page = home_client.get("/admin").text
+    assert "BEGIN PRIVATE KEY" not in page and "ABCDE12345" not in page
+    assert home_client.post("/admin/secrets/delete", data={"csrf": csrf, "name": "apns.key_id"},
+                            follow_redirects=False).status_code == 303
+    assert not hub.vault.has("apns.key_id")
+    assert home_client.post("/admin/secrets", data={"csrf": csrf, "name": "wireguard.server_private_key", "value": "x"},
+                            follow_redirects=False).status_code == 303
+    assert not hub.vault.has("wireguard.server_private_key")
+
+
+def test_admin_web_link_is_one_time(hub, people, home_client):
+    dylan = people["phones"]["Dylan"]
+    url = dylan.secure_post("/v1/admin/web-link", {}).json()["url"]
+    r = home_client.get(url, follow_redirects=False)
+    assert r.status_code == 303 and "tc_admin" in r.cookies
+    home_client.cookies.clear()
+    assert home_client.get(url, follow_redirects=False).status_code == 401
+
+
+def test_drop_folder_takes_apple_push_key(hub, tmp_path):
+    from hub.dropbox import import_dropped
+
+    drop = tmp_path / "import"
+    drop.mkdir()
+    (drop / "AuthKey_ZYX9876543.p8").write_text("-----BEGIN PRIVATE KEY-----\nAAA\n-----END PRIVATE KEY-----\n")
+    import_dropped(hub.vault, drop)
+    assert str(hub.vault.get("apns.key_id")) == "ZYX9876543" and hub.vault.has("apns.auth_key_p8")
+    hub.config.apns.team_id = "TEAM123456"
+    assert hub.apns.enabled

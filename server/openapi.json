@@ -3792,6 +3792,108 @@
      }
     }
    }
+  },
+  "/v1/admin/web-approve": {
+   "post": {
+    "tags": [
+     "admin-web"
+    ],
+    "summary": "Web Approve",
+    "description": "Dylan typed the code the web page shows; Face ID confirms.",
+    "operationId": "web_approve_v1_admin_web_approve_post",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/CodeBody"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Web Approve V1 Admin Web Approve Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/admin/web-link": {
+   "post": {
+    "tags": [
+     "admin-web"
+    ],
+    "summary": "Web Link",
+    "description": "A one-minute link that opens the web page already signed in (for Safari on this phone).",
+    "operationId": "web_link_v1_admin_web_link_post",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Web Link V1 Admin Web Link Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
   }
  },
  "components": {
@@ -3894,6 +3996,20 @@
      "device_id"
     ],
     "title": "ChallengeBody"
+   },
+   "CodeBody": {
+    "properties": {
+     "code": {
+      "type": "string",
+      "maxLength": 20,
+      "title": "Code"
+     }
+    },
+    "type": "object",
+    "required": [
+     "code"
+    ],
+    "title": "CodeBody"
    },
    "DoneBody": {
     "properties": {

@@ -83,6 +83,14 @@ hub bootstrap-admin Dylan dev_xxxxxxxx
 
 Every later phone shows up as a "New iPhone joined" notice on Dylan's phone.
 
+## Hub web page
+
+`https://<hub>:8443/admin` from the home network shows each service's health and lists every key and
+token (set or missing, never the value). Replace one by pasting or choosing a file; for Apple push,
+choose the `AuthKey_XXXXXXXXXX.p8` file and the key ID is read from its name. Sign in with the app
+(Systems, Hub web page): type the code the page shows and confirm with Face ID. The browser warns
+about the hub's own certificate the first time; that is expected (the app pins it instead).
+
 ## 6. Turn things on, one at a time
 
 With `dry_run: true`, add action names to `hub.live_actions` and restart the app,

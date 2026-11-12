@@ -53,8 +53,17 @@ class APNs:
         self.last_error: str | None = None
 
     @property
+    def key_id(self) -> str | None:
+        """The vault's apns.key_id (set with the key, e.g. from the web page) wins over config."""
+        v = self.vault.get("apns.key_id")
+        kid = str(v).strip() if v else self.cfg.key_id
+        return kid if kid and kid != "KEYID" else None
+
+    @property
     def enabled(self) -> bool:
-        return bool(self.cfg.enabled and self.cfg.team_id and self.cfg.key_id and self.vault.has(self.cfg.key_secret))
+        # On as soon as the key and its id are in the vault (e.g. added on the hub web page).
+        auto = self.vault.has(self.cfg.key_secret) and self.vault.has("apns.key_id")
+        return bool((self.cfg.enabled or auto) and self.cfg.team_id and self.key_id and self.vault.has(self.cfg.key_secret))
 
     def _provider_token(self) -> str:
         if self._jwt and time.time() - self._jwt_at < 50 * 60:
@@ -64,7 +73,7 @@ class APNs:
             {"iss": self.cfg.team_id, "iat": int(time.time())},
             key,
             algorithm="ES256",
-            headers={"kid": self.cfg.key_id},
+            headers={"kid": self.key_id},
         )
         self._jwt_at = time.time()
         return self._jwt

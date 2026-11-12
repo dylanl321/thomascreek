@@ -204,6 +204,11 @@ downloads:[{title,progress,eta_s,state,source,error?}], recent:[{kind,title,deta
 upcoming:[{kind,title,detail,at,has_file,source}], failures:[{source,error}], services:[..]}`.
 `POST /v1/push/test` sends a test notification to the calling device.
 
+Hub web page (`https://<hub>:8443/admin`, home network only): status plus write-only editing of keys and
+tokens. Sign-in goes through the app, admin tier (Face ID):
+`POST /v1/admin/web-approve {code}` approves the 8-character code the page shows (dash optional);
+`POST /v1/admin/web-link` -> `{url, expires_in}`: a one-time, one-minute path that opens the page signed in.
+
 ## VPN
 
 `POST /v1/vpn/config {wg_public_key}` ->

@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 from pathlib import Path
 
 from .config import data_dir
@@ -43,6 +44,12 @@ def import_dropped(vault: Vault, folder: Path | None = None) -> list[str]:
         if not f.is_file() or f.name.startswith("."):
             continue
         name = f.name.removesuffix(".txt").removesuffix(".conf")
+        m = re.fullmatch(r"AuthKey_([A-Z0-9]{10})\.p8", f.name)
+        if m:
+            # Apple's push key as downloaded: its file name carries the key id.
+            vault.set("apns.key_id", m.group(1))
+            stored.append("apns.key_id")
+            name = "apns.auth_key_p8"
         if f.name in ASSET_FILES:
             # Not a secret: a house asset kept out of the public repo.
             dest = data_dir() / "assets" / ASSET_FILES[f.name]
@@ -52,7 +59,7 @@ def import_dropped(vault: Vault, folder: Path | None = None) -> list[str]:
             stored.append(f"asset:{ASSET_FILES[f.name]}")
             continue
         try:
-            if not NAME_RE.match(name):
+            if not NAME_RE.match(name) and not m:
                 # Removed anyway: a misnamed file may still hold a credential.
                 log.warning("drop folder: discarded a file that is not named like a secret")
                 continue

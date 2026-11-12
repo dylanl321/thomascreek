@@ -14,6 +14,7 @@ dependencies = [
   "zeroconf>=0.132",
   "onepassword-sdk>=0.4",
   "dbus-fast>=2.21",
+  "python-multipart>=0.0.9",
 ]
 
 [project.optional-dependencies]
