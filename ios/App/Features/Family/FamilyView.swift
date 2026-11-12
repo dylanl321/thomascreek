@@ -15,7 +15,8 @@ struct FamilyView: View {
                 }
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 10)], spacing: 10) {
                     SectionTile(symbol: "calendar", title: "Calendar", detail: "This week") { router.go(.calendar) }
-                    SectionTile(symbol: "fork.knife", title: "Meals", detail: store.home?.today?.dinner?.title ?? "Meal plan") { router.go(.meals) }
+                    SectionTile(symbol: "fork.knife", title: "Dinners", detail: store.home?.today?.dinner?.title ?? "Plan the week") { router.go(.meals) }
+                    SectionTile(symbol: "book.fill", title: "Recipes", detail: "Add, edit, find") { router.go(.recipes) }
                     SectionTile(symbol: "cart.fill", title: "Shopping", detail: "Lists") { router.go(.shopping) }
                     SectionTile(symbol: "star.fill", title: "Chores", detail: chores.map { b in "\(b.reduce(0) { $0 + $1.doneCount })/\(b.reduce(0) { $0 + $1.items.count }) done today" } ?? "Points and rewards") { router.go(.chores) }
                     SectionTile(symbol: "shippingbox.fill", title: "Inventory", detail: "Where is it?") { router.go(.inventory) }
@@ -69,92 +70,6 @@ struct CalendarView: View {
         .task {
             let r: Reply? = try? await HubClient.shared.get("/v1/calendar", ["days": "7"])
             events = r?.events ?? []
-        }
-    }
-}
-
-struct MealsView: View {
-    @Environment(Router.self) private var router
-    @State private var week: MealWeek?
-    var body: some View {
-        List {
-            if let week {
-                ForEach(week.items) { d in
-                    Button { if let r = d.slug { router.go(.recipe(r)) } } label: {
-                        HStack(spacing: 12) {
-                            Text(d.emoji ?? "🍽️").font(.title2)
-                            VStack(alignment: .leading) {
-                                Text([ISO.parse(d.date)?.formatted(.dateTime.weekday(.wide)) ?? d.date, d.meal?.capitalized].compactMap { $0 }.joined(separator: " · "))
-                                    .font(.caption).foregroundStyle(Theme.dim)
-                                Text(d.title ?? "Nothing planned").font(.body.weight(.medium)).foregroundStyle(d.title == nil ? Theme.dim : Theme.fg)
-                            }
-                            Spacer()
-                            if d.slug != nil { Image(systemName: "chevron.right").foregroundStyle(Theme.dim) }
-                        }
-                    }
-                }
-            } else { ProgressView() }
-        }
-        .scrollContentBackground(.hidden).background(Backdrop())
-        .navigationTitle("Meals")
-        .task { week = try? await HubClient.shared.get("/v1/meals/week") }
-    }
-}
-
-/// Recipe with cook mode: big steps, screen stays awake.
-struct RecipeView: View {
-    let recipeID: String
-    @State private var recipe: Recipe?
-    @State private var cooking = false
-    @State private var step = 0
-
-    var body: some View {
-        ScrollView {
-            if let r = recipe {
-                VStack(alignment: .leading, spacing: 14) {
-                    HubImage(path: r.imageUrl) { Theme.card2 }.frame(height: 200).clipShape(RoundedRectangle(cornerRadius: 20))
-                    HStack {
-                        if let t = r.totalTime { Pill(text: t) }
-                        if let s = r.servings { Pill(text: "Serves \(s)") }
-                    }
-                    PrimaryButton(title: "Start cooking", symbol: "flame.fill") { step = 0; cooking = true }
-                    SectionHeader("Ingredients")
-                    VStack(alignment: .leading, spacing: 8) { ForEach(r.ingredients, id: \.self) { Text("• \($0)") } }.card()
-                    SectionHeader("Steps")
-                    VStack(alignment: .leading, spacing: 12) {
-                        ForEach(Array(r.steps.enumerated()), id: \.offset) { i, s in
-                            HStack(alignment: .top) { Text("\(i + 1)").font(.headline).foregroundStyle(Theme.accent).frame(width: 24); Text(s) }
-                        }
-                    }
-                    .card()
-                }
-                .screen()
-            } else { ProgressView().padding(40) }
-        }
-        .background(Backdrop())
-        .navigationTitle(recipe?.title ?? "Recipe")
-        .task { recipe = try? await HubClient.shared.get("/v1/meals/recipes/\(recipeID)") }
-        .fullScreenCover(isPresented: $cooking) {
-            if let r = recipe {
-                VStack(spacing: 24) {
-                    HStack { Text("Step \(step + 1) of \(r.steps.count)").foregroundStyle(Theme.dim); Spacer(); Button("Done") { cooking = false } }
-                    Spacer()
-                    Text(r.steps.indices.contains(step) ? r.steps[step] : "").font(.system(size: 30, weight: .semibold, design: .rounded))
-                        .multilineTextAlignment(.center)
-                    Spacer()
-                    HStack(spacing: 16) {
-                        Button { step = max(0, step - 1) } label: { Image(systemName: "chevron.left").font(.title).frame(maxWidth: .infinity, minHeight: 64) }
-                            .buttonStyle(.bordered).disabled(step == 0)
-                        Button { if step < r.steps.count - 1 { step += 1 } else { cooking = false } } label: {
-                            Image(systemName: step < r.steps.count - 1 ? "chevron.right" : "checkmark").font(.title).frame(maxWidth: .infinity, minHeight: 64)
-                        }
-                        .buttonStyle(.borderedProminent)
-                    }
-                }
-                .padding(24)
-                .onAppear { UIApplication.shared.isIdleTimerDisabled = true }
-                .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
-            }
         }
     }
 }

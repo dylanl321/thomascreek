@@ -30,6 +30,7 @@ from .notify import Notifier
 from .policy import Policy, Subject
 from .push import APNs
 from .onepassword import OnePasswordSync
+from .kitchen import Kitchen
 from .timers import Timers
 from .vault import Vault
 from .vpn import Vpn
@@ -76,6 +77,7 @@ class Hub:
         self.alerts = Alerts(self)
         self.actions = ActionRunner(self)
         self.timers = Timers(self)
+        self.kitchen = Kitchen(self)
         self._home_nets = [ipaddress.ip_network(n, strict=False) for n in config.hub.home_networks]
         self._proxies = [ipaddress.ip_network(n, strict=False) for n in config.hub.trusted_proxies]
         self.started_at = time.time()
@@ -192,6 +194,7 @@ class Hub:
             log.error("VPN did not come up: %s", exc)
         self.home.start()
         self.timers.start()
+        self.kitchen.start()
         self.alerts.start()
         from .dropbox import watch
 
@@ -264,6 +267,7 @@ class Hub:
     async def stop(self) -> None:
         await self.home.stop()
         await self.timers.stop()
+        await self.kitchen.stop()
         await self.alerts.stop()
         await self.onepassword.stop()
         if getattr(self, "_dropbox", None):

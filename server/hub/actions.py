@@ -28,7 +28,7 @@ ACTION_KINDS: dict[str, tuple[str, ...]] = {
     "lock.set": ("lock",), "garage.set": ("garage",), "media.command": ("media", "speaker"),
     "media.volume": ("media", "speaker"), "media.play": ("media", "speaker"), "speaker.group": ("speaker",),
     "vacuum.start": ("vacuum",), "valve.run": ("valve", "switch"), "shower.preheat": ("shower",),
-    "camera.view": ("camera",),
+    "camera.view": ("camera",), "oven.set": ("oven",), "oven.timer": ("oven",),
 }
 
 MEDIA_COMMANDS = {
@@ -186,6 +186,10 @@ class ActionRunner:
             dom = eid.split(".", 1)[0]
             on = ("valve", "open_valve") if dom == "valve" else ("switch", "turn_on")
             return [(on[0], on[1], t)]
+        if action == "oven.set":
+            return self.hub.kitchen.calls(eid, p)
+        if action == "oven.timer":
+            return []  # hub-side timer, see run()
         if action == "shower.preheat":
             target = self.hub.config.home_assistant.extra.get("shower_preheat_script")
             if target:
@@ -249,6 +253,17 @@ class ActionRunner:
                     await self.hub.ha.call_service(dom, svc, data)
                 msg = "Done"
                 outcome = "ok"
+                if plan.action == "oven.set":
+                    await self.hub.kitchen.after_run(s, plan.target.entity_id, plan.params)  # type: ignore[arg-type]
+                    msg = self._oven_message(plan)
+                elif plan.action == "oven.timer":
+                    minutes = int(plan.params.get("minutes") or 0)
+                    if minutes <= 0:
+                        raise ActionError(400, "bad_params", "minutes must be 1 to 360")
+                    auto = plan.params.get("auto_off")
+                    await self.hub.kitchen.start_timer(plan.target.entity_id, minutes,  # type: ignore[arg-type]
+                                                       None if auto is None else bool(auto))
+                    msg = f"Timer set for {minutes} min"
                 if plan.action == "valve.run" and plan.params.get("minutes"):
                     eid = plan.target.entity_id
                     off = ("valve", "close_valve") if eid.startswith("valve.") else ("switch", "turn_off")  # type: ignore[union-attr]
@@ -266,6 +281,14 @@ class ActionRunner:
             self.hub.bus.publish({"type": "device", "entity_id": plan.target.entity_id})
         await self._notice(s, plan, outcome)
         return {"ok": True, "message": msg, "dry_run": not live}
+
+    def _oven_message(self, plan: Plan) -> str:
+        p = plan.params
+        label = self.hub.kitchen.label(plan.target.entity_id or "")
+        if p.get("on") is False:
+            return f"{label} is off"
+        temp = f" {p['temp']}°" if p.get("temp") else ""
+        return f"{label}: {p.get('mode') or 'Bake'}{temp}. You'll get a notice when it's hot."
 
     async def _run_custom(self, s: Subject, plan: Plan) -> str:
         fw = self.hub.firewalla

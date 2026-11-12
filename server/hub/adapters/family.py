@@ -13,6 +13,18 @@ import httpx
 from ..config import ShowPlayerConfig
 from .base import Adapter, AdapterError
 
+FAVORITE_TAG = "Favorite"
+OVEN_TAG = "Oven"
+
+
+def _servings(r: dict[str, Any]) -> str | None:
+    v = r.get("recipeServings") or r.get("recipeYield") or r.get("recipeYieldQuantity")
+    if v in (None, "", 0):
+        return None
+    if isinstance(v, float) and v.is_integer():
+        v = int(v)
+    return str(v)
+
 
 class Mealie(Adapter):
     name = "mealie"
@@ -32,6 +44,7 @@ class Mealie(Adapter):
             "title": r.get("name") or entry.get("title"),
             "slug": r.get("slug"),
             "image_url": f"/v1/meals/image/{rid}" if rid else None,
+            "recipe_id": rid, "total_time": r.get("totalTime"),
         }
 
     async def today(self) -> list[dict[str, Any]]:
@@ -71,17 +84,187 @@ class Mealie(Adapter):
         resp = await self.request("PUT", f"/api/households/shopping/items/{item_id}", json=item)
         return resp.json() if resp.content else None
 
-    async def recipe(self, slug: str) -> dict[str, Any]:
-        r = await self.get_json(f"/api/recipes/{slug}")
+    # -- recipes ---------------------------------------------------------------
+    def _summary(self, r: dict[str, Any]) -> dict[str, Any]:
+        rid = r.get("id")
+        tags = [t.get("name") for t in (r.get("tags") or []) if t.get("name")]
         return {
-            "id": r.get("id"), "slug": r.get("slug"), "title": r.get("name"),
+            "id": rid, "slug": r.get("slug"), "title": r.get("name"),
+            "image_url": f"/v1/meals/image/{rid}" if rid and r.get("image") else None,
+            "total_time": r.get("totalTime"), "tags": tags,
+            "favorite": FAVORITE_TAG in tags, "oven": OVEN_TAG in tags,
+            "last_made": r.get("lastMade"), "rating": r.get("rating"),
+        }
+
+    async def recipes(self, search: str = "", tag: str | None = None, page: int = 1, per_page: int = 60) -> dict[str, Any]:
+        params: dict[str, Any] = {"page": page, "perPage": per_page, "orderBy": "name", "orderDirection": "asc"}
+        if search:
+            params["search"] = search
+        if tag:
+            params["tags"] = [tag]
+        data = await self.get_json("/api/recipes", params=params)
+        return {"items": [self._summary(r) for r in data.get("items", [])], "total": data.get("total", 0),
+                "page": data.get("page", page), "pages": data.get("total_pages", 1)}
+
+    async def tags(self) -> list[dict[str, Any]]:
+        data = await self.get_json("/api/organizers/tags", params={"perPage": 200})
+        return [{"id": t["id"], "name": t["name"], "slug": t["slug"]} for t in data.get("items", [])]
+
+    async def recipe(self, slug: str) -> dict[str, Any]:
+        from ..kitchen import oven_plan, saved_oven
+
+        r = await self.get_json(f"/api/recipes/{slug}")
+        steps = [s.get("text", "") for s in r.get("recipeInstructions") or []]
+        oven = saved_oven(r.get("extras") or {}, r.get("name")) or \
+            oven_plan(steps, r.get("performTime") or r.get("cookTime"), r.get("name"))
+        return {
+            **self._summary(r),
+            "oven": oven,
             "image_url": f"/v1/meals/image/{r['id']}" if r.get("id") else None,
             "total_time": r.get("totalTime"), "prep_time": r.get("prepTime"), "cook_time": r.get("performTime"),
-            "servings": r.get("recipeServings") or r.get("recipeYield"),
+            "servings": _servings(r),
             "ingredients": [i.get("display") or i.get("note") or i.get("originalText") or ""
-                            for i in r.get("recipeIngredient", [])],
-            "steps": [s.get("text", "") for s in r.get("recipeInstructions", [])],
+                            for i in r.get("recipeIngredient") or []],
+            "steps": steps,
+            "description": r.get("description"), "source_url": r.get("orgURL"),
         }
+
+    async def create_from_url(self, url: str) -> str:
+        resp = await self.request("POST", "/api/recipes/create/url", json={"url": url, "includeTags": True},
+                                  timeout=90)
+        return str(resp.json()).strip('"')
+
+    async def create(self, name: str) -> str:
+        resp = await self.request("POST", "/api/recipes", json={"name": name})
+        return str(resp.json()).strip('"')
+
+    async def update(self, slug: str, fields: dict[str, Any]) -> str:
+        """Change the parts the app edits, keeping everything else Mealie knows."""
+        import uuid
+
+        r = await self.get_json(f"/api/recipes/{slug}")
+        if "title" in fields and fields["title"]:
+            r["name"] = fields["title"]
+        for ours, theirs in (("prep_time", "prepTime"), ("cook_time", "performTime"), ("total_time", "totalTime"),
+                             ("description", "description")):
+            if ours in fields:
+                r[theirs] = fields[ours] or None
+        if fields.get("servings") is not None:
+            try:
+                r["recipeServings"] = float(fields["servings"])
+            except (TypeError, ValueError):
+                r["recipeYield"] = str(fields["servings"])
+        if "ingredients" in fields:
+            old = {(i.get("display") or i.get("note") or i.get("originalText") or ""): i
+                   for i in r.get("recipeIngredient") or []}
+            out = []
+            for text in fields["ingredients"]:
+                text = str(text).strip()
+                if not text:
+                    continue
+                if text in old:
+                    out.append(old[text])
+                else:
+                    out.append({"note": text, "originalText": text, "display": text, "quantity": 0,
+                                "unit": None, "food": None, "referenceId": str(uuid.uuid4())})
+            r["recipeIngredient"] = out
+        if "steps" in fields:
+            r["recipeInstructions"] = [{"id": str(uuid.uuid4()), "title": "", "summary": "", "text": str(t).strip(),
+                                        "ingredientReferences": []} for t in fields["steps"] if str(t).strip()]
+        if "tags" in fields:
+            r["tags"] = await self._tag_objs(fields["tags"])
+        extras = dict(r.get("extras") or {})
+        if "oven" in fields:
+            for k in ("tc_oven_mode", "tc_oven_temp", "tc_oven_minutes", "tc_oven_none"):
+                extras.pop(k, None)
+            o = fields["oven"]
+            if o is None:
+                extras["tc_oven_none"] = "1"
+            elif isinstance(o, dict) and o.get("mode"):
+                extras["tc_oven_mode"] = str(o["mode"])
+                if o.get("temp"):
+                    extras["tc_oven_temp"] = str(int(o["temp"]))
+                if o.get("minutes"):
+                    extras["tc_oven_minutes"] = str(int(o["minutes"]))
+        r["extras"] = extras
+        # Keep the "Oven" tag in step with the oven setting, so the Recipes filter works.
+        from ..kitchen import oven_plan, saved_oven
+
+        steps = [s.get("text", "") for s in r.get("recipeInstructions") or []]
+        has_oven = extras.get("tc_oven_none") != "1" and bool(
+            saved_oven(extras, r.get("name")) or oven_plan(steps, r.get("performTime"), r.get("name")))
+        names = [t["name"] for t in r.get("tags") or []]
+        if has_oven != (OVEN_TAG in names):
+            names = [n for n in names if n != OVEN_TAG] + ([OVEN_TAG] if has_oven else [])
+            r["tags"] = await self._tag_objs(names)
+        resp = await self.request("PUT", f"/api/recipes/{slug}", json=r)
+        body = resp.json() if resp.content else {}
+        return (body or {}).get("slug") or slug
+
+    async def _tag_objs(self, names: list[str]) -> list[dict[str, Any]]:
+        existing = {t["name"].lower(): t for t in await self.tags()}
+        out = []
+        for n in names:
+            n = str(n).strip()[:40]
+            if not n:
+                continue
+            t = existing.get(n.lower())
+            if t is None:
+                made = await self.post_json("/api/organizers/tags", {"name": n})
+                t = {"id": made["id"], "name": made["name"], "slug": made["slug"]}
+                existing[n.lower()] = t
+            out.append({"id": t["id"], "name": t["name"], "slug": t["slug"]})
+        return out
+
+    async def delete(self, slug: str) -> None:
+        await self.request("DELETE", f"/api/recipes/{slug}")
+
+    async def set_image(self, slug: str, data: bytes, ext: str) -> None:
+        await self.request("PUT", f"/api/recipes/{slug}/image", files={"image": (f"image.{ext}", data)},
+                           data={"extension": ext}, timeout=60)
+
+    async def made(self, slug: str) -> None:
+        from datetime import datetime, timezone
+
+        await self.request("PATCH", f"/api/recipes/{slug}/last-made",
+                           json={"timestamp": datetime.now(timezone.utc).isoformat()})
+
+    # -- meal plan -------------------------------------------------------------
+    async def plan(self, start: date, days: int = 7) -> list[dict[str, Any]]:
+        data = await self.get_json(
+            "/api/households/mealplans",
+            params={"start_date": start.isoformat(), "end_date": (start + timedelta(days=days - 1)).isoformat(),
+                    "perPage": 100},
+        )
+        out = []
+        for e in data.get("items", []):
+            row = self._recipe(e)
+            row["id"] = e.get("id")
+            row["note"] = e.get("text") or None
+            out.append(row)
+        return out
+
+    async def plan_set(self, day: date, recipe_id: str | None, title: str | None, meal: str = "dinner") -> None:
+        for e in await self.plan(day, 1):
+            if e.get("meal") == meal and e.get("id") is not None:
+                await self.request("DELETE", f"/api/households/mealplans/{e['id']}")
+        if recipe_id or title:
+            body: dict[str, Any] = {"date": day.isoformat(), "entryType": meal}
+            if recipe_id:
+                body["recipeId"] = recipe_id
+            if title:
+                body["title"] = title
+                body["text"] = ""
+            await self.post_json("/api/households/mealplans", body)
+
+    async def add_recipe_to_list(self, list_id: str, recipe_id: str) -> None:
+        await self.post_json(f"/api/households/shopping/lists/{list_id}/recipe",
+                             [{"recipeId": recipe_id, "recipeIncrementQuantity": 1}])
+
+    async def first_list(self) -> str | None:
+        data = await self.get_json("/api/households/shopping/lists", params={"perPage": 20})
+        items = data.get("items", [])
+        return items[0]["id"] if items else None
 
     async def add_item(self, list_id: str, text: str) -> Any:
         return await self.post_json("/api/households/shopping/items", {"shoppingListId": list_id, "note": text, "isFood": False})
