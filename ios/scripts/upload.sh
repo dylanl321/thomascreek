@@ -5,13 +5,14 @@
 #   ~/.appstoreconnect/config with ASC_KEY_ID=... and ASC_ISSUER_ID=...
 # (or export ASC_KEY_ID / ASC_ISSUER_ID). Bump CURRENT_PROJECT_VERSION in
 # project.yml before each upload. Builds land in the internal "Family" group.
-# SPEC picks the XcodeGen spec: project.yml (default, no tunnel) or
-# project-vpn.yml (with the WireGuard tunnel; needs Go and a signing setup that
-# can provision me.dlewis.thomascreek.tunnel). Run SPEC=project-vpn.yml ./scripts/upload.sh
+# SPEC picks the XcodeGen spec:
+#   project-vpn-appstore.yml (default): the app with the WireGuard tunnel, signed manually with the
+#     "Thomas Creek <app|widgets|tunnel> App Store" profiles and the iPhone Distribution identity. Needs Go.
+#   project.yml: the app without the tunnel, automatic signing.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
-SPEC="${SPEC:-project.yml}"
+SPEC="${SPEC:-project-vpn-appstore.yml}"
 [ -f "$HOME/.appstoreconnect/config" ] && . "$HOME/.appstoreconnect/config"
 : "${ASC_KEY_ID:?set ASC_KEY_ID or add it to ~/.appstoreconnect/config}"
 : "${ASC_ISSUER_ID:?set ASC_ISSUER_ID or add it to ~/.appstoreconnect/config}"
@@ -30,13 +31,24 @@ xcodebuild -project ThomasCreek.xcodeproj -scheme ThomasCreek \
   -configuration Release -destination generic/platform=iOS \
   -archivePath "$OUT/ThomasCreek.xcarchive" "${AUTH[@]}" archive
 
+if [ "$SPEC" = project-vpn-appstore.yml ]; then
+  SIGNING="<key>signingStyle</key><string>manual</string>
+<key>signingCertificate</key><string>iPhone Distribution</string>
+<key>provisioningProfiles</key><dict>
+<key>me.dlewis.thomascreek</key><string>Thomas Creek app App Store</string>
+<key>me.dlewis.thomascreek.widgets</key><string>Thomas Creek widgets App Store</string>
+<key>me.dlewis.thomascreek.tunnel</key><string>Thomas Creek tunnel App Store</string>
+</dict>"
+else
+  SIGNING="<key>signingStyle</key><string>automatic</string>"
+fi
 cat > "$OUT/ExportOptions.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
 <key>method</key><string>app-store-connect</string>
 <key>destination</key><string>upload</string>
-<key>signingStyle</key><string>automatic</string>
+$SIGNING
 <key>uploadSymbols</key><true/>
 <key>manageAppVersionAndBuildNumber</key><false/>
 </dict></plist>
