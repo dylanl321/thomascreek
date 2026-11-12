@@ -305,3 +305,25 @@ of `steps` through `/v1/actions`. Commands understood: "<room> on|off", "turn on
 `/v1/assistant` exists. Children get their own room, TV, rated films, own chores and trips; no cameras, doors,
 ovens, network, alerts beyond house/media, recipes or inventory. Unnamed, unavailable-and-roomless, Plex-cast and
 light-segment entities are left out, and several players with one name are folded into one row.
+
+## Settings and favorites (per person)
+
+Stored in `person_settings` (one row per person and key). See `hub/settings.py` for the keys and checks
+and `ios/docs/hub-contract.md` for the request shapes.
+
+| Route | Who | Does |
+| --- | --- | --- |
+| `GET /v1/me/settings` | anyone assigned | version, settings, favorites by kind |
+| `PATCH /v1/me/settings` | anyone assigned | change keys; `null` resets |
+| `POST /v1/me/settings/migrate` | anyone assigned | first sync from a device's old local choices |
+| `PUT` / `DELETE /v1/me/favorites/{kind}/{id}` | anyone assigned | star / un-star, checked against the person's role |
+| `POST /v1/me/favorites/{kind}/order` | anyone assigned | reorder |
+| `/v1/people/{id}/settings`, `/v1/people/{id}/favorites/...` | adults for children, admin for anyone | the same, for someone else (logged) |
+| `GET` / `POST /v1/me/view-as` | admin | who can be previewed; log start/stop |
+| `POST /v1/feedback`, `GET /v1/feedback`, `GET /v1/feedback/{id}.jpg` | anyone / admin / admin | "Tell Dylan" |
+
+Each change sends a `settings` event (`{version, device_id}`) to the person's own devices.
+
+**View as.** `X-TC-View-As: <person_id>` from an admin's device makes the hub answer as that person
+(`deps.caller`). Writes other than that person's settings and favorites are refused with `preview_only`,
+so the preview can never change the house or anyone's devices. A non-admin sending the header gets 403.

@@ -194,6 +194,25 @@ SCHEMA = [
         last_used_at REAL
     )""",
     """
+    CREATE TABLE IF NOT EXISTS person_settings (
+        person_id TEXT NOT NULL,
+        key TEXT NOT NULL,
+        value TEXT NOT NULL,
+        updated_at REAL NOT NULL,
+        device_id TEXT,
+        PRIMARY KEY (person_id, key)
+    )""",
+    """
+    CREATE TABLE IF NOT EXISTS feedback (
+        id TEXT PRIMARY KEY,
+        ts REAL NOT NULL,
+        person_id TEXT,
+        device_id TEXT,
+        screen TEXT,
+        body TEXT NOT NULL,
+        image BLOB
+    )""",
+    """
     CREATE TABLE IF NOT EXISTS hub_kv (
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL,
@@ -205,6 +224,7 @@ SCHEMA = [
 ADDED_COLUMNS = [
     ("devices", "kind", "TEXT NOT NULL DEFAULT 'phone'"),   # phone | test (a simulator joined with a test key)
     ("devices", "test_key_id", "TEXT"),
+    ("devices", "last_home_at", "REAL"),   # last request from the home network ("who's home")
 ]
 
 JSON_COLUMNS = {"source_ids", "areas", "shared_areas", "grants", "denies", "prefs", "activity", "actions", "payload", "params"}

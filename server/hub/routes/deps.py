@@ -48,6 +48,13 @@ class Caller:
     subject: Subject
     device: dict[str, Any]
     ip: str | None
+    # Set while an admin previews the app as someone else ("View as"): the admin's own subject.
+    viewer: Subject | None = None
+
+
+VIEW_AS_HEADER = "x-tc-view-as"
+# The only changes allowed while previewing: that person's favorites and Home layout.
+PREVIEW_WRITES = ("/v1/me/settings", "/v1/me/favorites")
 
 
 PAGE_COOKIE = "tc_page"
@@ -73,8 +80,24 @@ def caller(request: Request, h: Hub = Depends(hub), *, allow_cookie: bool = Fals
     if device is None or device["status"] == "revoked":
         raise error(401, "revoked", "This device was removed from the house")
     ip = caller_ip(request, h)
-    h.db.update("devices", "id", device["id"], {"last_seen_at": time.time()})
-    return Caller(h.subject_for(device, h.is_home(ip)), device, ip)
+    at_home = h.is_home(ip)
+    now = time.time()
+    h.db.update("devices", "id", device["id"], {"last_seen_at": now, **({"last_home_at": now} if at_home else {})})
+    subject = h.subject_for(device, at_home)
+    view_as = request.headers.get(VIEW_AS_HEADER)
+    if not view_as:
+        return Caller(subject, device, ip)
+    # "View as": only an admin's own phone can ask, and the hub then answers exactly as it would
+    # for that person. Nothing that changes the house is allowed while previewing.
+    if subject.role != "admin":
+        raise error(403, "forbidden", "Only an admin can view the app as someone else")
+    person = h.db.person(view_as)
+    if person is None or person["id"] == subject.person_id or person["role"] == "pending":
+        raise error(404, "not_found", "No such person to view as")
+    viewed = h.subject_for_person(person, at_home, device["id"])
+    if request.method not in ("GET", "HEAD", "OPTIONS") and not request.url.path.startswith(PREVIEW_WRITES):
+        raise error(403, "preview_only", f"Viewing as {person['name']}: nothing in the house changes", preview=True)
+    return Caller(viewed, device, ip, viewer=subject)
 
 
 def issue_nonce(h: Hub, device_id: str) -> str:

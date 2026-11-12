@@ -14,6 +14,7 @@ from .actions import ActionRunner
 from .assistant import Assistant
 from .alerts import Alerts
 from .adapters.cameras import Frigate
+from .settings import PersonSettings
 from .smart import Smart
 from .adapters.family import FamilyBoard, Homebox, Mealie, ShowPlayer
 from .adapters.firewalla import Firewalla
@@ -84,6 +85,7 @@ class Hub:
         self.timers = Timers(self)
         self.kitchen = Kitchen(self)
         self.smart = Smart(self)
+        self.settings = PersonSettings(self)
         self.assistant = Assistant(self)
         self._home_nets = [ipaddress.ip_network(n, strict=False) for n in config.hub.home_networks]
         self._proxies = [ipaddress.ip_network(n, strict=False) for n in config.hub.trusted_proxies]
@@ -137,6 +139,15 @@ class Hub:
             shared_areas=person.get("shared_areas") or [], grants=person.get("grants") or [],
             denies=person.get("denies") or [], tv_device=person.get("tv_device"), at_home=at_home,
             device_id=device["id"], name=f"{person['name']}'s {device.get('model') or 'device'}",
+        )
+
+    def subject_for_person(self, person: dict[str, Any], at_home: bool = True, device_id: str | None = None) -> Subject:
+        """What a person may do, without a device: "View as", and a parent editing a child's favorites."""
+        return Subject(
+            person_id=person["id"], role=person["role"], areas=person.get("areas") or [],
+            shared_areas=person.get("shared_areas") or [], grants=person.get("grants") or [],
+            denies=person.get("denies") or [], tv_device=person.get("tv_device"), at_home=at_home,
+            device_id=device_id, name=person["name"],
         )
 
     def revoke_device(self, device: dict[str, Any], reason: str = "revoked") -> None:

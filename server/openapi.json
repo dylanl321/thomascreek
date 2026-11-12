@@ -1764,6 +1764,395 @@
     }
    }
   },
+  "/v1/media/requests": {
+   "get": {
+    "tags": [
+     "media requests"
+    ],
+    "summary": "List Media Requests",
+    "operationId": "list_media_requests_v1_media_requests_get",
+    "parameters": [
+     {
+      "name": "scope",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "default": "mine",
+       "title": "Scope"
+      }
+     },
+     {
+      "name": "filter",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "default": "all",
+       "title": "Filter"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response List Media Requests V1 Media Requests Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "post": {
+    "tags": [
+     "media requests"
+    ],
+    "summary": "Ask",
+    "description": "Ask for a title. It goes straight to Jellyseerr; nobody needs to approve it.",
+    "operationId": "ask_v1_media_requests_post",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/hub__routes__media_requests__AskBody"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Ask V1 Media Requests Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/media/requests/{req_id}": {
+   "get": {
+    "tags": [
+     "media requests"
+    ],
+    "summary": "Get Media Request",
+    "operationId": "get_media_request_v1_media_requests__req_id__get",
+    "parameters": [
+     {
+      "name": "req_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "Req Id"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Get Media Request V1 Media Requests  Req Id  Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "delete": {
+    "tags": [
+     "media requests"
+    ],
+    "summary": "Cancel",
+    "operationId": "cancel_v1_media_requests__req_id__delete",
+    "parameters": [
+     {
+      "name": "req_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "Req Id"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Cancel V1 Media Requests  Req Id  Delete"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/media/discover": {
+   "get": {
+    "tags": [
+     "media requests"
+    ],
+    "summary": "Discover",
+    "description": "Search for anything to ask for (blank: what's popular), marked with what's already on Plex or asked for.",
+    "operationId": "discover_v1_media_discover_get",
+    "parameters": [
+     {
+      "name": "q",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "default": "",
+       "title": "Q"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Discover V1 Media Discover Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/media/title/{media_id}": {
+   "get": {
+    "tags": [
+     "media requests"
+    ],
+    "summary": "Title",
+    "operationId": "title_v1_media_title__media_id__get",
+    "parameters": [
+     {
+      "name": "media_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Media Id"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Title V1 Media Title  Media Id  Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/media/requests/{req_id}/retry": {
+   "post": {
+    "tags": [
+     "media requests"
+    ],
+    "summary": "Retry",
+    "operationId": "retry_v1_media_requests__req_id__retry_post",
+    "parameters": [
+     {
+      "name": "req_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "Req Id"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Retry V1 Media Requests  Req Id  Retry Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/v1/media/continue": {
    "get": {
     "tags": [
@@ -6065,7 +6454,7 @@
      "content": {
       "application/json": {
        "schema": {
-        "$ref": "#/components/schemas/AskBody"
+        "$ref": "#/components/schemas/hub__routes__assistant__AskBody"
        }
       }
      }
@@ -6678,6 +7067,1159 @@
      }
     }
    }
+  },
+  "/v1/smart": {
+   "get": {
+    "tags": [
+     "smart"
+    ],
+    "summary": "Smart",
+    "operationId": "smart_v1_smart_get",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Smart V1 Smart Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/smart/dismiss": {
+   "post": {
+    "tags": [
+     "smart"
+    ],
+    "summary": "Dismiss",
+    "operationId": "dismiss_v1_smart_dismiss_post",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/DismissBody"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Dismiss V1 Smart Dismiss Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/smart/settings": {
+   "get": {
+    "tags": [
+     "smart"
+    ],
+    "summary": "Settings",
+    "operationId": "settings_v1_smart_settings_get",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Settings V1 Smart Settings Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "post": {
+    "tags": [
+     "smart"
+    ],
+    "summary": "Set Settings",
+    "operationId": "set_settings_v1_smart_settings_post",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/MuteBody"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Set Settings V1 Smart Settings Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/me/settings": {
+   "get": {
+    "tags": [
+     "settings"
+    ],
+    "summary": "My Settings",
+    "operationId": "my_settings_v1_me_settings_get",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response My Settings V1 Me Settings Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "patch": {
+    "tags": [
+     "settings"
+    ],
+    "summary": "Patch My Settings",
+    "operationId": "patch_my_settings_v1_me_settings_patch",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/PatchBody"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Patch My Settings V1 Me Settings Patch"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/me/settings/migrate": {
+   "post": {
+    "tags": [
+     "settings"
+    ],
+    "summary": "Migrate My Settings",
+    "description": "Once per device after the update: its own choices from before settings synced.",
+    "operationId": "migrate_my_settings_v1_me_settings_migrate_post",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/MigrateBody"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Migrate My Settings V1 Me Settings Migrate Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/me/favorites/{kind}/{item_id}": {
+   "put": {
+    "tags": [
+     "settings"
+    ],
+    "summary": "Star",
+    "operationId": "star_v1_me_favorites__kind___item_id__put",
+    "parameters": [
+     {
+      "name": "kind",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Kind"
+      }
+     },
+     {
+      "name": "item_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Item Id"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "anyOf": [
+         {
+          "$ref": "#/components/schemas/Label"
+         },
+         {
+          "type": "null"
+         }
+        ],
+        "title": "Body"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Star V1 Me Favorites  Kind   Item Id  Put"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "delete": {
+    "tags": [
+     "settings"
+    ],
+    "summary": "Unstar",
+    "operationId": "unstar_v1_me_favorites__kind___item_id__delete",
+    "parameters": [
+     {
+      "name": "kind",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Kind"
+      }
+     },
+     {
+      "name": "item_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Item Id"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Unstar V1 Me Favorites  Kind   Item Id  Delete"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/me/favorites/{kind}/order": {
+   "post": {
+    "tags": [
+     "settings"
+    ],
+    "summary": "Reorder",
+    "operationId": "reorder_v1_me_favorites__kind__order_post",
+    "parameters": [
+     {
+      "name": "kind",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Kind"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/OrderBody"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Reorder V1 Me Favorites  Kind  Order Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/people/{person_id}/settings": {
+   "get": {
+    "tags": [
+     "settings"
+    ],
+    "summary": "Person Settings",
+    "operationId": "person_settings_v1_people__person_id__settings_get",
+    "parameters": [
+     {
+      "name": "person_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Person Id"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Person Settings V1 People  Person Id  Settings Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "patch": {
+    "tags": [
+     "settings"
+    ],
+    "summary": "Patch Person Settings",
+    "operationId": "patch_person_settings_v1_people__person_id__settings_patch",
+    "parameters": [
+     {
+      "name": "person_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Person Id"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/PatchBody"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Patch Person Settings V1 People  Person Id  Settings Patch"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/people/{person_id}/favorites/{kind}/{item_id}": {
+   "put": {
+    "tags": [
+     "settings"
+    ],
+    "summary": "Star For",
+    "operationId": "star_for_v1_people__person_id__favorites__kind___item_id__put",
+    "parameters": [
+     {
+      "name": "person_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Person Id"
+      }
+     },
+     {
+      "name": "kind",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Kind"
+      }
+     },
+     {
+      "name": "item_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Item Id"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "anyOf": [
+         {
+          "$ref": "#/components/schemas/Label"
+         },
+         {
+          "type": "null"
+         }
+        ],
+        "title": "Body"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Star For V1 People  Person Id  Favorites  Kind   Item Id  Put"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "delete": {
+    "tags": [
+     "settings"
+    ],
+    "summary": "Unstar For",
+    "operationId": "unstar_for_v1_people__person_id__favorites__kind___item_id__delete",
+    "parameters": [
+     {
+      "name": "person_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Person Id"
+      }
+     },
+     {
+      "name": "kind",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Kind"
+      }
+     },
+     {
+      "name": "item_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Item Id"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Unstar For V1 People  Person Id  Favorites  Kind   Item Id  Delete"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/people/{person_id}/favorites/{kind}/order": {
+   "post": {
+    "tags": [
+     "settings"
+    ],
+    "summary": "Reorder For",
+    "operationId": "reorder_for_v1_people__person_id__favorites__kind__order_post",
+    "parameters": [
+     {
+      "name": "person_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Person Id"
+      }
+     },
+     {
+      "name": "kind",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Kind"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/OrderBody"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Reorder For V1 People  Person Id  Favorites  Kind  Order Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/me/view-as": {
+   "get": {
+    "tags": [
+     "settings"
+    ],
+    "summary": "View As People",
+    "description": "Who Dylan can preview the app as.",
+    "operationId": "view_as_people_v1_me_view_as_get",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response View As People V1 Me View As Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "post": {
+    "tags": [
+     "settings"
+    ],
+    "summary": "View As Mark",
+    "description": "The app says when a preview starts and stops, for the Activity log. The preview itself is the header.",
+    "operationId": "view_as_mark_v1_me_view_as_post",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ViewAsBody"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response View As Mark V1 Me View As Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/feedback": {
+   "post": {
+    "tags": [
+     "settings"
+    ],
+    "summary": "Feedback",
+    "operationId": "feedback_v1_feedback_post",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/FeedbackBody"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Feedback V1 Feedback Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "get": {
+    "tags": [
+     "settings"
+    ],
+    "summary": "Feedback List",
+    "operationId": "feedback_list_v1_feedback_get",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Feedback List V1 Feedback Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/feedback/{fid}.jpg": {
+   "get": {
+    "tags": [
+     "settings"
+    ],
+    "summary": "Feedback Image",
+    "operationId": "feedback_image_v1_feedback__fid__jpg_get",
+    "parameters": [
+     {
+      "name": "fid",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Fid"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
   }
  },
  "components": {
@@ -6774,53 +8316,6 @@
      "url"
     ],
     "title": "AddBody"
-   },
-   "AskBody": {
-    "properties": {
-     "text": {
-      "type": "string",
-      "maxLength": 2000,
-      "minLength": 1,
-      "title": "Text"
-     },
-     "conversation_id": {
-      "anyOf": [
-       {
-        "type": "string",
-        "maxLength": 40
-       },
-       {
-        "type": "null"
-       }
-      ],
-      "title": "Conversation Id"
-     },
-     "screen": {
-      "anyOf": [
-       {
-        "type": "string",
-        "maxLength": 200
-       },
-       {
-        "type": "null"
-       }
-      ],
-      "title": "Screen"
-     },
-     "confirmed": {
-      "items": {
-       "$ref": "#/components/schemas/Confirmed"
-      },
-      "type": "array",
-      "maxItems": 10,
-      "title": "Confirmed"
-     }
-    },
-    "type": "object",
-    "required": [
-     "text"
-    ],
-    "title": "AskBody"
    },
    "AssignBody": {
     "properties": {
@@ -6919,6 +8414,31 @@
      "ok"
     ],
     "title": "Confirmed"
+   },
+   "DismissBody": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "maxLength": 200,
+      "title": "Id"
+     },
+     "rule": {
+      "type": "string",
+      "maxLength": 40,
+      "title": "Rule"
+     },
+     "handled": {
+      "type": "boolean",
+      "title": "Handled",
+      "default": false
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "rule"
+    ],
+    "title": "DismissBody"
    },
    "DoneBody": {
     "properties": {
@@ -7094,6 +8614,45 @@
     ],
     "title": "FavBody"
    },
+   "FeedbackBody": {
+    "properties": {
+     "text": {
+      "type": "string",
+      "maxLength": 2000,
+      "minLength": 1,
+      "title": "Text"
+     },
+     "screen": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 200
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Screen"
+     },
+     "image": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 3000000
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Image"
+     }
+    },
+    "type": "object",
+    "required": [
+     "text"
+    ],
+    "title": "FeedbackBody"
+   },
    "FillBody": {
     "properties": {
      "start": {
@@ -7205,6 +8764,48 @@
     ],
     "title": "ItemBody"
    },
+   "Label": {
+    "properties": {
+     "title": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 300
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Title"
+     },
+     "subtitle": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 300
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Subtitle"
+     },
+     "image": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 300
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Image"
+     }
+    },
+    "type": "object",
+    "title": "Label"
+   },
    "LinkBody": {
     "properties": {
      "macs": {
@@ -7222,6 +8823,36 @@
      "macs"
     ],
     "title": "LinkBody"
+   },
+   "MigrateBody": {
+    "properties": {
+     "local": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Local"
+     }
+    },
+    "type": "object",
+    "title": "MigrateBody"
+   },
+   "MuteBody": {
+    "properties": {
+     "rule": {
+      "type": "string",
+      "maxLength": 40,
+      "title": "Rule"
+     },
+     "muted": {
+      "type": "boolean",
+      "title": "Muted"
+     }
+    },
+    "type": "object",
+    "required": [
+     "rule",
+     "muted"
+    ],
+    "title": "MuteBody"
    },
    "NotifyBody": {
     "properties": {
@@ -7298,6 +8929,23 @@
     ],
     "title": "Offer"
    },
+   "OrderBody": {
+    "properties": {
+     "ids": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "maxItems": 200,
+      "title": "Ids"
+     }
+    },
+    "type": "object",
+    "required": [
+     "ids"
+    ],
+    "title": "OrderBody"
+   },
    "OvenBody": {
     "properties": {
      "mode": {
@@ -7352,6 +9000,17 @@
      "text"
     ],
     "title": "ParseBody"
+   },
+   "PatchBody": {
+    "properties": {
+     "changes": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Changes"
+     }
+    },
+    "type": "object",
+    "title": "PatchBody"
    },
    "PersonBody": {
     "properties": {
@@ -8085,6 +9744,23 @@
     ],
     "title": "ValidationError"
    },
+   "ViewAsBody": {
+    "properties": {
+     "person_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Person Id"
+     }
+    },
+    "type": "object",
+    "title": "ViewAsBody"
+   },
    "VpnBody": {
     "properties": {
      "wg_public_key": {
@@ -8102,6 +9778,82 @@
     },
     "type": "object",
     "title": "VpnBody"
+   },
+   "hub__routes__assistant__AskBody": {
+    "properties": {
+     "text": {
+      "type": "string",
+      "maxLength": 2000,
+      "minLength": 1,
+      "title": "Text"
+     },
+     "conversation_id": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 40
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Conversation Id"
+     },
+     "screen": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 200
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Screen"
+     },
+     "confirmed": {
+      "items": {
+       "$ref": "#/components/schemas/Confirmed"
+      },
+      "type": "array",
+      "maxItems": 10,
+      "title": "Confirmed"
+     }
+    },
+    "type": "object",
+    "required": [
+     "text"
+    ],
+    "title": "AskBody"
+   },
+   "hub__routes__media_requests__AskBody": {
+    "properties": {
+     "media_id": {
+      "type": "string",
+      "maxLength": 40,
+      "title": "Media Id"
+     },
+     "seasons": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "integer"
+        },
+        "type": "array",
+        "maxItems": 60
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Seasons"
+     }
+    },
+    "type": "object",
+    "required": [
+     "media_id"
+    ],
+    "title": "AskBody"
    }
   }
  }

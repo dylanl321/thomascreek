@@ -215,3 +215,16 @@ Hub config `smart:` dinner_time, dinner_lead_min, lockup_time, trash_night, bedt
 latitude/longitude (default: Home Assistant's), goodnight_mode, off_rules. Weather is Open-Meteo, falling back
 to the first `weather.*` entity.
 >>>>>>> origin/main
+
+## Settings and favorites that follow a person, View as, Tell Dylan (2026-11-12)
+
+- `GET /v1/me/settings` → `{version, settings:{key:value}, favorites:{room|device|camera|mode|media|recipe|youtube:[{id,title?,subtitle?,image?}]}}`. Settings keys: `home.order`, `home.hidden` (section ids: rightnow, status, favorites, modes, kids, playing, cameras, holiday, trip, today, systems, who), `appearance` (system/light/dark), `simple_mode`, `text_size` (standard/large/larger), `defaults.play_on|speaker|oven` (entity id or null), `cameras.layout` (grid/list), `cameras.home` (all/starred), `downloads.quality` (original/high/medium/small), `downloads.cellular`, `downloads.remove_watched`, `live_activity.auto`, plus free-form `app.*` (≤ 2 KB each).
+- `PATCH /v1/me/settings {changes:{key:value|null}}` (null = default) → same shape. 400 `bad_setting` / `unknown_setting`.
+- `PUT /v1/me/favorites/{kind}/{id}` with optional `{title, subtitle, image}`; `DELETE` the same path; `POST /v1/me/favorites/{kind}/order {ids}` (ids the list didn't know about stay, at the end). 403 `not_allowed` when the person can't use it (a child starring a lock), 404 `unknown_kind`.
+- `POST /v1/me/settings/migrate {local:{...}}` once per device after updating: keys the hub doesn't have yet are taken; existing ones win.
+- Live sync: event `settings {version, device_id}` goes to that person's devices; ignore your own `device_id`, otherwise re-read. `/v1/me` has `settings_version`; re-read when it's ahead of the cached copy.
+- Parents: `GET/PATCH /v1/people/{id}/settings`, `PUT/DELETE /v1/people/{id}/favorites/{kind}/{item}`, `POST /v1/people/{id}/favorites/{kind}/order`. Adults may edit children's; Dylan anyone's.
+- Rooms in `/v1/home` now carry the caller's own `favorite` (seeded from the config list until the person stars a room).
+- View as (admin only): send `X-TC-View-As: <person_id>` on every request, the event stream too. The hub answers as that person; `/v1/me` adds `preview {person_id, by}`. Any non-GET except `/v1/me/settings*` and `/v1/me/favorites*` → 403 `preview_only`. `GET /v1/me/view-as` lists who can be previewed; `POST /v1/me/view-as {person_id|null}` (sent WITHOUT the header) logs start/stop.
+- Tell Dylan: `POST /v1/feedback {text, screen?, image? (base64 JPEG)}` → inbox item (cat systems, level maintenance) for admins with ref `thomascreek://feedback/<id>`. Admin: `GET /v1/feedback` → `{items:[{id,ts,name,screen,text,image_url?}]}`, `GET /v1/feedback/{id}.jpg`.
+- Who's home: `/v1/home` people rows get `seen_home_at`, and `home: true` when a phone of theirs reached the hub from home Wi-Fi in the last 45 minutes (a presence sensor still wins).
