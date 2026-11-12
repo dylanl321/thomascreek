@@ -651,3 +651,19 @@ async def test_status_probe_checks_services_without_waiting_for_the_app(hub):
     assert health["sonarr"]["ok"] and health["sonarr"]["last_ok"]
     assert not health["jellyseerr"]["ok"] and "refused" in health["jellyseerr"]["error"]
     assert health["truenas"]["error"] == "the NAS API key is not saved yet"
+
+
+def test_refusal_reason_is_shown_and_status_json_is_home_only(hub, home_client, away_client):
+    import asyncio
+
+    hub.config.trek.enabled, hub.config.trek.url = True, "http://trek.test"
+    hub.vault.set("trek.api_key", "trek_x")
+    with respx.mock() as mock:
+        mock.get("http://trek.test/api/v1/trips").mock(
+            return_value=httpx.Response(401, json={"error": "Invalid API token", "code": "API_TOKEN_INVALID"}))
+        with pytest.raises(Exception):
+            asyncio.run(hub.trek.ping())
+    assert hub.trek.last_error == "Trips refused the hub's credential (API_TOKEN_INVALID)"
+    assert away_client.get("/admin/status.json").status_code == 403
+    rows = {r["id"]: r for r in home_client.get("/admin/status.json").json()}
+    assert rows["trek"]["error"].endswith("(API_TOKEN_INVALID)") and "trek_x" not in str(rows)

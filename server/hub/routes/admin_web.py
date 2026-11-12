@@ -285,7 +285,7 @@ SECTIONS: list[dict[str, Any]] = [
          "The app token of the christmas-player service on the xLights computer."),
     ]},
     {"title": "Trips (TREK)", "service": "trek", "fields": [
-        ("trek.api_key", "TREK API key", "text", "Create an API key in TREK's settings."),
+        ("trek.api_key", "TREK API key", "text", "TREK: Settings, Integrations, API keys, create one with trips access. It starts with trek_ (an MCP token will not work)."),
     ]},
     {"title": "Family board", "service": "family_board", "optional": True, "fields": [
         ("family_board.admin_token", "Family Command Center admin token", "text",
@@ -419,6 +419,13 @@ or text files named after a key (for example trek.api_key.txt). Each goes to the
 <input type=hidden name=csrf value={csrf}><input type=file name=files multiple required><button>Upload</button></form></div></div></details></div>
 {sections_html}
 """)
+
+
+@pages.get("/admin/status.json")
+async def status_json(request: Request, h: Hub = Depends(hub)) -> JSONResponse:
+    """Home network only: each service's health (no keys, no values). For checking a deploy."""
+    _home_only(request, h)
+    return JSONResponse([{k: s.get(k) for k in ("id", "ok", "last_ok", "error")} for s in h.health()])
 
 
 @pages.get("/admin")

@@ -19,7 +19,7 @@ from typing import Any
 from .base import Adapter
 
 CACHE_S = 60.0
-INCLUDE_ALL = "days,places,notes,reservations,accommodations,travellers"
+# No ?include=: TREK then returns every section the key may read, instead of refusing a narrow key.
 
 
 class Trek(Adapter):
@@ -53,7 +53,7 @@ class Trek(Adapter):
         return list((data or {}).get("trips", []))
 
     async def trip(self, trip_id: int) -> dict[str, Any]:
-        return await self._cached(f"trip:{trip_id}", f"/api/v1/trips/{int(trip_id)}", params={"include": INCLUDE_ALL})
+        return await self._cached(f"trip:{trip_id}", f"/api/v1/trips/{int(trip_id)}")
 
     def plan_url(self, trip_id: int | None = None) -> str | None:
         base = (self.cfg.web_url or "").rstrip("/")

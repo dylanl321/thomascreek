@@ -27,6 +27,18 @@ class NotConfigured(AdapterError):
     pass
 
 
+def _why(resp: httpx.Response) -> str:
+    """The service's own short reason (an error code or message, never a credential)."""
+    try:
+        body = resp.json()
+    except ValueError:
+        return ""
+    if not isinstance(body, dict):
+        return ""
+    why = body.get("code") or body.get("error") or body.get("message")
+    return f" ({str(why)[:80]})" if isinstance(why, str) and why else ""
+
+
 class Adapter:
     name = "adapter"
     title = "Service"
@@ -68,7 +80,7 @@ class Adapter:
             self._fail(f"cannot reach {self.title}: {type(exc).__name__}")
             raise AdapterError(self.last_error) from exc
         if resp.status_code in (401, 403):
-            self._fail(f"{self.title} refused the hub's credential")
+            self._fail(f"{self.title} refused the hub's credential{_why(resp)}")
             raise AdapterError(self.last_error)
         if resp.status_code >= 400:
             self._fail(f"{self.title} answered {resp.status_code} for {method} {path.split('?')[0]}")
