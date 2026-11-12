@@ -33,6 +33,14 @@ final class Router {
     /// Storage and downloads (from the offline strip).
     var showOffline = false
     var showSearch = false
+    /// Ask Thomas Creek, the quick chat and voice panel.
+    var showAssistant = false
+
+    /// Where the person is, so "turn that off" can mean the thing on screen.
+    var screenName: String {
+        let top = paths[tab]?.last.map { " › \(String(describing: $0))" } ?? ""
+        return tab.rawValue.capitalized + top
+    }
 
     func path(_ tab: AppTab) -> Binding<[Destination]> {
         Binding(get: { self.paths[tab] ?? [] }, set: { self.paths[tab] = $0 })
@@ -57,6 +65,9 @@ final class Router {
         let kid = role == .child
         switch parts.first ?? "" {
         case "home", "": show(.home)
+        case "ask", "talk":
+            showAssistant = true
+            if parts.first == "talk" { Task { await AssistantModel.shared.startListening(screen: screenName) } }
         case "show", "lights", "holiday": kid ? show(.home, .holiday) : show(.house, .holiday)
         case "house3d": show(.house, .house3D)
         case "controllers": show(.house, .holidayControllers)

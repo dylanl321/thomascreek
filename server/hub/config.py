@@ -112,6 +112,18 @@ class VpnConfig(BaseModel):
     server_key_secret: str = "wireguard.server_private_key"
 
 
+class AssistantConfig(BaseModel):
+    """Ask Thomas Creek (hub/assistant.py)."""
+
+    enabled: bool = True
+    key_secret: str = "anthropic.api_key"
+    model: str = "claude-sonnet-5-5"
+    effort: str = "low"
+    max_steps: int = 8
+    fallbacks: bool = True  # server-side fallback model if a request is declined
+    house_name: str = "Thomas Creek"
+
+
 class AppUpdateConfig(BaseModel):
     """Telling phones a newer TestFlight build is out (see hub/appupdate.py)."""
 
@@ -211,6 +223,7 @@ class Config(BaseModel):
     onepassword: OnePasswordConfig = Field(default_factory=OnePasswordConfig)
     vpn: VpnConfig = Field(default_factory=VpnConfig)
     app_update: AppUpdateConfig = Field(default_factory=AppUpdateConfig)
+    assistant: AssistantConfig = Field(default_factory=AssistantConfig)
     child_policy: ChildPolicy = Field(default_factory=ChildPolicy)
     guest: GuestInfo = Field(default_factory=GuestInfo)
     areas: dict[str, AreaOverride] = Field(default_factory=dict)

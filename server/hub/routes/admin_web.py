@@ -62,6 +62,7 @@ DESCRIPTIONS = {
     "onepassword.service_account_token": "1Password service account token",
     "guest_wifi.password": "Guest Wi-Fi password",
     "trek.api_key": "TREK API key",
+    "anthropic.api_key": "Claude API key for the Ask Thomas Creek assistant",
     "appstore.auth_key_p8": "App Store Connect API key (.p8 file), for spotting new app builds",
     "appstore.key_id": "App Store Connect API key ID",
     "appstore.issuer_id": "App Store Connect issuer ID",
@@ -271,6 +272,11 @@ SECTIONS: list[dict[str, Any]] = [
          "App Store Connect, Users and Access, Integrations, App Store Connect API: the Issuer ID above the keys "
          "(also in ~/.appstoreconnect/config as ASC_ISSUER_ID)."),
         ("appstore.key_id", "Key ID", "text", "Only if the file was renamed: the 10-character Key ID next to the key."),
+    ]},
+    {"title": "AI assistant (Claude API key)", "always": True, "fields": [
+        ("anthropic.api_key", "Claude API key", "text",
+         "Powers Ask Thomas Creek (chat and voice). console.anthropic.com: Settings, API keys, Create key. "
+         "It starts with sk-ant-. Setting a monthly spend limit there (Settings, Limits) is a good idea."),
     ]},
     {"title": "Home Assistant", "service": "home_assistant", "fields": [
         ("home_assistant.token", "Long-lived access token", "text",
