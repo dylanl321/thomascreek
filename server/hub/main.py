@@ -14,7 +14,7 @@ from fastapi.responses import JSONResponse
 from . import __version__
 from .config import Config, data_dir, load_config, master_key_path
 from .db import DB
-from .routes import admin_web, alerts, auth, cameras, family, home, lights, media, network, people, trips
+from .routes import admin_web, alerts, appupdate, auth, cameras, family, home, lights, media, network, people, trips
 from .routes.deps import http_error_handler
 from .state import Hub
 from .vault import Vault, load_master_key
@@ -84,7 +84,7 @@ def build_app(hub: Hub | None = None, *, start_background: bool = True) -> FastA
         return resp
 
     for r in (auth.router, alerts.router, home.router, people.router, media.router, family.router, trips.router, network.router,
-              cameras.router, lights.router, lights.pages, admin_web.api, admin_web.pages):
+              cameras.router, lights.router, appupdate.router, lights.pages, admin_web.api, admin_web.pages):
         app.include_router(r)
     return app
 

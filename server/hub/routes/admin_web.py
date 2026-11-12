@@ -62,7 +62,11 @@ DESCRIPTIONS = {
     "onepassword.service_account_token": "1Password service account token",
     "guest_wifi.password": "Guest Wi-Fi password",
     "trek.api_key": "TREK API key",
+    "appstore.auth_key_p8": "App Store Connect API key (.p8 file), for spotting new app builds",
+    "appstore.key_id": "App Store Connect API key ID",
+    "appstore.issuer_id": "App Store Connect issuer ID",
 }
+APPSTORE_KEYS = ("appstore.auth_key_p8", "appstore.key_id", "appstore.issuer_id")
 NEVER_EDIT = {"wireguard.server_private_key"}
 
 
@@ -259,6 +263,15 @@ SECTIONS: list[dict[str, Any]] = [
          "The Key ID is read from the file name."),
         ("apns.key_id", "Key ID", "text", "Only if the file was renamed: the 10-character Key ID shown on the key's page."),
     ]},
+    {"title": "App updates (TestFlight)", "always": True, "optional": True, "fields": [
+        ("appstore.auth_key_p8", "App Store Connect API key", "file",
+         "The same AuthKey_XXXXXXXXXX.p8 the Mac uploads builds with (Finder, Go, Go to Folder: ~/.appstoreconnect/private_keys). "
+         "Lets the hub see each new TestFlight build by itself. The Key ID is read from the file name."),
+        ("appstore.issuer_id", "Issuer ID", "text",
+         "App Store Connect, Users and Access, Integrations, App Store Connect API: the Issuer ID above the keys "
+         "(also in ~/.appstoreconnect/config as ASC_ISSUER_ID)."),
+        ("appstore.key_id", "Key ID", "text", "Only if the file was renamed: the 10-character Key ID next to the key."),
+    ]},
     {"title": "Home Assistant", "service": "home_assistant", "fields": [
         ("home_assistant.token", "Long-lived access token", "text",
          "Home Assistant: your profile, Security tab, Long-lived access tokens, Create token."),
@@ -378,6 +391,52 @@ A file named after someone in the hub (LAUREN.conf) is kept for that person; the
     return "".join(out)
 
 
+def _build_of(v: str | None) -> int | None:
+    m = re.search(r"\((\d+)\)\s*$", v or "") or re.fullmatch(r"\s*(\d+)\s*", v or "")
+    return int(m.group(1)) if m else None
+
+
+def _app_update_html(h: Hub, csrf: str) -> str:
+    """Latest app build, who is behind, and the "required" floor. Collapsed like the key rows."""
+    e = html.escape
+    au = h.app_update
+    info = au.info()
+    s = au.settings()
+    latest = info["latest_build"]
+    if latest:
+        where = "from TestFlight" if info["source"] == "testflight" else "set by hand"
+        head = (f"{e(info['latest_version'])} ({latest})" if info["latest_version"] else f"build {latest}") + f" {where}"
+    else:
+        head = "not known yet"
+    if au.configured:
+        check = (f"App Store Connect: {e(au.last_error)}" if au.last_error
+                 else f"Checks App Store Connect every {h.config.app_update.check_minutes} min, last {_ago(au.last_check)}.")
+    else:
+        check = "Add the App Store Connect key under Keys and files so the hub spots new builds by itself, or type the build below."
+    rows, behind = [], 0
+    for d in h.db.all("SELECT d.name, d.app_version, d.last_seen_at, p.name AS person FROM devices d "
+                      "LEFT JOIN people p ON p.id = d.person_id WHERE d.status='active' ORDER BY d.last_seen_at DESC"):
+        b = _build_of(d.get("app_version"))
+        old = bool(latest and b is not None and b < latest)
+        behind += old
+        label = e(d["app_version"]) if b is not None else "<span class=dim>not reported yet</span>"
+        rows.append(f"<div class=row><div>{e(d['name'])} <span class=dim>{e(d.get('person') or '')}</span></div>"
+                    f"<div class=dim>{label}{' · <b>behind</b>' if old else ''} · {_ago(d.get('last_seen_at'))}</div></div>")
+    pill = (f"<span class=pill-miss>{behind} behind</span>" if behind else
+            ("<span class=pill-ok>All current</span>" if latest else "<span class=dim>off</span>"))
+    minimum = info["min_build"] or ""
+    manual = s.get("latest_build") or ""
+    return f"""<div class=card style="margin-top:10px"><details class=key><summary><span>App updates · latest {head}</span>{pill}</summary>
+<div class=kbody><div class=dim>{check} Phones show an Update button when a newer build is out. Below the required build they
+can't use the app until they update. Turn on TestFlight's Automatic Updates and most phones never see either.</div>
+<form method=post action=/admin/app-update class=fform style="margin:10px 0;flex-wrap:wrap">
+<input type=hidden name=csrf value={csrf}>
+<label class=dim>Require at least build <input type=number name=min_build min=0 value='{e(str(minimum))}' style="width:90px"></label>
+<label class=dim>Latest build by hand <input type=number name=latest_build min=0 value='{e(str(manual))}' style="width:90px"></label>
+<button>Save</button><button name=check value=1 class=ghost>Check now</button></form>
+{''.join(rows) or '<div class=row><div class=dim>No phones yet</div></div>'}</div></details></div>"""
+
+
 def _status_page(h: Hub, claims: dict[str, Any], flash: str | None) -> str:
     e = html.escape
     csrf = _csrf(claims)
@@ -412,6 +471,7 @@ def _status_page(h: Hub, claims: dict[str, Any], flash: str | None) -> str:
 <div class=row><div>VPN</div><div class=dim>{e(vpn)}</div></div>
 <div class=row><div>Devices</div><div class=dim>{e(dev)}</div></div>
 <div class=row><div>TLS pin</div><div class=dim><code>{e(pin or '')}</code></div></div></div>
+{_app_update_html(h, csrf)}
 <h2>Keys and files</h2><p class=dim>Values are never shown again; saving replaces the old one right away.</p>
 <div class=card><details class=key><summary><span>Upload several files at once</span><span class=dim>VPN, push key, house model…</span></summary>
 <div class=kbody><div class=dim>Choose any mix: the Firewalla VPN .conf files, the AuthKey_….p8 push key, house-model-web.json,
@@ -502,7 +562,14 @@ async def set_secret(request: Request, h: Hub = Depends(hub)) -> Response:
         name = h.config.apns.key_secret
         h.vault.set("apns.key_id", m.group(1))
         saved = [name, "apns.key_id"]
+    elif m and name in ("appstore.auth_key_p8", "appstore.key_id"):
+        name = "appstore.auth_key_p8"
+        h.vault.set("appstore.key_id", m.group(1))
+        saved = [name, "appstore.key_id"]
     h.vault.set(name, value)
+    if name in APPSTORE_KEYS:
+        h.app_update._jwt = None
+        asyncio.create_task(h.app_update.check())
     if name.startswith(h.config.vpn.pool_prefix):
         h.vpn._pool = None
     h.db.log("admin.secret_set", "ok", person_id=claims.get("per"), device_id=claims.get("dev"), target=",".join(saved),
@@ -584,6 +651,13 @@ def _store_any(h: Hub, fname: str, raw: bytes) -> str:
         raise ValueError("too big")
     text = raw.decode("utf-8")
     m = re.fullmatch(r"AuthKey_([A-Z0-9]{10})\.p8", base)
+    if m and h.vault.has("apns.key_id") and str(h.vault.get("apns.key_id")).strip() != m.group(1):
+        # Push already has its key: another AuthKey is the App Store Connect one.
+        h.vault.set("appstore.auth_key_p8", text.strip() + "\n")
+        h.vault.set("appstore.key_id", m.group(1))
+        h.app_update._jwt = None
+        asyncio.create_task(h.app_update.check())
+        return "App Store Connect key"
     if m or "BEGIN PRIVATE KEY" in text and base.lower().endswith(".p8"):
         h.vault.set("apns.auth_key_p8", text.strip() + "\n")
         if m:
@@ -646,6 +720,30 @@ async def add_vpn_clients(request: Request, h: Hub = Depends(hub)) -> Response:
     if bad:
         msg += f" Not a WireGuard client file: {', '.join(bad)}."
     return _back(msg)
+
+
+@pages.post("/admin/app-update")
+async def app_update_settings(request: Request, h: Hub = Depends(hub)) -> Response:
+    claims, form = await _form_session(request, h)
+    if form.get("check"):
+        if not h.app_update.configured:
+            return _back("Add the App Store Connect key first.")
+        await h.app_update.check()
+        info = h.app_update.info()
+        if h.app_update.last_error:
+            return _back(f"Check failed: {h.app_update.last_error}")
+        return _back(f"Latest build is {info['latest_build']}." if info["latest_build"] else "No build found yet.")
+
+    def num(k: str) -> int | None:
+        v = str(form.get(k) or "").strip()
+        return int(v) if v.isdigit() and int(v) > 0 else None
+
+    mn, lb = num("min_build"), num("latest_build")
+    h.app_update.save_settings(min_build=mn, latest_build=lb, set_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()) if lb else None)
+    h.db.log("admin.app_update", "ok", person_id=claims.get("per"), device_id=claims.get("dev"),
+             params={"min_build": mn, "latest_build": lb}, source="web")
+    h.bus.publish({"type": "app_update", "data": h.app_update.info()})
+    return _back("Saved. Phones pick it up next time they open the app." if mn or lb else "Cleared.")
 
 
 @pages.post("/admin/house-model")

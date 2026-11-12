@@ -45,6 +45,7 @@ final class HomeStore {
     // MARK: lifecycle
 
     func start() async {
+        Task { await AppUpdate.shared.check() }
         if AppSettings.deviceID == nil {
             phase = .findingHome
             await Enrollment.shared.run()
@@ -181,6 +182,9 @@ final class HomeStore {
             } else { Task { await loadHome() } }
         case "me":
             Task { await loadMe() }
+        case "app_update":
+            Task { await AppUpdate.shared.check(force: true) }
+            return
         default:
             Task { await loadHome() }
         }

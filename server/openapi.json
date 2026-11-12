@@ -1779,6 +1779,336 @@
     }
    }
   },
+  "/v1/media/{item_id}/episodes": {
+   "get": {
+    "tags": [
+     "media"
+    ],
+    "summary": "Episodes",
+    "description": "A show's episodes, to pick which to download. Children: only shows with an allowed rating.",
+    "operationId": "episodes_v1_media__item_id__episodes_get",
+    "parameters": [
+     {
+      "name": "item_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Item Id"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Episodes V1 Media  Item Id  Episodes Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/media/{item_id}/download": {
+   "get": {
+    "tags": [
+     "media"
+    ],
+    "summary": "Download Options",
+    "operationId": "download_options_v1_media__item_id__download_get",
+    "parameters": [
+     {
+      "name": "item_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Item Id"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Download Options V1 Media  Item Id  Download Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "post": {
+    "tags": [
+     "media"
+    ],
+    "summary": "Start Download",
+    "operationId": "start_download_v1_media__item_id__download_post",
+    "parameters": [
+     {
+      "name": "item_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Item Id"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/DownloadBody"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Start Download V1 Media  Item Id  Download Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/media/downloads/{job_id}": {
+   "get": {
+    "tags": [
+     "media"
+    ],
+    "summary": "Download Status",
+    "operationId": "download_status_v1_media_downloads__job_id__get",
+    "parameters": [
+     {
+      "name": "job_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Job Id"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Download Status V1 Media Downloads  Job Id  Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/media/file/{pass_token}": {
+   "get": {
+    "tags": [
+     "media"
+    ],
+    "summary": "Download File",
+    "operationId": "download_file_v1_media_file__pass_token__get",
+    "parameters": [
+     {
+      "name": "pass_token",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Pass Token"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/media/{item_id}/progress": {
+   "post": {
+    "tags": [
+     "media"
+    ],
+    "summary": "Report Progress",
+    "description": "Where a downloaded title was stopped (sent when the phone is back online).",
+    "operationId": "report_progress_v1_media__item_id__progress_post",
+    "parameters": [
+     {
+      "name": "item_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Item Id"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ProgressBody"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Report Progress V1 Media  Item Id  Progress Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/v1/requests": {
    "get": {
     "tags": [
@@ -3892,6 +4222,77 @@
     }
    }
   },
+  "/v1/app/update": {
+   "get": {
+    "tags": [
+     "meta"
+    ],
+    "summary": "App Update",
+    "description": "The newest build TestFlight has, and the oldest build still allowed.\n\nNo sign-in needed (a phone that is still pending, or was just reset, must still hear\nabout a required update). When a signed-in phone sends its own `build`, the hub\nremembers it so the web page can show who hasn't updated.",
+    "operationId": "app_update_v1_app_update_get",
+    "parameters": [
+     {
+      "name": "build",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "integer",
+         "maximum": 10000000,
+         "minimum": 0
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Build"
+      }
+     },
+     {
+      "name": "version",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "maxLength": 20
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Version"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response App Update V1 App Update Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/v1/admin/web-approve": {
    "post": {
     "tags": [
@@ -4122,6 +4523,18 @@
      "done"
     ],
     "title": "DoneBody"
+   },
+   "DownloadBody": {
+    "properties": {
+     "quality": {
+      "type": "string",
+      "pattern": "^(original|high|small)$",
+      "title": "Quality",
+      "default": "original"
+     }
+    },
+    "type": "object",
+    "title": "DownloadBody"
    },
    "EnrollBody": {
     "properties": {
@@ -4525,6 +4938,37 @@
      "prefs"
     ],
     "title": "PrefsBody"
+   },
+   "ProgressBody": {
+    "properties": {
+     "offset_s": {
+      "type": "number",
+      "minimum": 0.0,
+      "title": "Offset S"
+     },
+     "duration_s": {
+      "anyOf": [
+       {
+        "type": "number",
+        "minimum": 0.0
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Duration S"
+     },
+     "watched": {
+      "type": "boolean",
+      "title": "Watched",
+      "default": false
+     }
+    },
+    "type": "object",
+    "required": [
+     "offset_s"
+    ],
+    "title": "ProgressBody"
    },
    "PushBody": {
     "properties": {
