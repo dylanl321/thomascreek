@@ -408,11 +408,19 @@ class HomeModel:
                       "dinner": self.dinner},
             "seasonal": {"holiday_lights": month in (11, 12, 1)},
             "weather": self.hub.smart.weather.now(),
-            "smart": self.hub.smart.cards(s),
+            "smart": self._smart_cards(s),
         }
         if policy.has(s, "systems"):
             snap["systems"] = self.systems_card()
         return snap
+
+    def _smart_cards(self, s: Subject) -> list[dict[str, Any]]:
+        # Suggestions must never take Home down with them.
+        try:
+            return self.hub.smart.cards(s)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("smart cards failed: %s", exc)
+            return []
 
     def _summary(self, devices: list[dict[str, Any]]) -> str:
         lights_on = sum(1 for d in devices if d["kind"] == "light" and d["state"].get("on"))
