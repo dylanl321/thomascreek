@@ -83,7 +83,8 @@ async def perform(request: Request, c: Caller, h: Hub, action: str, target: str 
         raise error(403, "forbidden", "Ask a parent" if d.ask_parent else "Not allowed", ask_parent=d.ask_parent)
     await require_confirm(request, h, c, d.tier)
     try:
-        return await h.actions.run(c.subject, plan)
+        via = "ask" if request.headers.get("x-tc-via") == "ask" else "app"
+        return await h.actions.run(c.subject, plan, source=via)
     except ActionError as exc:
         raise error(exc.status, exc.error, exc.message) from None
 

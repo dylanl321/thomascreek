@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from .actions import ActionRunner
+from .assistant import Assistant
 from .alerts import Alerts
 from .adapters.cameras import Frigate
 from .adapters.family import FamilyBoard, Homebox, Mealie, ShowPlayer
@@ -78,6 +79,7 @@ class Hub:
         self.actions = ActionRunner(self)
         self.timers = Timers(self)
         self.kitchen = Kitchen(self)
+        self.assistant = Assistant(self)
         self._home_nets = [ipaddress.ip_network(n, strict=False) for n in config.hub.home_networks]
         self._proxies = [ipaddress.ip_network(n, strict=False) for n in config.hub.trusted_proxies]
         self.started_at = time.time()
