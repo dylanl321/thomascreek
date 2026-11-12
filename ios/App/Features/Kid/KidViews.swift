@@ -159,12 +159,16 @@ struct KidHomeView: View {
         if let b: ChoreBoard = try? await HubClient.shared.get("/v1/chores") { board = b; AppSettings.cachedChores = b }
     }
 
+    private func markDoneOffline(_ c: ChoreBoard.Chore) {
+        board?.markDone(c.id); AppSettings.cachedChores = board
+    }
+
     private func done(_ c: ChoreBoard.Chore) async {
         do {
-            try await HubClient.shared.send("/v1/chores/\(c.id)/done")
-            store.show(little ? "⭐ Great job!" : "Nice! +\(c.points ?? 0) points")
+            let sent = try await Outbox.shared.send("/v1/chores/\(c.id)/done", label: "\(c.title) (chore)")
+            store.show(little ? "⭐ Great job!" : "Nice! +\(c.points ?? 0) points", sent ? nil : "It's sent when home is back")
             if little { Speaker.say("Great job!") }
-            await loadChores()
+            if sent { await loadChores() } else { markDoneOffline(c) }
             AppSettings.refreshSurfaces()
         } catch { store.show(error.localizedDescription, isError: true) }
     }
@@ -294,6 +298,7 @@ struct KidWatchView: View {
         let little = store.me?.style == .little
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
+                DownloadsEntry(tint: little ? Theme.little : Theme.kid)
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: little ? 150 : 120), spacing: 14)], spacing: 16) {
                     ForEach(items) { m in Poster(item: m).onTapGesture { picked = m } }
                 }
@@ -323,7 +328,10 @@ struct KidWatchView: View {
             TextField("Movie name", text: $askText)
             Button("Ask") {
                 let t = askText; askText = ""
-                Task { try? await HubClient.shared.send("/v1/requests", ["kind": "media", "text": t]); store.show("Asked a parent!") }
+                Task {
+                    let sent = (try? await Outbox.shared.send("/v1/requests", ["kind": "media", "text": t], label: "Ask for \(t)")) ?? false
+                    store.show("Asked a parent!", sent ? nil : "It's sent when home is back")
+                }
             }
             Button("Cancel", role: .cancel) {}
         }
@@ -337,6 +345,7 @@ struct KidPlaySheet: View {
     @State private var player: AVPlayer?
 
     var body: some View {
+        NavigationStack {
         VStack(spacing: 18) {
             if let player {
                 VideoPlayer(player: player).aspectRatio(16 / 9, contentMode: .fit).onAppear { player.play() }
@@ -352,9 +361,11 @@ struct KidPlaySheet: View {
                         dismiss()
                     }
                 }
+                DownloadButton(item: item, tint: store.me?.style == .little ? Theme.little : Theme.kid)
             }
         }
         .padding(24)
+        }
         .presentationDetents(player == nil ? [.medium] : [.large])
         .onDisappear { player?.pause() }
     }
@@ -418,11 +429,15 @@ struct KidChoresView: View {
         if let b: ChoreBoard = try? await HubClient.shared.get("/v1/chores") { board = b; AppSettings.cachedChores = b }
     }
 
+    private func markDoneOffline(_ c: ChoreBoard.Chore) {
+        board?.markDone(c.id); AppSettings.cachedChores = board
+    }
+
     private func done(_ c: ChoreBoard.Chore) async {
         do {
-            try await HubClient.shared.send("/v1/chores/\(c.id)/done")
+            let sent = try await Outbox.shared.send("/v1/chores/\(c.id)/done", label: "\(c.title) (chore)")
             if store.me?.style == .little { Speaker.say("Great job!") }
-            await load()
+            if sent { await load() } else { markDoneOffline(c); store.show("Ticked!", "It's sent when home is back") }
             AppSettings.refreshSurfaces()
         } catch { store.show(error.localizedDescription, isError: true) }
     }
@@ -435,5 +450,12 @@ struct KidChoresView: View {
                 await load()
             } catch { store.show(error.localizedDescription, isError: true) }
         }
+    }
+}
+
+extension ChoreBoard {
+    /// Ticked while offline: show it done (the hub gets it when home is back).
+    mutating func markDone(_ id: String) {
+        if let i = items.firstIndex(where: { $0.id == id }) { items[i].done = true }
     }
 }

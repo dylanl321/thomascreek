@@ -63,9 +63,8 @@ enum HouseModel {
         struct Part: Decodable { var k: String?; var m: String; var p: [Float]; var i: [Int32] }
     }
 
-    private static var cacheURL: URL {
-        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("house-model.json")
-    }
+    /// Kept offline (not in Caches, which iOS may empty), with the person's other saved copies.
+    private static var cacheURL: URL { OfflineCache.fileURL("house-model.json", kind: .kept, category: .house) }
 
     /// The hub's copy, falling back to the last one downloaded.
     static func data() async throws -> Data {
@@ -78,7 +77,7 @@ enum HouseModel {
             case 404: throw HouseModelError.notOnHub
             default: throw HouseModelError.hubFailed
             }
-            try? d.write(to: cacheURL)
+            OfflineCache.write(d, to: cacheURL)
             return d
         } catch {
             if let d = try? Data(contentsOf: cacheURL) { return d }

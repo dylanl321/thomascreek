@@ -20,6 +20,16 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
 
     func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {}
 
+    /// iOS finished (or needs us to finish) film downloads while the app was closed.
+    func application(_ application: UIApplication, handleEventsForBackgroundURLSession identifier: String,
+                     completionHandler: @escaping () -> Void) {
+        guard identifier == Downloads.sessionID else { completionHandler(); return }
+        Task { @MainActor in
+            Downloads.shared.backgroundDone = completionHandler
+            Downloads.shared.resume()
+        }
+    }
+
     // Show alerts while the app is open too.
     func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
         await HomeStore.shared.loadInbox()

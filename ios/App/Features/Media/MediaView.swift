@@ -22,9 +22,10 @@ struct MediaView: View {
                     SectionTile(symbol: "tray.and.arrow.down.fill", title: "Requests",
                                 detail: waiting > 0 ? "\(waiting) waiting" : "\(requests.count) recent", alert: waiting > 0) { router.go(.requests) }
                     if store.me?.can(.pipeline) == true {
-                        SectionTile(symbol: "arrow.down.circle.fill", title: "Downloads", detail: "Pipeline") { router.go(.pipeline) }
+                        SectionTile(symbol: "server.rack", title: "Pipeline", detail: "Server downloads") { router.go(.pipeline) }
                     }
                 }
+                DownloadsEntry()
                 let tvs = store.home?.devices(kind: .media) ?? []
                 if !tvs.isEmpty {
                     SectionHeader("TVs", live: true)
@@ -263,8 +264,8 @@ struct WatchView: View {
                         EmptyCard(symbol: "magnifyingglass", title: "Not in the library", detail: "Ask for it and it'll be downloaded.")
                         PrimaryButton(title: "Request \"\(query)\"", symbol: "plus") {
                             Task {
-                                try? await HubClient.shared.send("/v1/requests", ["kind": "media", "text": query])
-                                store.show("Requested", query)
+                                let sent = (try? await Outbox.shared.send("/v1/requests", ["kind": "media", "text": query], label: "Request \(query)")) ?? false
+                                store.show("Requested", sent ? query : "It's sent when home is back")
                             }
                         }
                     }
@@ -331,6 +332,9 @@ struct PlayOnSheet: View {
                 Section {
                     if let s = item.summary { Text(s).font(.subheadline).foregroundStyle(Theme.dim) }
                 }
+                Section {
+                    DownloadButton(item: item)
+                } footer: { Text("Downloads play here, with no connection.") }
                 Section("Play on") {
                     ForEach(store.home?.devices(kind: .media) ?? []) { tv in
                         Button {

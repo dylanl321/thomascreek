@@ -40,6 +40,7 @@ final class HomeStore {
     var inboxCount: Int { inbox.filter { $0.acked != true && ($0.bucket == .actNow || $0.bucket == .decision) }.count }
 
     private var stream: EventStream?
+    private var offlineStarted = false
     private var poller: Task<Void, Never>?
 
     // MARK: lifecycle
@@ -49,6 +50,14 @@ final class HomeStore {
             phase = .findingHome
             await Enrollment.shared.run()
             return
+        }
+        if !offlineStarted {
+            offlineStarted = true
+            NotificationCenter.default.addObserver(forName: .hubUnreachable, object: nil, queue: .main) { _ in
+                Task { @MainActor in HomeStore.shared.markUnreachable() }
+            }
+            Downloads.shared.resume()
+            Task.detached(priority: .background) { OfflineCache.trim() }
         }
         if me != nil && phase == .launching { phase = me?.role == .pending ? .pending : .ready }
         await refreshAll()
@@ -93,7 +102,13 @@ final class HomeStore {
 
     func loadMe() async {
         do {
-            let m: Me = try await HubClient.shared.get("/v1/me")
+            let (m, savedAt) = try await HubClient.shared.fetch("/v1/me", as: Me.self)
+            if savedAt != nil { markUnreachable(); return }
+            if m.person.id != OfflineCache.owner, OfflineCache.owner != "device" {
+                // This phone now belongs to someone else: their downloads and saved copies go.
+                Downloads.shared.forgetAll()
+            }
+            OfflineCache.setOwner(m.person.id)
             me = m; AppSettings.cachedMe = m
             if let r = m.remoteUrl { AppSettings.hubRemote = r }
             AppSettings.deviceName = m.device?.name ?? AppSettings.deviceName
@@ -104,7 +119,11 @@ final class HomeStore {
             phase = .findingHome
         } catch HubClient.HubError.forbidden {
             // A revoked phone has had its id cleared by HubClient; start over on home Wi-Fi.
-            if AppSettings.deviceID == nil { me = nil; AppSettings.cachedMe = nil; phase = .findingHome }
+            if AppSettings.deviceID == nil {
+                me = nil; AppSettings.cachedMe = nil; AppSettings.cachedHome = nil; home = nil
+                Downloads.shared.forgetAll()
+                phase = .findingHome
+            }
         } catch {
             markUnreachable()
         }
@@ -112,9 +131,9 @@ final class HomeStore {
 
     func loadHome() async {
         do {
-            let h: HomeSnapshot = try await HubClient.shared.get("/v1/home")
+            let (h, savedAt) = try await HubClient.shared.fetch("/v1/home", as: HomeSnapshot.self)
             home = h; AppSettings.cachedHome = h
-            markReachable()
+            if savedAt == nil { markReachable() } else { markUnreachable() }
         } catch { markUnreachable() }
     }
 
@@ -123,9 +142,13 @@ final class HomeStore {
     }
 
     private func markReachable() {
+        let wasOffline = !reachable
         reachable = true; unreachableSince = nil; lastUpdate = .now
+        // Back home: send what was done offline and carry on with downloads.
+        if wasOffline || Outbox.shared.pending > 0 { Task { await Outbox.shared.flush() } }
+        if wasOffline { Downloads.shared.resume() }
     }
-    private func markUnreachable() {
+    func markUnreachable() {
         if reachable { unreachableSince = .now }
         reachable = false
     }

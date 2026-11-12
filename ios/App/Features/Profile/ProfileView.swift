@@ -42,6 +42,11 @@ struct ProfileView: View {
                         if let testResult { Text(testResult).font(.footnote).foregroundStyle(Theme.dim) }
                     } header: { Text("Alerts") }
                 }
+                Section {
+                    NavigationLink { OfflineStorageView() } label: {
+                        LabeledContent("Storage and downloads", value: size(OfflineCache.usage().reduce(0) { $0 + $1.bytes }))
+                    }
+                } footer: { Text("What's saved for when there's no connection: downloads, trips and the last copy of each screen.") }
                 if store.me?.can(.holidayFull) == true || store.me?.can(.holidayLooks) == true {
                     LightsSettingsSection()
                 }
