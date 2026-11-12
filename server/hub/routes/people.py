@@ -313,6 +313,30 @@ class VpnBody(BaseModel):
     wg_public_key: str | None = Field(default=None, max_length=64)
 
 
+class PoolBody(BaseModel):
+    config: str = Field(max_length=4000)
+
+
+@router.get("/vpn/pool")
+async def vpn_pool(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """Dylan's view of the Firewalla clients the hub hands out."""
+    need(h, c, "people")
+    return {"provider": h.config.vpn.provider, "clients": h.vpn.pool_status()}
+
+
+@router.post("/vpn/pool")
+async def vpn_pool_add(body: PoolBody, request: Request, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """Add a WireGuard client made on the Firewalla (the .conf text, shared into the app)."""
+    need(h, c, "people")
+    await require_confirm(request, h, c, "admin")
+    try:
+        name = h.vpn.add_to_pool(body.config)
+    except VpnError as exc:
+        raise error(400, "bad_config", str(exc)) from None
+    h.db.log("vpn.pool_add", "ok", person_id=c.subject.person_id, device_id=c.device["id"], target=name)
+    return {"name": name, "clients": h.vpn.pool_status()}
+
+
 @router.post("/vpn/config")
 async def vpn_config(body: VpnBody, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
     if c.device["status"] != "active":

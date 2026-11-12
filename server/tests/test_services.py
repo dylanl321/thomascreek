@@ -411,3 +411,29 @@ def test_vpn_pool_hands_out_firewalla_clients(hub, people, home_client, tmp_path
     # Removing a phone retires its client: the old phone still has that key.
     hub.revoke_device(hub.db.device(avery.device_id))
     assert not hub.vault.has("vpn.pool.1") and hub.vault.has("vpn.pool.2")
+    status = {c["name"]: c["device_id"] for c in hub.vpn.pool_status()}
+    assert status == {"vpn.pool.2": theo.device_id}
+
+
+def test_vpn_pool_keeps_named_clients_for_their_person(hub, people, home_client):
+    hub.config.vpn.provider = "pool"
+    hub.vault.set("vpn.pool.theo", _client_conf(7))
+    hub.vault.set("vpn.pool.3", _client_conf(3).replace("[Interface]\n", "[Interface]\nMTU = 1412\n"))
+    a = home_client.post("/v1/vpn/config", json={}, headers=people["phones"]["Avery"].h).json()
+    assert a["interface"]["addresses"] == ["10.11.12.4/32"] and a["interface"]["mtu"] == 1412
+    t = home_client.post("/v1/vpn/config", json={}, headers=people["phones"]["Theo"].h).json()
+    assert t["interface"]["addresses"] == ["10.11.12.8/32"]
+    # Nobody else may take Theo's client.
+    assert home_client.post("/v1/vpn/config", json={}, headers=people["phones"]["Dylan"].h).status_code == 400
+
+
+def test_vpn_pool_admin_add_and_list(hub, people, home_client):
+    hub.config.vpn.provider = "pool"
+    dylan = people["phones"]["Dylan"]
+    assert home_client.get("/v1/vpn/pool", headers=people["phones"]["Theo"].h).status_code == 403
+    r = dylan.secure_post("/v1/vpn/pool", {"config": _client_conf(5)})
+    assert r.status_code == 200, r.text
+    assert r.json()["name"] == "vpn.pool.1"
+    assert dylan.secure_post("/v1/vpn/pool", {"config": "[Interface]\n"}).status_code == 400
+    listed = home_client.get("/v1/vpn/pool", headers=dylan.h).json()
+    assert listed["clients"][0]["address"] == "10.11.12.6/32" and "private" not in str(listed)

@@ -192,8 +192,14 @@ Admin: `GET /v1/network/devices` (everything Firewalla sees, with `linked_to`),
 With the Firewalla pool (`vpn.provider: pool`) the hub hands out one of the client
 configs made on the Firewalla, so the reply also carries `interface.private_key` (and
 `peer.preshared_key` when the Firewalla set one): use those instead of the phone's own
-key. `wg_public_key` may be left out then. 400 `vpn_unavailable` means every client is
-in use.
+key. `wg_public_key` may be left out then. `interface.mtu` may be present. 400
+`vpn_unavailable` means every client is in use.
+
+`GET /v1/vpn/pool` (admin) -> `{provider, clients:[{name, address, device_id, device_name}]}`.
+`POST /v1/vpn/pool {config}` (admin tier, Face ID) adds a client .conf made on the
+Firewalla, for the app's "Open in Thomas Creek" share target. Returns `{name, clients}`.
+A client named for a person (`vpn.pool.lauren`) is kept for that person; numbered ones
+go to anyone.
 A phone connecting through the tunnel counts as "away" (so cameras still ask for Face ID).
 
 ## Assets

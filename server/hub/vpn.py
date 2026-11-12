@@ -138,8 +138,18 @@ class Vpn:
         taken = {r["wg_public_key"] for r in self.db.all(
             "SELECT wg_public_key FROM devices WHERE wg_public_key IS NOT NULL AND status != 'revoked' AND id != ?",
             [device["id"]])}
-        for name in sorted(pool, key=lambda n: (len(n), n)):
-            if pool[name]["_pub"]["key"] not in taken:
+        # A client named for a person (vpn.pool.lauren) is kept for that person;
+        # numbered ones (vpn.pool.3) go to anyone.
+        person = self.db.person(device.get("person_id")) if device.get("person_id") else None
+        first = (person or {}).get("name", "").strip().split(" ")[0].lower()
+        def label(n: str) -> str:
+            return n[len(self.cfg.pool_prefix):]
+        free = [n for n in sorted(pool, key=lambda n: (len(n), n)) if pool[n]["_pub"]["key"] not in taken]
+        for name in free:
+            if first and label(name) == first:
+                return name, pool[name]
+        for name in free:
+            if label(name).isdigit():
                 return name, pool[name]
         raise VpnError("every VPN client is in use; add another one on the Firewalla")
 
@@ -163,10 +173,45 @@ class Vpn:
         if p.get("presharedkey"):
             peer["preshared_key"] = p["presharedkey"]
         return {
-            "interface": {"addresses": addresses, "dns": dns, "private_key": i["privatekey"]},
+            "interface": {"addresses": addresses, "dns": dns, "private_key": i["privatekey"],
+                          **({"mtu": int(i["mtu"])} if i.get("mtu", "").isdigit() else {})},
             "peer": peer,
             "home_ssids": self.cfg.home_ssids,
         }
+
+    def pool_status(self) -> list[dict[str, Any]]:
+        """Slots and who has them (no keys)."""
+        owners = {r["wg_public_key"]: r for r in self.db.all(
+            "SELECT id, name, wg_public_key FROM devices WHERE wg_public_key IS NOT NULL AND status != 'revoked'")}
+        out = []
+        for name, conf in sorted(self.pool().items(), key=lambda kv: (len(kv[0]), kv[0])):
+            d = owners.get(conf["_pub"]["key"])
+            out.append({"name": name, "address": _split(conf["interface"].get("address"))[0],
+                        "device_id": d["id"] if d else None, "device_name": d["name"] if d else None})
+        return out
+
+    def add_to_pool(self, text: str) -> str:
+        """Store a client .conf under the next free vpn.pool.<n>; returns that name."""
+        conf = parse_wg_conf(text)
+        i, p = conf.get("interface", {}), conf.get("peer", {})
+        if not (i.get("privatekey") and i.get("address") and p.get("publickey") and p.get("endpoint")):
+            raise VpnError("that is not a complete WireGuard client config")
+        try:
+            pub = public_from_private(i["privatekey"])
+        except Exception:  # noqa: BLE001
+            raise VpnError("the config's private key is not valid") from None
+        existing = self.pool()
+        for name, c in existing.items():
+            if c["_pub"]["key"] == pub:
+                return name
+        names = set(self.vault.names())
+        n = 1
+        while f"{self.cfg.pool_prefix}{n}" in names:
+            n += 1
+        name = f"{self.cfg.pool_prefix}{n}"
+        self.vault.set(name, text.strip() + "\n")
+        self._pool = None
+        return name
 
     def is_tunnel_address(self, addr: ipaddress._BaseAddress) -> bool:
         if addr in self.net:
@@ -259,6 +304,7 @@ class Vpn:
                 if conf["_pub"]["key"] == device["wg_public_key"]:
                     # The removed phone still has this key, so it must not go to anyone else.
                     self.vault.delete(name)
+                    self._pool = None
                     log.warning("VPN pool: %s retired with its device; delete that client on the Firewalla "
                                 "and drop a new one in as %s", name, name)
         elif device.get("wg_public_key"):

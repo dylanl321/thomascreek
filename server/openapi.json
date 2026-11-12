@@ -1128,6 +1128,106 @@
     }
    }
   },
+  "/v1/vpn/pool": {
+   "get": {
+    "tags": [
+     "people"
+    ],
+    "summary": "Vpn Pool",
+    "description": "Dylan's view of the Firewalla clients the hub hands out.",
+    "operationId": "vpn_pool_v1_vpn_pool_get",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Vpn Pool V1 Vpn Pool Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "post": {
+    "tags": [
+     "people"
+    ],
+    "summary": "Vpn Pool Add",
+    "description": "Add a WireGuard client made on the Firewalla (the .conf text, shared into the app).",
+    "operationId": "vpn_pool_add_v1_vpn_pool_post",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/PoolBody"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Vpn Pool Add V1 Vpn Pool Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/v1/vpn/config": {
    "post": {
     "tags": [
@@ -3909,6 +4009,20 @@
      "target_device_id"
     ],
     "title": "PlayBody"
+   },
+   "PoolBody": {
+    "properties": {
+     "config": {
+      "type": "string",
+      "maxLength": 4000,
+      "title": "Config"
+     }
+    },
+    "type": "object",
+    "required": [
+     "config"
+    ],
+    "title": "PoolBody"
    },
    "PrefsBody": {
     "properties": {
