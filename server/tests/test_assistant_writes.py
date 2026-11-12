@@ -132,3 +132,13 @@ def test_trips_without_a_machine_client_say_how_to_set_it_up(hub, people, home_c
     hub.vault.delete("trek.mcp_client_secret")
     r = home_client.get("/v1/trip-tools", headers=people["phones"]["Avery"].h)
     assert r.status_code == 503 and "admin page" in r.json()["message"]
+
+
+def test_board_without_the_parent_pin_says_where_to_save_it(hub, people, home_client):
+    _board(hub, people)
+    with respx.mock(assert_all_called=False) as mock:
+        mock.get(f"{BOARD}/api/bootstrap").mock(return_value=httpx.Response(200, json=ITEMS))
+        mock.post(f"{BOARD}/api/items").mock(return_value=httpx.Response(401, json={"error": "Admin token required"}))
+        r = home_client.post("/v1/family/items", headers=people["phones"]["Avery"].h, json={
+            "title": "test chore", "kind": "chore", "people": ["Theo"]})
+        assert r.status_code == 503 and "parent PIN" in r.json()["message"] and "admin page" in r.json()["message"]
