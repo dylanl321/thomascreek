@@ -210,7 +210,8 @@ struct DownloadsView: View {
         List {
             let all = downloads.mine
             let ready = all.filter { $0.state == .ready }
-            let busy = all.filter { $0.state != .ready }
+            let busy = all.filter { $0.state == .preparing || $0.state == .downloading }
+            let failed = all.filter { $0.state == .failed }
             if all.isEmpty {
                 Section {
                     VStack(spacing: 8) {
@@ -232,6 +233,12 @@ struct DownloadsView: View {
                 Section("In progress") {
                     ForEach(busy) { t in DownloadRow(title: t) }
                         .onDelete { ix in ix.map { busy[$0] }.forEach(downloads.remove) }
+                }
+            }
+            if !failed.isEmpty {
+                Section("Didn't finish") {
+                    ForEach(failed) { t in DownloadRow(title: t) }
+                        .onDelete { ix in ix.map { failed[$0] }.forEach(downloads.remove) }
                 }
             }
         }
