@@ -543,7 +543,7 @@ def test_frigate_cameras_events_and_home(hub, people, home_client):
         feed = home_client.get("/v1/cameras/events?limit=1&label=person", headers=dylan.h).json()
         item = feed["items"][0]
         assert item["camera_name"] == "Creek" and item["score"] == 0.81 and item["end"] is None
-        assert item["snapshot_url"].endswith("/snapshot.jpg") and feed["next_before"] == 1700000000.5
+        assert item["snapshot_url"].endswith("/snapshot.jpg") and feed["next_before"] == "1700000000.5"
         assert events.calls[-1].request.url.params["labels"] == "person"
         assert home_client.get("/v1/cameras/events/1700.5-abc", headers=dylan.h).json()["id"] == "1700.5-abc"
         # Only Frigate cameras exist now: the HA-only one is gone from Home and the API.

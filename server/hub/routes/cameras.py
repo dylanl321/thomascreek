@@ -48,6 +48,13 @@ def camera_name(h: Hub, cam: str) -> str:
     return " ".join(w.capitalize() for w in words)
 
 
+def _cursor(rows: list[dict[str, Any]], limit: int) -> str | None:
+    """The next page's `before`, as a string (the app's contract)."""
+    if len(rows) < limit or rows[-1].get("start_time") is None:
+        return None
+    return repr(float(rows[-1]["start_time"]))
+
+
 def event_item(h: Hub, e: dict[str, Any]) -> dict[str, Any]:
     """One Frigate event in the app's shape."""
     data = e.get("data") or {}
@@ -106,7 +113,7 @@ async def all_events(limit: int = 30, before: float | None = None, camera: str |
     except AdapterError as exc:
         raise error(503, "unavailable", str(exc)) from None
     return {"items": [event_item(h, e) for e in rows],
-            "next_before": rows[-1].get("start_time") if len(rows) == limit else None}
+            "next_before": _cursor(rows, limit)}
 
 
 @router.get("/events/{event_id}")
@@ -254,7 +261,7 @@ async def events(cam: str, limit: int = 25, before: float | None = None, c: Call
     except AdapterError as exc:
         raise error(503, "unavailable", str(exc)) from None
     return {"items": [event_item(h, e) for e in rows],
-            "next_before": rows[-1].get("start_time") if len(rows) == limit else None}
+            "next_before": _cursor(rows, limit)}
 
 
 @router.get("/events/{event_id}/thumb.jpg")
