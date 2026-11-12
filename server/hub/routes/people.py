@@ -271,22 +271,91 @@ ACTIVITY_CATEGORIES = {
 }
 
 
+DOOR_CLASSES = {"door", "garage_door", "window", "opening"}
+
+
+def _home_category(h: Hub, e: dict[str, Any]) -> str | None:
+    """Which activity category a Home Assistant logbook line belongs to, if any."""
+    eid = e.get("entity_id") or ""
+    domain = eid.split(".", 1)[0]
+    if domain in ("lock", "cover", "alarm_control_panel", "valve"):
+        return "doors"
+    if domain == "binary_sensor":
+        dc = ((h.home.states.get(eid) or {}).get("attributes") or {}).get("device_class")
+        return "doors" if dc in DOOR_CLASSES else None
+    if domain == "person":
+        return "people"
+    if domain in ("automation", "script"):
+        return "automation"
+    return None
+
+
+async def _home_events(h: Hub, category: str | None, since: float, limit: int) -> list[dict[str, Any]]:
+    """Recent door, lock, garage, presence and automation lines from Home Assistant's logbook."""
+    import datetime as dt
+
+    if not h.ha.enabled:
+        return []
+    try:
+        rows = await h.ha.logbook(dt.datetime.fromtimestamp(since, dt.timezone.utc).isoformat())
+    except Exception:  # noqa: BLE001
+        return []
+    out = []
+    for e in rows:
+        cat = _home_category(h, e)
+        if cat is None or (category and cat != category):
+            continue
+        try:
+            ts = dt.datetime.fromisoformat(str(e.get("when")).replace("Z", "+00:00")).timestamp()
+        except ValueError:
+            continue
+        by_automation = str(e.get("context_entity_id") or "").startswith(("automation.", "script."))
+        name = e.get("name") or e.get("entity_id")
+        out.append({
+            "id": f"ha:{int(ts * 1000)}:{e.get('entity_id')}", "t": ts, "at": iso(ts), "who": None, "person_id": None,
+            "device_id": None, "action": e.get("entity_id", "").split(".", 1)[0] + ".changed", "target": e.get("entity_id"),
+            "params": {}, "outcome": "ok", "detail": f"{name} {e.get('message') or e.get('state') or ''}".strip(),
+            "source": "automation" if by_automation or cat == "automation" else "home",
+        })
+    out.sort(key=lambda r: r["t"], reverse=True)
+    return out[:limit]
+
+
 @router.get("/activity")
-async def activity(before: int | None = None, person: str | None = None, limit: int = 100,
+async def activity(before: str | None = None, person: str | None = None, limit: int = 100,
                    category: str | None = None, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """Hub actions (who did what in the app) merged with Home Assistant's logbook
+    for doors, locks, garage, presence and automations. Newest first.
+
+    `before` is the `next_before` of the previous page (an opaque string)."""
     need(h, c, "activity")
     limit = min(max(limit, 1), 500)
+    if category and category not in ACTIVITY_CATEGORIES and category != "automation":
+        raise error(400, "bad_category", f"category is one of {', '.join([*ACTIVITY_CATEGORIES, 'automation'])}")
     prefixes = ACTIVITY_CATEGORIES.get(category or "")
-    if category and prefixes is None:
-        raise error(400, "bad_category", f"category is one of {', '.join(ACTIVITY_CATEGORIES)}")
-    rows = h.db.activity(before=before, limit=limit, person_id=person, prefixes=prefixes)
+    # Cursor: "<epoch seconds>" — everything strictly older than that.
+    try:
+        before_ts = float(before) if before else None
+    except ValueError:
+        raise error(400, "bad_cursor", "before must be the next_before of a previous page") from None
+    rows = [] if category == "automation" else h.db.activity(limit=limit, person_id=person, prefixes=prefixes,
+                                                              before_ts=before_ts)
     names = {p["id"]: p["name"] for p in h.db.people()}
     items = [{
-        "id": r["id"], "t": iso(r["ts"]), "who": names.get(r["person_id"] or "", None), "person_id": r["person_id"],
-        "device_id": r["device_id"], "action": r["action"], "target": r["target"], "params": r["params"],
-        "outcome": r["outcome"], "detail": r["detail"], "source": r["source"],
+        "id": str(r["id"]), "t": r["ts"], "at": iso(r["ts"]), "who": names.get(r["person_id"] or "", None),
+        "person_id": r["person_id"], "device_id": r["device_id"], "action": r["action"], "target": r["target"],
+        "params": r["params"], "outcome": r["outcome"], "detail": r["detail"], "source": r["source"],
     } for r in rows]
-    return {"items": items, "next_before": rows[-1]["id"] if len(rows) == limit else None}
+    if not person:
+        now = time.time()
+        newest = before_ts or now
+        oldest = items[-1]["t"] if len(items) == limit else newest - 3 * 86400
+        home = await _home_events(h, category, oldest, limit)
+        items += [e for e in home if oldest <= e["t"] < newest]
+    items.sort(key=lambda r: r["t"], reverse=True)
+    items = items[:limit]
+    next_before = str(items[-1]["t"]) if len(items) == limit else None
+    return {"items": items, "next_before": next_before}
 
 
 @router.get("/systems")

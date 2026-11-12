@@ -135,6 +135,53 @@ class Jellyseerr(Adapter):
     async def request_status(self, request_id: str) -> dict[str, Any]:
         return await self.get_json(f"/api/v1/request/{quote(request_id)}")
 
+    REQUEST_STATUS = {1: "pending", 2: "approved", 3: "declined", 4: "failed", 5: "completed"}
+    MEDIA_STATUS = {1: "unknown", 2: "pending", 3: "processing", 4: "partly available", 5: "available", 6: "deleted"}
+
+    async def recent_requests(self, take: int = 15) -> list[dict[str, Any]]:
+        """Newest requests with their titles (Jellyseerr's list leaves titles out)."""
+        import asyncio
+
+        data = await self.get_json("/api/v1/request", params={"take": take, "skip": 0, "sort": "added", "filter": "all"})
+        rows = data.get("results", [])
+
+        async def title(r: dict[str, Any]) -> dict[str, Any]:
+            media = r.get("media") or {}
+            kind, tmdb = media.get("mediaType") or r.get("type"), media.get("tmdbId")
+            info: dict[str, Any] = {}
+            if kind in ("movie", "tv") and tmdb:
+                try:
+                    info = await self.get_json(f"/api/v1/{kind}/{int(tmdb)}")
+                except Exception:  # noqa: BLE001
+                    info = {}
+            return {
+                "id": str(r.get("id")), "kind": kind,
+                "title": info.get("title") or info.get("name"),
+                "year": (info.get("releaseDate") or info.get("firstAirDate") or "")[:4] or None,
+                "poster_url": f"https://image.tmdb.org/t/p/w342{info['posterPath']}" if info.get("posterPath") else None,
+                "status": self.REQUEST_STATUS.get(r.get("status"), "unknown"),
+                "media_status": self.MEDIA_STATUS.get(media.get("status"), "unknown"),
+                "requested_by": (r.get("requestedBy") or {}).get("displayName"),
+                "requested_at": r.get("createdAt"),
+            }
+
+        return list(await asyncio.gather(*(title(r) for r in rows)))
+
+
+def _hms(v: str | None) -> int | None:
+    """Sonarr/Radarr timeleft ("1.02:03:04" or "02:03:04") in seconds."""
+    if not v:
+        return None
+    days = 0
+    if "." in v.split(":")[0]:
+        d, v = v.split(".", 1)
+        days = int(d)
+    try:
+        h, m, sec = (int(float(x)) for x in v.split(":"))
+    except ValueError:
+        return None
+    return days * 86400 + h * 3600 + m * 60 + sec
+
 
 class Arr(Adapter):
     """Sonarr or Radarr (v3 API): the download queue for the pipeline screen."""
@@ -158,7 +205,50 @@ class Arr(Adapter):
                 "title": rec.get("title"), "progress": round(1 - left / size, 3) if size else None,
                 "eta_s": None, "state": rec.get("trackedDownloadState") or rec.get("status"), "source": self.name,
             }
+            left_s = _hms(rec.get("timeleft"))
+            row["eta_s"] = left_s
             if rec.get("trackedDownloadStatus") in ("warning", "error"):
                 row["error"] = "; ".join(m.get("title", "") for m in rec.get("statusMessages", [])) or "stalled"
             out.append(row)
+        return out
+
+    async def upcoming(self, days: int = 7) -> list[dict[str, Any]]:
+        import datetime as dt
+
+        start = dt.datetime.now(dt.timezone.utc)
+        end = start + dt.timedelta(days=days)
+        params: dict[str, Any] = {"start": start.date().isoformat(), "end": end.date().isoformat()}
+        if self.name == "sonarr":
+            params["includeSeries"] = "true"
+        out = []
+        for it in await self.get_json("/api/v3/calendar", params=params):
+            if self.name == "sonarr":
+                series = it.get("series") or {}
+                out.append({"kind": "episode", "title": series.get("title"),
+                            "detail": f"S{it.get('seasonNumber', 0):02d}E{it.get('episodeNumber', 0):02d} {it.get('title') or ''}".strip(),
+                            "at": it.get("airDateUtc"), "has_file": bool(it.get("hasFile")), "source": self.name})
+            else:
+                at = it.get("digitalRelease") or it.get("physicalRelease") or it.get("inCinemas")
+                out.append({"kind": "movie", "title": it.get("title"), "detail": str(it.get("year") or ""),
+                            "at": at, "has_file": bool(it.get("hasFile")), "source": self.name})
+        return out
+
+    async def recent(self, limit: int = 15) -> list[dict[str, Any]]:
+        """Recently imported (downloaded and added to the library)."""
+        params: dict[str, Any] = {"pageSize": limit, "sortKey": "date", "sortDirection": "descending", "eventType": 3}
+        params["includeSeries" if self.name == "sonarr" else "includeMovie"] = "true"
+        if self.name == "sonarr":
+            params["includeEpisode"] = "true"
+        data = await self.get_json("/api/v3/history", params=params)
+        out = []
+        for rec in data.get("records", []):
+            if self.name == "sonarr":
+                series, ep = rec.get("series") or {}, rec.get("episode") or {}
+                title = series.get("title") or rec.get("sourceTitle")
+                detail = f"S{ep.get('seasonNumber', 0):02d}E{ep.get('episodeNumber', 0):02d} {ep.get('title') or ''}".strip() if ep else None
+            else:
+                movie = rec.get("movie") or {}
+                title, detail = movie.get("title") or rec.get("sourceTitle"), str(movie.get("year") or "") or None
+            out.append({"kind": "episode" if self.name == "sonarr" else "movie", "title": title, "detail": detail,
+                        "at": rec.get("date"), "source": self.name})
         return out

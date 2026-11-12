@@ -230,9 +230,12 @@ class DB:
         return int(cur.lastrowid or 0)
 
     def activity(self, before: int | None = None, limit: int = 100, person_id: str | None = None,
-                 prefixes: Iterable[str] | None = None) -> list[dict[str, Any]]:
+                 prefixes: Iterable[str] | None = None, before_ts: float | None = None) -> list[dict[str, Any]]:
         sql = "SELECT * FROM activity WHERE 1=1"
         args: list[Any] = []
+        if before_ts is not None:
+            sql += " AND ts < ?"
+            args.append(before_ts)
         if prefixes:
             prefixes = list(prefixes)
             sql += " AND (" + " OR ".join("action LIKE ?" for _ in prefixes) + ")"

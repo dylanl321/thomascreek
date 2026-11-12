@@ -52,12 +52,24 @@ class TrueNAS(Adapter):
                                 raise AdapterError(f"NAS error on {method}")
                             return msg.get("result")
 
-                ok = await call("auth.login_ex", [{
-                    "mechanism": "API_KEY_PLAIN",
-                    "username": self.cfg.username or "root",
-                    "api_key": key,
-                }])
-                if not ok or ok.get("response_type") != "SUCCESS":
+                # login_ex needs the key owner's user name (often truenas_admin, not root);
+                # login_with_api_key does not, so it is the fallback when no name is set.
+                users = [self.cfg.username] if self.cfg.username else ["truenas_admin", "root", "admin"]
+                logged_in = False
+                for user in users:
+                    try:
+                        ok = await call("auth.login_ex", [{"mechanism": "API_KEY_PLAIN", "username": user, "api_key": key}])
+                    except AdapterError:
+                        ok = None
+                    if ok and ok.get("response_type") == "SUCCESS":
+                        logged_in = True
+                        break
+                if not logged_in:
+                    try:
+                        logged_in = bool(await call("auth.login_with_api_key", [key]))
+                    except AdapterError:
+                        logged_in = False
+                if not logged_in:
                     raise AdapterError("NAS refused the hub's API key")
                 out = [await call(m, p) for m, p in calls]
         except AdapterError as exc:

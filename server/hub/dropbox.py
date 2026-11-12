@@ -21,6 +21,10 @@ from .vault import Vault
 log = logging.getLogger("hub.dropbox")
 
 
+# House assets that may also be dropped in (moved, not wiped): file name -> name under data/assets.
+ASSET_FILES = {"house-model-web.json": "house-model-web.json", "header.jpg": "header.jpg"}
+
+
 def drop_dir() -> Path:
     return data_dir() / "import"
 
@@ -39,6 +43,14 @@ def import_dropped(vault: Vault, folder: Path | None = None) -> list[str]:
         if not f.is_file() or f.name.startswith("."):
             continue
         name = f.name.removesuffix(".txt").removesuffix(".conf")
+        if f.name in ASSET_FILES:
+            # Not a secret: a house asset kept out of the public repo.
+            dest = data_dir() / "assets" / ASSET_FILES[f.name]
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            f.replace(dest)
+            log.info("drop folder: stored asset %s", ASSET_FILES[f.name])
+            stored.append(f"asset:{ASSET_FILES[f.name]}")
+            continue
         try:
             if not NAME_RE.match(name):
                 # Removed anyway: a misnamed file may still hold a credential.

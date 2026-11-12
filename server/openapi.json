@@ -986,6 +986,7 @@
      "people"
     ],
     "summary": "Activity",
+    "description": "Hub actions (who did what in the app) merged with Home Assistant's logbook\nfor doors, locks, garage, presence and automations. Newest first.\n\n`before` is the `next_before` of the previous page (an opaque string).",
     "operationId": "activity_v1_activity_get",
     "parameters": [
      {
@@ -995,7 +996,7 @@
       "schema": {
        "anyOf": [
         {
-         "type": "integer"
+         "type": "string"
         },
         {
          "type": "null"
@@ -1955,6 +1956,7 @@
      "media"
     ],
     "summary": "Pipeline",
+    "description": "Requests -> downloads -> recently added, plus what's coming this week.\n\nEach section is filled independently; a service that fails is listed in\n`failures` instead of emptying the whole screen.",
     "operationId": "pipeline_v1_pipeline_get",
     "parameters": [
      {

@@ -437,3 +437,60 @@ def test_vpn_pool_admin_add_and_list(hub, people, home_client):
     assert dylan.secure_post("/v1/vpn/pool", {"config": "[Interface]\n"}).status_code == 400
     listed = home_client.get("/v1/vpn/pool", headers=dylan.h).json()
     assert listed["clients"][0]["address"] == "10.11.12.6/32" and "private" not in str(listed)
+
+
+def test_pipeline_sections_and_partial_failure(hub, people, home_client):
+    for cfg, url in ((hub.config.sonarr, "http://sonarr.test"), (hub.config.radarr, "http://radarr.test"),
+                     (hub.config.jellyseerr, "http://seerr.test")):
+        cfg.enabled, cfg.url = True, url
+    hub.vault.set("sonarr.api_key", "k")
+    with respx.mock(assert_all_called=False) as mock:
+        mock.get("http://sonarr.test/api/v3/queue").mock(return_value=httpx.Response(200, json={"records": [
+            {"title": "Show S01E02", "size": 100, "sizeleft": 25, "timeleft": "00:10:00", "status": "downloading"}]}))
+        mock.get("http://sonarr.test/api/v3/calendar").mock(return_value=httpx.Response(200, json=[
+            {"seasonNumber": 1, "episodeNumber": 3, "title": "Next", "airDateUtc": "2026-11-14T01:00:00Z",
+             "series": {"title": "Show"}}]))
+        mock.get("http://sonarr.test/api/v3/history").mock(return_value=httpx.Response(200, json={"records": [
+            {"date": "2026-11-11T10:00:00Z", "series": {"title": "Show"}, "episode": {"seasonNumber": 1, "episodeNumber": 1}}]}))
+        mock.get(url__startswith="http://radarr.test").mock(return_value=httpx.Response(500))
+        mock.get("http://seerr.test/api/v1/request").mock(return_value=httpx.Response(200, json={"results": [
+            {"id": 7, "status": 1, "media": {"mediaType": "movie", "tmdbId": 11, "status": 2},
+             "requestedBy": {"displayName": "Avery"}, "createdAt": "2026-11-11T09:00:00Z"}]}))
+        mock.get("http://seerr.test/api/v1/movie/11").mock(return_value=httpx.Response(200, json={"title": "Film", "releaseDate": "2024-01-01"}))
+        r = home_client.get("/v1/pipeline", headers=people["phones"]["Dylan"].h)
+    assert r.status_code == 200, r.text
+    b = r.json()
+    assert b["downloads"][0]["progress"] == 0.75 and b["downloads"][0]["eta_s"] == 600
+    assert b["upcoming"][0]["detail"].startswith("S01E03") and b["recent"][0]["title"] == "Show"
+    assert b["requests"][0] == {**b["requests"][0], "title": "Film", "status": "pending", "requested_by": "Avery"}
+    assert {f["source"] for f in b["failures"]} == {"radarr"}
+
+
+def test_activity_merges_home_assistant_logbook(hub, people, home_client):
+    import datetime as dt
+
+    hub.vault.set("home_assistant.token", "t")
+    now = dt.datetime.now(dt.timezone.utc)
+    with respx.mock(assert_all_called=False) as mock:
+        mock.get(url__startswith="http://ha.test/api/logbook/").mock(return_value=httpx.Response(200, json=[
+            {"when": (now - dt.timedelta(minutes=5)).isoformat(), "name": "Front door", "message": "was unlocked",
+             "entity_id": "lock.front_door"},
+            {"when": (now - dt.timedelta(minutes=4)).isoformat(), "name": "Kitchen", "message": "turned on",
+             "entity_id": "light.kitchen"},
+        ]))
+        b = home_client.get("/v1/activity?category=doors", headers=people["phones"]["Dylan"].h).json()
+    assert [i["detail"] for i in b["items"]] == ["Front door was unlocked"]
+    item = b["items"][0]
+    assert isinstance(item["id"], str) and isinstance(item["t"], float) and item["source"] == "home"
+
+
+def test_drop_folder_takes_house_model(hub, tmp_path, monkeypatch):
+    from hub.dropbox import import_dropped
+
+    monkeypatch.setenv("HUB_DATA_DIR", str(tmp_path))
+    drop = tmp_path / "import"
+    drop.mkdir()
+    (drop / "house-model-web.json").write_text('{"rooms": []}')
+    assert import_dropped(hub.vault, drop) == ["asset:house-model-web.json"]
+    assert (tmp_path / "assets" / "house-model-web.json").read_text() == '{"rooms": []}'
+    assert not hub.vault.has("house-model-web.json")

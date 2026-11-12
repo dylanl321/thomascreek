@@ -313,17 +313,51 @@ async def _approve(h: Hub, c: Caller, r: dict[str, Any]) -> None:
 # -- pipeline (admin) ------------------------------------------------------
 @router.get("/pipeline")
 async def pipeline(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """Requests -> downloads -> recently added, plus what's coming this week.
+
+    Each section is filled independently; a service that fails is listed in
+    `failures` instead of emptying the whole screen."""
+    import asyncio
+
     need(h, c, "pipeline")
     downloads: list[dict[str, Any]] = []
     failures: list[dict[str, Any]] = []
+    upcoming: list[dict[str, Any]] = []
+    recent: list[dict[str, Any]] = []
+    requests: list[dict[str, Any]] = []
+
+    async def safe(source: str, coro):
+        try:
+            return await coro
+        except AdapterError as exc:
+            failures.append({"source": source, "error": str(exc)})
+        except Exception as exc:  # noqa: BLE001
+            failures.append({"source": source, "error": f"{type(exc).__name__}"})
+        return None
+
+    jobs = []
+    for arr in (h.sonarr, h.radarr):
+        if arr.enabled:
+            jobs += [safe(arr.name, arr.queue()), safe(arr.name, arr.upcoming()), safe(arr.name, arr.recent())]
+    if h.jellyseerr.enabled:
+        jobs.append(safe("jellyseerr", h.jellyseerr.recent_requests()))
+    results = await asyncio.gather(*jobs)
+    i = 0
     for arr in (h.sonarr, h.radarr):
         if not arr.enabled:
             continue
-        try:
-            records = await arr.queue()
-        except AdapterError as exc:
-            failures.append({"source": arr.name, "error": str(exc)})
-            continue
-        for row in records:
-            (failures if row.get("error") else downloads).append(row)
-    return {"downloads": downloads, "failures": failures}
+        q, up, rec = results[i:i + 3]
+        i += 3
+        for row in q or []:
+            if row.get("error"):
+                failures.append(row)
+            downloads.append(row)
+        upcoming += up or []
+        recent += rec or []
+    if h.jellyseerr.enabled:
+        requests = results[i] or []
+    upcoming.sort(key=lambda r: r.get("at") or "")
+    recent.sort(key=lambda r: r.get("at") or "", reverse=True)
+    configured = [a.name for a in (h.jellyseerr, h.sonarr, h.radarr) if a.enabled]
+    return {"requests": requests, "downloads": downloads, "recent": recent[:20], "upcoming": upcoming[:30],
+            "failures": failures, "services": configured}
