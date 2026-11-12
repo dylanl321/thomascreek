@@ -12,6 +12,7 @@ so the hub sends `X-Forwarded-Proto: https` when it talks to TREK on the LAN.
 
 from __future__ import annotations
 
+import html
 import time
 from datetime import date, timedelta
 from typing import Any
@@ -20,6 +21,24 @@ from .base import Adapter, AdapterError
 
 CACHE_S = 60.0
 # No ?include=: TREK then returns every section the key may read, instead of refusing a narrow key.
+
+
+def unescape(v: Any) -> Any:
+    """TREK stores some text HTML-escaped, sometimes twice ("&amp;amp;"). Give the app plain text."""
+    if isinstance(v, str):
+        for _ in range(3):
+            if "&" not in v:
+                break
+            nv = html.unescape(v)
+            if nv == v:
+                break
+            v = nv
+        return v
+    if isinstance(v, list):
+        return [unescape(x) for x in v]
+    if isinstance(v, dict):
+        return {k: unescape(x) for k, x in v.items()}
+    return v
 
 
 class Trek(Adapter):
@@ -36,6 +55,9 @@ class Trek(Adapter):
         if key.lower().startswith("bearer "):
             key = key[7:].strip()
         return key or None
+
+    async def get_json(self, path: str, **kw: Any) -> Any:
+        return unescape(await super().get_json(path, **kw))
 
     def auth_headers(self) -> dict[str, str]:
         key = self.api_key()

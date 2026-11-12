@@ -59,8 +59,9 @@ struct DownloadButton: View {
     @Environment(HomeStore.self) private var store
     let item: MediaItem
     var tint: Color = Theme.accent
-    @State private var options: [Downloads.Option]?
-    @State private var asking = false
+    /// The choices for the sheet; setting it opens the sheet with them (one state, so it never opens empty).
+    @State private var offer: Offer?
+    struct Offer: Identifiable { let id = UUID(); let options: [Downloads.Option] }
     @State private var playing: Downloads.Title?
     private let downloads = Downloads.shared
 
@@ -96,8 +97,8 @@ struct DownloadButton: View {
                 .disabled(!store.reachable)
             }
         }
-        .sheet(isPresented: $asking) {
-            DownloadOptionsSheet(item: item, options: options ?? []).presentationDetents([.medium])
+        .sheet(item: $offer) { o in
+            DownloadOptionsSheet(item: item, options: o.options).presentationDetents([.medium, .large])
         }
         .fullScreenCover(item: $playing) { OfflinePlayer(title: $0) }
     }
@@ -116,7 +117,7 @@ struct DownloadButton: View {
     }
 
     private func ask() async {
-        do { options = try await downloads.options(for: item); asking = true }
+        do { offer = Offer(options: try await downloads.options(for: item)) }
         catch { store.show(error.localizedDescription, isError: true) }
     }
 }
@@ -450,6 +451,7 @@ struct OfflineStorageView: View {
         }
         .navigationTitle("Storage")
         .onAppear(perform: refresh)
+        .onChange(of: downloads.titles) { _, _ in refresh() }
         .refreshable { await trips.load(force: true); refresh() }
         .confirmationDialog("Clear saved copies?", isPresented: $confirmClear, titleVisibility: .visible) {
             Button("Clear", role: .destructive) { OfflineCache.clearRecent(); refresh(); store.show("Saved copies cleared", "Downloads and trips kept") }

@@ -65,26 +65,40 @@ class Job:
 
 
 def options(media: dict[str, Any]) -> list[dict[str, Any]]:
-    """What can be offered for one title, with rough sizes."""
+    """What can be offered for one title, with sizes close to what Plex really produces."""
     dur_s = (media.get("duration_ms") or 0) / 1000
+    size = media.get("size") or 0
+    orig_kbps = size * 8 / 1000 / dur_s if dur_s and size else None
     out: list[dict[str, Any]] = []
-    if original_mode(media):
-        mode = original_mode(media)
-        out.append({"quality": "original", "label": "Original",
-                    "detail": f"{media.get('resolution') or 'Full'} quality, fastest to get",
+    mode = original_mode(media)
+    if mode:
+        detail = {"direct": "Full quality, the file as it is",
+                  "remux": "Full quality, rewrapped for iPhone (about a minute)",
+                  "remux_audio": "Full quality, sound converted for iPhone (a few minutes)"}[mode]
+        out.append({"quality": "original", "label": "Original", "detail": f"{media.get('resolution') or 'Full'} · {detail}",
                     "bytes": media.get("size"), "instant": mode == "direct"})
     for q, spec in QUALITIES.items():
-        out.append({"quality": q, "label": spec["label"], "detail": f"{spec['detail']}, converted by Plex",
-                    "bytes": int(dur_s * (spec["kbps"] + 192) * 1000 / 8) if dur_s else None, "instant": False})
+        # Plex's cap is a ceiling; real output averages about half of it (measured: 480p came out at ~40%).
+        kbps = spec["kbps"] * 0.5 + 128
+        if orig_kbps:
+            # A "smaller" copy that isn't clearly smaller than the original is pointless.
+            if mode and orig_kbps < kbps * 1.4:
+                continue
+            kbps = min(kbps, orig_kbps)
+        out.append({"quality": q, "label": spec["label"], "detail": f"{spec['detail']} · converted by Plex",
+                    "bytes": int(dur_s * kbps * 1000 / 8) if dur_s else None, "instant": False})
     return out
 
 
 def original_mode(media: dict[str, Any]) -> str | None:
-    """'direct' (stream the Plex file), 'remux' (rewrap into MP4) or None (an iPhone can't play it)."""
+    """'direct' (stream the Plex file), 'remux' (rewrap into MP4), 'remux_audio' (rewrap, convert only
+    the sound, e.g. DTS) or None (an iPhone can't decode the picture)."""
     video = (media.get("video_codec") or "").lower()
     audio = (media.get("audio_codec") or "").lower()
-    if video not in PLAYABLE_VIDEO or (audio and audio not in PLAYABLE_AUDIO):
+    if video not in PLAYABLE_VIDEO:
         return None
+    if audio and audio not in PLAYABLE_AUDIO:
+        return "remux_audio"
     container = (media.get("container") or "").lower()
     return "direct" if container in PLAYABLE_CONTAINERS else "remux"
 
@@ -136,7 +150,7 @@ class Downloads:
         base = str(plex.cfg.url).rstrip("/")
         token = plex.secret(plex.cfg.token_secret) or ""
         headers = f"X-Plex-Token: {token}\r\nX-Plex-Client-Identifier: thomascreek-hub-dl\r\nX-Plex-Product: Thomas Creek Hub\r\n"
-        if mode == "remux":
+        if mode in ("remux", "remux_audio"):
             return f"{base}{media['part_key']}", ["-headers", headers]
         spec = QUALITIES[job.quality]
         from urllib.parse import urlencode
@@ -158,8 +172,10 @@ class Downloads:
         job.path = tmp
         src, extra = self._input_for(job, media, mode)
         args = [ffmpeg, "-hide_banner", "-nostdin", "-loglevel", "error", *extra, "-i", src,
-                "-map", "0:v:0", "-map", "0:a:0?", "-c", "copy", "-sn", "-dn",
-                "-movflags", "+faststart", "-tag:v", "hvc1" if (media.get("video_codec") or "").lower() in ("hevc", "h265") and mode == "remux" else "avc1",
+                "-map", "0:v:0", "-map", "0:a:0?", "-c", "copy",
+                *(["-c:a", "aac", "-b:a", "256k", "-ac", "2"] if mode == "remux_audio" else []),
+                "-sn", "-dn", "-movflags", "+faststart",
+                "-tag:v", "hvc1" if (media.get("video_codec") or "").lower() in ("hevc", "h265") and mode != "transcode" else "avc1",
                 "-progress", "pipe:1", "-y", str(tmp)]
         proc = await asyncio.create_subprocess_exec(*args, stdout=asyncio.subprocess.PIPE,
                                                     stderr=asyncio.subprocess.PIPE)
