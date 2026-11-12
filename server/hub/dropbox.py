@@ -32,10 +32,11 @@ def import_dropped(vault: Vault, folder: Path | None = None) -> list[str]:
         if not f.is_file() or f.name.startswith("."):
             continue
         name = f.name.removesuffix(".txt")
-        if not NAME_RE.match(name):
-            log.warning("drop folder: ignoring %s (not a secret name)", f.name)
-            continue
         try:
+            if not NAME_RE.match(name):
+                # Removed anyway: a misnamed file may still hold a credential.
+                log.warning("drop folder: discarded a file that is not named like a secret")
+                continue
             raw = f.read_text()
             value = raw.strip()
             if "\n" in value:
