@@ -295,11 +295,10 @@ struct MyRoomView: View {
 
 struct KidWatchView: View {
     @Environment(HomeStore.self) private var store
+    @Environment(Router.self) private var router
     @State private var items: [MediaItem] = []
-    @State private var requests: [MediaRequest] = []
+    @State private var requests: [TitleRequest] = []
     @State private var picked: MediaItem?
-    @State private var asking = false
-    @State private var askText = ""
 
     var body: some View {
         let little = store.me?.style == .little
@@ -312,7 +311,7 @@ struct KidWatchView: View {
                     ForEach(items) { m in Poster(item: m).onTapGesture { picked = m } }
                 }
                 if store.me?.can(.mediaRequest) == true {
-                    Button { asking = true } label: {
+                    Button { router.go(.askMedia) } label: {
                         Label("Ask for a movie", systemImage: "hand.raised.fill").font(Theme.kidFont(18, .semibold)).frame(maxWidth: .infinity, minHeight: 54)
                     }
                     .buttonStyle(.borderedProminent).tint(little ? Theme.little : Theme.kid)
@@ -320,7 +319,13 @@ struct KidWatchView: View {
                 if !requests.isEmpty {
                     SectionHeader("My asks")
                     RowsCard {
-                        ForEach(requests) { r in InfoRow(r.status == "ready" ? "checkmark.circle.fill" : "hourglass", r.title, RequestStatus.text(r)) }
+                        ForEach(requests.prefix(6)) { r in
+                            Button { router.go(.mediaRequest(r.id)) } label: {
+                                InfoRow(r.status == "ready" ? "checkmark.circle.fill" : r.status == "downloading" ? "arrow.down.circle.fill" : "hourglass",
+                                        r.title, r.statusText ?? r.status, chevron: true)
+                            }
+                            .buttonStyle(.plain)
+                        }
                     }
                 }
             }
@@ -330,20 +335,9 @@ struct KidWatchView: View {
         .navigationTitle(little ? "Shows" : "Watch")
         .task {
             if let l: MediaList = try? await HubClient.shared.get("/v1/media/library", ["rated": "1"]) { items = l.items }
-            if let r: RequestList = try? await HubClient.shared.get("/v1/requests", ["mine": "1"]) { requests = r.items }
+            if let r: TitleRequestList = try? await HubClient.shared.get("/v1/media/requests", ["scope": "mine"]) { requests = r.items }
         }
         .sheet(item: $picked) { KidPlaySheet(item: $0) }
-        .alert("What do you want to watch?", isPresented: $asking) {
-            TextField("Movie name", text: $askText)
-            Button("Ask") {
-                let t = askText; askText = ""
-                Task {
-                    let sent = (try? await Outbox.shared.send("/v1/requests", ["kind": "media", "text": t], label: "Ask for \(t)")) ?? false
-                    store.show("Asked a parent!", sent ? nil : "It's sent when home is back")
-                }
-            }
-            Button("Cancel", role: .cancel) {}
-        }
     }
 }
 

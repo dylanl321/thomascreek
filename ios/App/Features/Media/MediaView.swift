@@ -3,7 +3,7 @@ import SwiftUI
 struct MediaView: View {
     @Environment(HomeStore.self) private var store
     @Environment(Router.self) private var router
-    @State private var requests: [MediaRequest] = []
+    @State private var requests: [TitleRequest] = []
 
     var body: some View {
         ScrollView {
@@ -18,12 +18,28 @@ struct MediaView: View {
                 }
                 .padding(.top, 8)
                 HStack(spacing: 10) {
-                    let waiting = requests.filter(\.waiting).count
+                    let onWay = requests.filter { ["searching", "downloading", "waiting", "failed"].contains($0.status) }.count
                     SectionTile(symbol: "tray.and.arrow.down.fill", title: "Requests",
-                                detail: waiting > 0 ? "\(waiting) waiting" : "\(requests.count) recent", alert: waiting > 0) { router.go(.requests) }
-                    if store.me?.can(.pipeline) == true {
-                        SectionTile(symbol: "server.rack", title: "Pipeline", detail: "Server downloads") { router.go(.pipeline) }
+                                detail: onWay > 0 ? "\(onWay) on the way" : requests.isEmpty ? "Track what you asked for" : "\(requests.count) recent") { router.go(.requests) }
+                    if store.me?.can(.mediaRequest) == true {
+                        SectionTile(symbol: "plus.circle.fill", title: "Ask for something", detail: "Movies and shows") { router.go(.askMedia) }
                     }
+                }
+                if store.me?.can(.pipeline) == true {
+                    SectionTile(symbol: "server.rack", title: "Pipeline", detail: "Server downloads") { router.go(.pipeline) }
+                }
+                let moving = requests.filter { ["downloading", "searching"].contains($0.status) }.prefix(4)
+                if !moving.isEmpty {
+                    SectionHeader("On the way", live: true)
+                    VStack(spacing: 0) {
+                        ForEach(Array(moving)) { r in
+                            Button { router.go(.mediaRequest(r.id)) } label: { RequestRow(r: r, showWho: false).padding(.vertical, 10) }
+                                .buttonStyle(.plain)
+                            if r.id != moving.last?.id { Divider().overlay(Theme.line) }
+                        }
+                    }
+                    .padding(.horizontal, 14)
+                    .background(Theme.card, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
                 }
                 DownloadsEntry()
                 YouTubeShelf()
@@ -40,7 +56,7 @@ struct MediaView: View {
         .background(Backdrop())
         .navigationTitle("Media")
         .topBar()
-        .task { await loadRequests() }
+        .task { while !Task.isCancelled { await loadRequests(); try? await Task.sleep(for: .seconds(20)) } }
         .refreshable { await store.loadHome(); await loadRequests() }
     }
 
@@ -50,7 +66,7 @@ struct MediaView: View {
     }
 
     private func loadRequests() async {
-        if let l: RequestList = try? await HubClient.shared.get("/v1/requests") { requests = l.items }
+        if let l: TitleRequestList = try? await HubClient.shared.get("/v1/media/requests", ["scope": "mine"]) { requests = l.items }
     }
 }
 
@@ -254,35 +270,61 @@ struct MusicView: View {
 
 struct WatchView: View {
     @Environment(HomeStore.self) private var store
+    @Environment(Router.self) private var router
     @State private var query = ""
     @State private var continueItems: [MediaItem] = []
+    @State private var library: [MediaItem]?
     @State private var results: [MediaItem] = []
+    @State private var requestable: [Findable] = []
+    @State private var searched = false
     @State private var picked: MediaItem?
+    @AppStorage("watch.kind") private var kind = "all"
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 if query.isEmpty {
-                    SectionHeader("Continue watching")
-                    if continueItems.isEmpty {
-                        EmptyCard(symbol: store.reachable ? "play.rectangle" : "wifi.slash",
-                                  title: store.reachable ? "Nothing in progress" : "Library needs home",
-                                  detail: store.reachable ? "Search for a film or show above." : "Downloads still play. Open Downloads on the Media tab.")
-                    } else {
+                    if !continueItems.isEmpty {
+                        SectionHeader("Continue watching")
                         PosterRow(items: continueItems) { picked = $0 }
                     }
-                } else {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 104), spacing: 12)], spacing: 14) {
-                        ForEach(results) { m in Poster(item: m).onTapGesture { picked = m } }
+                    Picker("Kind", selection: $kind) {
+                        Text("All").tag("all"); Text("Movies").tag("movie"); Text("Shows").tag("show")
                     }
-                    if results.isEmpty {
-                        EmptyCard(symbol: "magnifyingglass", title: "Not in the library", detail: "Ask for it and it'll be downloaded.")
-                        PrimaryButton(title: "Request \"\(query)\"", symbol: "plus") {
-                            Task {
-                                let sent = (try? await Outbox.shared.send("/v1/requests", ["kind": "media", "text": query], label: "Request \(query)")) ?? false
-                                store.show("Requested", sent ? query : "It's sent when home is back")
+                    .pickerStyle(.segmented).padding(.top, 6)
+                    if let library {
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 104), spacing: 12)], spacing: 14) {
+                            ForEach(library) { m in Poster(item: m).onTapGesture { picked = m } }
+                        }
+                        if library.isEmpty {
+                            EmptyCard(symbol: store.reachable ? "film.stack" : "wifi.slash",
+                                      title: store.reachable ? "Nothing here yet" : "Library needs home",
+                                      detail: store.reachable ? nil : "Downloads still play. Open Downloads on the Media tab.")
+                        }
+                    } else { LoadingCard() }
+                    if store.me?.can(.mediaRequest) == true {
+                        Button { router.go(.askMedia) } label: {
+                            Label("Not here? Ask for it", systemImage: "plus.circle").font(.headline).frame(maxWidth: .infinity, minHeight: 46)
+                        }
+                        .buttonStyle(.bordered).padding(.top, 4)
+                    }
+                } else {
+                    if !results.isEmpty {
+                        SectionHeader("On Plex")
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 104), spacing: 12)], spacing: 14) {
+                            ForEach(results) { m in Poster(item: m).onTapGesture { picked = m } }
+                        }
+                    }
+                    if !requestable.isEmpty {
+                        SectionHeader("Not on Plex yet")
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 104), spacing: 12)], spacing: 14) {
+                            ForEach(requestable) { f in
+                                Button { router.go(.mediaTitle(f.mediaId)) } label: { FindableTile(f: f) }.buttonStyle(.plain)
                             }
                         }
+                    }
+                    if searched && results.isEmpty && requestable.isEmpty {
+                        EmptyCard(symbol: "magnifyingglass", title: "No matches", detail: "Try another spelling.")
                     }
                 }
             }
@@ -291,18 +333,26 @@ struct WatchView: View {
         .background(Backdrop())
         .navigationTitle("Watch")
         .searchable(text: $query, prompt: "Movies and shows")
+        .task { if continueItems.isEmpty, let l: MediaList = try? await HubClient.shared.get("/v1/media/continue") { continueItems = l.items } }
+        .task(id: kind) {
+            library = nil
+            let q = kind == "all" ? [:] : ["kind": kind]
+            library = (try? await HubClient.shared.get("/v1/media/library", q, as: MediaList.self))?.items ?? []
+        }
         .task(id: query) {
-            if query.isEmpty {
-                if continueItems.isEmpty, let l: MediaList = try? await HubClient.shared.get("/v1/media/continue") { continueItems = l.items }
-                return
-            }
+            guard !query.isEmpty else { searched = false; return }
             try? await Task.sleep(for: .milliseconds(350))
             guard !Task.isCancelled else { return }
-            if let l: MediaList = try? await HubClient.shared.get("/v1/media/search", ["q": query]) { results = l.items }
+            if let l: WatchSearch = try? await HubClient.shared.get("/v1/media/search", ["q": query]) {
+                results = l.items; requestable = l.requestable ?? []
+            }
+            searched = true
         }
         .sheet(item: $picked) { PlayOnSheet(item: $0) }
     }
 }
+
+struct WatchSearch: Codable { var items: [MediaItem]; var requestable: [Findable]? }
 
 struct PosterRow: View {
     let items: [MediaItem]
@@ -368,59 +418,7 @@ struct PlayOnSheet: View {
     }
 }
 
-// MARK: - Requests
-
-struct RequestsView: View {
-    @Environment(HomeStore.self) private var store
-    @State private var items: [MediaRequest]?
-
-    var body: some View {
-        List {
-            if let items {
-                let waiting = items.filter(\.waiting)
-                if !waiting.isEmpty {
-                    Section("Waiting for you") { ForEach(waiting) { row($0, decide: store.me?.can(.mediaApprove) == true) } }
-                }
-                Section("Recent") { ForEach(items.filter { !$0.waiting }) { row($0, decide: false) } }
-                if items.isEmpty { ContentUnavailableView("No requests", systemImage: "tray") }
-            } else { ProgressView() }
-        }
-        .scrollContentBackground(.hidden).background(Backdrop())
-        .navigationTitle("Requests")
-        .task { await load() }
-        .refreshable { await load() }
-    }
-
-    private func row(_ r: MediaRequest, decide: Bool) -> some View {
-        HStack(spacing: 12) {
-            HubImage(path: r.posterUrl) { Theme.card2 }.frame(width: 44, height: 64).clipShape(RoundedRectangle(cornerRadius: 8))
-            VStack(alignment: .leading, spacing: 3) {
-                Text(r.title).font(.subheadline.weight(.semibold))
-                Text([r.who, RequestStatus.text(r)].compactMap { $0 }.joined(separator: " · ")).font(.caption).foregroundStyle(Theme.dim)
-                if let p = r.progress, r.status == "downloading" { ProgressBar(value: p) }
-            }
-            Spacer()
-            if decide {
-                Button { decideOn(r, "deny") } label: { Image(systemName: "xmark") }.buttonStyle(.bordered).tint(Theme.dim)
-                Button { decideOn(r, "approve") } label: { Image(systemName: "checkmark") }.buttonStyle(.borderedProminent)
-            }
-        }
-    }
-
-    private func decideOn(_ r: MediaRequest, _ verb: String) {
-        Task {
-            do {
-                try await HubClient.shared.send("/v1/requests/\(r.id)/\(verb)")
-                store.show(verb == "approve" ? "Approved \(r.title)" : "Declined")
-                await load()
-            } catch { store.show(error.localizedDescription, isError: true) }
-        }
-    }
-
-    private func load() async {
-        if let l: RequestList = try? await HubClient.shared.get("/v1/requests") { items = l.items } else if items == nil { items = [] }
-    }
-}
+// MARK: - Requests (see MediaRequestsViews.swift)
 
 enum RequestStatus {
     static func text(_ r: MediaRequest) -> String {

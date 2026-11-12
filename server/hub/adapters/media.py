@@ -174,6 +174,68 @@ class Jellyseerr(Adapter):
     async def request_status(self, request_id: str) -> dict[str, Any]:
         return await self.get_json(f"/api/v1/request/{quote(request_id)}")
 
+    # -- full request handling (list, detail, cancel, retry, discover) ---------
+    _details: dict[str, tuple[float, dict[str, Any]]] = {}
+
+    async def details(self, kind: str, tmdb: int, fresh: bool = False) -> dict[str, Any]:
+        """Movie or show details (overview, seasons, ratings, mediaInfo). Cached 10 minutes."""
+        import time as _t
+
+        if kind not in ("movie", "tv"):
+            raise ValueError("bad kind")
+        key = f"{kind}:{int(tmdb)}"
+        hit = self._details.get(key)
+        if hit and not fresh and _t.time() - hit[0] < 600:
+            return hit[1]
+        data = await self.get_json(f"/api/v1/{kind}/{int(tmdb)}")
+        if len(self._details) > 500:
+            self._details.clear()
+        self._details[key] = (_t.time(), data)
+        return data
+
+    @staticmethod
+    def content_rating(kind: str, d: dict[str, Any]) -> str | None:
+        """US certification: PG-13 for films, TV-Y7 for shows."""
+        if kind == "tv":
+            for r in (d.get("contentRatings") or {}).get("results", []):
+                if r.get("iso_3166_1") == "US" and r.get("rating"):
+                    return r["rating"]
+            return None
+        for r in (d.get("releases") or {}).get("results", []):
+            if r.get("iso_3166_1") == "US":
+                for x in r.get("release_dates", []):
+                    if x.get("certification"):
+                        return x["certification"]
+        return None
+
+    async def all_requests(self, take: int = 100) -> list[dict[str, Any]]:
+        data = await self.get_json("/api/v1/request", params={"take": take, "skip": 0, "sort": "added",
+                                                              "sortDirection": "desc", "filter": "all"})
+        return data.get("results", [])
+
+    async def one_request(self, request_id: int) -> dict[str, Any]:
+        return await self.get_json(f"/api/v1/request/{int(request_id)}")
+
+    async def submit(self, kind: str, tmdb: int, seasons: list[int] | None) -> dict[str, Any]:
+        body: dict[str, Any] = {"mediaType": kind, "mediaId": int(tmdb)}
+        if kind == "tv":
+            body["seasons"] = seasons if seasons else "all"
+        return await self.post_json("/api/v1/request", body)
+
+    async def cancel(self, request_id: int) -> None:
+        await self.request("DELETE", f"/api/v1/request/{int(request_id)}")
+
+    async def retry(self, request_id: int) -> dict[str, Any]:
+        return await self.post_json(f"/api/v1/request/{int(request_id)}/retry", {})
+
+    async def search_raw(self, q: str) -> list[dict[str, Any]]:
+        data = await self.get_json("/api/v1/search", params={"query": q, "page": 1})
+        return [r for r in data.get("results", []) if r.get("mediaType") in ("movie", "tv")]
+
+    async def trending(self) -> list[dict[str, Any]]:
+        data = await self.get_json("/api/v1/discover/trending", params={"page": 1})
+        return [r for r in data.get("results", []) if r.get("mediaType") in ("movie", "tv")]
+
     REQUEST_STATUS = {1: "pending", 2: "approved", 3: "declined", 4: "failed", 5: "completed"}
     MEDIA_STATUS = {1: "unknown", 2: "pending", 3: "processing", 4: "partly available", 5: "available", 6: "deleted"}
 

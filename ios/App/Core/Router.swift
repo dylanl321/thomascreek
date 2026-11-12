@@ -12,7 +12,7 @@ enum Destination: Hashable {
     case room(String)
     case climate, doors, cameras, camera(String), cameraEvent(String), appliances, outdoor, workshop
     case holiday, holidayControllers, house3D
-    case remote(String), music, watch, requests, pipeline
+    case remote(String), music, watch, requests, pipeline, askMedia, mediaTitle(String), mediaRequest(String)
     case calendar, meals, recipe(String), shopping, chores, inventory
     case kitchen(String?), dinners, recipes
     case trips, trip(Int), tripDay(Int, String)
@@ -108,7 +108,13 @@ final class Router {
             let tab: AppTab = kid ? .home : .family
             show(tab, id.map { Destination.trip($0) } ?? (kid ? nil : Destination.trips))
         case "requests": kid ? show(.watch) : show(.media, .requests)
-        case "media": show(kid ? .watch : .media)
+        case "media":
+            // thomascreek://media/requests/123 (the "ready to watch" push), thomascreek://media/ask
+            let t: AppTab = kid ? .watch : .media
+            if parts.count > 2, parts[1] == "requests" { tab = t; paths[t] = (kid ? [] : [.requests]) + [.mediaRequest(parts[2])] }
+            else if parts.count > 1, parts[1] == "requests" { kid ? show(.watch) : show(.media, .requests) }
+            else if parts.count > 1, parts[1] == "ask" { show(t, .askMedia) }
+            else { show(t) }
         case "youtube":
             // thomascreek://youtube/add?url=<link> (shared in), or the note parents get when a child adds one.
             let link = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "url" }?.value
