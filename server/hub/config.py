@@ -179,6 +179,10 @@ class HubSettings(BaseModel):
     # exactly one phone has enrolled (still pending) since `enrolled_after` (Unix
     # time), that phone becomes this person's, as admin. Remove it afterwards.
     bootstrap_admin: dict[str, Any] | None = None
+    # Household members to create on start if nobody by that name exists yet,
+    # e.g. [{name: Theo, role: child, ui_style: kid}]. Never edits or removes
+    # anyone, so later changes in the app stick. Safe to leave in place.
+    seed_people: list[dict[str, Any]] = Field(default_factory=list)
 
     @field_validator("home_networks", "trusted_proxies")
     @classmethod
