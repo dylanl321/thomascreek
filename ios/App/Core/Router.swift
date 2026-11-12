@@ -10,7 +10,7 @@ enum AppTab: String, Hashable {
 /// Every screen a deep link, notification or card can open.
 enum Destination: Hashable {
     case room(String)
-    case climate, doors, cameras, camera(String), appliances, outdoor, workshop
+    case climate, doors, cameras, camera(String), cameraEvent(String), appliances, outdoor, workshop
     case holiday, holidayControllers, house3D
     case remote(String), music, watch, requests, pipeline
     case calendar, meals, recipe(String), shopping, chores, inventory

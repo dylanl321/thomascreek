@@ -37,9 +37,9 @@ struct HomeView: View {
                     HouseNowPlayingCard(item: np)
                 }
 
-                if me?.can(.cameras) == true, let cams = home?.cameras, !cams.isEmpty {
-                    SectionHeader(title: "Cameras", live: true) { MoreButton { router.show(.house, .cameras) } }
-                    CameraStrip(cameras: cams)
+                if me?.can(.cameras) == true, !(home?.cameras?.isEmpty ?? true) {
+                    SectionHeader(title: "Recent at the cameras") { MoreButton { router.show(.house, .cameras) } }
+                    RecentEventsStrip(events: store.recentEvents)
                 }
 
                 if store.holidaySeason, me?.can(.holidayLooks) == true || me?.can(.holidayFull) == true {
@@ -311,27 +311,38 @@ struct HouseNowPlayingCard: View {
     }
 }
 
-struct CameraStrip: View {
+/// Newest detections, newest first. Tapping one opens its clip; "See all" opens the Cameras section.
+struct RecentEventsStrip: View {
     @Environment(Router.self) private var router
-    let cameras: [Camera]
+    let events: [CameraEvent]?
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 10) {
-                ForEach(cameras.prefix(8)) { c in
-                    Button { router.show(.house, .camera(c.id)) } label: { CameraThumb(camera: c).frame(width: 168, height: 104) }
-                        .buttonStyle(.plain)
+        if let events, !events.isEmpty {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    ForEach(events.prefix(12)) { e in
+                        Button { router.show(.house, .cameraEvent(e.id)) } label: { EventCard(event: e).frame(width: 156) }
+                            .buttonStyle(.plain)
+                    }
                 }
             }
+            .scrollClipDisabled()
+        } else if events == nil {
+            LoadingCard()
+        } else {
+            EmptyCard(symbol: "video.badge.checkmark", title: "Quiet so far today", detail: "People, cars and animals the cameras spot show up here.")
         }
-        .scrollClipDisabled()
     }
 }
 
 struct CameraThumb: View {
     let camera: Camera
+    /// Snapshots change; a per-minute key keeps the image cache from showing an old frame.
+    static func fresh(_ path: String) -> String {
+        path + (path.contains("?") ? "&" : "?") + "m=\(Int(Date().timeIntervalSince1970 / 60))"
+    }
     var body: some View {
         ZStack(alignment: .bottomLeading) {
-            HubImage(path: camera.snapshotUrl) {
+            HubImage(path: camera.snapshotUrl.map { CameraThumb.fresh($0) }) {
                 LinearGradient(colors: [Theme.card2, Theme.off], startPoint: .top, endPoint: .bottom)
                     .overlay(Image(systemName: "video.fill").foregroundStyle(Theme.dim))
             }

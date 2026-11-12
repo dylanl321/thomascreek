@@ -193,6 +193,8 @@ struct DeviceItem: Codable, Hashable, Identifiable {
     var updated: Date? { updatedAt.flatMap(ISO.parse) }
 }
 
+/// A Frigate camera. Width and height are its real frame size, so very wide (panoramic or dual-lens)
+/// cameras are shown at their true shape instead of being cropped to 16:9.
 struct Camera: Codable, Hashable, Identifiable {
     var id: String
     var name: String
@@ -200,6 +202,18 @@ struct Camera: Codable, Hashable, Identifiable {
     var snapshotUrl: String?
     var updatedAt: String?
     var event: String?
+    var width: Double?
+    var height: Double?
+    var online: Bool?
+    var lastEvent: LastEvent?
+    struct LastEvent: Codable, Hashable { var label: String; var start: String }
+
+    var aspect: Double {
+        guard let w = width, let h = height, w > 0, h > 0 else { return 16 / 9 }
+        return min(max(w / h, 0.5), 5)
+    }
+    /// Wider than about 2:1, worth a full-width row.
+    var isWide: Bool { aspect > 2.1 }
 }
 
 struct NowPlaying: Codable, Hashable, Identifiable {
@@ -447,8 +461,39 @@ struct PeopleList: Codable {
 }
 
 struct CameraPass: Codable { var playerUrl: String; var hlsUrl: String?; var expiresAt: String? }
-struct CameraEvent: Codable, Hashable, Identifiable { var id: String; var label: String; var start: String; var thumbUrl: String?; var clipUrl: String? }
-struct CameraEvents: Codable { var items: [CameraEvent] }
+/// One Frigate detection (person, car, package...).
+struct CameraEvent: Codable, Hashable, Identifiable {
+    var id: String
+    var label: String
+    var start: String
+    var end: String?
+    var camera: String?
+    var cameraName: String?
+    var subLabel: String?
+    var score: Double?
+    var zones: [String]?
+    var thumbUrl: String?
+    var snapshotUrl: String?
+    var clipUrl: String?
+
+    var date: Date { ISO.parse(start) ?? .distantPast }
+    var title: String { (subLabel?.isEmpty == false ? subLabel! : label).capitalized }
+    var symbol: String {
+        switch label.lowercased() {
+        case "person", "face": "figure.walk"
+        case "car", "truck", "motorcycle", "bus": "car.fill"
+        case "bicycle": "bicycle"
+        case "dog": "dog.fill"
+        case "cat": "cat.fill"
+        case "bird": "bird.fill"
+        case "deer", "bear", "horse", "animal": "pawprint.fill"
+        case "package": "shippingbox.fill"
+        default: "video.fill"
+        }
+    }
+}
+struct CameraEvents: Codable { var items: [CameraEvent]; var nextBefore: String? }
+struct CameraList: Codable { var cameras: [Camera] }
 struct StreamInfo: Codable { var hlsUrl: String; var expiresAt: String? }
 
 struct Pipeline: Codable, Hashable {

@@ -73,6 +73,7 @@ struct DestinationView: View {
         case .doors: DoorsView()
         case .cameras: CamerasView()
         case .camera(let id): CameraView(cameraID: id)
+        case .cameraEvent(let id): CameraEventView(eventID: id)
         case .appliances: DeviceListView(title: "Appliances", kinds: [.oven, .vacuum, .sensor, .shower])
         case .outdoor: DeviceListView(title: "Outdoor", kinds: [.valve])
         case .workshop: DeviceListView(title: "Workshop", kinds: [.printer])

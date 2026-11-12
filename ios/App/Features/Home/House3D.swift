@@ -2,7 +2,7 @@ import SwiftUI
 import SceneKit
 import simd
 
-/// The real house, in 3D, drawn natively. The model isn't in the (public) repository: the hub serves it
+/// The real house, in 3D, drawn natively. The model isn't in the repository: the hub serves it
 /// at /v1/assets/house-model in the mockups' web format, and the app keeps a copy for offline use.
 /// Format: {mats:{name:"#hex"}, groups:[{k,m,p:[x,y,z...],i:[...]}], lines:[[x1,y1,z1,x2,y2,z2]...]}
 /// Metres, Y up, front faces +Z. Lines are the light runs along the eaves.
@@ -35,8 +35,22 @@ struct House3DScreen: View {
             let s = try HouseModel.scene(from: data)
             HouseModel.tint(s, look: lights.status?.currentLook ?? .elegant)
             scene = s
+        } catch is DecodingError {
+            self.error = "The hub's 3D model is in a format this version of the app doesn't understand."
+        } catch let e as HouseModelError {
+            self.error = e.localizedDescription
         } catch {
-            self.error = error.localizedDescription
+            self.error = "Couldn't reach the hub to get the house model. Check you're home or on the VPN."
+        }
+    }
+}
+
+enum HouseModelError: LocalizedError {
+    case notOnHub, hubFailed
+    var errorDescription: String? {
+        switch self {
+        case .notOnHub: "The hub doesn't have the 3D model yet. Once it's added there, this view fills in by itself."
+        case .hubFailed: "The hub couldn't send the 3D model just now. Pull to try again in a minute."
         }
     }
 }
@@ -59,7 +73,11 @@ enum HouseModel {
             let req = try await HubClient.shared.authorizedRequest("/v1/assets/house-model")
             var r = req; r.timeoutInterval = 30
             let (d, resp) = try await HubClient.streamSession.data(for: r)
-            guard (resp as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
+            switch (resp as? HTTPURLResponse)?.statusCode {
+            case 200: break
+            case 404: throw HouseModelError.notOnHub
+            default: throw HouseModelError.hubFailed
+            }
             try? d.write(to: cacheURL)
             return d
         } catch {

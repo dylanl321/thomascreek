@@ -108,3 +108,12 @@ More routes
 - `/v1/systems` pools and apps rows (TrueNAS states are upper case); `used_pct` may be null.
 - `/v1/network/kids` devices are objects and `paused` may be null. Dylan links devices from `/v1/network/devices` with `POST /v1/network/kids/{id}/devices {macs}` (Face ID) and unlinks with `DELETE`.
 - Calendar events carry `location`.
+
+## Cameras (Frigate only) and TV remote, app build 14
+
+- `GET /v1/cameras` -> `{cameras:[{id,name,width,height,online,snapshot_url,last_event?:{label,start}}]}`. Width/height are the detect frame size; the app shows cameras wider than 2.1:1 on their own full-width row.
+- `GET /v1/cameras/events?limit=&before=&camera=&label=` -> `{items:[{id,camera,camera_name,label,sub_label,score,zones,start,end,thumb_url,snapshot_url,clip_url}], next_before}`, newest first. `end` null means still happening.
+- `GET /v1/cameras/events/{id}` -> one event in the same shape (opened from a push or a link).
+- SSE `camera_event` with one event in the same shape; the app prepends it to Home and the Cameras feed.
+- Home shows recent events, not live tiles. Live view only on the camera screen via the pass.
+- TV remote: media device state may carry `commands` (only these buttons are shown), `sources` and `source`, `volume` 0-100 and `muted`. New `media.command` params: `{command:"source", source}` and `{command:"volume", volume}`.

@@ -21,6 +21,8 @@ final class HomeStore {
     var me: Me? = AppSettings.cachedMe
     var home: HomeSnapshot? = AppSettings.cachedHome
     var inbox: [InboxItem] = []
+    /// Newest Frigate detections across all cameras (Home and the Cameras section).
+    var recentEvents: [CameraEvent]?
     var lastUpdate: Date?
     var reachable = true
     var unreachableSince: Date?
@@ -74,6 +76,12 @@ final class HomeStore {
         await loadMe()
         await loadHome()
         await loadInbox()
+        await loadRecentEvents()
+    }
+
+    func loadRecentEvents() async {
+        guard me?.can(.cameras) == true else { recentEvents = nil; return }
+        if let e: CameraEvents = try? await HubClient.shared.get("/v1/cameras/events", ["limit": "20"]) { recentEvents = e.items }
     }
 
     func loadMe() async {
@@ -149,6 +157,13 @@ final class HomeStore {
             guard let n = e.data.flatMap({ Self.decode([NowPlaying].self, $0) }), var h = home else { return }
             h.nowPlaying = n; home = h
         case "hello":
+            return
+        case "camera_event":
+            guard let ev = e.data.flatMap({ Self.decode(CameraEvent.self, $0) }) else { return }
+            var list = recentEvents ?? []
+            list.removeAll { $0.id == ev.id }
+            list.insert(ev, at: 0)
+            recentEvents = Array(list.prefix(40))
             return
         case "inbox":
             Task { await loadInbox() }
