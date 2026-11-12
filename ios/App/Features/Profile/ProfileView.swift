@@ -44,7 +44,7 @@ struct ProfileView: View {
                 }
                 Section {
                     NavigationLink { OfflineStorageView() } label: {
-                        LabeledContent("Storage and downloads", value: size(OfflineCache.usage().reduce(0) { $0 + $1.bytes }))
+                        LabeledContent("Storage and downloads", value: byteSize(OfflineCache.usage().reduce(0) { $0 + $1.bytes }))
                     }
                 } footer: { Text("What's saved for when there's no connection: downloads, trips and the last copy of each screen.") }
                 if store.me?.can(.holidayFull) == true || store.me?.can(.holidayLooks) == true {

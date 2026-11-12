@@ -142,7 +142,7 @@ struct DownloadOptionsSheet: View {
                                     Text(o.label).font(.headline)
                                     if o.instant { Pill(text: "Starts now") }
                                 }
-                                Text([o.detail, o.bytes.map(size)].compactMap { $0 }.joined(separator: " · "))
+                                Text([o.detail, o.bytes.map(byteSize)].compactMap { $0 }.joined(separator: " · "))
                                     .font(.caption).foregroundStyle(Theme.dim)
                             }
                             Spacer()
@@ -170,7 +170,7 @@ struct DownloadOptionsSheet: View {
     }
 }
 
-func size(_ b: Int64) -> String { ByteCountFormatter.string(fromByteCount: b, countStyle: .file) }
+func byteSize(_ b: Int64) -> String { ByteCountFormatter.string(fromByteCount: b, countStyle: .file) }
 
 /// A show's episodes, each with its own download button.
 struct EpisodesView: View {
@@ -272,7 +272,7 @@ struct DownloadRow: View {
     }
 
     private var line: String {
-        let parts: [String?] = [title.rating, title.qualityLabel, title.bytes.map(size)]
+        let parts: [String?] = [title.rating, title.qualityLabel, title.bytes.map(byteSize)]
         let base = parts.compactMap { $0 }.joined(separator: " · ")
         switch title.state {
         case .ready: return title.watchedAt != nil ? "\(base) · Watched" : base
@@ -375,7 +375,7 @@ struct OfflineStorageView: View {
             Section {
                 VStack(alignment: .leading, spacing: 10) {
                     HStack(alignment: .firstTextBaseline) {
-                        Text(size(total)).font(.title2.weight(.bold))
+                        Text(byteSize(total)).font(.title2.weight(.bold))
                         Spacer()
                         Text(limitLine).font(.caption).foregroundStyle(Theme.dim)
                     }
@@ -384,7 +384,7 @@ struct OfflineStorageView: View {
                         ForEach(shown, id: \.category) { u in
                             HStack(spacing: 6) {
                                 Circle().fill(Self.color(u.category)).frame(width: 8, height: 8)
-                                Text("\(u.category.title.components(separatedBy: ",").first ?? "") · \(size(u.bytes))").font(.caption).foregroundStyle(Theme.dim).lineLimit(1)
+                                Text("\(u.category.title.components(separatedBy: ",").first ?? "") · \(byteSize(u.bytes))").font(.caption).foregroundStyle(Theme.dim).lineLimit(1)
                             }
                         }
                     }
@@ -394,7 +394,7 @@ struct OfflineStorageView: View {
 
             Section {
                 NavigationLink { DownloadsView() } label: {
-                    row("film.stack", "Downloads", "\(downloads.mine.count) title\(downloads.mine.count == 1 ? "" : "s") · \(size(downloads.bytesUsed))")
+                    row("film.stack", "Downloads", "\(downloads.mine.count) title\(downloads.mine.count == 1 ? "" : "s") · \(byteSize(downloads.bytesUsed))")
                 }
                 ForEach(trips.keptTrips) { t in
                     HStack {
@@ -405,7 +405,7 @@ struct OfflineStorageView: View {
                     }
                 }
                 if let u = usage.first(where: { $0.category == .house }), u.bytes > 0 {
-                    row("cube.transparent", "3D house", "Saved \(u.newest.map(Freshness.text) ?? "") · \(size(u.bytes))")
+                    row("cube.transparent", "3D house", "Saved \(u.newest.map(Freshness.text) ?? "") · \(byteSize(u.bytes))")
                 }
             } header: { Text("Kept offline") } footer: {
                 Text("Trips are kept by themselves from two weeks before until a week after. Downloads stay until you remove them\(removeWatched ? " or a week after they're watched" : "").")
@@ -414,9 +414,9 @@ struct OfflineStorageView: View {
             Section("Recent, trimmed by itself") {
                 row("house", "Home, calendar, meals, lists", (usage.first { $0.category == .home }?.newest).map { "Saved \(Freshness.text($0))" } ?? "Nothing saved yet")
                 if store.me?.can(.cameras) == true {
-                    row("video", "Camera pictures", "Last 24 hours only · \(size(usage.first { $0.category == .cameras }?.bytes ?? 0))")
+                    row("video", "Camera pictures", "Last 24 hours only · \(byteSize(usage.first { $0.category == .cameras }?.bytes ?? 0))")
                 }
-                row("photo", "Posters and photos", size(usage.first { $0.category == .pictures }?.bytes ?? 0))
+                row("photo", "Posters and photos", byteSize(usage.first { $0.category == .pictures }?.bytes ?? 0))
             }
 
             if !outbox.visible.isEmpty {
@@ -461,9 +461,9 @@ struct OfflineStorageView: View {
     private var shown: [OfflineCache.Usage] { usage.filter { $0.bytes > 0 } }
     private var total: Int64 { usage.reduce(0) { $0 + $1.bytes } }
     private var limitLine: String {
-        if store.role == .child { return "of \(size(Downloads.childLimit)) for downloads" }
+        if store.role == .child { return "of \(byteSize(Downloads.childLimit)) for downloads" }
         let free = (try? URL(fileURLWithPath: NSHomeDirectory()).resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]))?.volumeAvailableCapacityForImportantUsage
-        return free.map { "\(size($0)) free on this \(UIDevice.current.model)" } ?? ""
+        return free.map { "\(byteSize($0)) free on this \(UIDevice.current.model)" } ?? ""
     }
 
     private func refresh() { usage = OfflineCache.usage() }
