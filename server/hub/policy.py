@@ -114,6 +114,11 @@ def _lock_tier(params: dict[str, Any], _s: Subject) -> str:
     return "everyday" if params.get("locked", True) else "secure"
 
 
+def _oven_tier(params: dict[str, Any], _s: Subject) -> str:
+    # Starting heat needs Face ID; turning an oven off never should.
+    return "everyday" if params.get("on") is False else "secure"
+
+
 def _garage_tier(params: dict[str, Any], _s: Subject) -> str:
     return "secure" if params.get("open") else "everyday"
 
@@ -136,7 +141,8 @@ ACTIONS: dict[str, ActionSpec] = {
         ActionSpec("announce", "everyday", ("family.edit",)),
         ActionSpec("valve.run", "everyday", ("appliances",)),
         ActionSpec("vacuum.start", "everyday", ("appliances",)),
-        ActionSpec("oven.set", "secure", ("appliances",)),
+        ActionSpec("oven.set", "secure", ("appliances",), tier_fn=_oven_tier),
+        ActionSpec("oven.timer", "everyday", ("appliances",)),
         ActionSpec("shower.preheat", "secure", ("appliances",)),
         ActionSpec("camera.view", "look", ("cameras",)),
         ActionSpec("network.pause", "secure", ("network.manage",)),

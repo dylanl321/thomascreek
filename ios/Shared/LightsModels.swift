@@ -96,6 +96,9 @@ enum Look: String, CaseIterable, Identifiable, Codable {
         case .calm: "moon.fill"; case .off: "power"
         }
     }
+    /// Text on a selected look tile: black reads on the bright tints, white on Off's grey.
+    var onText: Color { self == .off ? .white : .black }
+
     var tint: Color {
         switch self {
         case .elegant: Color(red: 1.0, green: 0.78, blue: 0.45)

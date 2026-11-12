@@ -12,6 +12,7 @@ struct HomeView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 HeroHeader(title: greeting(me?.firstName), subtitle: dateLine, show3D: true)
+                VPNNotice()
                 if !store.reachable {
                     // Everyone sees the offline strip; Dylan also gets the likely cause.
                     if store.role == .admin { OfflineCard() }
@@ -87,7 +88,8 @@ struct HomeView: View {
 
 // MARK: - Hero
 
-/// The house art with the greeting, the profile avatar, the 3D chip and the inbox bell over it.
+/// The house art with the profile avatar, the 3D chip and the inbox bell over it.
+/// The date and greeting sit up in the sky, under the buttons, so they never cover the house.
 struct HeroHeader: View {
     @Environment(HomeStore.self) private var store
     @Environment(Router.self) private var router
@@ -97,22 +99,24 @@ struct HeroHeader: View {
     var height: CGFloat = 230
 
     var body: some View {
-        ZStack(alignment: .bottomLeading) {
+        ZStack(alignment: .topLeading) {
             HubImage(path: "/v1/assets/header") {
                 Image("HomeHeader").resizable().scaledToFill()
             }
             .frame(height: height).frame(maxWidth: .infinity).clipped()
-            LinearGradient(colors: [.clear, .black.opacity(0.55)], startPoint: .center, endPoint: .bottom)
-            VStack(alignment: .leading, spacing: 2) {
+            LinearGradient(colors: [.black.opacity(0.35), .clear], startPoint: .top, endPoint: .center)
+            VStack(alignment: .leading, spacing: 0) {
                 if store.me?.dryRun == true {
                     Text("Practice mode · nothing really changes").font(.caption2.weight(.bold)).foregroundStyle(.black)
                         .padding(.horizontal, 8).padding(.vertical, 3).background(Theme.warn, in: Capsule()).padding(.bottom, 4)
                 }
                 Text(subtitle).font(.subheadline.weight(.medium)).foregroundStyle(.white.opacity(0.8))
-                Text(title).font(.system(.largeTitle, design: .rounded, weight: .bold)).foregroundStyle(.white)
-                    .lineLimit(1).minimumScaleFactor(0.7)
+                Text(title).font(.system(.title, design: .rounded, weight: .bold)).foregroundStyle(.white)
+                    .lineLimit(1).minimumScaleFactor(0.6)
+                    .shadow(color: .black.opacity(0.35), radius: 6, y: 1)
             }
-            .padding(18)
+            .padding(.horizontal, 18)
+            .padding(.top, 62) // clears the avatar / 3D / bell row
         }
         .overlay(alignment: .top) {
             HStack {
@@ -219,7 +223,7 @@ struct OfflineCard: View {
             }
             if store.role == .admin {
                 InfoRow("iphone", "This \(UIDevice.current.model) is online", "Showing what the house last reported")
-                if VPN.shared.isAvailable { InfoRow("lock.shield", color: Theme.warn, "Home tunnel isn't answering", "It connects by itself when home is back") }
+                if VPN.shared.isAvailable && VPN.shared.mode != .off { InfoRow("lock.shield", color: Theme.warn, "Home tunnel isn't answering", "It connects by itself when home is back") }
                 InfoRow("wifi.exclamationmark", color: Theme.warn, "Likely cause: home internet or the hub", "Light switches, the wall tablets and the Home Assistant app keep working")
             } else {
                 Text("Showing what the house last said. Light switches and the wall tablets still work.")
@@ -444,5 +448,75 @@ struct SystemsStrip: View {
             .card(padding: 12)
         }
         .buttonStyle(.plain)
+    }
+}
+
+
+/// Always on Home (VPN builds): connected or not, and one button to connect or disconnect.
+struct VPNNotice: View {
+    @Environment(Router.self) private var router
+    @Environment(HomeStore.self) private var store
+    @State private var busy = false
+    var body: some View {
+        let vpn = VPN.shared
+        let connected = vpn.status == .connected
+        let working = busy || vpn.status == .connecting || vpn.status == .reasserting || vpn.status == .disconnecting
+        if vpn.isAvailable {
+            HStack(spacing: 12) {
+                Image(systemName: connected ? "lock.shield.fill" : "lock.open")
+                    .font(.title3).foregroundStyle(connected ? Theme.accent : Theme.dim)
+                    .frame(width: 28)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title(vpn)).font(.subheadline.weight(.semibold))
+                    Text(detail(vpn)).font(.caption).foregroundStyle(Theme.dim).lineLimit(2)
+                }
+                Spacer(minLength: 8)
+                if working {
+                    ProgressView().frame(width: 96)
+                } else {
+                    Button(connected ? "Disconnect" : "Connect") {
+                        busy = true
+                        Task {
+                            defer { busy = false }
+                            if connected { await vpn.disconnectNow() }
+                            else {
+                                do { try await vpn.connectNow() }
+                                catch { store.show(error.localizedDescription, isError: true) }
+                            }
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(connected ? Theme.crit : Theme.accent)
+                    .controlSize(.small)
+                    .frame(minWidth: 96)
+                }
+            }
+            .padding(12)
+            .background(Theme.card, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(connected ? Theme.accent : Theme.line, lineWidth: connected ? 1.5 : 1))
+            .contentShape(Rectangle())
+            .onTapGesture { router.showProfile = true }
+            .task { await vpn.refreshStatus() }
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("VPN, \(title(vpn))")
+        }
+    }
+
+    private func title(_ vpn: VPN) -> String {
+        switch vpn.status {
+        case .connected: "VPN connected"
+        case .connecting, .reasserting: "VPN connecting…"
+        case .disconnecting: "VPN disconnecting…"
+        default: "VPN not connected"
+        }
+    }
+    private func detail(_ vpn: VPN) -> String {
+        if let p = vpn.problem { return p }
+        if vpn.status == .connected { return "Home traffic goes through Thomas Creek's tunnel" }
+        return switch vpn.mode {
+        case .off: vpn.isSetUp ? "Tap Connect to reach home from anywhere" : "Tap Connect once at home to set it up"
+        case .away: "Connects by itself when you leave home Wi-Fi"
+        case .always: "Set to always on; it should connect shortly"
+        }
     }
 }

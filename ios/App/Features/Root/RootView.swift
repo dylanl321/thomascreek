@@ -52,7 +52,13 @@ struct MainTabs: View {
         }
         .tint(store.role == .child ? (store.me?.style == .little ? Theme.little : Theme.kid) : Theme.accent)
         .overlay(alignment: .bottom) { UpdateBanner() }
+        .overlay(alignment: .bottomTrailing) { AskButton() }
         .animation(.spring(duration: 0.35), value: AppUpdate.shared.showBanner)
+        .animation(.spring(duration: 0.3), value: router.showAssistant)
+        .sheet(isPresented: $router.showAssistant) { AssistantSheet() }
+        .task { await AssistantModel.shared.checkReady(); openAskIfFlagged() }
+        .onReceive(NotificationCenter.default.publisher(for: .openAssistant)) { _ in openAskIfFlagged() }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in openAskIfFlagged() }
         .sheet(isPresented: $router.showInbox) { InboxView() }
         .sheet(isPresented: $router.showProfile) { ProfileView() }
         .sheet(isPresented: $router.showOffline) {
@@ -64,6 +70,14 @@ struct MainTabs: View {
     }
 
     private var little: Bool { store.me?.style == .little }
+
+    /// The Control Center button, Action Button and Siri leave this flag: open the panel, listening.
+    private func openAskIfFlagged() {
+        guard AppSettings.defaults.bool(forKey: OpenAskIntent.flag) else { return }
+        AppSettings.defaults.set(false, forKey: OpenAskIntent.flag)
+        router.showAssistant = true
+        Task { await AssistantModel.shared.startListening(screen: router.screenName) }
+    }
 
     private func stack<V: View>(_ tab: AppTab, @ViewBuilder _ root: () -> V) -> some View {
         NavigationStack(path: router.path(tab)) {
@@ -96,7 +110,9 @@ struct DestinationView: View {
         case .requests: RequestsView()
         case .pipeline: PipelineView()
         case .calendar: CalendarView()
-        case .meals: MealsView()
+        case .meals, .dinners: DinnersView()
+        case .recipes: RecipesView()
+        case .kitchen(let id): KitchenView(focus: id)
         case .recipe(let id): RecipeView(recipeID: id)
         case .shopping: ShoppingView()
         case .chores: ChoresManageView()

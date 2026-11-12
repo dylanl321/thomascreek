@@ -361,6 +361,9 @@ async def _refresh_media_status(h: Hub, rows: list[dict[str, Any]]) -> None:
             h.db.update("requests", "id", r["id"], {"status": new})
             r["status"] = new
             if new == "ready":
+                person = h.db.one("SELECT * FROM people WHERE id=?", [r["requester_id"]])
+                h.alerts.record("media", f"{r['title']} is ready to watch", "On Plex now", [person] if person else [],
+                                ref=f"thomascreek://watch/{r['id']}", payload={"request_id": r["id"]})
                 await h.notify.send(person_ids=[r["requester_id"]], level="fyi", cat="media",
                                     title=f"{r['title']} is ready to watch", body=None,
                                     ref=f"thomascreek://watch/{r['id']}")

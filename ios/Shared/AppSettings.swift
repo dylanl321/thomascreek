@@ -70,6 +70,11 @@ enum AppSettings {
         get { defaults.object(forKey: "removeWatchedDownloads") as? Bool ?? true }
         set { defaults.set(newValue, forKey: "removeWatchedDownloads") }
     }
+    /// Away-from-home VPN: "off" (default; only connects when asked), "away" (connects off home Wi-Fi) or "always".
+    static var vpnMode: String {
+        get { defaults.string(forKey: "vpnMode") ?? "off" }
+        set { defaults.set(newValue, forKey: "vpnMode") }
+    }
     /// Quality picked last time, offered first next time.
     static var downloadQuality: String {
         get { defaults.string(forKey: "downloadQuality") ?? "original" }

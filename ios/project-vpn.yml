@@ -5,10 +5,8 @@ include:
   - project.yml
 packages:
   WireGuardKit:
-    url: https://git.zx2c4.com/wireguard-apple
-    # 1.0.15-26. Later tags and master declare swift-tools-version 5.3 but use
-    # .iOS(.v15), which Xcode 27's manifest compiler rejects.
-    revision: 10da5cfdef362889b438cfbeff867a74e6d717fd
+    # Vendored 1.0.15-26 with one header fix for Xcode 27; see Vendor/WireGuardKit/README.md.
+    path: Vendor/WireGuardKit
 targets:
   ThomasCreek:
     dependencies:
@@ -50,9 +48,11 @@ targets:
     type: ""
     platform: iOS
     legacy:
-      toolPath: /usr/bin/make
+      # Run through a script: the ${BUILD_DIR%Build/*} working directory doesn't resolve when archiving.
+      toolPath: /bin/sh
+      arguments: $(SRCROOT)/scripts/wireguard-go.sh $(ACTION)
       passSettings: true
-      workingDirectory: ${BUILD_DIR%Build/*}SourcePackages/checkouts/wireguard-apple/Sources/WireGuardKitGo
+      workingDirectory: /tmp
     settings:
       base:
         SDKROOT: iphoneos

@@ -10,6 +10,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 
+from .. import testkeys
 from ..crypto import CryptoError, normalize_public_key, verify_signature
 from ..db import new_id
 from ..home import iso
@@ -31,6 +32,9 @@ class EnrollBody(BaseModel):
     secure_public_key: str | None = Field(default=None, max_length=200)
     apns_token: str | None = Field(default=None, max_length=200)
     apns_env: str | None = Field(default=None, pattern="^(sandbox|production)$")
+    # Simulator builds only: a key Dylan made on /admin. See hub/testkeys.py.
+    simulator: bool = False
+    test_key: str | None = Field(default=None, max_length=100)
 
 
 @router.post("/enroll")
@@ -49,7 +53,19 @@ async def enroll(body: EnrollBody, request: Request, h: Hub = Depends(hub)) -> d
     except CryptoError as exc:
         raise error(400, "bad_key", str(exc)) from None
 
+    tkey = None
+    if body.test_key:
+        tkey = testkeys.check(h, body.test_key)
+        if tkey is None or not body.simulator:
+            h.db.log("device.enroll", "denied", detail="bad test key" if tkey is None else "test key from a non-simulator",
+                     params={"name": body.device_name, "model": body.model}, source="app")
+            raise error(403, "bad_test_key", "That test key isn't valid any more. Make a new one on the hub web page.")
+
     existing = h.db.one("SELECT * FROM devices WHERE public_key=?", [pk])
+    if existing and existing["status"] == "pending" and tkey:
+        # A simulator that was waiting for approval before the key existed.
+        _activate_test(h, existing["id"], tkey)
+        return {"device_id": existing["id"], "status": "active"}
     if existing and existing["status"] != "revoked":
         updates: dict[str, Any] = {"app_version": body.app_version, "last_seen_at": time.time()}
         if spk and not existing.get("secure_public_key"):
@@ -60,6 +76,19 @@ async def enroll(body: EnrollBody, request: Request, h: Hub = Depends(hub)) -> d
         return {"device_id": existing["id"], "status": existing["status"]}
     if existing:
         raise error(403, "revoked", "This device was removed. Ask Dylan to let it back in.")
+
+    if tkey:
+        if len(testkeys.active_devices(h, tkey["id"])) >= testkeys.MAX_ACTIVE_PER_KEY:
+            raise error(429, "too_many_test_devices", "This test key has let in too many simulators. Remove some on the hub web page.")
+        did = new_id("dev")
+        h.db.insert("devices", {
+            "id": did, "name": body.device_name, "model": body.model, "platform": body.platform,
+            "app_version": body.app_version, "public_key": pk, "secure_public_key": spk, "status": "pending",
+            "apns_token": body.apns_token, "apns_env": body.apns_env or "sandbox", "enrolled_ip": ip,
+            "created_at": time.time(), "last_seen_at": time.time(),
+        })
+        _activate_test(h, did, tkey)
+        return {"device_id": did, "status": "active"}
 
     pending = h.db.one("SELECT COUNT(*) AS n FROM devices WHERE status='pending'")["n"]  # type: ignore[index]
     if pending >= MAX_PENDING:
@@ -80,6 +109,15 @@ async def enroll(body: EnrollBody, request: Request, h: Hub = Depends(hub)) -> d
         ref=f"thomascreek://people/devices/{did}", group_key=f"device:{did}", push_category="NEW_DEVICE",
     )
     return {"device_id": did, "status": "pending"}
+
+
+def _activate_test(h: Hub, device_id: str, tkey: dict[str, Any]) -> None:
+    h.db.update("devices", "id", device_id, {"person_id": tkey["person_id"], "status": "active", "kind": "test",
+                                             "test_key_id": tkey["id"]})
+    h.db.update("test_keys", "id", tkey["id"], {"last_used_at": time.time()})
+    h.db.execute("UPDATE inbox SET acked_at=? WHERE group_key=? AND acked_at IS NULL", [time.time(), f"device:{device_id}"])
+    h.db.log("device.enroll", "ok", device_id=device_id, target=device_id, person_id=tkey["person_id"],
+             detail=f"test simulator, key {tkey['label']}", source="app")
 
 
 class ChallengeBody(BaseModel):

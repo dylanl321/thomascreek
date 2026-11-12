@@ -14,6 +14,7 @@ enum Destination: Hashable {
     case holiday, holidayControllers, house3D
     case remote(String), music, watch, requests, pipeline
     case calendar, meals, recipe(String), shopping, chores, inventory
+    case kitchen(String?), dinners, recipes
     case trips, trip(Int), tripDay(Int, String)
     case systems, storage, activity, people, kidNet, vpnPool, hubWeb, youtube
 }
@@ -34,6 +35,15 @@ final class Router {
     var showSearch = false
     /// Opens "Add from YouTube", prefilled with this link ("" for an empty box).
     var youtubeAdd: String?
+
+    /// Ask Thomas Creek, the quick chat and voice panel.
+    var showAssistant = false
+
+    /// Where the person is, so "turn that off" can mean the thing on screen.
+    var screenName: String {
+        let top = paths[tab]?.last.map { " › \(String(describing: $0))" } ?? ""
+        return tab.rawValue.capitalized + top
+    }
 
     func path(_ tab: AppTab) -> Binding<[Destination]> {
         Binding(get: { self.paths[tab] ?? [] }, set: { self.paths[tab] = $0 })
@@ -58,6 +68,9 @@ final class Router {
         let kid = role == .child
         switch parts.first ?? "" {
         case "home", "": show(.home)
+        case "ask", "talk":
+            showAssistant = true
+            if parts.first == "talk" { Task { await AssistantModel.shared.startListening(screen: screenName) } }
         case "show", "lights", "holiday": kid ? show(.home, .holiday) : show(.house, .holiday)
         case "house3d": show(.house, .house3D)
         case "controllers": show(.house, .holidayControllers)
@@ -65,6 +78,12 @@ final class Router {
         case "room": if parts.count > 1 { kid ? show(.myRoom) : show(.house, .room(parts[1])) }
         case "camera": if parts.count > 1 { show(.house, .camera(parts[1])) } else { show(.house, .cameras) }
         case "doors", "garage": show(.house, .doors)
+        case "kitchen", "oven": kid ? show(.home) : show(.house, .kitchen(parts.count > 1 ? parts[1] : nil))
+        case "dinners", "meals": kid ? show(.home) : show(.family, .meals)
+        case "recipes": kid ? show(.home) : show(.family, .recipes)
+        case "recipe": if parts.count > 1 { show(kid ? .home : .family, .recipe(parts[1])) }
+        case "kids": if !kid { show(.home, .kidNet) }
+        case "event": if parts.count > 1, !kid { show(.house, .cameraEvent(parts[1])) }
         case "chores": kid ? show(.chores) : show(.family, .chores)
         case "trips", "trip":
             let id = parts.count > 1 ? Int(parts[1]) : nil

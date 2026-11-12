@@ -81,6 +81,8 @@ class Timers:
                 await self.hub.ha.call_service(payload["domain"], payload["service"], payload["data"])
             self.hub.db.log("timer.ha_call", "ok" if runner.is_live("valve.run") else "dry_run",
                             target=payload["data"].get("entity_id"), source="schedule")
+        elif kind == "oven.timer":
+            await self.hub.kitchen.timer_done(payload["entity_id"])
         elif kind == "network.restore":
             fw = self.hub.firewalla
             pid = payload["person_id"]

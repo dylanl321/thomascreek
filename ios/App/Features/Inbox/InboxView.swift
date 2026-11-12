@@ -7,8 +7,25 @@ struct InboxView: View {
     @Environment(Router.self) private var router
     @Environment(\.dismiss) private var dismiss
 
+    @State private var tab = 0
+
     var body: some View {
         NavigationStack {
+            VStack(spacing: 0) {
+                Picker("Show", selection: $tab) {
+                    Text(store.role == .child ? "Messages" : "Inbox").tag(0)
+                    Text("History").tag(1)
+                }
+                .pickerStyle(.segmented).padding(.horizontal).padding(.vertical, 8)
+                if tab == 0 { inbox } else { AlertHistoryList(close: { dismiss() }) }
+            }
+            .background(Color(uiColor: .systemGroupedBackground))
+            .navigationTitle(tab == 1 ? "History" : (store.role == .child ? "My messages" : "Inbox"))
+            .toolbar { Button("Done") { dismiss() } }
+        }
+    }
+
+    private var inbox: some View {
             List {
                 if store.inbox.isEmpty {
                     ContentUnavailableView(store.role == .child ? "Nothing new" : "All clear", systemImage: "bell.slash",
@@ -23,10 +40,136 @@ struct InboxView: View {
                     }
                 }
             }
-            .navigationTitle(store.role == .child ? "My messages" : "Inbox")
-            .toolbar { Button("Done") { dismiss() } }
             .refreshable { await store.loadInbox() }
             .task { await store.loadInbox() }
+    }
+}
+
+// MARK: - History: every alert, pushed or not
+
+struct AlertHistoryItem: Decodable, Identifiable {
+    var id: String
+    var ts: Double
+    var kind: String
+    var title: String
+    var body: String?
+    var ref: String?
+    var image: String?
+    var date: Date { Date(timeIntervalSince1970: ts) }
+}
+
+/// Everything that could have alerted this person in the last 30 days, sorted by kind,
+/// whether or not they turned on push for it.
+struct AlertHistoryList: View {
+    @Environment(Router.self) private var router
+    let close: () -> Void
+    @State private var items: [AlertHistoryItem] = []
+    @State private var kinds: [Kind] = []
+    @State private var kind: String?
+    @State private var done = false
+    @State private var loading = false
+    @State private var failed: String?
+
+    struct Kind: Decodable, Identifiable { var id: String; var title: String }
+    private struct Reply: Decodable { var items: [AlertHistoryItem]; var kinds: [Kind] }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    chip(nil, "All")
+                    ForEach(kinds) { chip($0.id, $0.title) }
+                }
+                .padding(.horizontal).padding(.bottom, 8)
+            }
+            List {
+                if items.isEmpty && !loading {
+                    ContentUnavailableView(failed == nil ? "Nothing yet" : "Can't load history", systemImage: "clock",
+                                           description: Text(failed ?? "Camera, doorbell, house, network and media alerts land here, even ones you don't get pushed."))
+                }
+                ForEach(sections, id: \.0) { day, rows in
+                    Section(day) {
+                        ForEach(rows) { item in
+                            row(item).onAppear { if item.id == items.last?.id { Task { await more() } } }
+                        }
+                    }
+                }
+            }
+            .refreshable { await reload() }
+        }
+        .task(id: kind) { await reload() }
+    }
+
+    private var sections: [(String, [AlertHistoryItem])] {
+        var out: [(String, [AlertHistoryItem])] = []
+        for i in items {
+            let d = Calendar.current.isDateInToday(i.date) ? "Today" : Calendar.current.isDateInYesterday(i.date) ? "Yesterday"
+                : i.date.formatted(.dateTime.weekday(.wide).month().day())
+            if out.last?.0 == d { out[out.count - 1].1.append(i) } else { out.append((d, [i])) }
+        }
+        return out
+    }
+
+    private func chip(_ id: String?, _ title: String) -> some View {
+        let on = kind == id
+        return Button { kind = id } label: {
+            Text(title).font(.footnote.weight(.semibold))
+                .padding(.horizontal, 12).padding(.vertical, 6)
+                .background(on ? Theme.accent : Theme.card2, in: Capsule())
+                .foregroundStyle(on ? Theme.onAccent : Theme.dim)
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(on ? .isSelected : [])
+    }
+
+    private func row(_ item: AlertHistoryItem) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: Self.symbol(item.kind)).foregroundStyle(Theme.accent).frame(width: 24)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(item.title).font(.subheadline.weight(.semibold))
+                if let b = item.body, !b.isEmpty { Text(b).font(.subheadline).foregroundStyle(Theme.dim).lineLimit(2) }
+                Text(item.date, format: .dateTime.hour().minute()).font(.caption).foregroundStyle(Theme.dim)
+            }
+            Spacer(minLength: 0)
+            if let img = item.image {
+                HubImage(path: img) { Theme.card2 }
+                    .frame(width: 72, height: 48).clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { if let ref = item.ref, let url = URL(string: ref) { close(); router.open(url) } }
+    }
+
+    static func symbol(_ kind: String) -> String {
+        switch kind {
+        case "camera": "video.fill"; case "package": "shippingbox.fill"; case "doorbell": "bell.and.waves.left.and.right.fill"
+        case "doors": "door.garage.open"; case "house": "house.fill"; case "kids": "figure.and.child.holdinghands"
+        case "network": "network"; case "media": "play.tv.fill"
+        default: "bell.fill"
+        }
+    }
+
+    private func fetch(before: Double?) async throws -> Reply {
+        var q: [String: String] = ["limit": "50"]
+        if let kind { q["kind"] = kind }
+        if let before { q["before"] = String(before) }
+        let data = try await HubClient.shared.raw("GET", "/v1/alerts/history", query: q)
+        return try JSONDecoder().decode(Reply.self, from: data)
+    }
+
+    private func reload() async {
+        loading = true; defer { loading = false }
+        do {
+            let r = try await fetch(before: nil)
+            items = r.items; kinds = r.kinds; done = r.items.count < 50; failed = nil
+        } catch { failed = error.localizedDescription }
+    }
+
+    private func more() async {
+        guard !done, !loading, let last = items.last else { return }
+        loading = true; defer { loading = false }
+        if let r = try? await fetch(before: last.ts) {
+            items += r.items; done = r.items.count < 50
         }
     }
 }

@@ -148,3 +148,15 @@ App only, not a Plex library (Dylan, 2026-11-12). No approval step; parents get 
 - `GET /v1/app/update?build=<CFBundleVersion>&version=<short version>` (no sign-in needed; with a token the hub records the phone's build). Reply `{latest_build, latest_version, min_build, notes, testflight_url, update_available, update_required}`.
 - `AppUpdate` (App/Core/AppUpdate.swift) checks on every open (at most every 5 min) and on the `app_update` event. Newer build: `UpdateBanner` above the tab bar (✕ hides it until the next build) and an Update row in Profile. Below `min_build`: `UpdateRequiredView` covers everything until updated. The last answer is cached, so a required update holds while away.
 - Update opens `testflight_url` (`itms-beta://beta.itunes.apple.com/v1/app/<Apple ID>`), then `itms-beta://`, then TestFlight's App Store page.
+
+## Kitchen: ovens, recipes, dinner plan (2026-11-12)
+- Ovens are `kind: oven` (GE water_heater entities). Device state: on, mode, modes, current_temp, target_temp, remote_ready.
+- `GET /v1/kitchen` (appliances): `{ovens:[{id,name,on,available,remote_ready,mode,modes,current_temp,target_temp,min_temp,max_temp,session?}], presets:[{id,title,detail,mode,temp}], dinner:{title,slug,image_url,oven}}`.
+- `oven.set` params `{mode, temp, timer_min, timer_from: now|preheat|manual, auto_off, recipe}` is Secure (Face ID); `{on:false}` is Everyday. `oven.timer {minutes, auto_off?}` is Everyday. Errors 409 `remote_enable`, 409 `oven_offline`: show the message.
+- Notices use cat `kitchen`, ref `thomascreek://kitchen/<entity>`, buttons `timer` and `off` through `/v1/inbox/{id}/act`.
+- Recipe `oven`: `{mode, temp|null, minutes|null, quote, title, saved?}` on `GET /v1/meals/recipes/{slug}`; also `favorite`, `tags`, `source_url`, `description`.
+- `GET /v1/meals/recipes?search=&tag=` → `{items:[{id,slug,title,image_url,total_time,tags,favorite,oven,last_made}]}`; `GET /v1/meals/tags`.
+- `POST /v1/meals/recipes` `{url}` or `{title, ingredients[], steps[], servings, prep_time, cook_time, tags[], oven{mode,temp,minutes} | no_oven}` → `{slug, recipe}`. `PUT /v1/meals/recipes/{slug}` same fields (only what's sent changes). `DELETE` same path. `PUT .../image` raw JPEG/PNG body. `POST .../favorite {on}`, `POST .../shopping {list_id?}`, `POST .../made`.
+- `POST /v1/meals/recipes/parse {text}` → draft `{title, ingredients, steps, oven}` (scanned or pasted text).
+- `GET /v1/meals/plan?start=&days=7` → `{days:[{date, dinner:{id,slug,recipe_id,title,image_url,total_time,note}|null, other:[]}]}`. `PUT /v1/meals/plan/{yyyy-mm-dd} {slug}` or `{title}` ("Eating out"); `{}` clears. `POST /v1/meals/plan/fill {start?, days?}` fills empty nights. `GET /v1/meals/suggest?n=`.
+- Editing needs `family.edit` (adults); viewing `family.view`.

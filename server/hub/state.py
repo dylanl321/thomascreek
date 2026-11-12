@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import Any
 
 from .actions import ActionRunner
+from .assistant import Assistant
+from .alerts import Alerts
 from .adapters.cameras import Frigate
 from .adapters.family import FamilyBoard, Homebox, Mealie, ShowPlayer
 from .adapters.firewalla import Firewalla
@@ -30,6 +32,7 @@ from .notify import Notifier
 from .policy import Policy, Subject
 from .push import APNs
 from .onepassword import OnePasswordSync
+from .kitchen import Kitchen
 from .timers import Timers
 from .vault import Vault
 from .vpn import Vpn
@@ -75,8 +78,11 @@ class Hub:
         data = Path(db._path).parent if db._path != ":memory:" else Path("/tmp")
         self.youtube = YouTube(self, data / "youtube")
         self.notify = Notifier(self)
+        self.alerts = Alerts(self)
         self.actions = ActionRunner(self)
         self.timers = Timers(self)
+        self.kitchen = Kitchen(self)
+        self.assistant = Assistant(self)
         self._home_nets = [ipaddress.ip_network(n, strict=False) for n in config.hub.home_networks]
         self._proxies = [ipaddress.ip_network(n, strict=False) for n in config.hub.trusted_proxies]
         self.started_at = time.time()
@@ -194,6 +200,8 @@ class Hub:
         self.home.start()
         self.timers.start()
         self.youtube.start()
+        self.kitchen.start()
+        self.alerts.start()
         from .dropbox import watch
 
         self._dropbox = asyncio.create_task(watch(self.vault))
@@ -245,6 +253,10 @@ class Hub:
                         self.frigate.last_event[cam] = item
                     if after is not None and e["id"] not in seen and (e.get("start_time") or 0) >= after:
                         self.bus.publish({"type": "camera_event", "data": item})
+                        try:
+                            await self.alerts.on_frigate(e)
+                        except Exception as exc:  # noqa: BLE001
+                            log.warning("camera alert failed: %s", exc)
                     seen.add(e["id"])
                 if rows:
                     after = max([after or 0] + [r.get("start_time") or 0 for r in rows])
@@ -262,6 +274,8 @@ class Hub:
         await self.home.stop()
         await self.timers.stop()
         await self.youtube.stop()
+        await self.kitchen.stop()
+        await self.alerts.stop()
         await self.onepassword.stop()
         if getattr(self, "_dropbox", None):
             self._dropbox.cancel()
