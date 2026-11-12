@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import time
 from typing import Any
 
@@ -296,10 +298,25 @@ async def _home_events(h: Hub, category: str | None, since: float, limit: int) -
 
     if not h.ha.enabled:
         return []
-    try:
-        rows = await h.ha.logbook(dt.datetime.fromtimestamp(since, dt.timezone.utc).isoformat())
-    except Exception:  # noqa: BLE001
+    entities = sorted(eid for eid in h.home.states if _home_category(h, {"entity_id": eid}) is not None
+                      and (not category or _home_category(h, {"entity_id": eid}) == category))
+    if not entities:
         return []
+    # One fetch per minute per window serves every phone; HA's logbook is the slow part.
+    key = (int(since // 60), category)
+    cache = h.__dict__.setdefault("_logbook_cache", {})
+    hit = cache.get(key)
+    if hit and time.time() - hit[0] < 60:
+        rows = hit[1]
+    else:
+        try:
+            rows = await asyncio.wait_for(
+                h.ha.logbook(dt.datetime.fromtimestamp(since, dt.timezone.utc).isoformat(), entities=entities), 4)
+        except Exception:  # noqa: BLE001
+            return []
+        if len(cache) > 50:
+            cache.clear()
+        cache[key] = (time.time(), rows)
     out = []
     for e in rows:
         cat = _home_category(h, e)
