@@ -337,8 +337,9 @@ struct OfflinePlayer: View {
         try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
         let p = AVPlayer(url: Downloads.shared.fileURL(title))
         if title.positionS > 5 { p.seek(to: CMTime(seconds: title.positionS, preferredTimescale: 600)) }
-        observer = p.addPeriodicTimeObserver(forInterval: CMTime(seconds: 15, preferredTimescale: 1), queue: .main) { _ in
-            Task { @MainActor in save(post: false) }
+        // Every minute, in case the app is closed mid-film.
+        observer = p.addPeriodicTimeObserver(forInterval: CMTime(seconds: 60, preferredTimescale: 1), queue: .main) { _ in
+            Task { @MainActor in save() }
         }
         player = p
         p.play()
@@ -347,12 +348,12 @@ struct OfflinePlayer: View {
     private func close() { save(); dismiss() }
 
     /// Remember where it stopped. Only the last position goes to Plex, when home is reachable.
-    private func save(post: Bool = true) {
+    private func save() {
         guard let p = player else { return }
         let at = p.currentTime().seconds
         let dur = p.currentItem?.duration.seconds
         guard at.isFinite, at > 0 else { return }
-        if post { Downloads.shared.played(title, at: at, duration: dur?.isFinite == true ? dur : nil) }
+        Downloads.shared.played(title, at: at, duration: dur?.isFinite == true ? dur : nil)
     }
 }
 
