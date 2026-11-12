@@ -59,6 +59,7 @@ DESCRIPTIONS = {
     "apns.key_id": "Apple push key ID (10 characters)",
     "onepassword.service_account_token": "1Password service account token",
     "guest_wifi.password": "Guest Wi-Fi password",
+    "trek.api_key": "TREK API key",
 }
 NEVER_EDIT = {"wireguard.server_private_key"}
 
@@ -67,7 +68,7 @@ def _expected(h: Hub) -> list[str]:
     cfg = h.config
     names = []
     for svc in ("home_assistant", "plex", "jellyseerr", "sonarr", "radarr", "truenas", "mealie", "homebox",
-                "family_board", "show_player", "frigate"):
+                "family_board", "show_player", "frigate", "trek"):
         c = getattr(cfg, svc)
         if not getattr(c, "enabled", False):
             continue

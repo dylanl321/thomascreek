@@ -129,6 +129,19 @@ accepts from a private address. Link each person once, in the app (People) or wi
 `PATCH /v1/people/{id} {family_board_id}`. Turn writes on with `chores.done` and
 `chores.redeem` in `live_actions`.
 
+## Trips (TREK)
+
+1. In TREK, open Settings > Integrations and create an API key that may read trips
+   (all sections). It starts with `trek_`.
+2. Put it in the 1Password vault "Thomas Creek Hub" as an item titled `trek.api_key`,
+   or drop it in `data/import/trek.api_key`.
+3. Set `trek.url` (the LAN address, e.g. port 8097 on the NAS), `trek.web_url` (the
+   address phones open for "Plan in TREK") and `enabled: true`.
+
+The key belongs to one TREK user, so the hub shows the trips that user owns or was
+invited to. Children never see booking or stay notes, nor trips listed in
+`trek.hidden_from_children`. The kitchen tablet only gets the next trip's countdown.
+
 ## Kids' internet time (Firewalla MSP)
 
 The hub calls the Firewalla MSP API directly. Create a personal access token in MSP

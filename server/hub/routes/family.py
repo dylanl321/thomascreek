@@ -113,10 +113,21 @@ async def redeem(reward_id: str, c: Caller = Depends(caller), h: Hub = Depends(h
 @router.get("/calendar")
 async def calendar(days: int = 7, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> Any:
     need(h, c, "family.view")
+    from .trips import calendar_events  # trip days appear as all-day entries
+
+    days = max(1, min(days, 31))
+    trip_days = await calendar_events(h, c, days)
+    if not h.family_board.enabled and trip_days:
+        return {"events": trip_days}
     try:
-        return await h.family_board.calendar(max(1, min(days, 31)))
+        cal = await h.family_board.calendar(days)
     except AdapterError as exc:
+        if trip_days:
+            return {"events": trip_days}
         raise _unavailable(exc) from None
+    if trip_days:
+        cal = {**cal, "events": trip_days + list(cal.get("events", []))}
+    return cal
 
 
 @router.get("/meals/today")

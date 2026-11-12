@@ -71,6 +71,14 @@ class ShowPlayerConfig(ServiceConfig):
     )
 
 
+class TrekConfig(ServiceConfig):
+    """TREK trip planner. `url` is how the hub reaches it on the LAN; `web_url` is
+    the address a phone opens for "Plan in TREK" (the proxied site, if there is one)."""
+    web_url: str | None = None
+    # Trip ids children and the kitchen tablet never see (surprises, adults-only trips).
+    hidden_from_children: list[int] = Field(default_factory=list)
+
+
 class OnePasswordConfig(BaseModel):
     """Copy credentials from 1Password into the vault (see hub/onepassword.py)."""
     enabled: bool = False
@@ -181,6 +189,7 @@ class Config(BaseModel):
     mealie: ServiceConfig = Field(default_factory=lambda: ServiceConfig(enabled=False, token_secret="mealie.token"))
     homebox: ServiceConfig = Field(default_factory=lambda: ServiceConfig(enabled=False, password_secret="homebox.password"))
     family_board: ServiceConfig = Field(default_factory=lambda: ServiceConfig(enabled=False, token_secret="family_board.admin_token"))
+    trek: TrekConfig = Field(default_factory=lambda: TrekConfig(enabled=False, token_secret="trek.api_key"))
     show_player: ShowPlayerConfig = Field(default_factory=lambda: ShowPlayerConfig(enabled=False, token_secret="show_player.app_token"))
     firewalla: FirewallaConfig = Field(default_factory=FirewallaConfig)
     apns: ApnsConfig = Field(default_factory=ApnsConfig)
