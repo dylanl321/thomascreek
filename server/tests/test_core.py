@@ -274,6 +274,24 @@ def test_bootstrap_admin_from_config(hub):
     assert hub.bootstrap_admin() is None  # only once
 
 
+def test_seed_people_from_config(hub):
+    hub.db.add_person("Dylan", "admin")
+    hub.config.hub.seed_people = [
+        {"name": "Lauren", "role": "adult"},
+        {"name": "Theo", "role": "child", "ui_style": "kid"},
+        {"name": "dylan", "role": "adult"},     # already there (any case): left alone
+        {"name": "Mallory", "role": "admin"},   # never seeds an admin
+        {"name": "Zed", "role": "wizard"},      # unknown role
+    ]
+    made = hub.seed_people()
+    assert len(made) == 2
+    by_name = {p["name"]: p for p in hub.db.people()}
+    assert set(by_name) == {"Dylan", "Lauren", "Theo"}
+    assert by_name["Dylan"]["role"] == "admin"
+    assert by_name["Theo"]["role"] == "child" and by_name["Theo"]["ui_style"] == "kid"
+    assert hub.seed_people() == []  # only once
+
+
 def test_drop_folder_moves_secrets_into_vault(tmp_path):
     from hub.dropbox import import_dropped
     from hub.vault import Vault, generate_master_key, load_master_key

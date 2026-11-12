@@ -148,8 +148,35 @@ class Hub:
         log.info("bootstrap_admin: %s is admin on %s", b["name"], d["name"])
         return d["id"]
 
+    SEED_FIELDS = ("ui_style", "areas", "shared_areas", "grants", "denies", "tv_device", "presence_entity")
+
+    def seed_people(self) -> list[str]:
+        """See HubSettings.seed_people. Returns the ids of the people it created."""
+        from .policy import ROLES
+
+        have = {(p.get("name") or "").strip().lower() for p in self.db.people()}
+        made = []
+        for entry in self.config.hub.seed_people or []:
+            name = str(entry.get("name") or "").strip()
+            role = entry.get("role")
+            if not name or role not in ROLES or role in ("admin", "pending"):
+                log.warning("seed_people: skipping %r (needs a name and a role other than admin/pending)", entry)
+                continue
+            if name.lower() in have:
+                continue
+            extra = {k: entry[k] for k in self.SEED_FIELDS if entry.get(k) is not None}
+            if extra.get("ui_style") not in (None, "standard", "kid", "little"):
+                extra.pop("ui_style")
+            p = self.db.add_person(name, role, **extra)
+            self.db.log("people.create", "ok", target=p["id"], params={"role": role}, source="config")
+            log.info("seed_people: added %s (%s)", name, role)
+            have.add(name.lower())
+            made.append(p["id"])
+        return made
+
     async def start(self) -> None:
         self.bootstrap_admin()
+        self.seed_people()
         if self.onepassword.enabled:
             await self.onepassword.sync_safely()
             self.onepassword.start()
