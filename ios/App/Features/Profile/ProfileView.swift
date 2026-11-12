@@ -130,7 +130,7 @@ struct VPNSection: View {
         } header: { Text("Away from home") } footer: {
             Text(mode == .away ? "Connects by itself when you leave home Wi-Fi and only carries home traffic. You can also switch it in Settings → VPN."
                  : mode == .always ? "Stays connected everywhere, even at home. Only home traffic goes through it."
-                 : "Off. Turn it on to reach home when you're out.")
+                 : "Off: it never connects by itself. Use Connect on Home when you need it.")
         }
     }
     private var statusLine: String {
