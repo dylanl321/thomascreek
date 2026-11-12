@@ -120,6 +120,7 @@ struct ActivityView: View {
                 Text("Doors").tag("doors")
             }
             .pickerStyle(.segmented)
+            if !done && items.isEmpty { ProgressView().frame(maxWidth: .infinity).padding() }
             if done && items.isEmpty {
                 Text(failed ? "Couldn't reach the hub." : "Nothing logged yet.").foregroundStyle(Theme.dim)
             }

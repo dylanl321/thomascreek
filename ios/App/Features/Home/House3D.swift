@@ -20,6 +20,7 @@ struct House3DScreen: View {
                     .ignoresSafeArea(edges: .bottom)
             } else if let error {
                 ContentUnavailableView("The house model isn't available", systemImage: "cube.transparent", description: Text(error))
+                    .foregroundStyle(.white).environment(\.colorScheme, .dark)
             } else {
                 ProgressView("Loading the house…").tint(.white).foregroundStyle(.white)
             }

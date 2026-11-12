@@ -242,6 +242,18 @@ struct CalendarEvent: Codable, Hashable, Identifiable {
     var allDay: Bool?
     var location: String?
     var stableID: String { id ?? "\(title)-\(start)" }
+    /// Calendars often send all-day events as a bare date or as midnight-to-midnight without the flag.
+    var isAllDay: Bool {
+        if let allDay { return allDay }
+        if start.count <= 10 { return true }
+        guard let s = ISO.parse(start) else { return false }
+        let cal = Calendar.current
+        guard cal.component(.hour, from: s) == 0, cal.component(.minute, from: s) == 0 else { return false }
+        guard let e = end.flatMap(ISO.parse) else { return true }
+        let hours = e.timeIntervalSince(s) / 3600
+        let rest = hours.truncatingRemainder(dividingBy: 24)
+        return hours >= 23 && (rest < 1 || rest > 23)
+    }
 }
 struct Dinner: Codable, Hashable { var title: String; var imageUrl: String?; var emoji: String?; var recipeId: String? }
 
@@ -437,7 +449,25 @@ struct ActivityEntry: Codable, Hashable, Identifiable {
     var source: String?
     var date: Date { Date(timeIntervalSince1970: t) }
     /// "Opened the large garage door" style line.
-    var what: String { detail ?? [action, target].compactMap { $0 }.joined(separator: " ") }
+    var what: String { detail ?? [action.map(Self.verb), target.map(Self.thing)].compactMap { $0 }.joined(separator: " ") }
+
+    /// "camera.view" -> "Watched", "lock.unlock" -> "Unlocked"; unknown codes become readable words.
+    static func verb(_ code: String) -> String {
+        let known = ["camera.view": "Watched", "camera.pass": "Watched", "lock.unlock": "Unlocked", "lock.lock": "Locked",
+                     "garage.open": "Opened", "garage.close": "Closed", "light.on": "Turned on", "light.off": "Turned off",
+                     "media.command": "Used the remote for", "scene.run": "Ran", "mode.run": "Switched to",
+                     "device.approve": "Approved", "device.revoke": "Removed", "enroll": "Joined", "login": "Signed in"]
+        if let k = known[code] { return k }
+        let last = code.split(separator: ".").last.map(String.init) ?? code
+        return last.replacingOccurrences(of: "_", with: " ").capitalized
+    }
+    /// "camera.140_driveway" -> "Driveway", "light.kitchen_main" -> "Kitchen Main".
+    static func thing(_ code: String) -> String {
+        guard !code.contains(" ") else { return code }
+        var last = code.split(separator: ".").last.map(String.init) ?? code
+        if let r = last.range(of: #"^\d+_"#, options: .regularExpression) { last.removeSubrange(r) }
+        return last.replacingOccurrences(of: "_", with: " ").capitalized
+    }
 
     private enum K: String, CodingKey { case id, t, at, who, action, target, outcome, detail, source }
     /// Lenient: id may be a number or a string, and the time may be epoch seconds or ISO text.

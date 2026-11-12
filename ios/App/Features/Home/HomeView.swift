@@ -375,7 +375,7 @@ struct TodayCard: View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(today.events ?? [], id: \.stableID) { e in
                 HStack(alignment: .top, spacing: 12) {
-                    Text(e.allDay == true ? "All day" : clock(e.start)).font(.subheadline.monospacedDigit()).foregroundStyle(Theme.dim)
+                    Text(e.isAllDay ? "All day" : clock(e.start)).font(.subheadline.monospacedDigit()).foregroundStyle(Theme.dim)
                         .frame(width: 70, alignment: .leading)
                     VStack(alignment: .leading, spacing: 1) {
                         Text(e.title).font(.subheadline.weight(.medium))
