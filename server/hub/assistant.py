@@ -31,7 +31,7 @@ log = logging.getLogger("hub.assistant")
 
 CONV_IDLE_S = 20 * 60
 MAX_TURNS = 24  # user turns kept in one conversation before it starts fresh
-RESULT_CHARS = 12000
+RESULT_CHARS = 20000
 RATE_WINDOW_S = 600
 RATE_MAX = 40
 
@@ -77,6 +77,31 @@ class Turn:
     steps: list[dict[str, Any]] = field(default_factory=list)
     confirms: list[dict[str, Any]] = field(default_factory=list)
     changed: bool = False
+
+
+def _fit(out: dict[str, Any], limit: int = RESULT_CHARS) -> str:
+    """Tool result as JSON under the size limit. Never cuts mid-JSON (the model then sees a broken,
+    partial list): it drops whole items from the end of the longest list and says how many."""
+    def dump(o: Any) -> str:
+        return json.dumps(o, separators=(",", ":"), default=str)
+    text = dump(out)
+    if len(text) <= limit:
+        return text
+    out = dict(out)
+    lists = [k for k, v in out.items() if isinstance(v, list)]
+    if not lists:
+        return dump({"error": "result too large; ask for something narrower"})
+    key = max(lists, key=lambda k: len(dump(out[k])))
+    items = out[key]
+    lo, hi = 0, len(items)
+    while lo < hi:  # most items that still fit
+        mid = (lo + hi + 1) // 2
+        trial = {**out, key: items[:mid], "more": f"{len(items) - mid} more {key} not shown; narrow by room or kind"}
+        lo, hi = (mid, hi) if len(dump(trial)) <= limit else (lo, mid - 1)
+    out[key] = items[:lo]
+    out["more"] = f"{len(items) - lo} more {key} not shown; narrow by room or kind"
+    text = dump(out)
+    return text if len(text) <= limit else dump({"error": "result too large; ask for something narrower"})
 
 
 class AssistantError(Exception):
@@ -162,7 +187,9 @@ class Assistant:
                 "camera, oven, vacuum, valve, scene)."),
              "input_schema": {"type": "object", "additionalProperties": False, "properties": {
                  "query": {"type": "string", "description": "Words to match in room or device names. Empty for everything."},
-                 "kind": {"type": "string"}}}},
+                 "kind": {"type": "string"},
+                 "active": {"type": "boolean", "description": (
+                     "true for only what is on, open, unlocked or playing right now. Use it for 'what is on'.")}}}},
             {"name": "act", "description": (
                 "Control a device or run a scene or mode (POST /v1/actions). Actions and params: "
                 "light.set {on, brightness 0-100, color '#RRGGBB'}; fan.set {on, speed 0-100}; switch.set {on}; "
@@ -291,7 +318,7 @@ class Assistant:
             for b in uses:
                 out = await self._tool(ctx, b["name"], b.get("input") or {})
                 results.append({"type": "tool_result", "tool_use_id": b["id"],
-                                "content": json.dumps(out, separators=(",", ":"), default=str)[:RESULT_CHARS],
+                                "content": _fit(out),
                                 **({"is_error": True} if out.get("error") else {})})
             conv.messages.append({"role": "user", "content": results})
         else:
@@ -308,7 +335,8 @@ class Assistant:
     async def _tool(self, ctx: dict[str, Any], name: str, inp: dict[str, Any]) -> dict[str, Any]:
         try:
             if name == "house":
-                return self._house(ctx["subject"], str(inp.get("query") or ""), str(inp.get("kind") or ""))
+                return self._house(ctx["subject"], str(inp.get("query") or ""), str(inp.get("kind") or ""),
+                                   bool(inp.get("active")))
             if name == "act":
                 body = {"action": str(inp.get("action", "")), "target": inp.get("target"),
                         "params": inp.get("params") or {}}
@@ -322,7 +350,7 @@ class Assistant:
             return {"error": exc.message}
         return {"error": f"unknown tool {name}"}
 
-    def _house(self, s: Subject, query: str, kind: str) -> dict[str, Any]:
+    def _house(self, s: Subject, query: str, kind: str, active: bool = False) -> dict[str, Any]:
         snap = self.hub.home.snapshot(s)
         words = [w for w in re.split(r"\W+", query.lower()) if w]
         rooms = {r["id"]: r["name"] for r in snap.get("rooms", [])}
@@ -331,27 +359,32 @@ class Assistant:
             hay = " ".join(n.lower() for n in names if n)
             return all(w in hay or w.rstrip("s") in hay for w in words)
 
-        devices = []
+        devices: list[dict[str, Any]] = []
+        kind_actions: dict[str, Any] = {}
         for d in snap.get("devices", []):
             if kind and d["kind"] != kind:
                 continue
             if words and not hit(d["name"], rooms.get(d["room_id"], ""), d["id"], d["kind"]):
                 continue
-            st = {k: v for k, v in (d.get("state") or {}).items() if v not in (None, "", [], {})}
+            raw = d.get("state") or {}
+            if active and not (raw.get("on") or raw.get("open") or raw.get("playing") or raw.get("locked") is False):
+                continue
+            st = {k: v for k, v in raw.items() if v not in (None, "", [], {})}
+            # Actions are the same for every device of a kind; list them once (below) to keep results small.
+            acts = d.get("actions", [])
+            if acts and kind_actions.setdefault(d["kind"], acts) != acts:
+                st["actions"] = acts
             devices.append({"id": d["id"], "name": d["name"], "room": rooms.get(d["room_id"]), "kind": d["kind"],
-                            "state": st, "actions": d.get("actions", []),
-                            **({} if d.get("available", True) else {"offline": True})})
+                            "state": st, **({} if d.get("available", True) else {"offline": True})})
         scenes = [{"id": eid, "name": st.get("attributes", {}).get("friendly_name", eid),
                    "room": rooms.get(self.hub.home.entity_area.get(eid) or "")}
                   for eid, st in self.hub.home.states.items() if eid.startswith("scene.")
                   and (not words or hit(st.get("attributes", {}).get("friendly_name", eid), eid))
                   and self.hub.policy.has(s, "lights.all")]
-        out: dict[str, Any] = {"devices": devices[:150]}
-        if len(devices) > 150:
-            out["more"] = f"{len(devices) - 150} more; narrow the query"
+        out: dict[str, Any] = {"devices": devices, "actions_by_kind": kind_actions}
         if not kind or kind == "scene":
             out["scenes"] = scenes[:40]
-        if not words and not kind:
+        if not words and not kind and not active:
             out["rooms"] = [{"id": r["id"], "name": r["name"], "summary": r.get("summary")} for r in snap.get("rooms", [])]
             out["modes"] = snap.get("modes", [])
             out["now_playing"] = snap.get("now_playing", [])

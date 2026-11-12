@@ -14,7 +14,7 @@ struct AskHomeIntent: AppIntent {
 
     func perform() async throws -> some IntentResult & ProvidesDialog & ReturnsValue<String> {
         let r = try await HubClient.shared.ask(text, conversation: nil, screen: "Siri")
-        var line = r.reply
+        var line = AskText.plain(r.reply)
         if !r.confirms.isEmpty {
             // No Face ID inside Siri: the card waits in the app.
             AppSettings.defaults.set(true, forKey: OpenAskIntent.flag)

@@ -68,7 +68,7 @@ final class AssistantModel {
                 lines.append(Line(kind: .house, text: r.reply, steps: r.steps.filter { $0.status != "confirm" }))
                 cards += r.confirms.map { Card(confirm: $0) }
                 if r.changed { Task { await HomeStore.shared.refreshAll() } }
-                if voice && speakReplies { speak(r.reply) }
+                if voice && speakReplies { speak(AskText.plain(r.reply)) }
             } catch {
                 outcomes = done + outcomes
                 lines.append(Line(kind: .error, text: (error as? LocalizedError)?.errorDescription ?? "Something went wrong."))
@@ -323,7 +323,7 @@ struct AssistantSheet: View {
             if !l.steps.isEmpty {
                 FlowSteps(steps: l.steps)
             }
-            Text(l.text)
+            Text(l.kind == .house ? AskText.rich(l.text) : AttributedString(l.text))
                 .font(kid ? Theme.kidFont(16, .medium) : .body)
                 .padding(.horizontal, 12).padding(.vertical, 9)
                 .foregroundStyle(l.kind == .me ? Theme.onAccent : (l.kind == .error ? Theme.warn : Theme.fg))
