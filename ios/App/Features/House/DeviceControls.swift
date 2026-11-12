@@ -8,12 +8,20 @@ struct DeviceTile: View {
     let device: DeviceItem
     var big = false
     @State private var detail = false
+    @State private var askWater = false
 
     var body: some View {
         tile
             .opacity(device.isAvailable ? 1 : 0.55)
             .contextMenu { menu }
             .sheet(isPresented: $detail) { DeviceDetailSheet(deviceID: device.id) }
+            // Watering is never one stray tap away: starting a zone always asks how long first.
+            .confirmationDialog("Water \(device.displayName)?", isPresented: $askWater, titleVisibility: .visible) {
+                ForEach([5, 10, 15, 30], id: \.self) { m in
+                    Button("Water \(m) min") { water(m) }
+                }
+                Button("Cancel", role: .cancel) {}
+            }
     }
 
     @ViewBuilder private var tile: some View {
@@ -54,8 +62,8 @@ struct DeviceTile: View {
                               done: "\(d.name) \(locked ? "unlocked" : "locked")")
             }
         case .valve:
-            StateTile(symbol: "drop.fill", title: d.name, detail: DeviceSymbols.value(d), on: d.isOn,
-                      tint: Theme.accent, big: big) { water(d.isOn ? nil : 10) }
+            StateTile(symbol: "drop.fill", title: d.displayName, detail: DeviceSymbols.value(d), on: d.isOn,
+                      tint: Theme.accent, big: big) { if d.isOn { water(nil) } else { askWater = true } }
         case .oven:
             StateTile(symbol: "oven.fill", title: d.name, detail: DeviceSymbols.value(d), on: d.isOn,
                       tint: Theme.warn, big: big) { router.go(.kitchen(d.id)) }
@@ -290,5 +298,18 @@ struct ClimateCard: View {
                 .frame(width: 48, height: 48).background(Theme.card2, in: Circle())
         }
         .buttonStyle(.plain)
+    }
+}
+
+extension DeviceItem {
+    /// Sprinkler zones come from Home Assistant as "Irrigation Controller Backyard 1"; the controller part
+    /// is the same on every tile and pushes the zone name out of view, so drop it.
+    var displayName: String {
+        guard kind == .valve else { return name }
+        for prefix in ["Irrigation Controller ", "Sprinkler Controller ", "Irrigation ", "Sprinkler "]
+        where name.count > prefix.count && name.lowercased().hasPrefix(prefix.lowercased()) {
+            return String(name.dropFirst(prefix.count))
+        }
+        return name
     }
 }
