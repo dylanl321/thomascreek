@@ -435,6 +435,29 @@ struct Recipe: Codable, Hashable {
     var servings: String?
     var ingredients: [String]
     var steps: [String]
+    var slug: String?
+    var oven: OvenPlan?
+    var favorite: Bool?
+    var tags: [String]?
+    var description: String?
+    var sourceUrl: String?
+    var prepTime: String?
+    var cookTime: String?
+}
+
+/// The oven setting the hub found in (or saved with) a recipe.
+struct OvenPlan: Codable, Hashable {
+    var mode: String
+    var temp: Int?
+    var minutes: Int?
+    var quote: String?
+    var title: String?
+    var saved: Bool?
+    var summary: String {
+        var s = temp.map { "\($0)° \(mode.lowercased())" } ?? mode
+        if let m = minutes { s += " · \(m) min" }
+        return s
+    }
 }
 
 struct InventoryItem: Codable, Hashable, Identifiable {
@@ -623,6 +646,15 @@ enum ISO {
         f.formatOptions = [.withFullDate]
         f.timeZone = .current
         return f.date(from: s)
+    }
+    /// "2026-11-14" in local time.
+    static func day(_ d: Date) -> String {
+        let f = DateFormatter(); f.locale = Locale(identifier: "en_US_POSIX"); f.timeZone = .current; f.dateFormat = "yyyy-MM-dd"
+        return f.string(from: d)
+    }
+    static func parseDay(_ s: String) -> Date? {
+        let f = DateFormatter(); f.locale = Locale(identifier: "en_US_POSIX"); f.timeZone = .current; f.dateFormat = "yyyy-MM-dd"
+        return f.date(from: String(s.prefix(10)))
     }
 }
 

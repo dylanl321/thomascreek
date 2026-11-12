@@ -53,6 +53,9 @@ struct DeviceTile: View {
                 store.perform("lock.set", target: d.id, params: ["locked": !locked], confirm: "\(locked ? "Unlock" : "Lock") \(d.name)",
                               done: "\(d.name) \(locked ? "unlocked" : "locked")")
             }
+        case .oven:
+            StateTile(symbol: "oven.fill", title: d.name, detail: DeviceSymbols.value(d), on: d.isOn,
+                      tint: Theme.warn, big: big) { router.go(.kitchen(d.id)) }
         default:
             StateTile(symbol: DeviceSymbols.symbol(d), title: d.name, detail: DeviceSymbols.value(d), on: d.isOn,
                       tint: Theme.accent, big: big) { detail = true }
