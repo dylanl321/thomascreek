@@ -27,6 +27,8 @@ class Frigate(Adapter):
         self._jwt: str | None = None
         self._jwt_at = 0.0
         self._go2rtc: httpx.AsyncClient | None = None
+        self._names: set[str] = set()
+        self._names_at = 0.0
 
     async def _login(self) -> None:
         # Only needed on Frigate's authenticated port (8971). Port 5000 is open.
@@ -57,6 +59,19 @@ class Frigate(Adapter):
             return self.cfg.cameras
         cfg = await self.get_json("/api/config")
         return sorted(cfg.get("cameras", {}).keys())
+
+    async def has_camera(self, camera: str) -> bool:
+        """Whether Frigate has a camera of this name (Home Assistant may list others)."""
+        if not self.enabled:
+            return False
+        if time.time() - self._names_at > 300:
+            try:
+                self._names = set(await self.cameras())
+                self._names_at = time.time()
+            except AdapterError:
+                if not self._names:
+                    return False
+        return camera in self._names
 
     async def events(self, camera: str | None = None, limit: int = 25) -> list[dict[str, Any]]:
         params: dict[str, Any] = {"limit": limit, "include_thumbnails": 0}

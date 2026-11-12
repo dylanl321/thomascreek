@@ -98,7 +98,7 @@ color:#bbb;font:15px -apple-system,system-ui}}</style></head><body>
 @router.get("/{cam}/player", response_class=HTMLResponse)
 async def player_page(cam: str, request: Request, h: Hub = Depends(hub)) -> HTMLResponse:
     _check_pass(h, cam, request.query_params.get("pass", ""))
-    return HTMLResponse(PLAYER_HTML.format(title=html.escape(cam), webrtc="true" if h.frigate.enabled else "false"),
+    return HTMLResponse(PLAYER_HTML.format(title=html.escape(cam), webrtc="true" if await h.frigate.has_camera(cam) else "false"),
                         headers={"Cache-Control": "no-store", "Content-Security-Policy":
                                  "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; "
                                  "connect-src 'self'; img-src 'self'; media-src * blob:"})
@@ -143,7 +143,7 @@ async def snapshot(cam: str, c: Caller = Depends(caller), h: Hub = Depends(hub))
     need(h, c, "cameras")
     eid = _camera_entity(h, cam)
     try:
-        data = await h.frigate.latest_jpg(cam) if h.frigate.enabled else await h.ha.camera_proxy(eid)
+        data = await h.frigate.latest_jpg(cam) if await h.frigate.has_camera(cam) else await h.ha.camera_proxy(eid)
     except AdapterError:
         raise error(503, "unavailable", "Camera unavailable") from None
     return Response(data, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=10"})

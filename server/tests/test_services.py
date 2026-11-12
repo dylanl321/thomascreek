@@ -353,3 +353,21 @@ def test_camera_mjpeg_fallback_through_ha(hub, people, home_client):
     assert r.status_code == 200 and r.content.startswith(b"--frame")
     assert r.headers["content-type"].startswith("multipart/x-mixed-replace")
     assert home_client.get("/v1/cameras/driveway/mjpeg?pass=bad").status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_frigate_has_camera_uses_frigate_names():
+    from hub.adapters.cameras import Frigate
+    from hub.config import FrigateConfig
+
+    cfg = FrigateConfig(enabled=True, url="http://frigate.test:5000")
+    f = Frigate(cfg, None)
+    with respx.mock() as mock:
+        route = mock.get("http://frigate.test:5000/api/config").mock(
+            return_value=httpx.Response(200, json={"cameras": {"driveway": {}, "creek": {}}}))
+        assert await f.has_camera("driveway")
+        assert not await f.has_camera("doorbell")  # a Home Assistant-only camera
+        assert route.call_count == 1  # names are cached
+    await f.close()
+    off = Frigate(FrigateConfig(enabled=False, url="http://frigate.test:5000"), None)
+    assert not await off.has_camera("driveway")
