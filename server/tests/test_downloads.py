@@ -39,12 +39,18 @@ def test_options_and_modes():
     assert original_mode(mp4) == "direct"
     assert original_mode({**mp4, "container": "mkv"}) == "remux"
     assert original_mode({**mp4, "video_codec": "vc1"}) is None
-    assert original_mode({**mp4, "audio_codec": "dts"}) is None
-    q = [o["quality"] for o in options(mp4)]
-    assert q == ["original", "high", "small"]
-    assert options(mp4)[0]["instant"] is True
-    assert [o["quality"] for o in options({**mp4, "video_codec": "mpeg2video"})] == ["high", "small"]
-    assert 1_500_000_000 < options(mp4)[1]["bytes"] < 2_200_000_000  # ~4.2 Mbps for an hour
+    assert original_mode({**mp4, "audio_codec": "dts"}) == "remux_audio"
+    # A 1-hour 1080p file at ~8 Mbps: original, Good and Small all make sense.
+    big = {**mp4, "size": 3_600_000_000}
+    assert [o["quality"] for o in options(big)] == ["original", "high", "small"]
+    assert options(big)[0]["instant"] is True
+    assert 900_000_000 < options(big)[1]["bytes"] < 1_100_000_000   # ~2.1 Mbps real, not the 4 Mbps cap
+    assert 350_000_000 < options(big)[2]["bytes"] < 450_000_000
+    # A small original (~2.2 Mbps, like a 22-minute 360 MB episode): Good isn't offered, Small is.
+    small = {**mp4, "size": 990_000_000}
+    assert [o["quality"] for o in options(small)] == ["original", "small"]
+    # Unplayable video: no original, both conversions.
+    assert [o["quality"] for o in options({**big, "video_codec": "mpeg2video"})] == ["high", "small"]
 
 
 def test_original_mp4_streams_from_plex_with_range(plex, people):
@@ -56,7 +62,7 @@ def test_original_mp4_streams_from_plex_with_range(plex, people):
         r = dylan.client.get("/v1/media/42/download", headers=dylan.h)
         assert r.status_code == 200, r.text
         assert r.json()["options"][0] == {"quality": "original", "label": "Original",
-                                          "detail": "1080p quality, fastest to get", "bytes": 2_000_000_000,
+                                          "detail": "1080p · Full quality, the file as it is", "bytes": 2_000_000_000,
                                           "instant": True}
         r = dylan.client.post("/v1/media/42/download", json={"quality": "original"}, headers=dylan.h)
         job = r.json()
@@ -150,3 +156,30 @@ def test_show_episodes_inherit_rating(plex, people):
         r = theo.client.get("/v1/media/9/episodes", headers=theo.h)
         assert [i["id"] for i in r.json()["items"]] == ["10"]
         assert r.json()["items"][0]["title"] == "Bluey: Keepy Uppy"
+
+
+def test_trek_text_is_unescaped():
+    from hub.adapters.trips import unescape
+    assert unescape({"days": [{"title": "Nymphenburg &amp;amp; Aviation Museum"}], "n": 3}) == \
+        {"days": [{"title": "Nymphenburg & Aviation Museum"}], "n": 3}
+    assert unescape("Fish & chips") == "Fish & chips"
+
+
+@pytest.mark.skipif(not shutil.which("ffmpeg"), reason="ffmpeg not installed")
+async def test_unplayable_sound_is_converted_while_rewrapping(plex, tmp_path):
+    src = tmp_path / "in.mkv"
+    made = subprocess.run(["ffmpeg", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc=size=160x90:rate=10",
+                           "-f", "lavfi", "-i", "sine=frequency=440", "-t", "2", "-c:v", "libx264", "-c:a", "flac",
+                           "-y", str(src)], capture_output=True)
+    if made.returncode != 0:
+        pytest.skip("ffmpeg can't make a test file here")
+    d = plex.downloads
+    d._input_for = lambda job, media, mode: (str(src), [])  # type: ignore[method-assign]
+    media = {"video_codec": "h264", "audio_codec": "dts", "container": "mkv", "duration_ms": 2000,
+             "part_key": "/library/parts/1/1/file.mkv"}
+    job = await d.start("43", "original", media, {"title": "x"}, "dev1", None)
+    await asyncio.wait_for(job.task, 30)
+    assert job.status == "ready", job.error
+    probe = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "a:0", "-show_entries", "stream=codec_name",
+                            "-of", "csv=p=0", str(job.path)], capture_output=True, text=True)
+    assert probe.stdout.strip() == "aac"
