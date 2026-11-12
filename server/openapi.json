@@ -3036,6 +3036,46 @@
     }
    }
   },
+  "/v1/cameras/{cam}/mjpeg": {
+   "get": {
+    "tags": [
+     "cameras"
+    ],
+    "summary": "Mjpeg",
+    "operationId": "mjpeg_v1_cameras__cam__mjpeg_get",
+    "parameters": [
+     {
+      "name": "cam",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Cam"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/v1/cameras/{cam}/webrtc": {
    "post": {
     "tags": [

@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from .base import Adapter
+from .base import Adapter, AdapterError
 
 AREAS_TEMPLATE = """
 {%- set ns = namespace(out=[]) -%}
@@ -63,3 +63,19 @@ class HomeAssistant(Adapter):
 
     async def camera_proxy(self, entity_id: str) -> bytes:
         return (await self.request("GET", f"/api/camera_proxy/{entity_id}")).content
+
+    async def camera_stream(self, entity_id: str):
+        """Open HA's MJPEG stream for a camera (caller must close the response)."""
+        import httpx
+
+        req = self.client().build_request("GET", f"/api/camera_proxy_stream/{entity_id}",
+                                          headers=self.auth_headers(),
+                                          timeout=httpx.Timeout(10.0, read=None))
+        try:
+            resp = await self.client().send(req, stream=True)
+        except httpx.HTTPError as exc:
+            raise AdapterError(f"cannot reach Home Assistant: {type(exc).__name__}") from None
+        if resp.status_code != 200:
+            await resp.aclose()
+            raise AdapterError(f"Home Assistant camera stream: HTTP {resp.status_code}")
+        return resp

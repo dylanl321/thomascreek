@@ -12,7 +12,7 @@ import html
 from typing import Any
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import HTMLResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 from ..adapters.base import AdapterError
@@ -63,12 +63,22 @@ def _check_pass(h: Hub, cam: str, token: str) -> dict[str, Any]:
 PLAYER_HTML = """<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>{title}</title><style>html,body{{margin:0;height:100%;background:#000}}
-video{{width:100%;height:100%;object-fit:contain}}#m{{position:fixed;top:45%;width:100%;text-align:center;
+video,img{{width:100%;height:100%;object-fit:contain}}#m{{position:fixed;top:45%;width:100%;text-align:center;
 color:#bbb;font:15px -apple-system,system-ui}}</style></head><body>
 <video id="v" autoplay playsinline muted></video><div id="m">Connecting…</div>
 <script>
 (async () => {{
   const m = document.getElementById('m'), v = document.getElementById('v');
+  const base = location.pathname.replace(/player$/, '');
+  function mjpeg() {{
+    // Fallback: Home Assistant's MJPEG stream, relayed by the hub.
+    const i = document.createElement('img');
+    i.onload = () => {{ m.remove(); v.remove(); }};
+    i.onerror = () => {{ m.textContent = 'Camera unavailable'; }};
+    i.src = base + 'mjpeg' + location.search;
+    document.body.appendChild(i);
+  }}
+  if (!{webrtc}) return mjpeg();
   try {{
     const pc = new RTCPeerConnection();
     pc.addTransceiver('video', {{direction: 'recvonly'}});
@@ -76,11 +86,11 @@ color:#bbb;font:15px -apple-system,system-ui}}</style></head><body>
     pc.ontrack = e => {{ v.srcObject = e.streams[0]; m.remove(); }};
     await pc.setLocalDescription(await pc.createOffer());
     await new Promise(r => {{ if (pc.iceGatheringState === 'complete') r(); pc.onicegatheringstatechange = () => pc.iceGatheringState === 'complete' && r(); setTimeout(r, 1500); }});
-    const res = await fetch(location.pathname.replace(/player$/, 'webrtc') + location.search,
+    const res = await fetch(base + 'webrtc' + location.search,
       {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{sdp: pc.localDescription.sdp}})}});
     if (!res.ok) throw new Error('camera unavailable');
     await pc.setRemoteDescription({{type: 'answer', sdp: (await res.json()).sdp}});
-  }} catch (e) {{ m.textContent = 'Camera unavailable'; }}
+  }} catch (e) {{ mjpeg(); }}
 }})();
 </script></body></html>"""
 
@@ -88,14 +98,34 @@ color:#bbb;font:15px -apple-system,system-ui}}</style></head><body>
 @router.get("/{cam}/player", response_class=HTMLResponse)
 async def player_page(cam: str, request: Request, h: Hub = Depends(hub)) -> HTMLResponse:
     _check_pass(h, cam, request.query_params.get("pass", ""))
-    return HTMLResponse(PLAYER_HTML.format(title=html.escape(cam)),
+    return HTMLResponse(PLAYER_HTML.format(title=html.escape(cam), webrtc="true" if h.frigate.enabled else "false"),
                         headers={"Cache-Control": "no-store", "Content-Security-Policy":
                                  "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; "
-                                 "connect-src 'self'; media-src * blob:"})
+                                 "connect-src 'self'; img-src 'self'; media-src * blob:"})
 
 
 class Offer(BaseModel):
     sdp: str = Field(max_length=20000)
+
+
+@router.get("/{cam}/mjpeg")
+async def mjpeg(cam: str, request: Request, h: Hub = Depends(hub)) -> StreamingResponse:
+    _check_pass(h, cam, request.query_params.get("pass", ""))
+    eid = _camera_entity(h, cam)
+    try:
+        upstream = await h.ha.camera_stream(eid)
+    except AdapterError as exc:
+        raise error(503, "unavailable", str(exc)) from None
+
+    async def body():
+        try:
+            async for chunk in upstream.aiter_raw():
+                yield chunk
+        finally:
+            await upstream.aclose()
+
+    return StreamingResponse(body(), media_type=upstream.headers.get("content-type", "multipart/x-mixed-replace"),
+                             headers={"Cache-Control": "no-store"})
 
 
 @router.post("/{cam}/webrtc")

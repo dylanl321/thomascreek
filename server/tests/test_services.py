@@ -336,3 +336,20 @@ async def test_avahi_publish_sends_service(monkeypatch):
     assert sig == "iiussssqaay"
     assert body[3:5] == ["Thomas Creek Hub", "_thomascreek._tcp"] and body[7] == 8443
     assert b"pin=ab" in body[8]
+
+
+def test_camera_mjpeg_fallback_through_ha(hub, people, home_client):
+    import respx
+    from httpx import Response as R
+
+    avery = people["phones"]["Avery"]
+    url = home_client.post("/v1/cameras/driveway/pass", headers=avery.h).json()["player_url"]
+    page = home_client.get(url)
+    assert "if (!false) return mjpeg()" in page.text  # Frigate not set up: MJPEG straight away
+    with respx.mock(assert_all_called=True) as mock:
+        mock.get("http://ha.test/api/camera_proxy_stream/camera.driveway").mock(
+            return_value=R(200, content=b"--frame\r\nJPEGDATA", headers={"content-type": "multipart/x-mixed-replace;boundary=frame"}))
+        r = home_client.get(url.replace("/player?", "/mjpeg?"))
+    assert r.status_code == 200 and r.content.startswith(b"--frame")
+    assert r.headers["content-type"].startswith("multipart/x-mixed-replace")
+    assert home_client.get("/v1/cameras/driveway/mjpeg?pass=bad").status_code == 401
