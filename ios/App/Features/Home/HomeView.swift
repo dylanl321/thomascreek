@@ -354,10 +354,14 @@ struct CameraThumb: View {
     }
     var body: some View {
         ZStack(alignment: .bottomLeading) {
-            HubImage(path: camera.snapshotUrl.map { CameraThumb.fresh($0) }) {
-                LinearGradient(colors: [Theme.card2, Theme.off], startPoint: .top, endPoint: .bottom)
-                    .overlay(Image(systemName: "video.fill").foregroundStyle(Theme.dim))
+            // The snapshot sits in an overlay so its pixel size never widens the tile (it fills, then clips).
+            Color.clear.overlay {
+                HubImage(path: camera.snapshotUrl.map { CameraThumb.fresh($0) }) {
+                    LinearGradient(colors: [Theme.card2, Theme.off], startPoint: .top, endPoint: .bottom)
+                        .overlay(Image(systemName: "video.fill").foregroundStyle(Theme.dim))
+                }
             }
+            .clipped()
             LinearGradient(colors: [.clear, .black.opacity(0.6)], startPoint: .center, endPoint: .bottom)
             HStack {
                 Text(camera.name).font(.caption.weight(.semibold))
