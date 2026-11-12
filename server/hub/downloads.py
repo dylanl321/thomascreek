@@ -140,7 +140,17 @@ class Downloads:
     async def _prepare(self, job: Job, media: dict[str, Any], mode: str) -> None:
         async with self._slots:
             try:
-                await self._run_ffmpeg(job, media, mode)
+                try:
+                    await self._run_ffmpeg(job, media, mode)
+                except Exception as first:  # noqa: BLE001
+                    if mode != "transcode":
+                        raise
+                    # Plex sometimes refuses a new transcode while it tidies an old one: stop ours, try once more.
+                    log.info("download %s: retrying after %s", job.id, first)
+                    await self._stop_transcode(job)
+                    job.progress = 0.0
+                    await asyncio.sleep(3)
+                    await self._run_ffmpeg(job, media, mode)
             except Exception as exc:  # noqa: BLE001
                 log.warning("download %s failed: %s", job.id, exc)
                 self.failures = [*self.failures[-9:], {
@@ -150,11 +160,21 @@ class Downloads:
                 if job.path:
                     job.path.unlink(missing_ok=True)
 
+    async def _stop_transcode(self, job: Job) -> None:
+        try:
+            await self.hub.plex.request("GET", "/video/:/transcode/universal/stop", params={"session": f"tc-dl-{job.id}"},
+                                        headers={"X-Plex-Client-Identifier": f"tc-dl-{job.id}"})
+        except Exception:  # noqa: BLE001
+            pass
+
     def _input_for(self, job: Job, media: dict[str, Any], mode: str) -> tuple[str, list[str]]:
         plex = self.hub.plex
         base = str(plex.cfg.url).rstrip("/")
         token = plex.secret(plex.cfg.token_secret) or ""
-        headers = f"X-Plex-Token: {token}\r\nX-Plex-Client-Identifier: thomascreek-hub-dl\r\nX-Plex-Product: Thomas Creek Hub\r\n"
+        # A client id per job: Plex ties transcode sessions to the client, and a session left over from an
+        # interrupted job (e.g. a hub restart) must not block the next one.
+        headers = (f"X-Plex-Token: {token}\r\nX-Plex-Client-Identifier: tc-dl-{job.id}\r\n"
+                   "X-Plex-Product: Thomas Creek Hub\r\nX-Plex-Platform: iOS\r\n")
         if mode in ("remux", "remux_audio"):
             return f"{base}{media['part_key']}", ["-headers", headers]
         spec = QUALITIES[job.quality]
@@ -194,6 +214,8 @@ class Downloads:
         if await proc.wait() != 0 or not tmp.exists():
             raise RuntimeError(err.strip().splitlines()[-1] if err.strip() else "ffmpeg failed")
         os.replace(tmp, final)
+        if mode == "transcode":
+            await self._stop_transcode(job)
         job.path = final
         job.bytes = final.stat().st_size
         job.status, job.progress = "ready", 1.0
