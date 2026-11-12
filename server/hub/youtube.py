@@ -285,9 +285,12 @@ class YouTube:
         last_update = 0.0
         while True:
             try:
-                if self.cfg.auto_update and time.time() - last_update > 86400:
+                if time.time() - last_update > 86400:
                     last_update = time.time()
-                    await self.update_ytdlp()
+                    if self.cfg.auto_update:
+                        await self.update_ytdlp()
+                    else:
+                        self.version = (await self._run(["--version"], 30)).strip()
                 await self.refresh()
                 while await self.fetch_next():
                     pass
