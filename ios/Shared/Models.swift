@@ -580,3 +580,20 @@ enum ISO {
         return f.date(from: s)
     }
 }
+
+extension Me {
+    /// A phone still waiting for approval has no person yet, and the hub sends `"person": null`.
+    /// Decode that as a placeholder so the app shows the waiting screen instead of hanging on launch.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        person = try c.decodeIfPresent(Person.self, forKey: .person) ?? Person(id: "", name: "")
+        role = try c.decode(Role.self, forKey: .role)
+        capabilities = try c.decodeIfPresent([String].self, forKey: .capabilities) ?? []
+        device = try c.decodeIfPresent(DeviceInfo.self, forKey: .device)
+        remoteUrl = try c.decodeIfPresent(String.self, forKey: .remoteUrl)
+        atHome = try c.decodeIfPresent(Bool.self, forKey: .atHome)
+        dryRun = try c.decodeIfPresent(Bool.self, forKey: .dryRun)
+        child = try c.decodeIfPresent(ChildInfo.self, forKey: .child)
+        guest = try c.decodeIfPresent(GuestInfo.self, forKey: .guest)
+    }
+}
