@@ -31,6 +31,8 @@ Bonjour `_thomascreek._tcp`, TXT `api=v1`, `id=<hub id>`, `pin=<hex sha256 of th
 hub certificate's SubjectPublicKeyInfo>`. Pin that value at enrollment (on home
 Wi-Fi) and require it for every later connection, including through the tunnel
 and `remote_url`. `GET /v1/ping` (no auth) returns `{ok, id, name, api, version}`.
+`GET /v1/hello` (no auth) returns `{name, id, api, version, pin}`, the same pin as
+the TXT record, for a phone that reached the hub by a typed address.
 
 ## Enrollment and sign-in
 

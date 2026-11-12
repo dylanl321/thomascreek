@@ -30,6 +30,30 @@
     }
    }
   },
+  "/v1/hello": {
+   "get": {
+    "tags": [
+     "meta"
+    ],
+    "summary": "Hello",
+    "description": "Unauthenticated: who this hub is, plus the SHA-256 of its TLS public key\n(the same `pin` as the Bonjour TXT record) so a phone that typed the address\ncan check it reached the right hub before trusting the certificate.",
+    "operationId": "hello_v1_hello_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "additionalProperties": true,
+         "type": "object",
+         "title": "Response Hello V1 Hello Get"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/v1/enroll": {
    "post": {
     "tags": [

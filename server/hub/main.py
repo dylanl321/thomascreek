@@ -62,6 +62,19 @@ def build_app(hub: Hub | None = None, *, start_background: bool = True) -> FastA
         """Unauthenticated: lets the app check it found the right hub."""
         return {"ok": True, "id": hub.config.hub.id, "name": hub.config.hub.name, "api": "v1", "version": __version__}
 
+    @app.get("/v1/hello", tags=["meta"])
+    async def hello() -> dict[str, Any]:
+        """Unauthenticated: who this hub is, plus the SHA-256 of its TLS public key
+        (the same `pin` as the Bonjour TXT record) so a phone that typed the address
+        can check it reached the right hub before trusting the certificate."""
+        from .tls import ensure_tls, spki_fingerprint
+
+        if not hasattr(app.state, "pin"):
+            cert, _ = ensure_tls(hub.config)
+            app.state.pin = spki_fingerprint(cert)
+        return {"name": hub.config.hub.name, "id": hub.config.hub.id, "api": "v1",
+                "version": __version__, "pin": app.state.pin}
+
     @app.middleware("http")
     async def security_headers(request, call_next):
         resp = await call_next(request)

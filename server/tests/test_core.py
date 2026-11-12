@@ -249,3 +249,12 @@ def test_assign_device_needs_admin_and_face_id(hub, people, home_client):
     newbie.sign_in()
     me = home_client.get("/v1/me", headers=newbie.h).json()
     assert me["role"] == "child" and me["person"]["ui_style"] == "little"
+
+
+def test_hello_reports_pin(home_client, tmp_path, monkeypatch):
+    monkeypatch.setenv("HUB_DATA_DIR", str(tmp_path))
+    r = home_client.get("/v1/hello")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["api"] == "v1" and len(body["pin"]) == 64
+    assert all(c in "0123456789abcdef" for c in body["pin"])
