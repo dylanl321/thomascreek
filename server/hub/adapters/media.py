@@ -10,6 +10,7 @@ from .base import Adapter
 
 class Plex(Adapter):
     name = "plex"
+    ping_path = "/library/sections"
     title = "Plex"
 
     def auth_headers(self) -> dict[str, str]:
@@ -104,6 +105,7 @@ class Plex(Adapter):
 class Jellyseerr(Adapter):
     name = "jellyseerr"
     title = "Requests"
+    ping_path = "/api/v1/request?take=1"
 
     def auth_headers(self) -> dict[str, str]:
         key = self.secret(self.cfg.token_secret)
@@ -187,6 +189,7 @@ class Arr(Adapter):
     """Sonarr or Radarr (v3 API): the download queue for the pipeline screen."""
 
     title = "Downloads"
+    ping_path = "/api/v3/system/status"
 
     def __init__(self, name: str, cfg, vault):
         super().__init__(cfg, vault)

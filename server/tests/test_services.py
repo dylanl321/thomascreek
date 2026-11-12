@@ -570,7 +570,8 @@ def test_admin_web_page_code_sign_in_and_secrets(hub, people, home_client, away_
     r = home_client.get(f"/admin/login/poll?id={pid}")
     assert r.json() == {"ok": True} and "tc_admin" in r.cookies
     status = home_client.get("/admin")
-    assert "Keys and tokens" in status.text and "home_assistant.token" in status.text
+    assert "Upload several files" in status.text and "Long-lived access token" in status.text
+    assert "Apple push key" in status.text and "Missing" in status.text
     csrf = _re.search(r"name=csrf value=([0-9a-f]+)", status.text).group(1)
     # Without the form token nothing is saved.
     assert home_client.post("/admin/secrets", data={"name": "plex.token", "value": "x"}).status_code == 403
@@ -587,6 +588,31 @@ def test_admin_web_page_code_sign_in_and_secrets(hub, people, home_client, away_
     assert home_client.post("/admin/secrets", data={"csrf": csrf, "name": "wireguard.server_private_key", "value": "x"},
                             follow_redirects=False).status_code == 303
     assert not hub.vault.has("wireguard.server_private_key")
+
+    # Bulk upload: VPN client files named from the file, a push key, the house model, a key-named text file.
+    hub.config.vpn.provider = "pool"
+    files = [("files", ("Client3.conf", _client_conf(3).encode())),
+             ("files", ("AVERY.conf", _client_conf(4).encode())),
+             ("files", ("Something.conf", _client_conf(5).encode())),
+             ("files", ("AuthKey_ZYXWV98765.p8", b"-----BEGIN PRIVATE KEY-----\nBBB\n-----END PRIVATE KEY-----\n")),
+             ("files", ("house-model-web.json", b'{"rooms": []}')),
+             ("files", ("trek.api_key.txt", b"trek-secret\n")),
+             ("files", ("notes.docx", b"hello"))]
+    r = home_client.post("/admin/upload", data={"csrf": csrf}, files=files)
+    assert r.status_code == 200 and "Not recognised: notes.docx" in r.text
+    names = set(hub.vault.names())
+    assert "vpn.pool.something" not in names and "notes.docx" not in names
+    assert {"vpn.pool.3", "vpn.pool.avery", "vpn.pool.1", "trek.api_key", "apns.auth_key_p8"} <= names
+    assert str(hub.vault.get("apns.key_id")) == "ZYXWV98765" and str(hub.vault.get("trek.api_key")) == "trek-secret"
+    assert (tmp_path / "assets" / "house-model-web.json").read_text() == '{"rooms": []}'
+    page = home_client.get("/admin").text
+    assert "Firewalla VPN clients" in page and "3 saved" in page and "trek-secret" not in page
+    # The VPN box alone, and a bad file.
+    r = home_client.post("/admin/vpn", data={"csrf": csrf},
+                         files=[("files", ("Client7.conf", _client_conf(7).encode())), ("files", ("x.conf", b"nope"))])
+    assert "Added VPN clients: 7" in r.text and "x.conf" in r.text
+    r = home_client.post("/admin/house-model", data={"csrf": csrf}, files={"file": ("m.json", b"not json")})
+    assert "not JSON" in r.text
 
 
 def test_admin_web_link_is_one_time(hub, people, home_client):
@@ -608,3 +634,20 @@ def test_drop_folder_takes_apple_push_key(hub, tmp_path):
     assert str(hub.vault.get("apns.key_id")) == "ZYX9876543" and hub.vault.has("apns.auth_key_p8")
     hub.config.apns.team_id = "TEAM123456"
     assert hub.apns.enabled
+
+
+@pytest.mark.asyncio
+async def test_status_probe_checks_services_without_waiting_for_the_app(hub):
+    hub.config.sonarr.enabled, hub.config.sonarr.url = True, "http://sonarr.test"
+    hub.config.jellyseerr.enabled, hub.config.jellyseerr.url = True, "http://seerr.test"
+    hub.config.truenas.enabled, hub.config.truenas.url = True, "https://nas.test"
+    hub.vault.set("sonarr.api_key", "k")
+    with respx.mock(assert_all_called=False) as mock:
+        mock.get("http://sonarr.test/api/v3/system/status").mock(return_value=httpx.Response(200, json={}))
+        mock.get("http://seerr.test/api/v1/request").mock(return_value=httpx.Response(401))
+        mock.route(host="ha.test").mock(return_value=httpx.Response(200, json={}))
+        await hub.probe_once()
+    health = {s["id"]: s for s in hub.health()}
+    assert health["sonarr"]["ok"] and health["sonarr"]["last_ok"]
+    assert not health["jellyseerr"]["ok"] and "refused" in health["jellyseerr"]["error"]
+    assert health["truenas"]["error"] == "the NAS API key is not saved yet"

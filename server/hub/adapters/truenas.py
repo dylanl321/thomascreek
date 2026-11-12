@@ -32,7 +32,8 @@ class TrueNAS(Adapter):
             raise AdapterError("NAS is not set up")
         key = self.secret(self.cfg.token_secret)
         if not key:
-            raise AdapterError("NAS API key is not in the vault")
+            self._fail("the NAS API key is not saved yet")
+            raise AdapterError(self.last_error)
         ctx = None
         if self._ws_url().startswith("wss://"):
             ctx = ssl.create_default_context()
@@ -82,6 +83,9 @@ class TrueNAS(Adapter):
 
         self.last_ok, self.last_error = _t.time(), None
         return out
+
+    async def ping(self) -> None:
+        await self.call_many([("system.version", [])])
 
     async def summary(self) -> dict[str, Any]:
         pools, apps, alerts = await self.call_many([

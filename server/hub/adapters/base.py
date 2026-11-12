@@ -88,6 +88,13 @@ class Adapter:
         self.last_error = msg
         log.warning("%s: %s", self.name, msg)
 
+    # A light, authenticated read the hub uses to keep the status page current. None: no probe.
+    ping_path: str | None = None
+
+    async def ping(self) -> None:
+        if self.ping_path:
+            await self.request("GET", self.ping_path)
+
     def health(self) -> dict[str, Any]:
         return {
             "id": self.name,

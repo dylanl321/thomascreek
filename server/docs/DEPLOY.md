@@ -85,11 +85,15 @@ Every later phone shows up as a "New iPhone joined" notice on Dylan's phone.
 
 ## Hub web page
 
-`https://<hub>:8443/admin` from the home network shows each service's health and lists every key and
-token (set or missing, never the value). Replace one by pasting or choosing a file; for Apple push,
-choose the `AuthKey_XXXXXXXXXX.p8` file and the key ID is read from its name. Sign in with the app
-(Systems, Hub web page): type the code the page shows and confirm with Face ID. The browser warns
-about the hub's own certificate the first time; that is expected (the app pins it instead).
+`https://<hub>:8443/admin` from the home network shows each service's health (the hub checks every
+service every two minutes) and one labelled box per key, grouped by service, with where to find it
+(saved or missing, never the value). "Upload several files at once" takes any mix of the Firewalla
+VPN `.conf` files, the `AuthKey_XXXXXXXXXX.p8` push key (key ID read from its name),
+`house-model-web.json`, and text files named after a key (`trek.api_key.txt`). A VPN file named
+after someone in the hub (`LAUREN.conf`) is kept for that person; `Client3.conf` becomes client 3;
+anything else takes the next free number. Sign in with the app (Systems, Hub web page): type the code
+the page shows and confirm with Face ID. The browser warns about the hub's own certificate the first
+time; that is expected (the app pins it instead).
 
 ## 6. Turn things on, one at a time
 

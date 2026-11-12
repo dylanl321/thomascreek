@@ -19,6 +19,7 @@ from .base import Adapter, AdapterError
 
 class Frigate(Adapter):
     name = "frigate"
+    ping_path = "/api/version"
     title = "Cameras"
     cfg: FrigateConfig
 

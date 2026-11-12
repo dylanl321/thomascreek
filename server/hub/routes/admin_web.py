@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import html
+import json
 import re
 import secrets
 import time
@@ -198,6 +199,12 @@ form.edit{display:grid;gap:8px;padding:8px 0 4px}textarea,input[type=text]{width
 button{font:inherit;padding:7px 14px;border-radius:8px;border:1px solid var(--acc);background:var(--acc);color:#fff;cursor:pointer}
 button.ghost{background:transparent;color:var(--bad);border-color:var(--line)}.code{font:600 34px ui-monospace,Menlo,monospace;letter-spacing:4px}
 .flash{padding:10px 14px;border-radius:10px;background:var(--card);border:1px solid var(--line);margin:12px 0}
+h3{font-size:15px;margin:22px 0 8px}.field{padding:14px 0;border-top:1px solid var(--line)}.field:first-child{border-top:0}
+.fhead{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:2px}
+.factions{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px}.fform{display:flex;flex-wrap:wrap;gap:8px;align-items:center;flex:1}
+.fform input[type=password]{flex:1;min-width:200px;font:13px ui-monospace,Menlo,monospace;padding:8px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--fg)}
+form.inline{display:inline}.pill-ok,.pill-miss{font-size:12px;padding:2px 8px;border-radius:999px;white-space:nowrap}
+.pill-ok{background:color-mix(in srgb,var(--ok) 18%,transparent);color:var(--ok)}.pill-miss{background:color-mix(in srgb,var(--bad) 15%,transparent);color:var(--bad)}
 """
 
 
@@ -237,6 +244,135 @@ def _ago(ts: float | None) -> str:
     return "just now" if s < 60 else f"{s // 60} min ago" if s < 3600 else f"{s // 3600} h ago" if s < 86400 else f"{s // 86400} d ago"
 
 
+# Labelled sections for the page: (title, note, [(secret, label, kind, where to find it)]).
+# kind: "text" (paste), "file" (choose a file). Optional sections show only when their service is on,
+# unless marked always.
+SECTIONS: list[dict[str, Any]] = [
+    {"title": "Push notifications", "always": True, "fields": [
+        ("apns.auth_key_p8", "Apple push key", "file",
+         "Choose the AuthKey_XXXXXXXXXX.p8 file from developer.apple.com (Certificates, Identifiers & Profiles, Keys). "
+         "The Key ID is read from the file name."),
+        ("apns.key_id", "Key ID", "text", "Only if the file was renamed: the 10-character Key ID shown on the key's page."),
+    ]},
+    {"title": "Home Assistant", "service": "home_assistant", "fields": [
+        ("home_assistant.token", "Long-lived access token", "text",
+         "Home Assistant: your profile, Security tab, Long-lived access tokens, Create token."),
+    ]},
+    {"title": "Cameras", "service": "frigate", "fields": [
+        ("frigate.password", "Frigate password", "text", "Not needed: the hub uses Frigate's open port 5000."),
+    ], "optional": True},
+    {"title": "Media", "service": "plex", "fields": [
+        ("plex.token", "Plex token", "text", "In Plex Web, open any item, ... menu, Get Info, View XML: the X-Plex-Token in the address."),
+        ("jellyseerr.api_key", "Jellyseerr API key", "text", "Jellyseerr: Settings, General, API Key."),
+        ("sonarr.api_key", "Sonarr API key", "text", "Sonarr: Settings, General, Security, API Key."),
+        ("radarr.api_key", "Radarr API key", "text", "Radarr: Settings, General, Security, API Key."),
+    ]},
+    {"title": "NAS (storage and apps)", "service": "truenas", "fields": [
+        ("truenas.api_key", "TrueNAS API key", "text", "TrueNAS: user menu (top right), API Keys, Add."),
+    ]},
+    {"title": "Meals", "service": "mealie", "fields": [
+        ("mealie.token", "Mealie API token", "text", "Mealie: your profile, API Tokens, Generate."),
+    ]},
+    {"title": "Kids' internet (Firewalla)", "service": "firewalla", "fields": [
+        ("firewalla.msp_token", "Firewalla MSP token", "text", "Firewalla MSP: Account Settings, Create New Token."),
+    ]},
+    {"title": "Christmas show", "service": "show_player", "fields": [
+        ("show_player.app_token", "Show player app token", "text",
+         "The app token of the christmas-player service on the xLights computer."),
+    ]},
+    {"title": "Trips (TREK)", "service": "trek", "fields": [
+        ("trek.api_key", "TREK API key", "text", "Create an API key in TREK's settings."),
+    ]},
+    {"title": "Family board", "service": "family_board", "optional": True, "fields": [
+        ("family_board.admin_token", "Family Command Center admin token", "text",
+         "Optional: only if chores or rewards fail. On the home network the board accepts the hub without it."),
+    ]},
+    {"title": "Homebox", "always": True, "optional": True, "fields": [
+        ("homebox.password", "Homebox password", "text", "Optional: the password of the Homebox account the hub signs in as."),
+    ]},
+    {"title": "1Password", "always": True, "optional": True, "fields": [
+        ("onepassword.service_account_token", "Service account token", "text",
+         "Optional: 1Password, Developer, Service Accounts, with read access to the \"Thomas Creek Hub\" vault. "
+         "The hub then copies keys from there by itself."),
+    ]},
+]
+
+
+def _section_on(h: Hub, sec: dict[str, Any]) -> bool:
+    if sec.get("always"):
+        return True
+    svc = getattr(h.config, sec.get("service", ""), None)
+    return bool(svc is not None and getattr(svc, "enabled", False))
+
+
+def _field_html(h: Hub, csrf: str, name: str, label: str, kind: str, note: str) -> str:
+    e = html.escape
+    have = h.vault.has(name)
+    badge = "<span class=pill-ok>Saved</span>" if have else "<span class=pill-miss>Missing</span>"
+    if kind == "file":
+        inp = "<input type=file name=file required>"
+    else:
+        inp = "<input type=password name=value placeholder='Paste here' autocomplete=off required>"
+    remove = (f"<form method=post action=/admin/secrets/delete class=inline><input type=hidden name=csrf value={csrf}>"
+              f"<input type=hidden name=name value='{e(name)}'><button class=ghost "
+              f"onclick=\"return confirm('Remove the saved {e(label)}?')\">Remove</button></form>" if have else "")
+    return f"""<div class=field><div class=fhead><b>{e(label)}</b>{badge}</div><div class=dim>{e(note)}</div>
+<div class=factions><form method=post action=/admin/secrets enctype=multipart/form-data class=fform>
+<input type=hidden name=csrf value={csrf}><input type=hidden name=name value='{e(name)}'>{inp}<button>{'Replace' if have else 'Save'}</button></form>{remove}</div></div>"""
+
+
+def _sections_html(h: Hub, csrf: str) -> str:
+    e = html.escape
+    out = []
+    for sec in SECTIONS:
+        if not _section_on(h, sec):
+            continue
+        fields = "".join(_field_html(h, csrf, *f) for f in sec["fields"])
+        opt = " <span class=dim>(optional)</span>" if sec.get("optional") else ""
+        out.append(f"<h3>{e(sec['title'])}{opt}</h3><div class=card>{fields}</div>")
+    # VPN: the Firewalla client files.
+    if h.config.vpn.provider == "pool":
+        rows = []
+        for c in h.vpn.pool_status():
+            who = e(c["device_name"]) if c["device_name"] else "free"
+            label = c["name"][len(h.config.vpn.pool_prefix):]
+            rows.append(f"<div class=row><div><b>{e(label.capitalize() if not label.isdigit() else 'Client ' + label)}</b> "
+                        f"<span class=dim>{e(c['address'])}</span></div><div class=dim>{who} "
+                        f"<form method=post action=/admin/secrets/delete class=inline><input type=hidden name=csrf value={csrf}>"
+                        f"<input type=hidden name=name value='{e(c['name'])}'><button class=ghost "
+                        f"onclick=\"return confirm('Remove this VPN client?')\">Remove</button></form></div></div>")
+        out.append(f"""<h3>Away-from-home VPN</h3><div class=card>
+<div class=field><div class=fhead><b>Firewalla VPN clients</b><span class=pill-{'ok' if rows else 'miss'}>{len(rows)} saved</span></div>
+<div class=dim>In the Firewalla app, VPN Server, WireGuard: share each client's .conf file, then choose them all here at once.
+A file named after a person (LAUREN.conf) is kept for that person; the others go to any phone.</div>
+<div class=factions><form method=post action=/admin/vpn enctype=multipart/form-data class=fform>
+<input type=hidden name=csrf value={csrf}><input type=file name=files multiple accept=".conf,text/plain" required><button>Add</button></form></div></div>
+{''.join(rows)}</div>""")
+    # House model
+    from ..config import data_dir
+
+    have_model = (data_dir() / "assets" / "house-model-web.json").is_file()
+    out.append(f"""<h3>3D house</h3><div class=card><div class=field><div class=fhead><b>House model</b>
+<span class=pill-{'ok' if have_model else 'miss'}>{'Saved' if have_model else 'Missing'}</span></div>
+<div class=dim>The house-model-web.json file for the app's 3D view.</div>
+<div class=factions><form method=post action=/admin/house-model enctype=multipart/form-data class=fform>
+<input type=hidden name=csrf value={csrf}><input type=file name=file accept=".json,application/json" required>
+<button>{'Replace' if have_model else 'Save'}</button></form></div></div></div>""")
+    # Anything else in the vault the sections don't cover.
+    known = {f[0] for sec in SECTIONS for f in sec["fields"]} | NEVER_EDIT
+    extra = [n for n in sorted(h.vault.names()) if n not in known and not n.startswith(h.config.vpn.pool_prefix)]
+    rows = "".join(f"<div class=row><code>{e(n)}</code><form method=post action=/admin/secrets/delete class=inline>"
+                   f"<input type=hidden name=csrf value={csrf}><input type=hidden name=name value='{e(n)}'>"
+                   f"<button class=ghost onclick=\"return confirm('Remove {e(n)}?')\">Remove</button></form></div>" for n in extra)
+    out.append(f"""<details style="margin-top:28px"><summary>Advanced: other saved keys</summary><div class=card style="margin-top:10px">{rows}
+<form class=edit method=post action=/admin/secrets enctype=multipart/form-data>
+<input type=hidden name=csrf value={csrf}>
+<input type=text name=name placeholder="name, e.g. guest_wifi.password" pattern="[a-z0-9_]+(\\.[a-z0-9_]+)+" required>
+<textarea name=value rows=2 placeholder="Value" autocomplete=off spellcheck=false></textarea>
+<div class=dim>or choose a file: <input type=file name=file></div><div><button>Save</button></div></form></div></details>""")
+    return "".join(out)
+
+
 def _status_page(h: Hub, claims: dict[str, Any], flash: str | None) -> str:
     e = html.escape
     csrf = _csrf(claims)
@@ -249,25 +385,7 @@ def _status_page(h: Hub, claims: dict[str, Any], flash: str | None) -> str:
         msg = e(s["error"]) if s["error"] else ("OK" if s["ok"] else "not checked yet")
         svc_rows.append(f"<div class='row {cls}'><div><span class=dot></span>{e(s['title'])} <span class=dim>({e(s['id'])})</span></div>"
                         f"<div class='msg dim'>{msg} · {_ago(s['last_ok'])}</div></div>")
-    # Secrets
-    names = list(dict.fromkeys(_expected(h) + sorted(h.vault.names())))
-    sec_rows = []
-    for n in names:
-        if n in NEVER_EDIT:
-            continue
-        have = h.vault.has(n)
-        desc = DESCRIPTIONS.get(n) or ("VPN client (WireGuard .conf)" if n.startswith(h.config.vpn.pool_prefix) else "")
-        state = "<span class=dim>set</span>" if have else "<b style='color:var(--bad)'>missing</b>"
-        remove = (f"<form method=post action=/admin/secrets/delete style=display:inline><input type=hidden name=csrf value={csrf}>"
-                  f"<input type=hidden name=name value='{e(n)}'><button class=ghost onclick=\"return confirm('Remove {e(n)}?')\">Remove</button></form>"
-                  if have else "")
-        sec_rows.append(f"""<div class=row style="display:block"><div style="display:flex;justify-content:space-between;gap:12px">
-<div><code>{e(n)}</code><div class=dim>{e(desc)}</div></div><div>{state}</div></div>
-<details><summary>{'Replace' if have else 'Add'}</summary>
-<form class=edit method=post action=/admin/secrets enctype=multipart/form-data>
-<input type=hidden name=csrf value={csrf}><input type=hidden name=name value='{e(n)}'>
-<textarea name=value rows=3 placeholder="Paste the new value" autocomplete=off spellcheck=false></textarea>
-<div class=dim>or choose a file: <input type=file name=file></div><div><button>Save</button> {remove}</div></form></details></div>""")
+    sections_html = _sections_html(h, csrf)
     # Push, VPN, hub
     push = "on" if h.apns.enabled else "off (add the Apple push key and its key ID below)"
     pool = h.vpn.pool_status() if h.config.vpn.provider == "pool" else []
@@ -289,14 +407,13 @@ def _status_page(h: Hub, claims: dict[str, Any], flash: str | None) -> str:
 <div class=row><div>VPN</div><div class=dim>{e(vpn)}</div></div>
 <div class=row><div>Devices</div><div class=dim>{e(dev)}</div></div>
 <div class=row><div>TLS pin</div><div class=dim><code>{e(pin or '')}</code></div></div></div>
-<h2>Keys and tokens</h2><p class=dim>Values are never shown. Saving replaces the old value right away. For the Apple push key, choose the
-<code>AuthKey_XXXXXXXXXX.p8</code> file: the key ID is taken from its name.</p>
-<div class=card>{''.join(sec_rows)}</div>
-<h2>Add another</h2><div class=card><form class=edit method=post action=/admin/secrets enctype=multipart/form-data>
-<input type=hidden name=csrf value={csrf}>
-<input type=text name=name placeholder="name, e.g. vpn.pool.6 or homebox.password" pattern="[a-z0-9_]+(\\.[a-z0-9_]+)+" required>
-<textarea name=value rows=3 placeholder="Value" autocomplete=off spellcheck=false></textarea>
-<div class=dim>or choose a file: <input type=file name=file></div><div><button>Save</button></div></form></div>
+<h2>Keys and files</h2><p class=dim>Values are never shown again; saving replaces the old one right away.</p>
+<div class=card><div class=field><div class=fhead><b>Upload several files at once</b></div>
+<div class=dim>Choose any mix: the Firewalla VPN .conf files, the AuthKey_….p8 push key, house-model-web.json,
+or text files named after a key (for example trek.api_key.txt). Each goes to the right place.</div>
+<div class=factions><form method=post action=/admin/upload enctype=multipart/form-data class=fform>
+<input type=hidden name=csrf value={csrf}><input type=file name=files multiple required><button>Upload</button></form></div></div></div>
+{sections_html}
 """)
 
 
@@ -366,7 +483,8 @@ async def set_secret(request: Request, h: Hub = Depends(hub)) -> Response:
              source="web")
     if name == h.config.onepassword.token_secret and h.onepassword.enabled:
         asyncio.create_task(h.onepassword.sync_safely())
-    return _back(f"Saved {' and '.join(saved)}.")
+    label = next((f[1] for sec in SECTIONS for f in sec["fields"] if f[0] == name), " and ".join(saved))
+    return _back(f"Saved {label}.")
 
 
 @pages.post("/admin/secrets/delete")
@@ -387,3 +505,134 @@ async def logout(request: Request, h: Hub = Depends(hub)) -> Response:
     resp = RedirectResponse("/admin", status_code=303)
     resp.delete_cookie(COOKIE, path="/admin")
     return resp
+
+
+def _store_vpn(h: Hub, fname: str, text: str) -> str:
+    """One Firewalla client file into the pool. LAUREN.conf -> vpn.pool.lauren, Client3.conf -> vpn.pool.3,
+    anything else (or a number already taken) -> the next free number. Returns the slot label."""
+    from ..vpn import parse_wg_conf, public_from_private
+
+    conf = parse_wg_conf(text)
+    public_from_private(conf["interface"]["privatekey"])
+    if not (conf["interface"].get("address") and conf.get("peer", {}).get("publickey")):
+        raise ValueError("not a client file")
+    prefix = h.config.vpn.pool_prefix
+    stem = re.sub(r"\.(conf|txt)$", "", fname, flags=re.I)
+    num = re.fullmatch(r"(?i)client[ _-]?(\d+)", stem)
+    label = num.group(1) if num else re.sub(r"[^a-z0-9_]", "", stem.lower())
+    firsts = {(p.get("name") or "").strip().split(" ")[0].lower() for p in h.db.people()}
+    if label and not label.isdigit() and label not in firsts:
+        label = ""  # not a person in the hub: any phone may use it
+    if label and (not label.isdigit() or not h.vault.has(prefix + label)):
+        name = prefix + label
+        h.vault.set(name, text.strip() + "\n")
+    else:
+        name = h.vpn.add_to_pool(text)
+    h.vpn._pool = None
+    return name[len(prefix):]
+
+
+def _store_asset(name: str, raw: bytes) -> None:
+    from ..config import data_dir
+
+    if name.endswith(".json"):
+        json.loads(raw)
+    dest = data_dir() / "assets" / name
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_suffix(".tmp")
+    tmp.write_bytes(raw)
+    tmp.replace(dest)
+
+
+def _store_any(h: Hub, fname: str, raw: bytes) -> str:
+    """Route one uploaded file by its name or contents. Returns a friendly description of where it went."""
+    from ..dropbox import ASSET_FILES
+
+    base = fname.rsplit("/", 1)[-1]
+    if base in ASSET_FILES:
+        if len(raw) > 20 * 1024 * 1024:
+            raise ValueError("too big")
+        _store_asset(ASSET_FILES[base], raw)
+        return "house model" if base.endswith(".json") else "header photo"
+    if len(raw) > 64 * 1024:
+        raise ValueError("too big")
+    text = raw.decode("utf-8")
+    m = re.fullmatch(r"AuthKey_([A-Z0-9]{10})\.p8", base)
+    if m or "BEGIN PRIVATE KEY" in text and base.lower().endswith(".p8"):
+        h.vault.set("apns.auth_key_p8", text.strip() + "\n")
+        if m:
+            h.vault.set("apns.key_id", m.group(1))
+        return "push key"
+    if base.lower().endswith(".conf") or "[Interface]" in text:
+        return "VPN " + _store_vpn(h, base, text)
+    name = re.sub(r"\.(txt|key|token)$", "", base)
+    known = {f[0] for sec in SECTIONS for f in sec["fields"]} | set(_expected(h))
+    if name in known and name not in NEVER_EDIT:
+        value = text.strip()
+        h.vault.set(name, value + ("\n" if "\n" in value else ""))
+        return name
+    raise ValueError("unknown file")
+
+
+@pages.post("/admin/upload")
+async def upload_many(request: Request, h: Hub = Depends(hub)) -> Response:
+    """Several files at once: VPN .conf files, the AuthKey .p8, the house model, or files named after a key."""
+    claims, form = await _form_session(request, h)
+    saved, bad = [], []
+    for up in form.getlist("files"):
+        fname = getattr(up, "filename", "") or ""
+        if not fname:
+            continue
+        try:
+            saved.append(_store_any(h, fname, await up.read()))
+        except Exception:  # noqa: BLE001
+            bad.append(fname)
+    if saved:
+        h.db.log("admin.upload", "ok", person_id=claims.get("per"), device_id=claims.get("dev"),
+                 target=",".join(saved), source="web")
+        if h.config.onepassword.token_secret in saved and h.onepassword.enabled:
+            asyncio.create_task(h.onepassword.sync_safely())
+    msg = f"Saved: {', '.join(saved)}." if saved else "Nothing saved."
+    if bad:
+        msg += f" Not recognised: {', '.join(bad)}."
+    return _back(msg)
+
+
+@pages.post("/admin/vpn")
+async def add_vpn_clients(request: Request, h: Hub = Depends(hub)) -> Response:
+    claims, form = await _form_session(request, h)
+    saved, bad = [], []
+    for up in form.getlist("files"):
+        fname = getattr(up, "filename", "") or ""
+        if not fname:
+            continue
+        try:
+            raw = await up.read()
+            if len(raw) > 8 * 1024:
+                raise ValueError
+            saved.append(_store_vpn(h, fname, raw.decode("utf-8")))
+        except Exception:  # noqa: BLE001
+            bad.append(fname)
+    if saved:
+        h.db.log("admin.vpn_add", "ok", person_id=claims.get("per"), device_id=claims.get("dev"),
+                 target=",".join(saved), source="web")
+    msg = f"Added VPN clients: {', '.join(saved)}." if saved else "No VPN clients added."
+    if bad:
+        msg += f" Not a WireGuard client file: {', '.join(bad)}."
+    return _back(msg)
+
+
+@pages.post("/admin/house-model")
+async def house_model(request: Request, h: Hub = Depends(hub)) -> Response:
+    claims, form = await _form_session(request, h)
+    up = form.get("file")
+    raw = await up.read() if up is not None and not isinstance(up, str) else b""
+    if not raw or len(raw) > 20 * 1024 * 1024:
+        return _back("Choose the house-model-web.json file.")
+    try:
+        _store_asset("house-model-web.json", raw)
+    except ValueError:
+        return _back("That file isn't the house model (not JSON).")
+    h.db.log("admin.asset_set", "ok", person_id=claims.get("per"), device_id=claims.get("dev"), target="house-model",
+             source="web")
+    return _back("Saved the house model.")

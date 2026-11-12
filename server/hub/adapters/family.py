@@ -17,6 +17,7 @@ from .base import Adapter, AdapterError
 class Mealie(Adapter):
     name = "mealie"
     title = "Meals"
+    ping_path = "/api/users/self"
 
     def auth_headers(self) -> dict[str, str]:
         token = self.secret(self.cfg.token_secret)
@@ -113,6 +114,10 @@ class Homebox(Adapter):
         t = self._token
         return {"Authorization": t if t.lower().startswith("bearer") else f"Bearer {t}"}
 
+    async def ping(self) -> None:
+        await self._login()
+        await self.request("GET", "/api/v1/groups/statistics")
+
     async def search(self, q: str) -> list[dict[str, Any]]:
         await self._login()
         data = await self.get_json("/api/v1/items", params={"q": q, "pageSize": 30})
@@ -137,6 +142,7 @@ class FamilyBoard(Adapter):
 
     name = "family_board"
     title = "Family board"
+    ping_path = "/api/bootstrap"
 
     def auth_headers(self) -> dict[str, str]:
         token = self.secret(self.cfg.token_secret)
@@ -260,6 +266,7 @@ class ShowPlayer(Adapter):
 
     name = "show_player"
     title = "Holiday lights"
+    ping_path = "/status"
     cfg: ShowPlayerConfig
 
     def auth_headers(self) -> dict[str, str]:

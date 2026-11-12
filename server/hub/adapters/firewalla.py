@@ -82,6 +82,9 @@ class Firewalla:
     async def resume_rule(self, rule_id: str) -> None:
         await self._req("POST", f"/rules/{quote(rule_id)}/resume")
 
+    async def ping(self) -> None:
+        await self.boxes()
+
     async def boxes(self) -> list[dict[str, Any]]:
         data = await self._req("GET", "/boxes")
         return data.get("results", data) if isinstance(data, dict) else data

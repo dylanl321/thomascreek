@@ -160,6 +160,32 @@ class Hub:
 
         self._dropbox = asyncio.create_task(watch(self.vault))
         self._frigate = asyncio.create_task(self._watch_frigate()) if self.frigate.enabled else None
+        self._prober = asyncio.create_task(self._probe_services())
+
+    async def probe_once(self) -> None:
+        """Touch each enabled service so the status page shows a real answer, not "never checked"."""
+        async def one(a: Any) -> None:
+            try:
+                await asyncio.wait_for(a.ping(), timeout=20)
+            except asyncio.CancelledError:
+                raise
+            except asyncio.TimeoutError:
+                a.last_error = f"{a.title} did not answer"
+            except Exception:  # noqa: BLE001
+                pass  # the adapter recorded why
+
+        await asyncio.gather(*(one(a) for a in self.adapters if a.enabled and hasattr(a, "ping")))
+
+    async def _probe_services(self, interval: float = 120.0) -> None:
+        await asyncio.sleep(5)
+        while True:
+            try:
+                await self.probe_once()
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # noqa: BLE001
+                log.debug("service probe: %s", exc)
+            await asyncio.sleep(interval)
 
     async def _watch_frigate(self, interval: float = 10.0) -> None:
         """Keep the camera list fresh and send each new Frigate event to the app (SSE camera_event)."""
@@ -198,6 +224,8 @@ class Hub:
         await self.onepassword.stop()
         if getattr(self, "_dropbox", None):
             self._dropbox.cancel()
+        if getattr(self, "_prober", None):
+            self._prober.cancel()
         if getattr(self, "_frigate", None):
             self._frigate.cancel()
         for a in self.adapters:

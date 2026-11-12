@@ -49,6 +49,7 @@ FLOORS_TEMPLATE = """
 
 class HomeAssistant(Adapter):
     name = "home_assistant"
+    ping_path = "/api/"
     title = "Home Assistant"
 
     def auth_headers(self) -> dict[str, str]:

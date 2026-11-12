@@ -25,6 +25,7 @@ INCLUDE_ALL = "days,places,notes,reservations,accommodations,travellers"
 class Trek(Adapter):
     name = "trek"
     title = "Trips"
+    ping_path = "/api/v1/trips"
 
     def __init__(self, cfg, vault):
         super().__init__(cfg, vault)
