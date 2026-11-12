@@ -64,7 +64,7 @@ struct RemoteView: View {
 
     var body: some View {
         let d = store.home?.device(deviceID)
-        let cmds = d?["commands"]?.array?.compactMap(\.string).map(Set.init)
+        let cmds: Set<String>? = d?["commands"]?.array.map { Set($0.compactMap(\.string)) }
         let has: (String) -> Bool = { cmds?.contains($0) ?? true }
         let sources = d?["sources"]?.array?.compactMap(\.string) ?? []
         let playing = d?["state"]?.string == "playing"
