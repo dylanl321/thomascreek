@@ -552,8 +552,10 @@ def test_frigate_cameras_events_and_home(hub, people, home_client):
         assert [c["id"] for c in home["cameras"]] == ["140_creek", "140_garden"]
 
 
-def test_admin_web_page_code_sign_in_and_secrets(hub, people, home_client, away_client):
+def test_admin_web_page_code_sign_in_and_secrets(hub, people, home_client, away_client, monkeypatch, tmp_path):
     import re as _re
+
+    monkeypatch.setenv("HUB_DATA_DIR", str(tmp_path))
 
     dylan = people["phones"]["Dylan"]
     assert away_client.get("/admin").status_code == 403  # home network only

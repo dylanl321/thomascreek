@@ -309,8 +309,11 @@ async def admin_home(request: Request, h: Hub = Depends(hub)) -> Response:
     if not hasattr(h, "_tls_pin"):
         from ..tls import ensure_tls, spki_fingerprint
 
-        cert, _ = ensure_tls(h.config)
-        h._tls_pin = spki_fingerprint(cert)  # type: ignore[attr-defined]
+        try:
+            cert, _ = ensure_tls(h.config)
+            h._tls_pin = spki_fingerprint(cert)  # type: ignore[attr-defined]
+        except OSError:
+            pass
     return HTMLResponse(_status_page(h, claims, request.query_params.get("m")), headers=_headers())
 
 
