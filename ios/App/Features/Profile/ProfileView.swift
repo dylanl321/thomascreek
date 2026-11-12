@@ -48,6 +48,12 @@ struct ProfileView: View {
                         Text("Light").tag("light")
                         Text("Dark").tag("dark")
                     } label: { Label("Appearance", systemImage: "circle.lefthalf.filled") }
+                    Picker(selection: Binding(get: { SettingsStore.shared.string(SettingKey.textSize, "standard") },
+                                              set: { SettingsStore.shared.set(SettingKey.textSize, $0) })) {
+                        Text("Standard").tag("standard")
+                        Text("Large").tag("large")
+                        Text("Larger").tag("larger")
+                    } label: { Label("Text size", systemImage: "textformat.size") }
                 } header: { Text("You") } footer: {
                     Text("These follow you to your other iPhone and iPad.")
                 }

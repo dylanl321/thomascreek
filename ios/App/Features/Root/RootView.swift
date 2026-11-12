@@ -19,6 +19,16 @@ struct RootView: View {
         .overlay(alignment: .top) { ToastView() }
         .animation(.spring(duration: 0.35), value: store.toast)
         .preferredColorScheme(scheme)
+        .dynamicTypeSize(textSize)
+    }
+
+    /// Bigger text for one person, on all their devices, on top of the iPhone's own setting.
+    private var textSize: ClosedRange<DynamicTypeSize> {
+        switch SettingsStore.shared.string(SettingKey.textSize, "standard") {
+        case "large": .xLarge ... .accessibility3
+        case "larger": .xxxLarge ... .accessibility5
+        default: .xSmall ... .accessibility5
+        }
     }
 
     /// The person's own choice, the same on all their devices.
