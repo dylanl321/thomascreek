@@ -451,7 +451,9 @@ class Kitchen:
         await self.hub.notify.send(title=title, body=body, cat="kitchen", level="act_now" if urgent else "fyi",
                                    actions=actions, ref=f"thomascreek://kitchen/{eid}",
                                    group_key=f"oven:{eid}:{int(time.time() // 60)}",
-                                   interruption="time-sensitive" if urgent else "active", **kw)
+                                   interruption="time-sensitive" if urgent else "active",
+                                   push_category=("OVEN" if any(a["id"] == "timer" for a in actions)
+                                                  else "OVEN_ON" if actions else None), **kw)
 
     # -- watcher ---------------------------------------------------------------
     def start(self) -> None:

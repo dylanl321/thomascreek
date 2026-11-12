@@ -17,6 +17,15 @@ FAVORITE_TAG = "Favorite"
 OVEN_TAG = "Oven"
 
 
+def _servings(r: dict[str, Any]) -> str | None:
+    v = r.get("recipeServings") or r.get("recipeYield") or r.get("recipeYieldQuantity")
+    if v in (None, "", 0):
+        return None
+    if isinstance(v, float) and v.is_integer():
+        v = int(v)
+    return str(v)
+
+
 class Mealie(Adapter):
     name = "mealie"
     title = "Meals"
@@ -113,7 +122,7 @@ class Mealie(Adapter):
             "oven": oven,
             "image_url": f"/v1/meals/image/{r['id']}" if r.get("id") else None,
             "total_time": r.get("totalTime"), "prep_time": r.get("prepTime"), "cook_time": r.get("performTime"),
-            "servings": r.get("recipeServings") or r.get("recipeYield"),
+            "servings": _servings(r),
             "ingredients": [i.get("display") or i.get("note") or i.get("originalText") or ""
                             for i in r.get("recipeIngredient") or []],
             "steps": steps,
