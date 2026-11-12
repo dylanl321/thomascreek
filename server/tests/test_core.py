@@ -258,3 +258,17 @@ def test_hello_reports_pin(home_client, tmp_path, monkeypatch):
     body = r.json()
     assert body["api"] == "v1" and len(body["pin"]) == 64
     assert all(c in "0123456789abcdef" for c in body["pin"])
+
+
+def test_bootstrap_admin_from_config(hub):
+    import time as _t
+
+    now = _t.time()
+    hub.db.insert("devices", {"id": "dev_old", "name": "Old phone", "public_key": "k1", "status": "pending", "created_at": now - 3600})
+    hub.config.hub.bootstrap_admin = {"name": "Dylan", "enrolled_after": now - 60}
+    assert hub.bootstrap_admin() is None  # no phone enrolled since the cut-off
+    hub.db.insert("devices", {"id": "dev_new", "name": "iPhone", "public_key": "k2", "status": "pending", "created_at": now})
+    assert hub.bootstrap_admin() == "dev_new"
+    assert hub.db.device("dev_new")["status"] == "active"
+    assert [p["name"] for p in hub.db.people_with_role("admin")] == ["Dylan"]
+    assert hub.bootstrap_admin() is None  # only once

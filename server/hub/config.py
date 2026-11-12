@@ -153,6 +153,10 @@ class HubSettings(BaseModel):
     timezone: str = "America/New_York"
     # The hub as published through the reverse proxy, if Dylan enables that.
     remote_url: str | None = None
+    # First admin without a shell on the NAS: on start, if nobody is admin yet and
+    # exactly one phone has enrolled (still pending) since `enrolled_after` (Unix
+    # time), that phone becomes this person's, as admin. Remove it afterwards.
+    bootstrap_admin: dict[str, Any] | None = None
 
     @field_validator("home_networks", "trusted_proxies")
     @classmethod

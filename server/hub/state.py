@@ -125,7 +125,25 @@ class Hub:
         self.db.log("device.revoke", "ok", device_id=device["id"], detail=reason, source="hub")
 
     # -- lifecycle -------------------------------------------------------
+    def bootstrap_admin(self) -> str | None:
+        """See HubSettings.bootstrap_admin. Returns the device id it promoted."""
+        b = self.config.hub.bootstrap_admin
+        if not b or not b.get("name") or self.db.people_with_role("admin"):
+            return None
+        after = float(b.get("enrolled_after", 0))
+        pending = [d for d in self.db.devices() if d["status"] == "pending" and d["created_at"] >= after]
+        if len(pending) != 1:
+            log.warning("bootstrap_admin: %d pending phones since the cut-off; need exactly one", len(pending))
+            return None
+        d = pending[0]
+        p = self.db.add_person(str(b["name"]), "admin")
+        self.db.update("devices", "id", d["id"], {"person_id": p["id"], "status": "active"})
+        self.db.log("people.bootstrap_admin", "ok", target=p["id"], params={"device": d["id"]}, source="config")
+        log.info("bootstrap_admin: %s is admin on %s", b["name"], d["name"])
+        return d["id"]
+
     async def start(self) -> None:
+        self.bootstrap_admin()
         if self.onepassword.enabled:
             await self.onepassword.sync_safely()
             self.onepassword.start()
