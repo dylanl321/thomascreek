@@ -62,6 +62,8 @@ DESCRIPTIONS = {
     "onepassword.service_account_token": "1Password service account token",
     "guest_wifi.password": "Guest Wi-Fi password",
     "trek.api_key": "TREK API key",
+    "trek.mcp_client_id": "TREK machine client ID (for changing trips)",
+    "trek.mcp_client_secret": "TREK machine client secret (for changing trips)",
     "anthropic.api_key": "Claude API key for the Ask Thomas Creek assistant",
     "appstore.auth_key_p8": "App Store Connect API key (.p8 file), for spotting new app builds",
     "appstore.key_id": "App Store Connect API key ID",
@@ -306,6 +308,12 @@ SECTIONS: list[dict[str, Any]] = [
     ]},
     {"title": "Trips (TREK)", "service": "trek", "fields": [
         ("trek.api_key", "TREK API key", "text", "TREK: Settings, Integrations, API keys, create one with trips access. It starts with trek_ (an MCP token will not work)."),
+        ("trek.mcp_client_id", "TREK machine client ID", "text",
+         "Only for changing trips from the app or the assistant. TREK: Settings, Integrations, MCP Configuration, "
+         "OAuth 2.1 Clients, New Client, tick Machine client, allow the trips, places, days, reservations and "
+         "packing scopes, Register. Paste the client ID here."),
+        ("trek.mcp_client_secret", "TREK machine client secret", "text",
+         "The client secret TREK shows once after Register."),
     ]},
     {"title": "Family board", "service": "family_board", "optional": True, "fields": [
         ("family_board.admin_token", "Family Command Center admin token", "text",

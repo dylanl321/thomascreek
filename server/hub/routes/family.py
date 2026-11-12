@@ -289,3 +289,148 @@ async def asset(name: str, request: Request, c: Caller = Depends(caller), h: Hub
 def _etag(path: Path) -> str:
     st = path.stat()
     return '"' + hashlib.sha256(f"{st.st_size}:{st.st_mtime_ns}".encode()).hexdigest()[:20] + '"'
+
+
+# -- Adding and changing chores and calendar entries on the family board ------------------------
+# The board calls everything an "item". Chores, tasks and routines are jobs someone does (and may
+# earn points for); schedule, activity and alert items are what the calendar shows.
+
+JOB_KINDS = ("chore", "task", "routine")
+CALENDAR_KINDS = ("schedule", "activity", "alert")
+ITEM_FIELDS = ("title", "kind", "date", "end_date", "time", "repeat", "weekdays", "interval", "points",
+               "notes", "priority", "word")
+
+
+class BoardItemBody(BaseModel):
+    title: str | None = Field(default=None, max_length=120)
+    kind: str | None = Field(default=None, description="chore, task or routine (jobs); schedule, activity or alert "
+                                                       "(calendar events)")
+    people: list[str] | None = Field(default=None, description="Hub person ids or names, or ['all'] for the family")
+    date: str | None = Field(default=None, description="YYYY-MM-DD; the first day for repeating items")
+    end_date: str | None = None
+    time: str | None = Field(default=None, description="HH:MM, 24-hour; empty for any time / all day")
+    repeat: str | None = Field(default=None, description="once, daily, weekdays, weekends, weekly or custom")
+    weekdays: list[str] | None = Field(default=None, description="For weekly/custom: monday ... sunday")
+    interval: int | None = None
+    points: int | None = Field(default=None, ge=0, le=1000)
+    notes: str | None = Field(default=None, max_length=500)
+    priority: str | None = None
+    word: str | None = Field(default=None, max_length=24, description="One-word label for little kids")
+
+
+def _item_need(h: Hub, c: Caller, kind: str | None) -> None:
+    if kind and kind not in JOB_KINDS + CALENDAR_KINDS:
+        raise error(400, "bad_kind", f"kind must be one of {', '.join(JOB_KINDS + CALENDAR_KINDS)}")
+    need(h, c, "chores.manage" if kind in JOB_KINDS else "family.edit")
+
+
+async def _board_ids(h: Hub, people: list[str]) -> list[str]:
+    if people == ["all"] or "all" in people:
+        return ["all"]
+    await link_board_people(h)
+    out = []
+    hub_people = h.db.people()
+    for ref in people:
+        low = str(ref).strip().lower()
+        p = next((x for x in hub_people if x["id"] == ref or str(x.get("name", "")).lower() == low), None)
+        if p is None:
+            p = next((x for x in hub_people if str(x.get("name", "")).split(" ")[0].lower() == low), None)
+        if p is None:
+            raise error(404, "not_found", f"No one called {ref}")
+        if not p.get("family_board_id"):
+            raise error(409, "not_linked", f"{p['name']} isn't linked to the family board yet")
+        out.append(p["family_board_id"])
+    return out
+
+
+def _item_out(h: Hub, it: dict[str, Any]) -> dict[str, Any]:
+    names = {p.get("family_board_id"): p["name"] for p in h.db.people() if p.get("family_board_id")}
+    ids = it.get("person_ids") or ([it["person_id"]] if it.get("person_id") else [])
+    return {"id": it.get("id"), "title": it.get("title"), "kind": it.get("kind"),
+            "people": ["everyone" if i == "all" else names.get(i, i) for i in ids],
+            **{k: it.get(k) for k in ("date", "end_date", "time", "repeat", "weekdays", "points", "notes")
+               if it.get(k) not in (None, "", [], 0)}}
+
+
+async def _board_write(coro) -> Any:
+    from ..adapters.family import BoardRefused
+
+    try:
+        return await coro
+    except BoardRefused as exc:
+        raise error(exc.status, "refused", exc.message) from None
+    except AdapterError as exc:
+        raise _unavailable(exc) from None
+
+
+@router.get("/family/items")
+async def board_items(kind: str | None = None, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """Every chore, routine and calendar entry on the family board (ids for changing them)."""
+    need(h, c, "family.view")
+    items = await _board_write(h.family_board.items())
+    return {"items": [_item_out(h, i) for i in items if not kind or i.get("kind") == kind]}
+
+
+@router.post("/family/items")
+async def board_item_add(body: BoardItemBody, request: Request, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """Add a chore for someone, or an event to the family calendar."""
+    if not body.title or not body.kind:
+        raise error(400, "bad_request", "title and kind are required")
+    _item_need(h, c, body.kind)
+    data = {k: v for k, v in body.model_dump().items() if k in ITEM_FIELDS and v is not None}
+    data["person_ids"] = await _board_ids(h, body.people or ["all"])
+    if not h.actions.is_live("family.items"):
+        return _practice(h, c, "family.item_add", body.title)
+    item = await _board_write(h.family_board.create_item(data))
+    h.db.log("family.item_add", "ok", person_id=c.subject.person_id, device_id=c.subject.device_id,
+             target=item.get("id"), detail=body.title, source=_via(request))
+    return {"ok": True, "item": _item_out(h, item)}
+
+
+async def _existing(h: Hub, item_id: str) -> dict[str, Any]:
+    items = await _board_write(h.family_board.items())
+    it = next((i for i in items if i.get("id") == item_id), None)
+    if it is None:
+        raise error(404, "not_found", "No such chore or event")
+    return it
+
+
+@router.patch("/family/items/{item_id}")
+async def board_item_change(item_id: str, body: BoardItemBody, request: Request, c: Caller = Depends(caller),
+                            h: Hub = Depends(hub)) -> dict[str, Any]:
+    """Change a chore or event: who it's for, when, how often, points, notes."""
+    it = await _existing(h, item_id)
+    _item_need(h, c, it.get("kind"))
+    if body.kind and body.kind != it.get("kind"):
+        _item_need(h, c, body.kind)
+    data = {k: v for k, v in body.model_dump().items() if k in ITEM_FIELDS and v is not None}
+    if body.people is not None:
+        data["person_ids"] = await _board_ids(h, body.people)
+    if not h.actions.is_live("family.items"):
+        return _practice(h, c, "family.item_change", item_id)
+    item = await _board_write(h.family_board.update_item(item_id, data))
+    h.db.log("family.item_change", "ok", person_id=c.subject.person_id, device_id=c.subject.device_id,
+             target=item_id, detail=str(item.get("title"))[:120], source=_via(request))
+    return {"ok": True, "item": _item_out(h, item)}
+
+
+@router.delete("/family/items/{item_id}")
+async def board_item_remove(item_id: str, request: Request, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """Take a chore or event off the board (archived there, so it can be restored)."""
+    it = await _existing(h, item_id)
+    _item_need(h, c, it.get("kind"))
+    if not h.actions.is_live("family.items"):
+        return _practice(h, c, "family.item_remove", item_id)
+    await _board_write(h.family_board.archive_item(item_id))
+    h.db.log("family.item_remove", "ok", person_id=c.subject.person_id, device_id=c.subject.device_id,
+             target=item_id, detail=str(it.get("title"))[:120], source=_via(request))
+    return {"ok": True}
+
+
+def _practice(h: Hub, c: Caller, action: str, target: str | None) -> dict[str, Any]:
+    h.db.log(action, "dry_run", person_id=c.subject.person_id, device_id=c.subject.device_id, target=target)
+    return {"ok": True, "dry_run": True, "message": "Practice mode: not sent to the family board"}
+
+
+def _via(request: Request) -> str:
+    return "ask" if request.headers.get("x-tc-via") == "ask" else "app"
