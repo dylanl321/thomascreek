@@ -34,6 +34,8 @@ struct ShowView: View {
                 .padding(.horizontal, 16).padding(.bottom, 24)
             }
             .background(LightsBackdrop())
+            // The lights screen is always dark; without this, default text renders black on it in light mode.
+            .environment(\.colorScheme, .dark)
             .navigationTitle("Holiday lights").navigationBarTitleDisplayMode(.inline)
             .refreshable { await model.refresh() }
             .onChange(of: model.status?.brightnessPercent) { _, v in if !editingBri, let v { bri = Double(v) } }
@@ -63,7 +65,7 @@ struct ShowView: View {
                             Text(l.title).font(.subheadline.weight(.semibold))
                         }
                         .frame(maxWidth: .infinity, minHeight: 74)
-                        .foregroundStyle(on ? .black : l.tint)
+                        .foregroundStyle(on ? l.onText : l.tint)
                         .background(on ? AnyShapeStyle(l.tint) : AnyShapeStyle(l.tint.opacity(0.14)), in: RoundedRectangle(cornerRadius: 16))
                     }
                     .buttonStyle(.plain)
