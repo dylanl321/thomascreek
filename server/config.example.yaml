@@ -1,0 +1,97 @@
+# Copy to <data dataset>/config.yaml on the NAS. Never commit the real file:
+# this repository is public, and addresses belong only on the NAS.
+# Secret values are NOT here. Each *_secret names a vault entry; store values
+# with:  docker exec -it thomascreek-hub hub secrets set <name>
+
+hub:
+  name: Thomas Creek
+  timezone: America/New_York
+  listen_port: 8443
+  # Practice mode: reads are real, writes are logged but not sent.
+  # Turn actions on one at a time by listing them in live_actions.
+  dry_run: true
+  live_actions: []          # e.g. [light.set, scene.run, lights.control]
+  home_networks: [192.168.1.0/24]
+  trusted_proxies: []       # the reverse proxy's address, only if the hub is published through it
+  remote_url: null          # e.g. https://hub.<your domain> if published
+
+home_assistant:
+  url: http://HOME_ASSISTANT:8123
+  token_secret: home_assistant.token      # long-lived token of a dedicated "hub" HA user
+  extra:
+    tts_entity: tts.home_assistant_cloud
+    shower_preheat_script: null
+    remotes: {}                            # media_player.x -> remote.y when names differ
+
+frigate:
+  enabled: true
+  url: http://FRIGATE:5000                # or :8971 with username + password_secret
+  go2rtc_url: http://FRIGATE:1984
+  username: null
+  password_secret: frigate.password
+
+plex:        {enabled: true,  url: http://PLEX:32400, token_secret: plex.token}
+jellyseerr:  {enabled: true,  url: http://JELLYSEERR:5055, token_secret: jellyseerr.api_key}
+sonarr:      {enabled: false, url: http://SONARR:8989, token_secret: sonarr.api_key}
+radarr:      {enabled: false, url: http://RADARR:7878, token_secret: radarr.api_key}
+truenas:     {enabled: true,  url: https://NAS, verify_tls: false, username: hub, token_secret: truenas.api_key}
+mealie:      {enabled: true,  url: http://MEALIE:9000, token_secret: mealie.token}
+homebox:     {enabled: true,  url: http://HOMEBOX:7745, username: hub@home, password_secret: homebox.password}
+family_board:
+  enabled: false
+  url: http://FAMILY_BOARD:PORT
+  token_secret: family_board.token
+  extra:
+    paths: {}        # override chores / chore_done / reward_redeem / calendar routes if they differ
+show_player:
+  enabled: true
+  url: http://SHOW_PLAYER:8770
+  token_secret: show_player.app_token
+  token_header: X-App-Token
+
+firewalla:
+  enabled: false
+  msp_domain: YOURBOX.firewalla.net
+  token_secret: firewalla.msp_token
+  person_rules: {}   # person id -> [rule id] of a "block internet" rule per child
+
+apns:
+  enabled: false
+  team_id: YOUR_TEAM_ID
+  key_id: KEYID
+  key_secret: apns.auth_key_p8           # contents of the AuthKey_XXXX.p8 file
+  topic: me.dlewis.christmaslights
+
+vpn:
+  provider: none     # wg-cli to turn on the built-in VPN
+  endpoint: PUBLIC_NAME_OR_IP:51820
+  subnet: 10.77.0.0/24
+  dns: [192.168.1.1]
+  allowed_ips: [192.168.1.0/24]
+  home_ssids: [HOME_WIFI_NAME]
+
+child_policy:
+  climate_min: 66
+  climate_max: 74
+  bedtime: "20:30"
+
+guest:
+  wifi_ssid: GUEST_WIFI
+  wifi_password_secret: guest_wifi.password
+  host_name: Dylan
+  guidance:
+    - {icon: car, title: Parking, detail: Left side of the driveway}
+
+favorites: [kitchen, living_room]
+
+modes:
+  - id: good_night
+    name: Good night
+    symbol: moon.stars
+    steps:
+      - {action: scene.run, target: scene.good_night}
+      - {action: lock.set, target: lock.front_door, params: {locked: true}}
+
+assets:
+  house-model: assets/house-model-web.json
+  header: assets/header.jpg

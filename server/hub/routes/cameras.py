@@ -1,0 +1,154 @@
+"""Cameras: snapshots and events through the hub, live video over WebRTC.
+
+The app asks for a pass (secure tier when away from home, so Face ID), then
+loads `player_url` in a web view. That small page sends its WebRTC offer to the
+hub, the hub relays it to go2rtc, and video flows directly from go2rtc to the
+phone. No camera credential ever reaches the phone.
+"""
+
+from __future__ import annotations
+
+import html
+from typing import Any
+
+from fastapi import APIRouter, Depends, Request
+from fastapi.responses import HTMLResponse, Response
+from pydantic import BaseModel, Field
+
+from ..adapters.base import AdapterError
+from ..crypto import CryptoError
+from ..home import iso
+from ..policy import Target
+from ..state import Hub
+from .deps import Caller, caller, error, hub, need, require_confirm
+
+router = APIRouter(prefix="/v1/cameras", tags=["cameras"])
+
+PASS_AUD = "camera-pass"
+PASS_TTL_S = 300
+
+
+def _camera_entity(h: Hub, cam: str) -> str:
+    if not cam.replace("_", "").isalnum():
+        raise error(404, "not_found", "No such camera")
+    return f"camera.{cam}"
+
+
+@router.post("/{cam}/pass")
+async def camera_pass(cam: str, request: Request, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    eid = _camera_entity(h, cam)
+    d = h.policy.decide(c.subject, "camera.view", Target(entity_id=eid, area=h.home.entity_area.get(eid), kind="camera"))
+    if not d.allowed:
+        raise error(403, "forbidden", "Not available", ask_parent=False)
+    await require_confirm(request, h, c, d.tier)
+    token, exp = h.tokens.issue_scoped({"aud": PASS_AUD, "cam": cam, "dev": c.device["id"]}, PASS_TTL_S)
+    h.db.log("camera.view", "ok", person_id=c.subject.person_id, device_id=c.device["id"], target=eid,
+             params={"away": not c.subject.at_home})
+    return {"player_url": f"/v1/cameras/{cam}/player?pass={token}", "expires_at": iso(exp)}
+
+
+def _check_pass(h: Hub, cam: str, token: str) -> dict[str, Any]:
+    try:
+        claims = h.tokens.verify(token, audience=PASS_AUD)
+    except CryptoError:
+        raise error(401, "expired", "Camera pass expired") from None
+    if claims.get("cam") != cam:
+        raise error(403, "forbidden", "Pass is for another camera")
+    dev = h.db.device(claims["dev"])
+    if dev is None or dev["status"] != "active":
+        raise error(401, "revoked", "Device removed")
+    return claims
+
+
+PLAYER_HTML = """<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>{title}</title><style>html,body{{margin:0;height:100%;background:#000}}
+video{{width:100%;height:100%;object-fit:contain}}#m{{position:fixed;top:45%;width:100%;text-align:center;
+color:#bbb;font:15px -apple-system,system-ui}}</style></head><body>
+<video id="v" autoplay playsinline muted></video><div id="m">Connecting…</div>
+<script>
+(async () => {{
+  const m = document.getElementById('m'), v = document.getElementById('v');
+  try {{
+    const pc = new RTCPeerConnection();
+    pc.addTransceiver('video', {{direction: 'recvonly'}});
+    pc.addTransceiver('audio', {{direction: 'recvonly'}});
+    pc.ontrack = e => {{ v.srcObject = e.streams[0]; m.remove(); }};
+    await pc.setLocalDescription(await pc.createOffer());
+    await new Promise(r => {{ if (pc.iceGatheringState === 'complete') r(); pc.onicegatheringstatechange = () => pc.iceGatheringState === 'complete' && r(); setTimeout(r, 1500); }});
+    const res = await fetch(location.pathname.replace(/player$/, 'webrtc') + location.search,
+      {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{sdp: pc.localDescription.sdp}})}});
+    if (!res.ok) throw new Error('camera unavailable');
+    await pc.setRemoteDescription({{type: 'answer', sdp: (await res.json()).sdp}});
+  }} catch (e) {{ m.textContent = 'Camera unavailable'; }}
+}})();
+</script></body></html>"""
+
+
+@router.get("/{cam}/player", response_class=HTMLResponse)
+async def player_page(cam: str, request: Request, h: Hub = Depends(hub)) -> HTMLResponse:
+    _check_pass(h, cam, request.query_params.get("pass", ""))
+    return HTMLResponse(PLAYER_HTML.format(title=html.escape(cam)),
+                        headers={"Cache-Control": "no-store", "Content-Security-Policy":
+                                 "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; "
+                                 "connect-src 'self'; media-src * blob:"})
+
+
+class Offer(BaseModel):
+    sdp: str = Field(max_length=20000)
+
+
+@router.post("/{cam}/webrtc")
+async def webrtc(cam: str, body: Offer, request: Request, h: Hub = Depends(hub)) -> dict[str, Any]:
+    _check_pass(h, cam, request.query_params.get("pass", ""))
+    try:
+        answer = await h.frigate.webrtc_answer(cam, body.sdp)
+    except AdapterError as exc:
+        raise error(502, "unavailable", str(exc)) from None
+    return {"type": "answer", "sdp": answer}
+
+
+@router.get("/{cam}/snapshot.jpg")
+async def snapshot(cam: str, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> Response:
+    need(h, c, "cameras")
+    eid = _camera_entity(h, cam)
+    try:
+        data = await h.frigate.latest_jpg(cam) if h.frigate.enabled else await h.ha.camera_proxy(eid)
+    except AdapterError:
+        raise error(503, "unavailable", "Camera unavailable") from None
+    return Response(data, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=10"})
+
+
+@router.get("/{cam}/events")
+async def events(cam: str, limit: int = 25, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    need(h, c, "cameras")
+    _camera_entity(h, cam)
+    try:
+        rows = await h.frigate.events(cam, max(1, min(limit, 100)))
+    except AdapterError as exc:
+        raise error(503, "unavailable", str(exc)) from None
+    return {"items": [{
+        "id": e["id"], "label": e.get("label"), "start": iso(e.get("start_time")), "end": iso(e.get("end_time")),
+        "thumb_url": f"/v1/cameras/events/{e['id']}/thumb.jpg",
+        "clip_url": f"/v1/cameras/events/{e['id']}/clip.mp4" if e.get("has_clip") else None,
+    } for e in rows]}
+
+
+@router.get("/events/{event_id}/thumb.jpg")
+async def event_thumb(event_id: str, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> Response:
+    need(h, c, "cameras")
+    try:
+        return Response(await h.frigate.event_thumb(event_id), media_type="image/jpeg",
+                        headers={"Cache-Control": "private, max-age=86400"})
+    except AdapterError:
+        raise error(404, "not_found", "No thumbnail") from None
+
+
+@router.get("/events/{event_id}/clip.mp4")
+async def event_clip(event_id: str, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> Response:
+    need(h, c, "cameras")
+    try:
+        resp = await h.frigate.event_clip(event_id)
+    except AdapterError:
+        raise error(404, "not_found", "No clip") from None
+    return Response(resp.content, media_type="video/mp4", headers={"Cache-Control": "private, no-store"})

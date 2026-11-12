@@ -1,0 +1,24 @@
+# TrueNAS custom app (Apps > Discover > Custom App > Install via YAML).
+# Replace the two host paths with datasets on the NAS. Nothing here is secret:
+# credentials live in the encrypted vault on the data dataset, unlocked by the
+# master key file, which sits on a separate, root-only dataset.
+name: thomascreek-hub
+services:
+  hub:
+    # Built on the NAS from this folder: docker build -t thomascreek-hub:0.1.0 .
+    image: thomascreek-hub:0.1.0
+    restart: unless-stopped
+    # Host networking: Bonjour discovery on home Wi-Fi, the real client address
+    # for "are you at home", and the WireGuard interface.
+    network_mode: host
+    cap_add:
+      - NET_ADMIN        # only needed when vpn.provider is wg-cli
+    environment:
+      HUB_DATA_DIR: /data
+      HUB_MASTER_KEY_FILE: /run/secrets/hub_master_key
+      HUB_LOG_LEVEL: INFO
+      HUB_VPN_NAT: "0"             # set to "1" with the VPN on
+      HUB_VPN_SUBNET: 10.77.0.0/24
+    volumes:
+      - /mnt/POOL/apps/thomascreek-hub/data:/data
+      - /mnt/POOL/apps/thomascreek-hub/secrets/hub_master_key:/run/secrets/hub_master_key:ro

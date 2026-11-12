@@ -1,0 +1,33 @@
+[project]
+name = "thomascreek-hub"
+version = "0.1.0"
+description = "Thomas Creek Hub: the home-side service that holds every credential and enforces roles for the Thomas Creek app."
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
+  "httpx[http2]>=0.27",
+  "pyjwt[crypto]>=2.9",
+  "cryptography>=43",
+  "pyyaml>=6",
+  "websockets>=13",
+  "zeroconf>=0.132",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8", "pytest-asyncio>=0.24", "respx>=0.21"]
+
+[project.scripts]
+hub = "hub.cli:main"
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["hub*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]

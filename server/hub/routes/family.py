@@ -1,0 +1,187 @@
+"""Chores and rewards, calendar, meals, shopping, inventory, house assets."""
+
+from __future__ import annotations
+
+import hashlib
+from pathlib import Path
+from typing import Any
+
+from fastapi import APIRouter, Depends, Request
+from fastapi.responses import FileResponse, Response
+from pydantic import BaseModel, Field
+
+from ..adapters.base import AdapterError
+from ..config import data_dir
+from ..state import Hub
+from .deps import Caller, caller, error, hub, need
+
+router = APIRouter(prefix="/v1", tags=["family"])
+
+
+def _unavailable(exc: Exception):
+    return error(503, "unavailable", str(exc))
+
+
+def _board_person(h: Hub, c: Caller, person: str | None) -> dict[str, Any]:
+    pid = person or c.subject.person_id
+    if pid != c.subject.person_id:
+        need(h, c, "chores.manage")
+    p = h.db.person(pid)
+    if p is None:
+        raise error(404, "not_found", "No such person")
+    if not p.get("family_board_id"):
+        raise error(409, "not_linked", f"{p['name']} isn't linked to the family board yet")
+    return p
+
+
+@router.get("/chores")
+async def chores(person: str | None = None, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    if not (h.policy.has(c.subject, "chores.do") or h.policy.has(c.subject, "chores.manage")):
+        raise error(403, "forbidden", "Not available")
+    p = _board_person(h, c, person)
+    try:
+        data = await h.family_board.chores(p["family_board_id"])
+    except AdapterError as exc:
+        raise _unavailable(exc) from None
+    return {"person": {"id": p["id"], "name": p["name"]}, **(data if isinstance(data, dict) else {"items": data})}
+
+
+class ForPerson(BaseModel):
+    person: str | None = None
+
+
+@router.post("/chores/{chore_id}/done")
+async def chore_done(chore_id: str, body: ForPerson | None = None, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    if not h.policy.has(c.subject, "chores.manage"):
+        need(h, c, "chores.do")
+    p = _board_person(h, c, body.person if body else None)
+    if not h.actions.is_live("chores.done"):
+        h.db.log("chores.done", "dry_run", person_id=c.subject.person_id, device_id=c.device["id"], target=chore_id)
+        return {"ok": True, "dry_run": True, "message": "Practice mode: not sent to the family board"}
+    try:
+        await h.family_board.chore_done(chore_id, p["family_board_id"])
+    except AdapterError as exc:
+        raise _unavailable(exc) from None
+    h.db.log("chores.done", "ok", person_id=c.subject.person_id, device_id=c.device["id"], target=chore_id)
+    return {"ok": True}
+
+
+@router.post("/rewards/{reward_id}/redeem")
+async def redeem(reward_id: str, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """The family board already asks a parent to approve redemptions."""
+    need(h, c, "chores.do")
+    p = _board_person(h, c, None)
+    if not h.actions.is_live("chores.redeem"):
+        h.db.log("chores.redeem", "dry_run", person_id=c.subject.person_id, device_id=c.device["id"], target=reward_id)
+        return {"ok": True, "dry_run": True}
+    try:
+        res = await h.family_board.redeem(reward_id, p["family_board_id"])
+    except AdapterError as exc:
+        raise _unavailable(exc) from None
+    h.db.log("chores.redeem", "ok", person_id=c.subject.person_id, device_id=c.device["id"], target=reward_id)
+    return {"ok": True, "result": res}
+
+
+@router.get("/calendar")
+async def calendar(days: int = 7, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> Any:
+    need(h, c, "family.view")
+    try:
+        return await h.family_board.calendar(max(1, min(days, 31)))
+    except AdapterError as exc:
+        raise _unavailable(exc) from None
+
+
+@router.get("/meals/today")
+async def meals_today(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    need(h, c, "family.view")
+    try:
+        return {"items": await h.mealie.today()}
+    except AdapterError as exc:
+        raise _unavailable(exc) from None
+
+
+@router.get("/meals/week")
+async def meals_week(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    need(h, c, "family.view")
+    try:
+        return {"items": await h.mealie.week()}
+    except AdapterError as exc:
+        raise _unavailable(exc) from None
+
+
+@router.get("/meals/image/{recipe_id}")
+async def meal_image(recipe_id: str, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> Response:
+    need(h, c, "family.view")
+    if not recipe_id.replace("-", "").isalnum():
+        raise error(404, "not_found", "No image")
+    try:
+        data, ctype = await h.mealie.image(recipe_id)
+    except AdapterError:
+        raise error(404, "not_found", "No image") from None
+    return Response(data, media_type=ctype, headers={"Cache-Control": "private, max-age=86400"})
+
+
+@router.get("/shopping")
+async def shopping(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    if not (h.policy.has(c.subject, "family.view") or h.policy.has(c.subject, "shopping.add")):
+        raise error(403, "forbidden", "Not available")
+    try:
+        return {"lists": await h.mealie.shopping()}
+    except AdapterError as exc:
+        raise _unavailable(exc) from None
+
+
+class ItemBody(BaseModel):
+    text: str = Field(min_length=1, max_length=200)
+
+
+@router.post("/shopping/{list_id}/items")
+async def shopping_add(list_id: str, body: ItemBody, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    need(h, c, "shopping.add")
+    if not h.actions.is_live("shopping.add"):
+        h.db.log("shopping.add", "dry_run", person_id=c.subject.person_id, device_id=c.device["id"], target=list_id,
+                 params={"text": body.text})
+        return {"ok": True, "dry_run": True}
+    try:
+        await h.mealie.add_item(list_id, body.text)
+    except AdapterError as exc:
+        raise _unavailable(exc) from None
+    h.db.log("shopping.add", "ok", person_id=c.subject.person_id, device_id=c.device["id"], target=list_id,
+             params={"text": body.text})
+    return {"ok": True}
+
+
+@router.get("/inventory/search")
+async def inventory(q: str, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    need(h, c, "inventory.search")
+    try:
+        return {"items": await h.homebox.search(q.strip()[:100])}
+    except AdapterError as exc:
+        raise _unavailable(exc) from None
+
+
+# -- house assets that can't live in the public repo ------------------------
+ASSET_TYPES = {"house-model": "application/json", "header": "image/jpeg"}
+
+
+@router.get("/assets/{name}")
+async def asset(name: str, request: Request, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> Response:
+    if name not in ASSET_TYPES:
+        raise error(404, "not_found", "No such asset")
+    rel = h.config.assets.get(name) or {"house-model": "assets/house-model-web.json", "header": "assets/header.jpg"}[name]
+    base = data_dir().resolve()
+    path = (base / rel).resolve()
+    if base not in path.parents or not path.is_file():
+        raise error(404, "not_found", "Asset not uploaded yet")
+    etag = _etag(path)
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers={"ETag": etag})
+    media = ASSET_TYPES[name]
+    if name == "header" and path.suffix.lower() in (".png", ".heic", ".webp"):
+        media = {".png": "image/png", ".heic": "image/heic", ".webp": "image/webp"}[path.suffix.lower()]
+    return FileResponse(path, media_type=media, headers={"ETag": etag, "Cache-Control": "private, max-age=3600"})
+
+
+def _etag(path: Path) -> str:
+    st = path.stat()
+    return '"' + hashlib.sha256(f"{st.st_size}:{st.st_mtime_ns}".encode()).hexdigest()[:20] + '"'
