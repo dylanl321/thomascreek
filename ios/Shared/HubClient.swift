@@ -312,9 +312,35 @@ final class HubPinning: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
             // Typed-in address on home Wi-Fi: pin the first certificate it shows.
             AppSettings.hubPin = fp; AppSettings.trustFirstCertFrom = ""; pin = fp
         }
+        if isPublished(host) { return evaluatePublished(trust) }
         guard !pin.isEmpty, isHub(host) else { return (.performDefaultHandling, nil) }
         guard let chain = SecTrustCopyCertificateChain(trust) as? [SecCertificate], let leaf = chain.first,
               let fp = spkiSHA256(leaf), fp == pin.lowercased() else {
+            return (.cancelAuthenticationChallenge, nil)
+        }
+        return (.useCredential, URLCredential(trust: trust))
+    }
+
+    /// The published address (through the reverse proxy) shows a public Let's Encrypt certificate, not the
+    /// hub's own key. Accept it only if iOS trusts it for this host AND the chain runs through one of
+    /// Let's Encrypt's roots, so a certificate from any other authority is refused. The host itself came
+    /// from the hub over the pinned home connection (`/v1/me` remote_url).
+    static let publishedRootPins: Set<String> = [
+        "0b9fa5a59eed715c26c1020c711b4f6ec42d58b0015e14337a39dad301c5afc3", // ISRG Root X1 (RSA 4096)
+        "762195c225586ee6c0237456e2107dc54f1efc21f61a792ebd515913cce68332", // ISRG Root X2 (P-384)
+        "b0292ae545978e0fbb98abbd94c861605e5b18bb32ed523f50d5b7b5c71d47bc", // ISRG Root YE (P-384)
+    ]
+
+    private static func isPublished(_ host: String) -> Bool {
+        guard let remote = URL(string: AppSettings.hubRemote)?.host, remote == host else { return false }
+        // If the same name were also the home address, keep the hub's own pin.
+        return URL(string: AppSettings.hubLAN)?.host != host
+    }
+
+    private static func evaluatePublished(_ trust: SecTrust) -> (URLSession.AuthChallengeDisposition, URLCredential?) {
+        guard SecTrustEvaluateWithError(trust, nil),
+              let chain = SecTrustCopyCertificateChain(trust) as? [SecCertificate],
+              chain.contains(where: { spkiSHA256($0).map(publishedRootPins.contains) ?? false }) else {
             return (.cancelAuthenticationChallenge, nil)
         }
         return (.useCredential, URLCredential(trust: trust))

@@ -68,7 +68,41 @@ def test_vpn_traffic_counts_as_away(hub):
 def test_forwarded_for_only_trusted_from_listed_proxy(hub):
     assert hub.client_ip("203.0.113.1", "192.168.1.5") == "203.0.113.1"
     hub._proxies = [__import__("ipaddress").ip_network("172.30.0.0/16")]
-    assert hub.client_ip("172.30.0.2", "192.168.1.5, 10.0.0.1") == "192.168.1.5"
+    # The proxy appends the address it saw; anything left of it came from the caller.
+    assert hub.client_ip("172.30.0.2", "203.0.113.7") == "203.0.113.7"
+    assert hub.client_ip("172.30.0.2", "192.168.1.5, 203.0.113.7") == "203.0.113.7"
+    assert hub.client_ip("172.30.0.2", "203.0.113.7, 172.30.0.9") == "203.0.113.7"
+    assert hub.client_ip("172.30.0.2", "not-an-ip") is None
+
+
+def test_forged_forwarded_for_cannot_claim_home(hub):
+    import ipaddress
+    from starlette.testclient import TestClient
+    from hub.main import build_app
+
+    hub._proxies = [ipaddress.ip_network("172.20.0.0/16")]
+    proxied = TestClient(build_app(hub), base_url="https://testserver", client=("172.20.0.5", 40000))
+    forged = {"X-Forwarded-For": "192.168.1.50, 203.0.113.9"}
+    r = proxied.post("/v1/enroll", json={"public_key": "x", "device_name": "x", "model": "x"}, headers=forged)
+    assert r.status_code == 403 and r.json()["error"] == "not_home"
+    assert proxied.get("/admin/status.json", headers=forged).status_code == 403
+    # A real home caller through the same proxy still counts as home.
+    assert hub.is_home(hub.client_ip("172.20.0.5", "192.168.1.50"))
+
+
+def test_away_sign_in_is_rate_limited(hub):
+    import ipaddress
+    from starlette.testclient import TestClient
+    from hub.main import build_app
+
+    hub._proxies = [ipaddress.ip_network("172.20.0.0/16")]
+    hub.config.hub.away_auth_per_minute = 5
+    proxied = TestClient(build_app(hub), base_url="https://testserver", client=("172.20.0.5", 40000))
+    codes = [proxied.get("/v1/ping", headers={"X-Forwarded-For": "203.0.113.9"}).status_code for _ in range(7)]
+    assert codes[:5] == [200] * 5 and codes[5:] == [429, 429]
+    # Another caller, and anyone at home, is unaffected.
+    assert proxied.get("/v1/ping", headers={"X-Forwarded-For": "198.51.100.4"}).status_code == 200
+    assert all(proxied.get("/v1/ping", headers={"X-Forwarded-For": "192.168.1.50"}).status_code == 200 for _ in range(8))
 
 
 def test_lights_passthrough_roles_and_dry_run(hub, people, home_client):
