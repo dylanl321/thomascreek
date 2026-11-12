@@ -229,6 +229,440 @@
     }
    }
   },
+  "/v1/alerts": {
+   "get": {
+    "tags": [
+     "alerts"
+    ],
+    "summary": "Get Alerts",
+    "operationId": "get_alerts_v1_alerts_get",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Get Alerts V1 Alerts Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "put": {
+    "tags": [
+     "alerts"
+    ],
+    "summary": "Put Alerts",
+    "operationId": "put_alerts_v1_alerts_put",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "additionalProperties": true,
+        "title": "Body"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Put Alerts V1 Alerts Put"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/alerts/test": {
+   "post": {
+    "tags": [
+     "alerts"
+    ],
+    "summary": "Test Alert",
+    "description": "A sample camera alert to this phone only, shaped like a real one, with Apple's answer.",
+    "operationId": "test_alert_v1_alerts_test_post",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Test Alert V1 Alerts Test Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/alerts/history": {
+   "get": {
+    "tags": [
+     "alerts"
+    ],
+    "summary": "History",
+    "description": "Everything that could have alerted this person, whether or not they turned its push on.",
+    "operationId": "history_v1_alerts_history_get",
+    "parameters": [
+     {
+      "name": "kind",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Kind"
+      }
+     },
+     {
+      "name": "before",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "number"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Before"
+      }
+     },
+     {
+      "name": "limit",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "default": 50,
+       "title": "Limit"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response History V1 Alerts History Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/alerts/entities": {
+   "get": {
+    "tags": [
+     "alerts"
+    ],
+    "summary": "Entities",
+    "operationId": "entities_v1_alerts_entities_get",
+    "parameters": [
+     {
+      "name": "q",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "default": "",
+       "title": "Q"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Entities V1 Alerts Entities Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/alerts/sources": {
+   "put": {
+    "tags": [
+     "alerts"
+    ],
+    "summary": "Put Sources",
+    "operationId": "put_sources_v1_alerts_sources_put",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/SourcesBody"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Put Sources V1 Alerts Sources Put"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/alerts/automation": {
+   "post": {
+    "tags": [
+     "alerts"
+    ],
+    "summary": "Automation Setup",
+    "description": "The Home Assistant snippet with the hub's alert token. Face ID first: the token sends alerts.",
+    "operationId": "automation_setup_v1_alerts_automation_post",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Automation Setup V1 Alerts Automation Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/alerts/notify": {
+   "post": {
+    "tags": [
+     "alerts"
+    ],
+    "summary": "Notify",
+    "description": "Called by Home Assistant (rest_command). Home network plus the alert token.",
+    "operationId": "notify_v1_alerts_notify_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/NotifyBody"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "additionalProperties": true,
+         "type": "object",
+         "title": "Response Notify V1 Alerts Notify Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/v1/home": {
    "get": {
     "tags": [
@@ -4144,6 +4578,160 @@
     }
    }
   },
+  "/v1/cameras/events/{event_id}/wrong": {
+   "post": {
+    "tags": [
+     "cameras"
+    ],
+    "summary": "Mark Wrong",
+    "description": "A detection was wrong: Frigate+ learns from it and the hub stops alerting for that spot.",
+    "operationId": "mark_wrong_v1_cameras_events__event_id__wrong_post",
+    "parameters": [
+     {
+      "name": "event_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Event Id"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Mark Wrong V1 Cameras Events  Event Id  Wrong Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/cameras/ignored": {
+   "get": {
+    "tags": [
+     "cameras"
+    ],
+    "summary": "Ignored",
+    "operationId": "ignored_v1_cameras_ignored_get",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Ignored V1 Cameras Ignored Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/cameras/ignored/{rule_id}": {
+   "delete": {
+    "tags": [
+     "cameras"
+    ],
+    "summary": "Unignore",
+    "operationId": "unignore_v1_cameras_ignored__rule_id__delete",
+    "parameters": [
+     {
+      "name": "rule_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Rule Id"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Unignore V1 Cameras Ignored  Rule Id  Delete"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/v1/lights/{path}": {
    "post": {
     "tags": [
@@ -4619,6 +5207,23 @@
        }
       ],
       "title": "Apns Env"
+     },
+     "simulator": {
+      "type": "boolean",
+      "title": "Simulator",
+      "default": false
+     },
+     "test_key": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 100
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Test Key"
      }
     },
     "type": "object",
@@ -4627,6 +5232,33 @@
      "public_key"
     ],
     "title": "EnrollBody"
+   },
+   "Extra": {
+    "properties": {
+     "entity_id": {
+      "type": "string",
+      "maxLength": 200,
+      "pattern": "^[a-z_]+\\.[a-z0-9_]+$",
+      "title": "Entity Id"
+     },
+     "name": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 80
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Name"
+     }
+    },
+    "type": "object",
+    "required": [
+     "entity_id"
+    ],
+    "title": "Extra"
    },
    "ForPerson": {
     "properties": {
@@ -4719,6 +5351,67 @@
      "macs"
     ],
     "title": "LinkBody"
+   },
+   "NotifyBody": {
+    "properties": {
+     "title": {
+      "type": "string",
+      "maxLength": 120,
+      "minLength": 1,
+      "title": "Title"
+     },
+     "message": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 500
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Message"
+     },
+     "to": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "type": "array"
+       },
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "To"
+     },
+     "urgent": {
+      "type": "boolean",
+      "title": "Urgent",
+      "default": false
+     },
+     "camera": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 64
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Camera"
+     }
+    },
+    "type": "object",
+    "required": [
+     "title"
+    ],
+    "title": "NotifyBody"
    },
    "Offer": {
     "properties": {
@@ -5083,6 +5776,77 @@
     },
     "type": "object",
     "title": "RequestBody"
+   },
+   "SourcesBody": {
+    "properties": {
+     "doorbell_entity": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 200
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Doorbell Entity"
+     },
+     "doorbell_camera": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 64
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Doorbell Camera"
+     },
+     "outside_doors": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Outside Doors"
+     },
+     "extra": {
+      "anyOf": [
+       {
+        "items": {
+         "$ref": "#/components/schemas/Extra"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Extra"
+     },
+     "garage_after_s": {
+      "anyOf": [
+       {
+        "type": "integer",
+        "maximum": 21600.0,
+        "minimum": 60.0
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Garage After S"
+     }
+    },
+    "type": "object",
+    "title": "SourcesBody"
    },
    "TokenBody": {
     "properties": {

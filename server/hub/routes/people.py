@@ -154,7 +154,7 @@ def _device_out(d: dict[str, Any]) -> dict[str, Any]:
     return {"id": d["id"], "name": d["name"], "model": d.get("model"), "status": d["status"],
             "person_id": d.get("person_id"), "app_version": d.get("app_version"),
             "vpn": bool(d.get("wg_public_key")), "push": bool(d.get("apns_token")),
-            "created_at": iso(d["created_at"]), "last_seen_at": iso(d.get("last_seen_at"))}
+            "test": d.get("kind") == "test", "created_at": iso(d["created_at"]), "last_seen_at": iso(d.get("last_seen_at"))}
 
 
 @router.get("/people")
@@ -427,6 +427,8 @@ async def vpn_pool_add(body: PoolBody, request: Request, c: Caller = Depends(cal
 async def vpn_config(body: VpnBody, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
     if c.device["status"] != "active":
         raise error(403, "pending", "Waiting for Dylan to say whose device this is")
+    if c.device.get("kind") == "test":
+        raise error(403, "test_device", "Test simulators don't get a VPN client")
     try:
         cfg = h.vpn.config_for(c.device, body.wg_public_key)
     except VpnError as exc:
