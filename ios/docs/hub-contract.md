@@ -128,6 +128,21 @@ More routes
 - Deep links: `thomascreek://trips`, `thomascreek://trip/<id>`.
 - Trip days also come back from `/v1/calendar` as all-day events, so the Calendar screen needs no change.
 
+## Kids' YouTube (yt-dlp on the hub)
+
+App only, not a Plex library (Dylan, 2026-11-12). No approval step; parents get an FYI inbox note.
+
+- `GET /v1/youtube` → `{sources:[Source], videos:[Video], storage?, blocked?}` (storage and blocked for admin/adult only).
+  Source: `{id, kind: video|playlist|channel, title, channel, channel_id, url, follow, added_by, added_by_id, picture_url?, count, waiting, bytes, last_error?}`.
+  Video: a MediaItem (`id: "yt-<videoId>"`, `kind: "youtube"`, `poster_url: /v1/youtube/picture/<videoId>`, `summary`/`show` = channel, `duration_s`) plus `{video_id, channel, channel_id, status: queued|fetching|ready|failed, progress?, bytes, height, error?, watched, source_ids}`.
+- `GET /v1/youtube/preview?url=` → `{kind, title, channel, picture (YouTube https URL), followers, count, newest, followable}`; 400 `bad_link` with a plain message.
+- `POST /v1/youtube {url, follow}` → Source. admin, adult, child. Same link again returns the same source.
+- `POST /v1/youtube/sources/{id} {follow}`; `DELETE /v1/youtube/sources/{id}` (parents, or the child who added it).
+- Parents only: `DELETE /v1/youtube/videos/{videoId}`, `POST /v1/youtube/block {channel_id, name}`, `DELETE /v1/youtube/block/{channel_id}`, `POST /v1/youtube/refresh`.
+- `POST /v1/youtube/videos/{videoId}/retry` for a failed one.
+- `GET /v1/youtube/picture/{videoId | src-<sourceId>}` → JPEG.
+- Downloads: `GET/POST /v1/media/yt-<videoId>/download` work as for films. Options: `original` (instant, the hub's own MP4) and `small` (480p, converted by the hub). `POST /v1/media/yt-<id>/progress` marks it watched on the hub (used for trimming).
+
 ## App updates (2026-11-12)
 
 - `GET /v1/app/update?build=<CFBundleVersion>&version=<short version>` (no sign-in needed; with a token the hub records the phone's build). Reply `{latest_build, latest_version, min_build, notes, testflight_url, update_available, update_required}`.

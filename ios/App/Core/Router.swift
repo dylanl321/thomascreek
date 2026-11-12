@@ -16,7 +16,7 @@ enum Destination: Hashable {
     case calendar, meals, recipe(String), shopping, chores, inventory
     case kitchen(String?), dinners, recipes
     case trips, trip(Int), tripDay(Int, String)
-    case systems, storage, activity, people, kidNet, vpnPool, hubWeb
+    case systems, storage, activity, people, kidNet, vpnPool, hubWeb, youtube
 }
 
 @MainActor
@@ -33,6 +33,9 @@ final class Router {
     /// Storage and downloads (from the offline strip).
     var showOffline = false
     var showSearch = false
+    /// Opens "Add from YouTube", prefilled with this link ("" for an empty box).
+    var youtubeAdd: String?
+
     /// Ask Thomas Creek, the quick chat and voice panel.
     var showAssistant = false
 
@@ -88,6 +91,12 @@ final class Router {
             show(tab, id.map { Destination.trip($0) } ?? (kid ? nil : Destination.trips))
         case "requests": kid ? show(.watch) : show(.media, .requests)
         case "media": show(kid ? .watch : .media)
+        case "youtube":
+            // thomascreek://youtube/add?url=<link> (shared in), or the note parents get when a child adds one.
+            let link = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "url" }?.value
+            if parts.count > 1 && parts[1] == "add" || link != nil {
+                show(kid ? .watch : .media); youtubeAdd = link ?? ""
+            } else if role == .admin || role == .adult { show(.systems, .youtube) } else { show(.watch) }
         case "systems", "storage": show(.systems, parts.first == "storage" ? .storage : nil)
         case "people", "devices": show(role == .admin ? .systems : .home, role == .admin ? .people : nil); if role != .admin { showProfile = true }
         case "activity": show(.systems, .activity)
