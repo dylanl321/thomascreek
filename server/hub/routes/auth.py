@@ -184,7 +184,10 @@ async def me(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, An
         "device": {"id": c.device["id"], "name": c.device["name"], "status": c.device["status"]},
         "at_home": s.at_home,
         "dry_run": h.config.hub.dry_run,
+        "settings_version": h.settings.version(s.person_id),
     }
+    if c.viewer is not None:
+        out["preview"] = {"person_id": s.person_id, "by": c.viewer.person_id}
     if h.config.hub.remote_url:
         out["remote_url"] = h.config.hub.remote_url
     if s.role == "guest":

@@ -364,6 +364,14 @@ struct MediaTitleView: View {
         }
         .background(Backdrop())
         .navigationTitle(info?.title ?? "").navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if let t = info {
+                ToolbarItem(placement: .primaryAction) {
+                    StarButton(kind: .media, id: t.mediaId, name: t.title ?? "this",
+                               label: FavoriteRef(id: t.mediaId, title: t.title, subtitle: t.kind == "tv" ? "Show" : "Movie", image: t.posterUrl))
+                }
+            }
+        }
         .task { await load() }
         .sheet(isPresented: $playing) {
             if let t = info, let item = plexItem(t) { PlayOnSheet(item: item) }

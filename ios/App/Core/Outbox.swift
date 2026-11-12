@@ -14,6 +14,8 @@ final class Outbox {
     struct Item: Codable, Identifiable, Hashable {
         var id = UUID()
         var path: String
+        /// POST unless set (favorites use PUT and DELETE).
+        var method: String?
         var body: Data?
         /// Shown on the Storage screen ("Sunscreen (shopping)"); nil for quiet ones like play progress.
         var label: String?
@@ -55,13 +57,22 @@ final class Outbox {
         save()
     }
 
+    /// A change to this person's favorites or settings made while home can't be reached. A later change to
+    /// the same thing replaces the earlier one (star then un-star sends only the un-star).
+    func enqueueSetting(_ method: String, _ path: String, _ body: [String: Any]?, label: String?) {
+        let data = body.flatMap { try? JSONSerialization.data(withJSONObject: $0) }
+        items.removeAll { $0.path == path && $0.method != nil && $0.method != "PATCH" }
+        items.append(Item(path: path, method: method, body: data, label: label))
+        save()
+    }
+
     func flush() async {
         guard !flushing, !items.isEmpty else { return }
         flushing = true; defer { flushing = false }
         var sent: [String] = []
         while let first = items.first {
             do {
-                _ = try await HubClient.shared.raw("POST", first.path, body: first.body)
+                _ = try await HubClient.shared.raw(first.method ?? "POST", first.path, body: first.body)
                 if let l = first.label { sent.append(l) }
                 items.removeFirst()
             } catch HubClient.HubError.unreachable {

@@ -443,14 +443,14 @@ struct OfflineStorageView: View {
                         Text(cellular ? "Films download on any connection" : "Films wait for Wi-Fi").font(.caption).foregroundStyle(Theme.dim)
                     }
                 }
-                .onChange(of: cellular) { _, v in AppSettings.downloadOnCellular = v }
+                .onChange(of: cellular) { _, v in AppSettings.downloadOnCellular = v; SettingsStore.shared.set(SettingKey.downloadCellular, v) }
                 Toggle(isOn: $removeWatched) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Remove watched downloads")
                         Text("A week after finishing").font(.caption).foregroundStyle(Theme.dim)
                     }
                 }
-                .onChange(of: removeWatched) { _, v in AppSettings.removeWatchedDownloads = v }
+                .onChange(of: removeWatched) { _, v in AppSettings.removeWatchedDownloads = v; SettingsStore.shared.set(SettingKey.removeWatched, v) }
                 Button("Clear saved copies", role: .destructive) { confirmClear = true }
             } header: { Text("Settings") } footer: {
                 Text("Clearing keeps downloads and trips. Saved copies are only for this person and are wiped if the phone is given to someone else.")

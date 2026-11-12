@@ -227,7 +227,7 @@ struct LightsSettingsSection: View {
     var body: some View {
         Section {
             Toggle("Start automatically at sunset", isOn: $auto)
-                .onChange(of: auto) { _, v in AppSettings.autoLiveActivity = v; Task { await live.sendStartToken() } }
+                .onChange(of: auto) { _, v in AppSettings.autoLiveActivity = v; SettingsStore.shared.set(SettingKey.liveActivityAuto, v); Task { await live.sendStartToken() } }
             if live.active {
                 Button("End Live Activity", role: .destructive) { Task { await live.endAll() } }
             } else {

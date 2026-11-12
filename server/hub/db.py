@@ -194,6 +194,15 @@ SCHEMA = [
         last_used_at REAL
     )""",
     """
+    CREATE TABLE IF NOT EXISTS person_settings (
+        person_id TEXT NOT NULL,
+        key TEXT NOT NULL,
+        value TEXT NOT NULL,
+        updated_at REAL NOT NULL,
+        device_id TEXT,
+        PRIMARY KEY (person_id, key)
+    )""",
+    """
     CREATE TABLE IF NOT EXISTS hub_kv (
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL,
