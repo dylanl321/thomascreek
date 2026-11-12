@@ -1,14 +1,12 @@
 import SwiftUI
 import NetworkExtension
 
-/// Notification choices, this phone, and (for Dylan) the hub address.
+/// Alerts (own screen), this phone, and (for Dylan) the hub address.
 struct ProfileView: View {
     @Environment(HomeStore.self) private var store
     @Environment(\.dismiss) private var dismiss
-    @State private var prefs = AppSettings.prefs
-    @State private var categories: [PushRegistration.Category] = PushRegistration.shared.categories
+    @State private var alerts = AlertsModel.shared
     @State private var hubLAN = AppSettings.hubLAN
-    @State private var testResult: String?
 
     var body: some View {
         NavigationStack {
@@ -24,23 +22,12 @@ struct ProfileView: View {
                 }
                 if store.role != .child || store.me?.style != .little {
                     Section {
-                        LabeledContent("Notifications", value: PushRegistration.shared.allowed == false ? "Off in iOS Settings" : "On")
-                        ForEach(categories) { c in
-                            Toggle(isOn: Binding(get: { prefs[c.id] ?? c.default }, set: { v in prefs[c.id] = v; PushRegistration.shared.setPref(c.id, v) })) {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(c.title)
-                                    Text(c.detail).font(.caption).foregroundStyle(Theme.dim)
-                                }
-                            }
+                        NavigationLink { AlertsView() } label: {
+                            LabeledContent {
+                                Text(PushRegistration.shared.allowed == false ? "Off in iOS Settings" : alerts.summary).lineLimit(1)
+                            } label: { Label("Alerts", systemImage: "bell.badge") }
                         }
-                        Button("Send a test alert") {
-                            Task {
-                                do { try await HubClient.shared.send("/v1/push/test"); testResult = "Sent. It should arrive in a few seconds." }
-                                catch { testResult = error.localizedDescription }
-                            }
-                        }
-                        if let testResult { Text(testResult).font(.footnote).foregroundStyle(Theme.dim) }
-                    } header: { Text("Alerts") }
+                    } footer: { Text(store.role == .child ? "Chores, requests and quiet hours." : "Doorbell, cameras, garage, leaks and quiet hours. Each person picks their own.") }
                 }
                 if store.me?.can(.holidayFull) == true || store.me?.can(.holidayLooks) == true {
                     LightsSettingsSection()
@@ -68,9 +55,7 @@ struct ProfileView: View {
             .onDisappear { if hubLAN != AppSettings.hubLAN { AppSettings.hubLAN = hubLAN } }
             .task {
                 PushRegistration.shared.send()
-                try? await Task.sleep(for: .seconds(1))
-                categories = PushRegistration.shared.categories
-                prefs = AppSettings.prefs
+                await alerts.load()
             }
         }
     }
