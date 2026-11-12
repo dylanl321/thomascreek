@@ -28,7 +28,7 @@ struct HouseProvider: TimelineProvider {
 struct HouseWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: "HouseStatus", provider: HouseProvider()) { e in
-            HouseWidgetView(entry: e).containerBackground(for: .widget) { WidgetTheme.background }
+            HouseWidgetView(entry: e).containerBackground(for: .widget) { WidgetTheme.scene }
         }
         .configurationDisplayName("Home")
         .description("Whether everything's fine, and the garage doors.")
@@ -177,6 +177,13 @@ struct ChoresWidgetView: View {
 }
 
 enum WidgetTheme {
+    /// The house at dusk (same art as the app icon), darkened at the top so the status text stays readable.
+    static var scene: some View {
+        ZStack {
+            Image("WidgetScene").resizable().scaledToFill()
+            LinearGradient(colors: [.black.opacity(0.45), .clear, .black.opacity(0.35)], startPoint: .top, endPoint: .bottom)
+        }
+    }
     static let accent = Color(red: 0.31, green: 0.76, blue: 0.69)
     static let background = LinearGradient(colors: [Color(red: 0.09, green: 0.12, blue: 0.13), Color(red: 0.05, green: 0.07, blue: 0.08)],
                                            startPoint: .top, endPoint: .bottom)

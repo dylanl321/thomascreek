@@ -41,7 +41,7 @@ struct HouseView: View {
                 SectionTile(symbol: "thermometer.medium", title: "Climate", detail: climateLine) { router.go(.climate) }
             }
             if me?.can(.doors) == true {
-                SectionTile(symbol: "door.garage.closed", title: "Doors", detail: doorsLine, alert: doorsOpen > 0) { router.go(.doors) }
+                SectionTile(symbol: "door.garage.closed", title: "Doors", detail: doorsLine, alert: doorsOpen > 0, asset: "tc.garage") { router.go(.doors) }
             }
             if me?.can(.cameras) == true, !(h?.cameras?.isEmpty ?? true) {
                 SectionTile(symbol: "video.fill", title: "Cameras", detail: "\(h?.cameras?.count ?? 0) live") { router.go(.cameras) }
@@ -50,7 +50,7 @@ struct HouseView: View {
                 SectionTile(symbol: "oven.fill", title: "Appliances", detail: appliancesLine) { router.go(.appliances) }
             }
             if me?.can(.holidayLooks) == true || me?.can(.holidayFull) == true {
-                SectionTile(symbol: "sparkles", title: "Holiday lights", detail: AppSettings.cachedStatus?.headline ?? "Show") { router.go(.holiday) }
+                SectionTile(symbol: "sparkles", title: "Holiday lights", detail: AppSettings.cachedStatus?.headline ?? "Show", asset: "tc.lights") { router.go(.holiday) }
             }
             if !(h?.devices(kind: .valve).isEmpty ?? true) {
                 SectionTile(symbol: "drop.fill", title: "Outdoor", detail: "Irrigation") { router.go(.outdoor) }
@@ -86,11 +86,17 @@ struct SectionTile: View {
     let title: String
     let detail: String
     var alert = false
+    /// A Thomas Creek glyph from the asset catalog (drawn from the house), used instead of the SF Symbol when set.
+    var asset: String? = nil
     let action: () -> Void
     var body: some View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: 8) {
-                Image(systemName: symbol).font(.title3).foregroundStyle(alert ? Theme.warn : Theme.accent)
+                Group {
+                    if let asset { Image(asset).resizable().scaledToFit().frame(width: 24, height: 24) }
+                    else { Image(systemName: symbol).font(.title3) }
+                }
+                .foregroundStyle(alert ? Theme.warn : Theme.accent)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(Theme.fg).lineLimit(1)
                     Text(detail).font(.caption).foregroundStyle(alert ? Theme.warn : Theme.dim).lineLimit(1)

@@ -27,7 +27,7 @@ struct MainTabs: View {
         TabView(selection: $router.tab) {
             switch store.role {
             case .admin, .adult, .tablet:
-                Tab("Home", systemImage: "house.fill", value: AppTab.home) { stack(.home) { HomeView() } }
+                Tab("Home", image: "tc.home", value: AppTab.home) { stack(.home) { HomeView() } }
                 Tab("House", systemImage: "square.grid.2x2.fill", value: AppTab.house) { stack(.house) { HouseView() } }
                 Tab("Media", systemImage: "play.tv.fill", value: AppTab.media) { stack(.media) { MediaView() } }
                 Tab("Family", systemImage: "person.2.fill", value: AppTab.family) { stack(.family) { FamilyView() } }
@@ -36,15 +36,15 @@ struct MainTabs: View {
                         .badge(store.home?.systems?.apps?.crashed ?? 0)
                 }
             case .child:
-                Tab("Home", systemImage: "house.fill", value: AppTab.home) { stack(.home) { KidHomeView() } }
-                Tab("My Room", systemImage: "lightbulb.fill", value: AppTab.myRoom) { stack(.myRoom) { MyRoomView() } }
+                Tab("Home", image: "tc.home", value: AppTab.home) { stack(.home) { KidHomeView() } }
+                Tab("My Room", image: "tc.window", value: AppTab.myRoom) { stack(.myRoom) { MyRoomView() } }
                 Tab(little ? "Shows" : "Watch", systemImage: "tv.fill", value: AppTab.watch) { stack(.watch) { KidWatchView() } }
                 Tab(little ? "Jobs" : "Chores", systemImage: "star.fill", value: AppTab.chores) { stack(.chores) { KidChoresView() } }
             case .guest:
-                Tab("Welcome", systemImage: "house.fill", value: AppTab.home) { stack(.home) { GuestHomeView() } }
+                Tab("Welcome", image: "tc.home", value: AppTab.home) { stack(.home) { GuestHomeView() } }
                 Tab("My Space", systemImage: "lightbulb.fill", value: AppTab.space) { stack(.space) { MySpaceView() } }
             case .pending:
-                Tab("Home", systemImage: "house.fill", value: AppTab.home) { PendingView() }
+                Tab("Home", image: "tc.home", value: AppTab.home) { PendingView() }
             }
         }
         .tint(store.role == .child ? (store.me?.style == .little ? Theme.little : Theme.kid) : Theme.accent)
