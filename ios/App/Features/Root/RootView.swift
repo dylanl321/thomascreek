@@ -50,6 +50,7 @@ struct MainTabs: View {
         .tint(store.role == .child ? (store.me?.style == .little ? Theme.little : Theme.kid) : Theme.accent)
         .sheet(isPresented: $router.showInbox) { InboxView() }
         .sheet(isPresented: $router.showProfile) { ProfileView() }
+        .sheet(item: Binding(get: { router.vpnImport.map(IdentifiedURL.init) }, set: { router.vpnImport = $0?.url })) { f in VPNImportSheet(file: f.url) }
         .sheet(item: Binding(get: { store.askParent }, set: { store.askParent = $0 })) { a in AskParentSheet(ask: a) }
     }
 
@@ -94,6 +95,7 @@ struct DestinationView: View {
         case .activity: ActivityView()
         case .people: PeopleView()
         case .kidNet: KidNetView()
+        case .vpnPool: VPNPoolView()
         }
     }
 }

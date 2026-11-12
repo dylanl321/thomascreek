@@ -13,8 +13,8 @@ final class VPN {
         var interface: Interface
         var peer: Peer
         var homeSsids: [String]?
-        struct Interface: Decodable { var addresses: [String]; var dns: [String]? }
-        struct Peer: Decodable { var publicKey: String; var endpoint: String; var allowedIps: [String]; var persistentKeepalive: Int? }
+        struct Interface: Decodable { var addresses: [String]; var dns: [String]?; var privateKey: String?; var mtu: Int? }
+        struct Peer: Decodable { var publicKey: String; var endpoint: String; var allowedIps: [String]; var persistentKeepalive: Int?; var presharedKey: String? }
     }
 
     /// Present only in builds made with project-vpn.yml.
@@ -24,6 +24,8 @@ final class VPN {
     }
 
     private(set) var status: NEVPNStatus = .invalid
+    /// Why the tunnel isn't set up, in words for the person (nil when fine).
+    private(set) var problem: String?
     private var checked = false
 
     /// Install (or refresh) the tunnel once per launch. Safe to call often.
@@ -36,6 +38,9 @@ final class VPN {
             if let proto = mgr.protocolConfiguration as? NETunnelProviderProtocol, proto.providerConfiguration?["wg"] != nil,
                mgr.isEnabled { status = mgr.connection.status; return }
             try await install(into: mgr)
+        } catch HubClient.HubError.server(let code, _) where code == 400 || code == 503 {
+            problem = "Ask Dylan to add a VPN client"
+            checked = false
         } catch {
             checked = false
         }
@@ -44,7 +49,11 @@ final class VPN {
     /// Ask the hub for a fresh configuration (also used after Dylan revokes and re-approves a phone).
     func reinstall() async throws {
         let managers = try await NETunnelProviderManager.loadAllFromPreferences()
-        try await install(into: managers.first ?? NETunnelProviderManager())
+        do { try await install(into: managers.first ?? NETunnelProviderManager()) }
+        catch HubClient.HubError.server(let code, _) where code == 400 || code == 503 {
+            problem = "Ask Dylan to add a VPN client"
+            throw HubClient.HubError.server(code, "No VPN client is free. Ask Dylan to add one on the Firewalla.")
+        }
     }
 
     private func install(into mgr: NETunnelProviderManager) async throws {
@@ -54,15 +63,20 @@ final class VPN {
         let proto = NETunnelProviderProtocol()
         proto.providerBundleIdentifier = (Bundle.main.bundleIdentifier ?? "") + ".tunnel"
         proto.serverAddress = "Thomas Creek"
-        proto.providerConfiguration = ["wg": [
-            "private_key": key.rawRepresentation.base64EncodedString(),
+        // The hub may hand out one of the Firewalla's ready-made clients, private key included.
+        var wg: [String: Any] = [
+            "private_key": cfg.interface.privateKey ?? key.rawRepresentation.base64EncodedString(),
             "addresses": cfg.interface.addresses,
             "dns": cfg.interface.dns ?? [],
             "peer_public_key": cfg.peer.publicKey,
             "endpoint": cfg.peer.endpoint,
             "allowed_ips": cfg.peer.allowedIps,
             "keepalive": cfg.peer.persistentKeepalive ?? 25,
-        ] as [String: Any]]
+        ]
+        if let m = cfg.interface.mtu { wg["mtu"] = m }
+        if let p = cfg.peer.presharedKey { wg["preshared_key"] = p }
+        proto.providerConfiguration = ["wg": wg]
+        problem = nil
         mgr.protocolConfiguration = proto
         mgr.localizedDescription = "Thomas Creek"
         mgr.isEnabled = true

@@ -39,12 +39,14 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         var iface = InterfaceConfiguration(privateKey: pk)
         iface.addresses = (wg["addresses"] as? [String] ?? []).compactMap(IPAddressRange.init(from:))
         iface.dns = (wg["dns"] as? [String] ?? []).compactMap(DNSServer.init(from:))
+        if let m = wg["mtu"] as? Int, m > 0 { iface.mtu = UInt16(m) }
 
         guard let peerKey = (wg["peer_public_key"] as? String).flatMap(PublicKey.init(base64Key:)) else { throw TunnelError.badConfig("peer key") }
         var peer = PeerConfiguration(publicKey: peerKey)
         peer.endpoint = (wg["endpoint"] as? String).flatMap(Endpoint.init(from:))
         peer.allowedIPs = (wg["allowed_ips"] as? [String] ?? []).compactMap(IPAddressRange.init(from:))
         if let k = wg["keepalive"] as? Int, k > 0 { peer.persistentKeepAlive = UInt16(k) }
+        if let psk = (wg["preshared_key"] as? String).flatMap(PreSharedKey.init(base64Key:)) { peer.preSharedKey = psk }
 
         return TunnelConfiguration(name: "Thomas Creek", interface: iface, peers: [peer])
     }

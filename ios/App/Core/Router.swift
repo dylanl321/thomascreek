@@ -14,7 +14,7 @@ enum Destination: Hashable {
     case holiday, holidayControllers, house3D
     case remote(String), music, watch, requests, pipeline
     case calendar, meals, recipe(String), shopping, chores, inventory
-    case systems, storage, activity, people, kidNet
+    case systems, storage, activity, people, kidNet, vpnPool
 }
 
 @MainActor
@@ -25,6 +25,8 @@ final class Router {
     var tab: AppTab = .home
     var paths: [AppTab: [Destination]] = [:]
     var showInbox = false
+    /// A WireGuard .conf handed to the app (Files or the Firewalla share sheet); admins add it to the hub's pool.
+    var vpnImport: URL?
     var showProfile = false
     var showSearch = false
 
@@ -45,6 +47,7 @@ final class Router {
 
     /// thomascreek://room/kitchen, thomascreek://inbox, christmaslights://show ...
     func open(_ url: URL) {
+        if url.isFileURL { if url.pathExtension.lowercased() == "conf" { vpnImport = url }; return }
         let parts = [url.host ?? ""] + url.pathComponents.filter { $0 != "/" }
         let role = HomeStore.shared.role
         let kid = role == .child

@@ -63,6 +63,18 @@ targets:
         CFBundleURLTypes:
           - CFBundleURLName: thomascreek
             CFBundleURLSchemes: [thomascreek, christmaslights]
+        # WireGuard .conf files from the Firewalla app or Files: "Open in Thomas Creek" adds them to the hub's VPN pool.
+        LSSupportsOpeningDocumentsInPlace: false
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: WireGuard configuration
+            LSHandlerRank: Alternate
+            LSItemContentTypes: [me.dlewis.thomascreek.wgconf]
+        UTImportedTypeDeclarations:
+          - UTTypeIdentifier: me.dlewis.thomascreek.wgconf
+            UTTypeDescription: WireGuard configuration
+            UTTypeConformsTo: [public.plain-text]
+            UTTypeTagSpecification:
+              public.filename-extension: [conf]
     entitlements:
       path: App/ThomasCreek.entitlements
       properties:

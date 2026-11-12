@@ -87,6 +87,7 @@ struct ProfileView: View {
     }
 
     private var vpnLine: String {
+        if let p = VPN.shared.problem { return p }
         switch VPN.shared.status {
         case .connected: "Connected"
         case .connecting, .reasserting: "Connecting"
