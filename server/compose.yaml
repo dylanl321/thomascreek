@@ -26,3 +26,5 @@ services:
     volumes:
       - /mnt/POOL/apps/thomascreek-hub/data:/data
       - /mnt/POOL/apps/thomascreek-hub/secrets:/run/secrets/hub
+      # TrueNAS's own Avahi owns the mDNS port; the hub publishes through it.
+      - /run/dbus/system_bus_socket:/run/dbus/system_bus_socket

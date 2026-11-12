@@ -299,3 +299,40 @@ def test_normalize_pem_rebuilds_lines():
     out = normalize_pem(flat)
     assert out.splitlines()[1] == "A" * 64 and out.splitlines()[2] == "A" * 36
     assert out.endswith("-----END PRIVATE KEY-----\n")
+
+
+async def test_avahi_publish_sends_service(monkeypatch):
+    import dbus_fast.aio as aio
+    from dbus_fast import MessageType
+
+    from hub import bonjour
+
+    sent = []
+
+    class Reply:
+        def __init__(self, body):
+            self.message_type, self.body = MessageType.METHOD_RETURN, body
+
+    class FakeBus:
+        def __init__(self, **kw):
+            self.kw = kw
+
+        async def connect(self):
+            return self
+
+        async def call(self, msg):
+            sent.append((msg.member, msg.signature, list(msg.body)))
+            return Reply(["/Client1/EntryGroup1"] if msg.member == "EntryGroupNew" else [])
+
+        def disconnect(self):
+            sent.append(("disconnect", "", []))
+
+    monkeypatch.setattr(aio, "MessageBus", FakeBus)
+    pub = await bonjour._Avahi.publish("Thomas Creek Hub", 8443, {"api": "v1", "pin": "ab"})
+    await pub.async_close()
+    members = [m for m, _, _ in sent]
+    assert members == ["EntryGroupNew", "AddService", "Commit", "Free", "disconnect"]
+    _, sig, body = sent[1]
+    assert sig == "iiussssqaay"
+    assert body[3:5] == ["Thomas Creek Hub", "_thomascreek._tcp"] and body[7] == 8443
+    assert b"pin=ab" in body[8]

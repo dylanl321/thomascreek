@@ -13,6 +13,7 @@ dependencies = [
   "websockets>=13",
   "zeroconf>=0.132",
   "onepassword-sdk>=0.4",
+  "dbus-fast>=2.21",
 ]
 
 [project.optional-dependencies]
