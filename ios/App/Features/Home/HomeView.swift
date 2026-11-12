@@ -335,7 +335,7 @@ struct RecentEventsStrip: View {
             }
             .scrollClipDisabled()
         } else if events == nil {
-            LoadingCard()
+            LoadingCard().task { await store.loadRecentEvents() }
         } else if let err = store.recentEventsError {
             EmptyCard(symbol: "exclamationmark.triangle", title: "Couldn't load camera events", detail: err)
         } else {

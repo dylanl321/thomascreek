@@ -518,7 +518,18 @@ struct CameraEvent: Codable, Hashable, Identifiable {
         }
     }
 }
-struct CameraEvents: Codable { var items: [CameraEvent]; var nextBefore: String? }
+struct CameraEvents: Codable {
+    var items: [CameraEvent]
+    /// The hub may send this as text or a number.
+    var nextBeforeValue: JSONValue?
+    var nextBefore: String? {
+        guard let v = nextBeforeValue else { return nil }
+        if let s = v.string { return s }
+        if let d = v.double { return d == d.rounded() ? String(Int(d)) : String(d) }
+        return nil
+    }
+    private enum CodingKeys: String, CodingKey { case items, nextBeforeValue = "nextBefore" }
+}
 struct CameraList: Codable { var cameras: [Camera] }
 struct StreamInfo: Codable { var hlsUrl: String; var expiresAt: String? }
 
