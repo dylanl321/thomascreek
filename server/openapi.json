@@ -1,0 +1,4726 @@
+{
+ "openapi": "3.1.0",
+ "info": {
+  "title": "Thomas Creek Hub",
+  "description": "Home-side service for the Thomas Creek app. Holds every credential, enforces roles.",
+  "version": "0.1.0"
+ },
+ "paths": {
+  "/v1/ping": {
+   "get": {
+    "tags": [
+     "meta"
+    ],
+    "summary": "Ping",
+    "description": "Unauthenticated: lets the app check it found the right hub.",
+    "operationId": "ping_v1_ping_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "additionalProperties": true,
+         "type": "object",
+         "title": "Response Ping V1 Ping Get"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/hello": {
+   "get": {
+    "tags": [
+     "meta"
+    ],
+    "summary": "Hello",
+    "description": "Unauthenticated: who this hub is, plus the SHA-256 of its TLS public key\n(the same `pin` as the Bonjour TXT record) so a phone that typed the address\ncan check it reached the right hub before trusting the certificate.",
+    "operationId": "hello_v1_hello_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "additionalProperties": true,
+         "type": "object",
+         "title": "Response Hello V1 Hello Get"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/enroll": {
+   "post": {
+    "tags": [
+     "auth"
+    ],
+    "summary": "Enroll",
+    "description": "First open on home Wi-Fi: register this phone. Nothing to scan or type.\n\nBeing on the home network is the proof of belonging. A new phone is\n`pending` (the child's limits, no room) until Dylan says whose it is.",
+    "operationId": "enroll_v1_enroll_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/EnrollBody"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "additionalProperties": true,
+         "type": "object",
+         "title": "Response Enroll V1 Enroll Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/auth/challenge": {
+   "post": {
+    "tags": [
+     "auth"
+    ],
+    "summary": "Challenge",
+    "operationId": "challenge_v1_auth_challenge_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ChallengeBody"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "additionalProperties": true,
+         "type": "object",
+         "title": "Response Challenge V1 Auth Challenge Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/auth/token": {
+   "post": {
+    "tags": [
+     "auth"
+    ],
+    "summary": "Token",
+    "operationId": "token_v1_auth_token_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/TokenBody"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "additionalProperties": true,
+         "type": "object",
+         "title": "Response Token V1 Auth Token Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/me": {
+   "get": {
+    "tags": [
+     "auth"
+    ],
+    "summary": "Me",
+    "operationId": "me_v1_me_get",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Me V1 Me Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/home": {
+   "get": {
+    "tags": [
+     "home"
+    ],
+    "summary": "Home",
+    "operationId": "home_v1_home_get",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Home V1 Home Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/events": {
+   "get": {
+    "tags": [
+     "home"
+    ],
+    "summary": "Events",
+    "operationId": "events_v1_events_get",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/actions": {
+   "post": {
+    "tags": [
+     "home"
+    ],
+    "summary": "Actions",
+    "operationId": "actions_v1_actions_post",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ActionBody"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Actions V1 Actions Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/devices/push": {
+   "post": {
+    "tags": [
+     "people"
+    ],
+    "summary": "Register Push",
+    "operationId": "register_push_v1_devices_push_post",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/PushBody"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Register Push V1 Devices Push Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/devices/prefs": {
+   "post": {
+    "tags": [
+     "people"
+    ],
+    "summary": "Set Prefs",
+    "operationId": "set_prefs_v1_devices_prefs_post",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/PrefsBody"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Set Prefs V1 Devices Prefs Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/devices/activity": {
+   "post": {
+    "tags": [
+     "people"
+    ],
+    "summary": "Live Activity",
+    "description": "Live Activity tokens for the holiday lights. Stored per device; the show\nplayer integration reads them when it pushes `live_state()` updates.",
+    "operationId": "live_activity_v1_devices_activity_post",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ActivityBody"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Live Activity V1 Devices Activity Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/inbox": {
+   "get": {
+    "tags": [
+     "people"
+    ],
+    "summary": "Inbox",
+    "operationId": "inbox_v1_inbox_get",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Inbox V1 Inbox Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/inbox/{item_id}/ack": {
+   "post": {
+    "tags": [
+     "people"
+    ],
+    "summary": "Inbox Ack",
+    "operationId": "inbox_ack_v1_inbox__item_id__ack_post",
+    "parameters": [
+     {
+      "name": "item_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Item Id"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Inbox Ack V1 Inbox  Item Id  Ack Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/inbox/{item_id}/act": {
+   "post": {
+    "tags": [
+     "people"
+    ],
+    "summary": "Inbox Act",
+    "description": "Buttons on a notice. The notice's ref says what it is about.",
+    "operationId": "inbox_act_v1_inbox__item_id__act_post",
+    "parameters": [
+     {
+      "name": "item_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Item Id"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/InboxAct"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Inbox Act V1 Inbox  Item Id  Act Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/people": {
+   "get": {
+    "tags": [
+     "people"
+    ],
+    "summary": "People",
+    "operationId": "people_v1_people_get",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response People V1 People Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "post": {
+    "tags": [
+     "people"
+    ],
+    "summary": "Create Person",
+    "operationId": "create_person_v1_people_post",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/PersonBody"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Create Person V1 People Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/people/{person_id}": {
+   "patch": {
+    "tags": [
+     "people"
+    ],
+    "summary": "Update Person",
+    "operationId": "update_person_v1_people__person_id__patch",
+    "parameters": [
+     {
+      "name": "person_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Person Id"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/PersonBody"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Update Person V1 People  Person Id  Patch"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/devices/{device_id}/assign": {
+   "post": {
+    "tags": [
+     "people"
+    ],
+    "summary": "Assign Device",
+    "operationId": "assign_device_v1_devices__device_id__assign_post",
+    "parameters": [
+     {
+      "name": "device_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Device Id"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/AssignBody"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Assign Device V1 Devices  Device Id  Assign Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/devices/{device_id}/revoke": {
+   "post": {
+    "tags": [
+     "people"
+    ],
+    "summary": "Revoke Device",
+    "operationId": "revoke_device_v1_devices__device_id__revoke_post",
+    "parameters": [
+     {
+      "name": "device_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Device Id"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Revoke Device V1 Devices  Device Id  Revoke Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/activity": {
+   "get": {
+    "tags": [
+     "people"
+    ],
+    "summary": "Activity",
+    "description": "Hub actions (who did what in the app) merged with Home Assistant's logbook\nfor doors, locks, garage, presence and automations. Newest first.\n\n`before` is the `next_before` of the previous page (an opaque string).",
+    "operationId": "activity_v1_activity_get",
+    "parameters": [
+     {
+      "name": "before",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Before"
+      }
+     },
+     {
+      "name": "person",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Person"
+      }
+     },
+     {
+      "name": "limit",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "default": 100,
+       "title": "Limit"
+      }
+     },
+     {
+      "name": "category",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Category"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Activity V1 Activity Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/systems": {
+   "get": {
+    "tags": [
+     "people"
+    ],
+    "summary": "Systems",
+    "operationId": "systems_v1_systems_get",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Systems V1 Systems Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/vpn/pool": {
+   "get": {
+    "tags": [
+     "people"
+    ],
+    "summary": "Vpn Pool",
+    "description": "Dylan's view of the Firewalla clients the hub hands out.",
+    "operationId": "vpn_pool_v1_vpn_pool_get",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Vpn Pool V1 Vpn Pool Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "post": {
+    "tags": [
+     "people"
+    ],
+    "summary": "Vpn Pool Add",
+    "description": "Add a WireGuard client made on the Firewalla (the .conf text, shared into the app).",
+    "operationId": "vpn_pool_add_v1_vpn_pool_post",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/PoolBody"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Vpn Pool Add V1 Vpn Pool Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/vpn/config": {
+   "post": {
+    "tags": [
+     "people"
+    ],
+    "summary": "Vpn Config",
+    "operationId": "vpn_config_v1_vpn_config_post",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/VpnBody"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Vpn Config V1 Vpn Config Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/push/test": {
+   "post": {
+    "tags": [
+     "people"
+    ],
+    "summary": "Push Test",
+    "description": "Send a test notification to the calling device only.",
+    "operationId": "push_test_v1_push_test_post",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Push Test V1 Push Test Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/media/continue": {
+   "get": {
+    "tags": [
+     "media"
+    ],
+    "summary": "Continue Watching",
+    "operationId": "continue_watching_v1_media_continue_get",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Continue Watching V1 Media Continue Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/media/search": {
+   "get": {
+    "tags": [
+     "media"
+    ],
+    "summary": "Search",
+    "operationId": "search_v1_media_search_get",
+    "parameters": [
+     {
+      "name": "q",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Q"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Search V1 Media Search Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/media/library": {
+   "get": {
+    "tags": [
+     "media"
+    ],
+    "summary": "Library",
+    "description": "Browse the library. Children always get the rated list; rated=1 asks for it explicitly.",
+    "operationId": "library_v1_media_library_get",
+    "parameters": [
+     {
+      "name": "rated",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Rated"
+      }
+     },
+     {
+      "name": "kind",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Kind"
+      }
+     },
+     {
+      "name": "limit",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "default": 200,
+       "title": "Limit"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Library V1 Media Library Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/media/art": {
+   "get": {
+    "tags": [
+     "media"
+    ],
+    "summary": "Art",
+    "operationId": "art_v1_media_art_get",
+    "parameters": [
+     {
+      "name": "path",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Path"
+      }
+     },
+     {
+      "name": "width",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "default": 400,
+       "title": "Width"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/media/player-art/{entity_id}": {
+   "get": {
+    "tags": [
+     "media"
+    ],
+    "summary": "Player Art",
+    "operationId": "player_art_v1_media_player_art__entity_id__get",
+    "parameters": [
+     {
+      "name": "entity_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Entity Id"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/media/play": {
+   "post": {
+    "tags": [
+     "media"
+    ],
+    "summary": "Play",
+    "operationId": "play_v1_media_play_post",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/PlayBody"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Play V1 Media Play Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/media/{item_id}/stream": {
+   "get": {
+    "tags": [
+     "media"
+    ],
+    "summary": "Stream",
+    "operationId": "stream_v1_media__item_id__stream_get",
+    "parameters": [
+     {
+      "name": "item_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Item Id"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Stream V1 Media  Item Id  Stream Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/media/hls/{pass_token}/{path}": {
+   "get": {
+    "tags": [
+     "media"
+    ],
+    "summary": "Hls",
+    "operationId": "hls_v1_media_hls__pass_token___path__get",
+    "parameters": [
+     {
+      "name": "pass_token",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Pass Token"
+      }
+     },
+     {
+      "name": "path",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Path"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/requests": {
+   "get": {
+    "tags": [
+     "media"
+    ],
+    "summary": "List Requests",
+    "operationId": "list_requests_v1_requests_get",
+    "parameters": [
+     {
+      "name": "mine",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Mine"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response List Requests V1 Requests Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "post": {
+    "tags": [
+     "media"
+    ],
+    "summary": "Create Request",
+    "operationId": "create_request_v1_requests_post",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/RequestBody"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Create Request V1 Requests Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/requests/{req_id}/{decision}": {
+   "post": {
+    "tags": [
+     "media"
+    ],
+    "summary": "Decide Route",
+    "operationId": "decide_route_v1_requests__req_id___decision__post",
+    "parameters": [
+     {
+      "name": "req_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Req Id"
+      }
+     },
+     {
+      "name": "decision",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Decision"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Decide Route V1 Requests  Req Id   Decision  Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/pipeline": {
+   "get": {
+    "tags": [
+     "media"
+    ],
+    "summary": "Pipeline",
+    "description": "Requests -> downloads -> recently added, plus what's coming this week.\n\nEach section is filled independently; a service that fails is listed in\n`failures` instead of emptying the whole screen.",
+    "operationId": "pipeline_v1_pipeline_get",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Pipeline V1 Pipeline Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/chores": {
+   "get": {
+    "tags": [
+     "family"
+    ],
+    "summary": "Chores",
+    "operationId": "chores_v1_chores_get",
+    "parameters": [
+     {
+      "name": "person",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Person"
+      }
+     },
+     {
+      "name": "date",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Date"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Chores V1 Chores Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/chores/all": {
+   "get": {
+    "tags": [
+     "family"
+    ],
+    "summary": "Chores All",
+    "operationId": "chores_all_v1_chores_all_get",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Chores All V1 Chores All Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/family/board-people": {
+   "get": {
+    "tags": [
+     "family"
+    ],
+    "summary": "Board People",
+    "description": "Admin: the board's people, for linking each hub person (family_board_id).",
+    "operationId": "board_people_v1_family_board_people_get",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Board People V1 Family Board People Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/chores/{chore_id}/done": {
+   "post": {
+    "tags": [
+     "family"
+    ],
+    "summary": "Chore Done",
+    "operationId": "chore_done_v1_chores__chore_id__done_post",
+    "parameters": [
+     {
+      "name": "chore_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Chore Id"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "anyOf": [
+         {
+          "$ref": "#/components/schemas/ForPerson"
+         },
+         {
+          "type": "null"
+         }
+        ],
+        "title": "Body"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Chore Done V1 Chores  Chore Id  Done Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/rewards/{reward_id}/redeem": {
+   "post": {
+    "tags": [
+     "family"
+    ],
+    "summary": "Redeem",
+    "description": "The family board already asks a parent to approve redemptions.",
+    "operationId": "redeem_v1_rewards__reward_id__redeem_post",
+    "parameters": [
+     {
+      "name": "reward_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Reward Id"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Redeem V1 Rewards  Reward Id  Redeem Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/calendar": {
+   "get": {
+    "tags": [
+     "family"
+    ],
+    "summary": "Calendar",
+    "operationId": "calendar_v1_calendar_get",
+    "parameters": [
+     {
+      "name": "days",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "default": 7,
+       "title": "Days"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "title": "Response Calendar V1 Calendar Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/meals/today": {
+   "get": {
+    "tags": [
+     "family"
+    ],
+    "summary": "Meals Today",
+    "operationId": "meals_today_v1_meals_today_get",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Meals Today V1 Meals Today Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/meals/week": {
+   "get": {
+    "tags": [
+     "family"
+    ],
+    "summary": "Meals Week",
+    "operationId": "meals_week_v1_meals_week_get",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Meals Week V1 Meals Week Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/meals/image/{recipe_id}": {
+   "get": {
+    "tags": [
+     "family"
+    ],
+    "summary": "Meal Image",
+    "operationId": "meal_image_v1_meals_image__recipe_id__get",
+    "parameters": [
+     {
+      "name": "recipe_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Recipe Id"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/shopping": {
+   "get": {
+    "tags": [
+     "family"
+    ],
+    "summary": "Shopping",
+    "operationId": "shopping_v1_shopping_get",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Shopping V1 Shopping Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/shopping/{list_id}/items": {
+   "post": {
+    "tags": [
+     "family"
+    ],
+    "summary": "Shopping Add",
+    "operationId": "shopping_add_v1_shopping__list_id__items_post",
+    "parameters": [
+     {
+      "name": "list_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "List Id"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ItemBody"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Shopping Add V1 Shopping  List Id  Items Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/shopping/{list_id}/items/{item_id}": {
+   "patch": {
+    "tags": [
+     "family"
+    ],
+    "summary": "Shopping Done",
+    "operationId": "shopping_done_v1_shopping__list_id__items__item_id__patch",
+    "parameters": [
+     {
+      "name": "list_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "List Id"
+      }
+     },
+     {
+      "name": "item_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Item Id"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/DoneBody"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Shopping Done V1 Shopping  List Id  Items  Item Id  Patch"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/meals/recipes/{slug}": {
+   "get": {
+    "tags": [
+     "family"
+    ],
+    "summary": "Recipe",
+    "operationId": "recipe_v1_meals_recipes__slug__get",
+    "parameters": [
+     {
+      "name": "slug",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Slug"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Recipe V1 Meals Recipes  Slug  Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/inventory/search": {
+   "get": {
+    "tags": [
+     "family"
+    ],
+    "summary": "Inventory",
+    "operationId": "inventory_v1_inventory_search_get",
+    "parameters": [
+     {
+      "name": "q",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Q"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Inventory V1 Inventory Search Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/assets/{name}": {
+   "get": {
+    "tags": [
+     "family"
+    ],
+    "summary": "Asset",
+    "operationId": "asset_v1_assets__name__get",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/trips": {
+   "get": {
+    "tags": [
+     "trips"
+    ],
+    "summary": "Trips",
+    "operationId": "trips_v1_trips_get",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Trips V1 Trips Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/trips/{trip_id}": {
+   "get": {
+    "tags": [
+     "trips"
+    ],
+    "summary": "Trip",
+    "operationId": "trip_v1_trips__trip_id__get",
+    "parameters": [
+     {
+      "name": "trip_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "Trip Id"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Trip V1 Trips  Trip Id  Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/network/kids": {
+   "get": {
+    "tags": [
+     "network"
+    ],
+    "summary": "Kids",
+    "operationId": "kids_v1_network_kids_get",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Kids V1 Network Kids Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/network/devices": {
+   "get": {
+    "tags": [
+     "network"
+    ],
+    "summary": "Devices",
+    "description": "Admin: every device Firewalla sees, to pick a child's tablet and phone.",
+    "operationId": "devices_v1_network_devices_get",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Devices V1 Network Devices Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/network/kids/{person_id}/devices": {
+   "post": {
+    "tags": [
+     "network"
+    ],
+    "summary": "Link Devices",
+    "description": "Admin: give a child's devices a hub-managed \"block internet\" rule each.\n\nEach rule is created, then paused at once, so linking leaves the child's\ninternet on until someone pauses it.",
+    "operationId": "link_devices_v1_network_kids__person_id__devices_post",
+    "parameters": [
+     {
+      "name": "person_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Person Id"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/LinkBody"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Link Devices V1 Network Kids  Person Id  Devices Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/network/kids/{person_id}/devices/{mac}": {
+   "delete": {
+    "tags": [
+     "network"
+    ],
+    "summary": "Unlink Device",
+    "operationId": "unlink_device_v1_network_kids__person_id__devices__mac__delete",
+    "parameters": [
+     {
+      "name": "person_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Person Id"
+      }
+     },
+     {
+      "name": "mac",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Mac"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Unlink Device V1 Network Kids  Person Id  Devices  Mac  Delete"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/cameras": {
+   "get": {
+    "tags": [
+     "cameras"
+    ],
+    "summary": "Cameras",
+    "operationId": "cameras_v1_cameras_get",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Cameras V1 Cameras Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/cameras/events": {
+   "get": {
+    "tags": [
+     "cameras"
+    ],
+    "summary": "All Events",
+    "description": "Every camera's events, newest first. `before` is the previous page's next_before.",
+    "operationId": "all_events_v1_cameras_events_get",
+    "parameters": [
+     {
+      "name": "limit",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "default": 30,
+       "title": "Limit"
+      }
+     },
+     {
+      "name": "before",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "number"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Before"
+      }
+     },
+     {
+      "name": "camera",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Camera"
+      }
+     },
+     {
+      "name": "label",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Label"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response All Events V1 Cameras Events Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/cameras/events/{event_id}": {
+   "get": {
+    "tags": [
+     "cameras"
+    ],
+    "summary": "One Event",
+    "operationId": "one_event_v1_cameras_events__event_id__get",
+    "parameters": [
+     {
+      "name": "event_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Event Id"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response One Event V1 Cameras Events  Event Id  Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/cameras/events/{event_id}/snapshot.jpg": {
+   "get": {
+    "tags": [
+     "cameras"
+    ],
+    "summary": "Event Snapshot",
+    "operationId": "event_snapshot_v1_cameras_events__event_id__snapshot_jpg_get",
+    "parameters": [
+     {
+      "name": "event_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Event Id"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/cameras/{cam}/pass": {
+   "post": {
+    "tags": [
+     "cameras"
+    ],
+    "summary": "Camera Pass",
+    "operationId": "camera_pass_v1_cameras__cam__pass_post",
+    "parameters": [
+     {
+      "name": "cam",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Cam"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Camera Pass V1 Cameras  Cam  Pass Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/cameras/{cam}/player": {
+   "get": {
+    "tags": [
+     "cameras"
+    ],
+    "summary": "Player Page",
+    "operationId": "player_page_v1_cameras__cam__player_get",
+    "parameters": [
+     {
+      "name": "cam",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Cam"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "text/html": {
+        "schema": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/cameras/{cam}/mjpeg": {
+   "get": {
+    "tags": [
+     "cameras"
+    ],
+    "summary": "Mjpeg",
+    "operationId": "mjpeg_v1_cameras__cam__mjpeg_get",
+    "parameters": [
+     {
+      "name": "cam",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Cam"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/cameras/{cam}/webrtc": {
+   "post": {
+    "tags": [
+     "cameras"
+    ],
+    "summary": "Webrtc",
+    "operationId": "webrtc_v1_cameras__cam__webrtc_post",
+    "parameters": [
+     {
+      "name": "cam",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Cam"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/Offer"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Webrtc V1 Cameras  Cam  Webrtc Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/cameras/{cam}/snapshot.jpg": {
+   "get": {
+    "tags": [
+     "cameras"
+    ],
+    "summary": "Snapshot",
+    "operationId": "snapshot_v1_cameras__cam__snapshot_jpg_get",
+    "parameters": [
+     {
+      "name": "cam",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Cam"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/cameras/{cam}/events": {
+   "get": {
+    "tags": [
+     "cameras"
+    ],
+    "summary": "Events",
+    "operationId": "events_v1_cameras__cam__events_get",
+    "parameters": [
+     {
+      "name": "cam",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Cam"
+      }
+     },
+     {
+      "name": "limit",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "default": 25,
+       "title": "Limit"
+      }
+     },
+     {
+      "name": "before",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "number"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Before"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Events V1 Cameras  Cam  Events Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/cameras/events/{event_id}/thumb.jpg": {
+   "get": {
+    "tags": [
+     "cameras"
+    ],
+    "summary": "Event Thumb",
+    "operationId": "event_thumb_v1_cameras_events__event_id__thumb_jpg_get",
+    "parameters": [
+     {
+      "name": "event_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Event Id"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/cameras/events/{event_id}/clip.mp4": {
+   "get": {
+    "tags": [
+     "cameras"
+    ],
+    "summary": "Event Clip",
+    "operationId": "event_clip_v1_cameras_events__event_id__clip_mp4_get",
+    "parameters": [
+     {
+      "name": "event_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Event Id"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/lights/{path}": {
+   "post": {
+    "tags": [
+     "holiday lights"
+    ],
+    "summary": "Passthrough",
+    "operationId": "lights_post",
+    "parameters": [
+     {
+      "name": "path",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Path"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "get": {
+    "tags": [
+     "holiday lights"
+    ],
+    "summary": "Passthrough",
+    "operationId": "lights_get",
+    "parameters": [
+     {
+      "name": "path",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Path"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/admin/web-approve": {
+   "post": {
+    "tags": [
+     "admin-web"
+    ],
+    "summary": "Web Approve",
+    "description": "Dylan typed the code the web page shows; Face ID confirms.",
+    "operationId": "web_approve_v1_admin_web_approve_post",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/CodeBody"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Web Approve V1 Admin Web Approve Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/admin/web-link": {
+   "post": {
+    "tags": [
+     "admin-web"
+    ],
+    "summary": "Web Link",
+    "description": "A one-minute link that opens the web page already signed in (for Safari on this phone).",
+    "operationId": "web_link_v1_admin_web_link_post",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Web Link V1 Admin Web Link Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  }
+ },
+ "components": {
+  "schemas": {
+   "ActionBody": {
+    "properties": {
+     "action": {
+      "type": "string",
+      "maxLength": 60,
+      "title": "Action"
+     },
+     "target": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 200
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Target"
+     },
+     "params": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Params"
+     }
+    },
+    "type": "object",
+    "required": [
+     "action"
+    ],
+    "title": "ActionBody"
+   },
+   "ActivityBody": {
+    "properties": {
+     "start_token": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 300
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Start Token"
+     },
+     "activity_id": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 100
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Activity Id"
+     },
+     "token": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 300
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Token"
+     }
+    },
+    "type": "object",
+    "title": "ActivityBody"
+   },
+   "AssignBody": {
+    "properties": {
+     "person_id": {
+      "type": "string",
+      "title": "Person Id"
+     }
+    },
+    "type": "object",
+    "required": [
+     "person_id"
+    ],
+    "title": "AssignBody"
+   },
+   "ChallengeBody": {
+    "properties": {
+     "device_id": {
+      "type": "string",
+      "title": "Device Id"
+     }
+    },
+    "type": "object",
+    "required": [
+     "device_id"
+    ],
+    "title": "ChallengeBody"
+   },
+   "CodeBody": {
+    "properties": {
+     "code": {
+      "type": "string",
+      "maxLength": 20,
+      "title": "Code"
+     }
+    },
+    "type": "object",
+    "required": [
+     "code"
+    ],
+    "title": "CodeBody"
+   },
+   "DoneBody": {
+    "properties": {
+     "done": {
+      "type": "boolean",
+      "title": "Done"
+     }
+    },
+    "type": "object",
+    "required": [
+     "done"
+    ],
+    "title": "DoneBody"
+   },
+   "EnrollBody": {
+    "properties": {
+     "device_name": {
+      "type": "string",
+      "maxLength": 80,
+      "title": "Device Name"
+     },
+     "model": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 80
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Model"
+     },
+     "platform": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 40
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Platform"
+     },
+     "app_version": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 40
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "App Version"
+     },
+     "public_key": {
+      "type": "string",
+      "maxLength": 200,
+      "title": "Public Key"
+     },
+     "secure_public_key": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 200
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Secure Public Key"
+     },
+     "apns_token": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 200
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Apns Token"
+     },
+     "apns_env": {
+      "anyOf": [
+       {
+        "type": "string",
+        "pattern": "^(sandbox|production)$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Apns Env"
+     }
+    },
+    "type": "object",
+    "required": [
+     "device_name",
+     "public_key"
+    ],
+    "title": "EnrollBody"
+   },
+   "ForPerson": {
+    "properties": {
+     "person": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Person"
+     },
+     "date": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Date"
+     }
+    },
+    "type": "object",
+    "title": "ForPerson"
+   },
+   "HTTPValidationError": {
+    "properties": {
+     "detail": {
+      "items": {
+       "$ref": "#/components/schemas/ValidationError"
+      },
+      "type": "array",
+      "title": "Detail"
+     }
+    },
+    "type": "object",
+    "title": "HTTPValidationError"
+   },
+   "InboxAct": {
+    "properties": {
+     "action": {
+      "type": "string",
+      "title": "Action"
+     },
+     "params": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Params"
+     }
+    },
+    "type": "object",
+    "required": [
+     "action"
+    ],
+    "title": "InboxAct"
+   },
+   "ItemBody": {
+    "properties": {
+     "text": {
+      "type": "string",
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Text"
+     }
+    },
+    "type": "object",
+    "required": [
+     "text"
+    ],
+    "title": "ItemBody"
+   },
+   "LinkBody": {
+    "properties": {
+     "macs": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "maxItems": 10,
+      "minItems": 1,
+      "title": "Macs"
+     }
+    },
+    "type": "object",
+    "required": [
+     "macs"
+    ],
+    "title": "LinkBody"
+   },
+   "Offer": {
+    "properties": {
+     "sdp": {
+      "type": "string",
+      "maxLength": 20000,
+      "title": "Sdp"
+     }
+    },
+    "type": "object",
+    "required": [
+     "sdp"
+    ],
+    "title": "Offer"
+   },
+   "PersonBody": {
+    "properties": {
+     "name": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 60
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Name"
+     },
+     "role": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Role"
+     },
+     "avatar": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 200
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Avatar"
+     },
+     "ui_style": {
+      "anyOf": [
+       {
+        "type": "string",
+        "pattern": "^(standard|kid|little)$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Ui Style"
+     },
+     "areas": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Areas"
+     },
+     "shared_areas": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Shared Areas"
+     },
+     "grants": {
+      "anyOf": [
+       {
+        "items": {
+         "additionalProperties": true,
+         "type": "object"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Grants"
+     },
+     "denies": {
+      "anyOf": [
+       {
+        "items": {
+         "additionalProperties": true,
+         "type": "object"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Denies"
+     },
+     "tv_device": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Tv Device"
+     },
+     "family_board_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Family Board Id"
+     },
+     "presence_entity": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Presence Entity"
+     },
+     "access_until": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Access Until"
+     }
+    },
+    "type": "object",
+    "title": "PersonBody"
+   },
+   "PlayBody": {
+    "properties": {
+     "item_id": {
+      "type": "string",
+      "maxLength": 40,
+      "title": "Item Id"
+     },
+     "target_device_id": {
+      "type": "string",
+      "maxLength": 200,
+      "title": "Target Device Id"
+     }
+    },
+    "type": "object",
+    "required": [
+     "item_id",
+     "target_device_id"
+    ],
+    "title": "PlayBody"
+   },
+   "PoolBody": {
+    "properties": {
+     "config": {
+      "type": "string",
+      "maxLength": 4000,
+      "title": "Config"
+     }
+    },
+    "type": "object",
+    "required": [
+     "config"
+    ],
+    "title": "PoolBody"
+   },
+   "PrefsBody": {
+    "properties": {
+     "prefs": {
+      "additionalProperties": {
+       "type": "boolean"
+      },
+      "type": "object",
+      "title": "Prefs"
+     }
+    },
+    "type": "object",
+    "required": [
+     "prefs"
+    ],
+    "title": "PrefsBody"
+   },
+   "PushBody": {
+    "properties": {
+     "apns_token": {
+      "type": "string",
+      "maxLength": 200,
+      "pattern": "^[0-9a-fA-F]+$",
+      "title": "Apns Token"
+     },
+     "env": {
+      "type": "string",
+      "pattern": "^(sandbox|production)$",
+      "title": "Env",
+      "default": "production"
+     },
+     "prefs": {
+      "anyOf": [
+       {
+        "additionalProperties": {
+         "type": "boolean"
+        },
+        "type": "object"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Prefs"
+     }
+    },
+    "type": "object",
+    "required": [
+     "apns_token"
+    ],
+    "title": "PushBody"
+   },
+   "RequestBody": {
+    "properties": {
+     "kind": {
+      "type": "string",
+      "pattern": "^(media|internet|reward|other)$",
+      "title": "Kind",
+      "default": "media"
+     },
+     "media_id": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 60
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Media Id"
+     },
+     "text": {
+      "type": "string",
+      "maxLength": 300,
+      "title": "Text",
+      "default": ""
+     },
+     "minutes": {
+      "anyOf": [
+       {
+        "type": "integer",
+        "maximum": 240.0,
+        "minimum": 5.0
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Minutes"
+     },
+     "reward_id": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 60
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Reward Id"
+     },
+     "title": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 200
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Title"
+     },
+     "poster_url": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 400
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Poster Url"
+     }
+    },
+    "type": "object",
+    "title": "RequestBody"
+   },
+   "TokenBody": {
+    "properties": {
+     "device_id": {
+      "type": "string",
+      "title": "Device Id"
+     },
+     "nonce": {
+      "type": "string",
+      "title": "Nonce"
+     },
+     "signature": {
+      "type": "string",
+      "title": "Signature"
+     }
+    },
+    "type": "object",
+    "required": [
+     "device_id",
+     "nonce",
+     "signature"
+    ],
+    "title": "TokenBody"
+   },
+   "ValidationError": {
+    "properties": {
+     "loc": {
+      "items": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "integer"
+        }
+       ]
+      },
+      "type": "array",
+      "title": "Location"
+     },
+     "msg": {
+      "type": "string",
+      "title": "Message"
+     },
+     "type": {
+      "type": "string",
+      "title": "Error Type"
+     },
+     "input": {
+      "title": "Input"
+     },
+     "ctx": {
+      "type": "object",
+      "title": "Context"
+     }
+    },
+    "type": "object",
+    "required": [
+     "loc",
+     "msg",
+     "type"
+    ],
+    "title": "ValidationError"
+   },
+   "VpnBody": {
+    "properties": {
+     "wg_public_key": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 64
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Wg Public Key"
+     }
+    },
+    "type": "object",
+    "title": "VpnBody"
+   }
+  }
+ }
+}
