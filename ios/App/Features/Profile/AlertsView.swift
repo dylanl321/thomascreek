@@ -138,9 +138,13 @@ final class AlertsModel {
     func test() async {
         testResult = nil
         do {
-            struct R: Decodable { var ok: Bool; var picture: Bool }
+            struct R: Decodable { var ok: Bool; var picture: Bool; var reason: String?; var env: String? }
             let r: R = try await HubClient.shared.post("/v1/alerts/test")
-            testResult = r.picture ? "Sent with a camera picture. It should arrive in a few seconds." : "Sent. It should arrive in a few seconds."
+            if r.ok {
+                testResult = r.picture ? "Sent with a camera picture. It should arrive in a few seconds." : "Sent. It should arrive in a few seconds."
+            } else {
+                testResult = "Apple didn't take it (\(r.reason ?? "no answer"), \(r.env ?? "production")). Open the app again so it re-registers, then retry."
+            }
         } catch { testResult = error.localizedDescription }
     }
 

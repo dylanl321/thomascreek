@@ -171,3 +171,23 @@ def test_payload_silent_and_picture():
     p = alert_payload("t", "b", cat="cameras", silent=True, image="/v1/x.jpg")
     assert "sound" not in p["aps"] and p["aps"]["interruption-level"] == "passive"
     assert p["aps"]["mutable-content"] == 1 and p["image"] == "/v1/x.jpg"
+
+
+def test_test_alert_reports_apples_answer(hub, people, home_client):
+    from hub.push import PushResult
+
+    sent = []
+
+    async def fake_send(token, payload, **kw):
+        sent.append((token, payload, kw))
+        return PushResult(False, 400, "BadDeviceToken")
+
+    hub.vault.set("apns.auth_key_p8", "k")
+    hub.vault.set("apns.key_id", "ABC")
+    hub.config.apns.team_id = "T"
+    hub.apns.send = fake_send  # type: ignore[method-assign]
+    ph = people["phones"]["Dylan"]
+    hub.db.update("devices", "id", ph.device_id, {"apns_token": "ab12", "apns_env": "sandbox"})
+    r = home_client.post("/v1/alerts/test", headers=ph.h).json()
+    assert r["ok"] is False and r["reason"] == "BadDeviceToken" and r["env"] == "sandbox"
+    assert sent[0][2]["env"] == "sandbox"

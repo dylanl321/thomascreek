@@ -84,17 +84,26 @@ async def put_alerts(body: dict[str, Any], c: Caller = Depends(caller), h: Hub =
 
 @router.post("/test")
 async def test_alert(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
-    """A sample camera alert to this person, through the same path real alerts take."""
-    pid = _person(c)
+    """A sample camera alert to this phone only, shaped like a real one, with Apple's answer."""
+    _person(c)
     if not h.apns.enabled:
         raise error(503, "push_unavailable", "Push isn't set up on the hub yet")
+    token = c.device.get("apns_token")
+    if not token:
+        raise error(409, "no_token", "This device hasn't registered for alerts yet")
+    from ..push import alert_payload
+
     cam = None
     if c.subject.role in ALERT_ROLES:
         cam = next(iter(h.alerts.default_cameras()), None) or next(iter(h.frigate._info), None)
-    await h.notify.send(title="Test alert", body=f"{camera_name(h, cam)} camera, right now" if cam else "Alerts are working",
-                        cat="house", person_ids=[pid], image=f"/v1/cameras/{cam}/snapshot.jpg" if cam else None,
-                        ref=f"thomascreek://camera/{cam}" if cam else None, interruption="active")
-    return {"ok": True, "picture": bool(cam)}
+    payload = alert_payload("Test alert", f"{camera_name(h, cam)} camera, right now" if cam else "Alerts are working",
+                            cat="cameras", ref=f"thomascreek://camera/{cam}" if cam else None,
+                            image=f"/v1/cameras/{cam}/snapshot.jpg" if cam else None, interruption="active")
+    res = await h.apns.send(token, payload, env=c.device.get("apns_env") or "production")
+    if res.token_dead:
+        h.db.update("devices", "id", c.device["id"], {"apns_token": None})
+    return {"ok": res.ok, "picture": bool(cam), "status": res.status, "reason": res.reason,
+            "env": c.device.get("apns_env") or "production"}
 
 
 # -- Dylan: what's on offer -----------------------------------------------
