@@ -272,3 +272,21 @@ def test_bootstrap_admin_from_config(hub):
     assert hub.db.device("dev_new")["status"] == "active"
     assert [p["name"] for p in hub.db.people_with_role("admin")] == ["Dylan"]
     assert hub.bootstrap_admin() is None  # only once
+
+
+def test_drop_folder_moves_secrets_into_vault(tmp_path):
+    from hub.dropbox import import_dropped
+    from hub.vault import Vault, generate_master_key, load_master_key
+
+    kf = tmp_path / "k"
+    kf.write_text(generate_master_key())
+    v = Vault(tmp_path / "vault.json", load_master_key(kf))
+    d = tmp_path / "import"
+    d.mkdir()
+    (d / "plex.token").write_text("abc\n")
+    (d / "apns.auth_key_p8.txt").write_text("-----BEGIN PRIVATE KEY-----\nX\n-----END PRIVATE KEY-----\n")
+    (d / "Not A Name").write_text("x")
+    assert sorted(import_dropped(v, d)) == ["apns.auth_key_p8", "plex.token"]
+    assert v.get("plex.token") == "abc"
+    assert v.get("apns.auth_key_p8").endswith("-----END PRIVATE KEY-----\n")
+    assert list(d.iterdir()) == []

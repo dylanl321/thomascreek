@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import ipaddress
 import logging
 import secrets
@@ -153,11 +154,16 @@ class Hub:
             log.error("VPN did not come up: %s", exc)
         self.home.start()
         self.timers.start()
+        from .dropbox import watch
+
+        self._dropbox = asyncio.create_task(watch(self.vault))
 
     async def stop(self) -> None:
         await self.home.stop()
         await self.timers.stop()
         await self.onepassword.stop()
+        if getattr(self, "_dropbox", None):
+            self._dropbox.cancel()
         for a in self.adapters:
             await a.close()
         await self.apns.close()
