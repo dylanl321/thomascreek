@@ -24,6 +24,12 @@ enum AppSettings {
         get { defaults.string(forKey: "hubPin") ?? "" }
         set { defaults.set(newValue, forKey: "hubPin") }
     }
+    /// Set when the hub address was typed in (Bonjour didn't answer): the first certificate seen from
+    /// this host is pinned, then the flag clears. Only private LAN addresses qualify.
+    static var trustFirstCertFrom: String {
+        get { defaults.string(forKey: "trustFirstCertFrom") ?? "" }
+        set { defaults.set(newValue, forKey: "trustFirstCertFrom") }
+    }
     /// The hub's id for this phone, set by enrollment.
     static var deviceID: String? {
         get { defaults.string(forKey: "hubDeviceID") }

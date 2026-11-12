@@ -248,8 +248,14 @@ final class HubPinning: NSObject, URLSessionDelegate, @unchecked Sendable {
     static func evaluate(_ challenge: URLAuthenticationChallenge) -> (URLSession.AuthChallengeDisposition, URLCredential?) {
         guard challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
               let trust = challenge.protectionSpace.serverTrust else { return (.performDefaultHandling, nil) }
-        let pin = AppSettings.hubPin
-        guard !pin.isEmpty, isHub(challenge.protectionSpace.host) else { return (.performDefaultHandling, nil) }
+        var pin = AppSettings.hubPin
+        let host = challenge.protectionSpace.host
+        if pin.isEmpty, !AppSettings.trustFirstCertFrom.isEmpty, host == AppSettings.trustFirstCertFrom,
+           let chain = SecTrustCopyCertificateChain(trust) as? [SecCertificate], let leaf = chain.first, let fp = spkiSHA256(leaf) {
+            // Typed-in address on home Wi-Fi: pin the first certificate it shows.
+            AppSettings.hubPin = fp; AppSettings.trustFirstCertFrom = ""; pin = fp
+        }
+        guard !pin.isEmpty, isHub(host) else { return (.performDefaultHandling, nil) }
         guard let chain = SecTrustCopyCertificateChain(trust) as? [SecCertificate], let leaf = chain.first,
               let fp = spkiSHA256(leaf), fp == pin.lowercased() else {
             return (.cancelAuthenticationChallenge, nil)
