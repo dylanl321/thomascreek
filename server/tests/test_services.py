@@ -685,3 +685,15 @@ def test_trek_block_without_token_secret_still_uses_the_saved_key():
     from hub.config import Config
 
     assert Config(**{"trek": {"enabled": True, "url": "http://trek.test"}}).trek.token_secret == "trek.api_key"
+
+
+def test_climate_heat_cool_and_text_numbers():
+    from hub.home import device_state
+
+    st = device_state("climate", {"state": "heat_cool", "attributes": {
+        "current_temperature": "71", "temperature": None, "target_temp_low": 68, "target_temp_high": 74,
+        "humidity": 36.0, "temperature_unit": "°F"}})
+    assert st["current_temp"] == 71.0 and st["target_temp"] == 71.0 and st["target_low"] == 68.0
+    assert st["available"] and st["on"] and st["humidity"] == 36.0
+    gone = device_state("climate", {"state": "unavailable", "attributes": {}})
+    assert gone["available"] is False and gone["current_temp"] is None

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 import hashlib
 from pathlib import Path
 from typing import Any
@@ -22,7 +24,34 @@ def _unavailable(exc: Exception):
     return error(503, "unavailable", str(exc))
 
 
-def _board_person(h: Hub, c: Caller, person: str | None) -> dict[str, Any]:
+async def link_board_people(h: Hub) -> None:
+    """Link hub people to the family board by first name, once, for anyone not linked yet."""
+    unlinked = [p for p in h.db.people() if not p.get("family_board_id")]
+    if not unlinked or not h.family_board.enabled:
+        return
+    last = h.__dict__.get("_board_link_at", 0.0)
+    if time.time() - last < 300:
+        return
+    h.__dict__["_board_link_at"] = time.time()
+    try:
+        board = await h.family_board.people()
+    except AdapterError:
+        return
+    taken = {p.get("family_board_id") for p in h.db.people() if p.get("family_board_id")}
+    by_name = {}
+    for b in board:
+        first = str(b.get("name") or "").strip().split(" ")[0].lower()
+        if first and b.get("id") not in taken:
+            by_name.setdefault(first, []).append(b)
+    for p in unlinked:
+        first = str(p.get("name") or "").strip().split(" ")[0].lower()
+        match = by_name.get(first) or []
+        if len(match) == 1:
+            h.db.update("people", "id", p["id"], {"family_board_id": match[0]["id"]})
+
+
+async def _board_person(h: Hub, c: Caller, person: str | None) -> dict[str, Any]:
+    await link_board_people(h)
     pid = person or c.subject.person_id
     if pid != c.subject.person_id:
         need(h, c, "chores.manage")
@@ -39,7 +68,7 @@ async def chores(person: str | None = None, date: str | None = None, c: Caller =
                  h: Hub = Depends(hub)) -> dict[str, Any]:
     if not (h.policy.has(c.subject, "chores.do") or h.policy.has(c.subject, "chores.manage")):
         raise error(403, "forbidden", "Not available")
-    p = _board_person(h, c, person)
+    p = await _board_person(h, c, person)
     try:
         raw = await h.family_board.today(p["family_board_id"], date)
     except AdapterError as exc:
@@ -50,6 +79,7 @@ async def chores(person: str | None = None, date: str | None = None, c: Caller =
 @router.get("/chores/all")
 async def chores_all(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
     need(h, c, "chores.manage")
+    await link_board_people(h)
     boards = []
     for p in h.db.people():
         if not p.get("family_board_id") or p["role"] not in ("child", "adult", "admin"):
@@ -82,7 +112,7 @@ class ForPerson(BaseModel):
 async def chore_done(chore_id: str, body: ForPerson | None = None, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
     if not h.policy.has(c.subject, "chores.manage"):
         need(h, c, "chores.do")
-    p = _board_person(h, c, body.person if body else None)
+    p = await _board_person(h, c, body.person if body else None)
     if not h.actions.is_live("chores.done"):
         h.db.log("chores.done", "dry_run", person_id=c.subject.person_id, device_id=c.device["id"], target=chore_id)
         return {"ok": True, "dry_run": True, "message": "Practice mode: not sent to the family board"}
@@ -98,7 +128,7 @@ async def chore_done(chore_id: str, body: ForPerson | None = None, c: Caller = D
 async def redeem(reward_id: str, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
     """The family board already asks a parent to approve redemptions."""
     need(h, c, "chores.do")
-    p = _board_person(h, c, None)
+    p = await _board_person(h, c, None)
     if not h.actions.is_live("chores.redeem"):
         h.db.log("chores.redeem", "dry_run", person_id=c.subject.person_id, device_id=c.device["id"], target=reward_id)
         return {"ok": True, "dry_run": True}

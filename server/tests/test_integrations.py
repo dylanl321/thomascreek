@@ -50,6 +50,9 @@ def test_chores_routes_reach_the_board(hub, people, home_client):
     theo, avery = people["phones"]["Theo"], people["phones"]["Avery"]
     with respx.mock(assert_all_called=False) as mock:
         mock.get("http://fcc.test/api/today/theo").mock(return_value=httpx.Response(200, json=TODAY))
+        mock.get("http://fcc.test/api/today/avery-b").mock(return_value=httpx.Response(200, json=TODAY))
+        mock.get("http://fcc.test/api/bootstrap").mock(return_value=httpx.Response(200, json={"people": [
+            {"id": "theo", "name": "Theo"}, {"id": "avery-b", "name": "Avery Smith"}]}))
         done = mock.post("http://fcc.test/api/items/teeth/complete").mock(return_value=httpx.Response(200, json={}))
         r = home_client.get("/v1/chores", headers=theo.h)
         assert r.status_code == 200 and r.json()["person"]["name"] == "Theo" and r.json()["points"] == 42
@@ -62,7 +65,9 @@ def test_chores_routes_reach_the_board(hub, people, home_client):
         # Theo can't read someone else's board; an adult can see all of them.
         assert home_client.get(f"/v1/chores?person={people['avery']['id']}", headers=theo.h).status_code == 403
         boards = home_client.get("/v1/chores/all", headers=avery.h).json()["boards"]
-        assert [b["person"]["name"] for b in boards] == ["Theo"]
+        # Avery was linked to the board by first name, without anyone setting it up.
+        assert sorted(b["person"]["name"] for b in boards) == ["Avery", "Theo"]
+        assert hub.db.person(people["avery"]["id"])["family_board_id"] == "avery-b"
 
 
 def test_firewalla_link_creates_paused_rule(hub, people, home_client):

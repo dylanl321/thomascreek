@@ -78,9 +78,15 @@ class HomeAssistant(Adapter):
         except Exception:  # floors() needs HA 2024.4+
             return []
 
-    async def logbook(self, start_iso: str, end_iso: str | None = None) -> list[dict[str, Any]]:
-        params = {"end_time": end_iso} if end_iso else None
-        return await self.get_json(f"/api/logbook/{start_iso}", params=params)
+    async def logbook(self, start_iso: str, end_iso: str | None = None,
+                      entities: list[str] | None = None) -> list[dict[str, Any]]:
+        params: dict[str, str] = {}
+        if end_iso:
+            params["end_time"] = end_iso
+        if entities:
+            # Only the entities asked for: the whole house's logbook is large and slow.
+            params["entity"] = ",".join(entities)
+        return await self.get_json(f"/api/logbook/{start_iso}", params=params or None)
 
     async def call_service(self, domain: str, service: str, data: dict[str, Any]) -> Any:
         return await self.post_json(f"/api/services/{domain}/{service}", data)

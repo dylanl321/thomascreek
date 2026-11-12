@@ -125,6 +125,16 @@ def media_commands(st: dict[str, Any], link: dict[str, Any] | None) -> list[str]
     return cmds
 
 
+def _num(v: Any) -> float | None:
+    """HA attributes are numbers, but some integrations send them as text."""
+    if v is None or isinstance(v, bool):
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
 def device_state(kind: str, st: dict[str, Any], link: dict[str, Any] | None = None) -> dict[str, Any]:
     s = st.get("state")
     a = st.get("attributes", {})
@@ -139,8 +149,15 @@ def device_state(kind: str, st: dict[str, Any], link: dict[str, Any] | None = No
         if kind == "fan" and a.get("percentage") is not None:
             out["speed"] = a["percentage"]
     elif kind == "climate":
-        out.update(current_temp=a.get("current_temperature"), target_temp=a.get("temperature"),
-                   hvac=s, hvac_action=a.get("hvac_action"))
+        low, high = _num(a.get("target_temp_low")), _num(a.get("target_temp_high"))
+        target = _num(a.get("temperature"))
+        out.update(current_temp=_num(a.get("current_temperature")), target_temp=target,
+                   target_low=low, target_high=high, humidity=_num(a.get("current_humidity") or a.get("humidity")),
+                   hvac=s, hvac_action=a.get("hvac_action"), unit=a.get("temperature_unit"),
+                   on=s not in ("off", "unavailable", "unknown"), available=s not in ("unavailable", "unknown"))
+        if target is None and low is not None and high is not None:
+            # Heat/cool keeps two set points; one "target" is the middle of the range.
+            out["target_temp"] = round((low + high) / 2, 1)
     elif kind == "lock":
         out["locked"] = s == "locked"
     elif kind == "garage":
