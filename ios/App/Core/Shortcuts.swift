@@ -3,6 +3,8 @@ import AppIntents
 /// Siri phrases. The holiday-lights phrases are unchanged from the Christmas Lights app.
 struct HomeShortcuts: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
+        AppShortcut(intent: AskHomeIntent(), phrases: ["Ask \(.applicationName)", "Tell \(.applicationName)", "Talk to \(.applicationName)"],
+                    shortTitle: "Ask Thomas Creek", systemImageName: "mic.fill")
         AppShortcut(intent: RunModeIntent(), phrases: ["Run \(\.$mode) in \(.applicationName)", "\(.applicationName) \(\.$mode)"],
                     shortTitle: "Run Mode", systemImageName: "house.fill")
         AppShortcut(intent: HouseStatusIntent(), phrases: ["Is everything OK at \(.applicationName)", "\(.applicationName) house status"],
