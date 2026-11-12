@@ -13,18 +13,30 @@ struct FamilyView: View {
                     SectionHeader(title: "Today") { MoreButton("Calendar") { router.go(.calendar) } }
                     TodayCard(today: today)
                 }
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 10)], spacing: 10) {
+                LazyVGrid(columns: grid, spacing: 10) {
                     SectionTile(symbol: "calendar", title: "Calendar", detail: "This week") { router.go(.calendar) }
-                    SectionTile(symbol: "fork.knife", title: "Dinners", detail: store.home?.today?.dinner?.title ?? "Plan the week") { router.go(.meals) }
-                    SectionTile(symbol: "book.fill", title: "Recipes", detail: "Add, edit, find") { router.go(.recipes) }
-                    SectionTile(symbol: "cart.fill", title: "Shopping", detail: "Lists") { router.go(.shopping) }
                     SectionTile(symbol: "star.fill", title: "Chores", detail: chores.map { b in "\(b.reduce(0) { $0 + $1.doneCount })/\(b.reduce(0) { $0 + $1.items.count }) done today" } ?? "Points and rewards") { router.go(.chores) }
-                    SectionTile(symbol: "shippingbox.fill", title: "Inventory", detail: "Where is it?") { router.go(.inventory) }
                     if store.me?.can(.tripsView) == true {
                         SectionTile(symbol: "suitcase.rolling.fill", title: "Trips", detail: tripDetail) { router.go(.trips) }
                     }
+                    SectionTile(symbol: "shippingbox.fill", title: "Inventory", detail: "Where is it?") { router.go(.inventory) }
                 }
                 .padding(.top, 8)
+
+                // Everything about food in one place: tonight, the ovens, recipes and the list.
+                SectionHeader("Kitchen")
+                LazyVGrid(columns: grid, spacing: 10) {
+                    SectionTile(symbol: "fork.knife", title: "Dinners", detail: store.home?.today?.dinner?.title ?? "Plan the week") { router.go(.meals) }
+                    if store.me?.can(.appliances) == true {
+                        SectionTile(symbol: "oven.fill", title: "Ovens", detail: ovenLine) { router.go(.kitchen(nil)) }
+                    }
+                    SectionTile(symbol: "book.fill", title: "Recipes", detail: recipesLine) { router.go(.recipes) }
+                    SectionTile(symbol: "cart.fill", title: "Shopping", detail: "Lists") { router.go(.shopping) }
+                }
+
+                if store.me?.can(.networkManage) == true || isParent {
+                    ParentsSection()
+                }
             }
             .screen()
         }
@@ -33,6 +45,19 @@ struct FamilyView: View {
         .topBar()
         .task { chores = (try? await HubClient.shared.get("/v1/chores/all", as: Boards.self))?.boards }
         .task { if store.me?.can(.tripsView) == true { await TripStore.shared.load() } }
+    }
+
+    private let grid = [GridItem(.adaptive(minimum: 150), spacing: 10)]
+    private var isParent: Bool { store.role == .admin || store.role == .adult }
+
+    private var ovenLine: String {
+        let ovens = (store.home?.devices ?? []).filter { $0.kind == .oven }
+        if let on = ovens.first(where: { $0.isOn }) { return DeviceSymbols.value(on) }
+        return "Preheat and timers"
+    }
+    private var recipesLine: String {
+        let n = SettingsStore.shared.favorites(.recipe).count
+        return n > 0 ? "\(n) starred" : "Add, edit, find"
     }
 
     private var tripDetail: String {

@@ -120,7 +120,11 @@ final class Downloads {
             throw HubClient.HubError.server(0, "That won't fit. Remove something you've watched first.")
         }
         if let old = title(for: item.id) { remove(old) }
-        AppSettings.downloadQuality = option.quality
+        if AppSettings.downloadQuality != option.quality {
+            AppSettings.downloadQuality = option.quality
+            let q = option.quality
+            Task { @MainActor in SettingsStore.shared.set(SettingKey.downloadQuality, q) }  // follows the person
+        }
         var t = Title(itemId: item.id, quality: option.quality, title: item.title, kind: item.kind, rating: item.rating,
                       summary: item.summary, year: item.year, posterPath: item.posterUrl, personId: me?.person.id)
         t.bytes = option.bytes

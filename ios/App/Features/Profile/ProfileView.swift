@@ -1,12 +1,14 @@
 import SwiftUI
 import NetworkExtension
 
-/// Alerts (own screen), this phone, and (for Dylan) the hub address.
+/// Profile in three parts: You (follows the person to every device), This iPhone (only here), and for
+/// Dylan, Admin (View as and the hub address).
 struct ProfileView: View {
     @Environment(HomeStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     @State private var alerts = AlertsModel.shared
     @State private var hubLAN = AppSettings.hubLAN
+    @State private var editHome = false
 
     var body: some View {
         NavigationStack {
@@ -20,30 +22,49 @@ struct ProfileView: View {
                         }
                     }
                 }
-                if store.role != .child || store.me?.style != .little {
-                    Section {
+                // MARK: You: kept on the hub, the same on every device this person uses.
+                Section {
+                    if store.role.isGrownUp {
+                        Button { editHome = true } label: {
+                            LabeledContent {
+                                Text(favoritesLine).lineLimit(1)
+                            } label: { Label("Favorites and Home", systemImage: "star") }
+                        }
+                        .foregroundStyle(Theme.fg)
+                    }
+                    if store.role != .child || store.me?.style != .little {
                         NavigationLink { AlertsView() } label: {
                             LabeledContent {
                                 Text(PushRegistration.shared.allowed == false ? "Off in iOS Settings" : alerts.summary).lineLimit(1)
                             } label: { Label("Alerts", systemImage: "bell.badge") }
                         }
-                    } footer: { Text(store.role == .child ? "Chores, requests and quiet hours." : "Doorbell, cameras, garage, leaks and quiet hours. Each person picks their own.") }
-                }
-                if store.me?.style != .little {
-                    Section {
+                    }
+                    if store.me?.style != .little {
                         NavigationLink { SuggestionsView() } label: { Label("Suggestions on Home", systemImage: "sparkles") }
-                    } footer: { Text("The \"Right now\" cards. Turn any kind of suggestion off or back on.") }
+                    }
+                    Picker(selection: Binding(get: { SettingsStore.shared.string(SettingKey.appearance, "system") },
+                                              set: { SettingsStore.shared.set(SettingKey.appearance, $0) })) {
+                        Text("Match iPhone").tag("system")
+                        Text("Light").tag("light")
+                        Text("Dark").tag("dark")
+                    } label: { Label("Appearance", systemImage: "circle.lefthalf.filled") }
+                } header: { Text("You") } footer: {
+                    Text("These follow you to your other iPhone and iPad.")
                 }
+                if store.me?.can(.holidayFull) == true || store.me?.can(.holidayLooks) == true {
+                    LightsSettingsSection()
+                }
+
+                // MARK: This device only.
                 Section {
                     NavigationLink { OfflineStorageView() } label: {
                         LabeledContent("Storage and downloads", value: byteSize(OfflineCache.usage().reduce(0) { $0 + $1.bytes }))
                     }
-                } footer: { Text("What's saved for when there's no connection: downloads, trips and the last copy of each screen.") }
-                if store.me?.can(.holidayFull) == true || store.me?.can(.holidayLooks) == true {
-                    LightsSettingsSection()
+                } header: { Text("This \(UIDevice.current.model)") } footer: {
+                    Text("What's saved here for when there's no connection. Download quality and Wi-Fi-only follow you; the files stay on this device.")
                 }
                 if VPN.shared.isAvailable { VPNSection() }
-                Section("This \(UIDevice.current.model)") {
+                Section {
                     LabeledContent("Name", value: store.me?.device?.name ?? AppSettings.deviceName)
                     LabeledContent("Connection", value: store.reachable ? (store.isLive ? "Live" : "Connected") : "Can't reach home")
                     LabeledContent("Version", value: version)
@@ -54,6 +75,11 @@ struct ProfileView: View {
                     }
                 }
                 if store.role == .admin {
+                    Section {
+                        NavigationLink { ViewAsList() } label: { Label("View as…", systemImage: "eye") }
+                    } header: { Text("Admin") } footer: {
+                        Text("See the app exactly as a kid or guest does. Nothing in the house changes while you look.")
+                    }
                     Section {
                         TextField("http://hub.local:8443", text: $hubLAN).keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
                             .onSubmit { AppSettings.hubLAN = hubLAN; Task { await store.refreshAll() } }
@@ -66,6 +92,7 @@ struct ProfileView: View {
                 }
             }
             .navigationTitle("Profile")
+            .sheet(isPresented: $editHome) { EditHomeSheet() }
             .toolbar { Button("Done") { dismiss() } }
             .onDisappear { if hubLAN != AppSettings.hubLAN { AppSettings.hubLAN = hubLAN } }
             .task {
@@ -73,6 +100,11 @@ struct ProfileView: View {
                 await alerts.load()
             }
         }
+    }
+
+    private var favoritesLine: String {
+        let n = FavoriteKind.allCases.reduce(0) { $0 + SettingsStore.shared.favorites($1).count }
+        return n == 0 ? "Arrange Home" : "\(n) starred"
     }
 
     private var roleLine: String {

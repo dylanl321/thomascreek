@@ -18,6 +18,16 @@ struct RootView: View {
         }
         .overlay(alignment: .top) { ToastView() }
         .animation(.spring(duration: 0.35), value: store.toast)
+        .preferredColorScheme(scheme)
+    }
+
+    /// The person's own choice, the same on all their devices.
+    private var scheme: ColorScheme? {
+        switch SettingsStore.shared.string(SettingKey.appearance, "system") {
+        case "light": .light
+        case "dark": .dark
+        default: nil
+        }
     }
 }
 
@@ -50,6 +60,9 @@ struct MainTabs: View {
                 Tab("Home", image: "tc.home", value: AppTab.home) { PendingView() }
             }
         }
+        .tabViewStyle(.sidebarAdaptable)
+        .safeAreaInset(edge: .top, spacing: 0) { PreviewBanner() }
+        .animation(.spring(duration: 0.3), value: store.previewing)
         .tint(store.role == .child ? (store.me?.style == .little ? Theme.little : Theme.kid) : Theme.accent)
         .overlay(alignment: .bottom) { UpdateBanner() }
         .overlay(alignment: .bottomTrailing) { AskButton() }
@@ -62,6 +75,8 @@ struct MainTabs: View {
         .sheet(isPresented: $router.showInbox) { InboxView() }
         .sheet(isPresented: $router.showSearch) { SearchView() }
         .sheet(isPresented: $router.showProfile) { ProfileView() }
+        .sheet(isPresented: $router.showEditHome) { EditHomeSheet() }
+        .sheet(isPresented: $router.showViewAs) { ViewAsSheet() }
         .sheet(isPresented: $router.showOffline) {
             NavigationStack { OfflineStorageView().toolbar { Button("Done") { router.showOffline = false } } }
         }

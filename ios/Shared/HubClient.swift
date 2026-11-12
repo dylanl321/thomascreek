@@ -28,6 +28,11 @@ actor HubClient {
         }
     }
 
+    /// Set while Dylan previews the app as someone else ("View as"): every request carries it and the hub
+    /// answers as that person, refusing anything that would change the house. Memory only, so it never
+    /// survives the app closing.
+    nonisolated(unsafe) static var viewAs: String?
+
     private var lastGood: URL?
     private var token: String? = SharedKeychain.get("access")
     private var tokenExpiry: Date = {
@@ -119,7 +124,8 @@ actor HubClient {
     /// Like `get`, and says whether the answer is a saved copy (and from when).
     func fetch<T: Decodable>(_ path: String, _ query: [String: String] = [:], keep: Bool = false,
                              as: T.Type = T.self) async throws -> (value: T, savedAt: Date?) {
-        let cacheable = OfflineCache.cacheable(path)
+        // A preview's answers belong to someone else: never save them over this phone's own copies.
+        let cacheable = OfflineCache.cacheable(path) && Self.viewAs == nil
         let data: Data
         var savedAt: Date?
         do {
@@ -236,6 +242,7 @@ actor HubClient {
         if body != nil { r.setValue("application/json", forHTTPHeaderField: "Content-Type") }
         if let bearer { r.setValue("Bearer \(bearer)", forHTTPHeaderField: "Authorization") }
         if let confirmHeader { r.setValue(confirmHeader, forHTTPHeaderField: "X-TC-Confirm") }
+        if let v = Self.viewAs { r.setValue(v, forHTTPHeaderField: "X-TC-View-As") }
         r.setValue(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String, forHTTPHeaderField: "X-TC-App")
         return r
     }
