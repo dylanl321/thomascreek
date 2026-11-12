@@ -55,7 +55,7 @@ class Hub:
         self.homebox = Homebox(config.homebox, vault)
         self.family_board = FamilyBoard(config.family_board, vault)
         self.show_player = ShowPlayer(config.show_player, vault)
-        self.firewalla = Firewalla(config.firewalla, vault)
+        self.firewalla = Firewalla(config.firewalla, vault, db)
         self.apns = APNs(config.apns, vault)
         self.vpn = Vpn(config.vpn, vault, db)
         self.home = HomeModel(self)

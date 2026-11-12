@@ -37,12 +37,12 @@ radarr:      {enabled: false, url: http://RADARR:7878, token_secret: radarr.api_
 truenas:     {enabled: true,  url: https://NAS, verify_tls: false, username: hub, token_secret: truenas.api_key}
 mealie:      {enabled: true,  url: http://MEALIE:9000, token_secret: mealie.token}
 homebox:     {enabled: true,  url: http://HOMEBOX:7745, username: hub@home, password_secret: homebox.password}
-family_board:
-  enabled: false
-  url: http://FAMILY_BOARD:PORT
-  token_secret: family_board.token
-  extra:
-    paths: {}        # override chores / chore_done / reward_redeem / calendar routes if they differ
+family_board:                 # Family Command Center
+  enabled: true
+  url: http://FAMILY_BOARD:8480
+  # Not needed on the LAN (chores and redemptions are its "family actions").
+  # Only if the hub reaches it through a proxy: store the parent PIN here.
+  token_secret: family_board.admin_token
 show_player:
   enabled: true
   url: http://SHOW_PLAYER:8770

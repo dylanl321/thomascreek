@@ -53,6 +53,20 @@ class Plex(Adapter):
             out.extend(self._item(m) for m in hub.get("Metadata", []))
         return out
 
+    async def library(self, kind: str | None = None, limit: int = 200) -> list[dict[str, Any]]:
+        sections = (await self.get_json("/library/sections")).get("MediaContainer", {}).get("Directory", [])
+        out: list[dict[str, Any]] = []
+        for sec in sections:
+            if sec.get("type") not in ("movie", "show") or (kind and sec.get("type") != kind):
+                continue
+            data = await self.get_json(f"/library/sections/{quote(str(sec['key']))}/all",
+                                       params={"X-Plex-Container-Start": 0, "X-Plex-Container-Size": limit,
+                                               "sort": "titleSort"})
+            for m in data.get("MediaContainer", {}).get("Metadata", []):
+                m.setdefault("librarySectionTitle", sec.get("title"))
+                out.append(self._item(m))
+        return out[:limit]
+
     async def metadata(self, item_id: str) -> dict[str, Any] | None:
         data = await self.get_json(f"/library/metadata/{quote(item_id)}")
         items = data.get("MediaContainer", {}).get("Metadata", [])

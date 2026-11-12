@@ -264,11 +264,22 @@ async def revoke_device(device_id: str, request: Request, c: Caller = Depends(ca
 
 
 # -- activity and systems -------------------------------------------------
+ACTIVITY_CATEGORIES = {
+    "doors": ("garage.", "lock."), "lights": ("light.", "fan.", "switch.", "scene.", "mode.", "lights."),
+    "climate": ("climate.",), "media": ("media.", "speaker.", "request."), "network": ("network.", "timer.network"),
+    "people": ("people.", "device.", "auth.", "vpn."), "cameras": ("camera.",), "chores": ("chores.",),
+}
+
+
 @router.get("/activity")
 async def activity(before: int | None = None, person: str | None = None, limit: int = 100,
-                   c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+                   category: str | None = None, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
     need(h, c, "activity")
-    rows = h.db.activity(before=before, limit=min(max(limit, 1), 500), person_id=person)
+    limit = min(max(limit, 1), 500)
+    prefixes = ACTIVITY_CATEGORIES.get(category or "")
+    if category and prefixes is None:
+        raise error(400, "bad_category", f"category is one of {', '.join(ACTIVITY_CATEGORIES)}")
+    rows = h.db.activity(before=before, limit=limit, person_id=person, prefixes=prefixes)
     names = {p["id"]: p["name"] for p in h.db.people()}
     items = [{
         "id": r["id"], "t": iso(r["ts"]), "who": names.get(r["person_id"] or "", None), "person_id": r["person_id"],
@@ -282,9 +293,12 @@ async def activity(before: int | None = None, person: str | None = None, limit: 
 async def systems(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
     need(h, c, "systems")
     s = h.home.systems or {}
+    apps = s.get("apps", {})
     return {
         "storage": s.get("storage", []),
-        "apps": s.get("apps", {}),
+        "pools": s.get("storage", []),
+        "apps": [{"name": a["name"], "state": a["state"], "update": a["update"]} for a in apps.get("items", [])],
+        "apps_summary": {k: v for k, v in apps.items() if k != "items"},
         "alerts": s.get("alerts", []),
         "services": h.health(),
         "hub": {"uptime_s": int(time.time() - h.started_at), "dry_run": h.config.hub.dry_run,
@@ -308,3 +322,20 @@ async def vpn_config(body: VpnBody, c: Caller = Depends(caller), h: Hub = Depend
         raise error(503 if not h.vpn.enabled else 400, "vpn_unavailable", str(exc)) from None
     h.db.log("vpn.config", "ok", person_id=c.subject.person_id, device_id=c.device["id"])
     return cfg
+
+
+@router.post("/push/test")
+async def push_test(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """Send a test notification to the calling device only."""
+    if not h.apns.enabled:
+        raise error(503, "push_unavailable", "Push isn't set up on the hub yet")
+    token = c.device.get("apns_token")
+    if not token:
+        raise error(409, "no_token", "This device hasn't registered for notifications")
+    from ..push import alert_payload
+
+    res = await h.apns.send(token, alert_payload("Test from the house", "Notifications are working.", cat="house"),
+                            env=c.device.get("apns_env") or "production")
+    if res.token_dead:
+        h.db.update("devices", "id", c.device["id"], {"apns_token": None})
+    return {"ok": res.ok, "status": res.status, "reason": res.reason}

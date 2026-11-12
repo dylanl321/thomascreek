@@ -1,14 +1,19 @@
-"""Firewalla MSP API for a child's internet time.
+"""Firewalla MSP API, called directly by the hub, for a child's internet time.
 
-Only documented MSP endpoints are used: list rules, pause a rule, resume a rule
-(MSP 2.7+). Dylan creates one "block internet" rule per child (scoped to that
-child's devices or device group) in the Firewalla app once and lists its id in
-config under firewalla.person_rules. Then:
+Endpoints used (MSP API v2): GET /boxes, GET /devices, GET /rules,
+POST /rules (MSP 2.10+), POST /rules/:id/pause, POST /rules/:id/resume.
 
-  rule active (resumed) -> the child's internet is off
-  rule paused           -> the child's internet is on
+When Dylan links a device to a child, the hub creates one rule for it:
+block, target internet, scope that device's MAC, with a note naming the hub.
+It pauses the rule straight away, so linking changes nothing for the child.
 
-The hub never creates or deletes firewall rules; that stays in the Firewalla app.
+  rule active (resumed) -> that device's internet is off
+  rule paused           -> that device's internet is on
+
+The hub only creates these per-device internet rules and pauses or resumes
+them. The MSP API has no delete, so unlinking pauses the rule and leaves it
+for removal in the Firewalla app. Rule ids listed by hand under
+firewalla.person_rules in config work the same way.
 """
 
 from __future__ import annotations
@@ -27,9 +32,10 @@ class Firewalla:
     name = "firewalla"
     title = "Network"
 
-    def __init__(self, cfg: FirewallaConfig, vault: Vault):
+    def __init__(self, cfg: FirewallaConfig, vault: Vault, db=None):
         self.cfg = cfg
         self.vault = vault
+        self.db = db
         self.last_error: str | None = None
         self.last_ok: float | None = None
         self._client: httpx.AsyncClient | None = None
@@ -76,8 +82,38 @@ class Firewalla:
     async def resume_rule(self, rule_id: str) -> None:
         await self._req("POST", f"/rules/{quote(rule_id)}/resume")
 
+    async def boxes(self) -> list[dict[str, Any]]:
+        data = await self._req("GET", "/boxes")
+        return data.get("results", data) if isinstance(data, dict) else data
+
+    async def devices(self) -> list[dict[str, Any]]:
+        data = await self._req("GET", "/devices")
+        rows = data.get("results", data) if isinstance(data, dict) else data
+        out = []
+        for d in rows or []:
+            mac = (d.get("mac") or d.get("id") or "").upper()
+            out.append({"mac": mac, "name": d.get("name") or d.get("macVendor") or mac, "ip": d.get("ip"),
+                        "online": d.get("online"), "gid": d.get("gid"),
+                        "group": (d.get("group") or {}).get("name") if isinstance(d.get("group"), dict) else None})
+        return out
+
+    async def create_block_rule(self, mac: str, gid: str, note: str) -> str:
+        body = {
+            "action": "block", "direction": "bidirection", "gid": gid, "notes": note,
+            "target": {"type": "internet"}, "scope": {"type": "device", "value": mac},
+        }
+        rule = await self._req("POST", "/rules", json=body)
+        rule_id = str((rule or {}).get("id") or "")
+        if not rule_id:
+            raise AdapterError("Firewalla didn't return a rule id")
+        return rule_id
+
     def rules_for(self, person_id: str) -> list[str]:
-        return self.cfg.person_rules.get(person_id, [])
+        ids = list(self.cfg.person_rules.get(person_id, []))
+        if self.db is not None:
+            ids += [r["rule_id"] for r in self.db.all("SELECT rule_id FROM network_rules WHERE person_id=?", [person_id])
+                    if r["rule_id"] not in ids]
+        return ids
 
     async def internet_state(self, person_id: str) -> dict[str, Any]:
         ids = set(self.rules_for(person_id))

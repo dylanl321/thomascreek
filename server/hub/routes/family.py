@@ -35,19 +35,47 @@ def _board_person(h: Hub, c: Caller, person: str | None) -> dict[str, Any]:
 
 
 @router.get("/chores")
-async def chores(person: str | None = None, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+async def chores(person: str | None = None, date: str | None = None, c: Caller = Depends(caller),
+                 h: Hub = Depends(hub)) -> dict[str, Any]:
     if not (h.policy.has(c.subject, "chores.do") or h.policy.has(c.subject, "chores.manage")):
         raise error(403, "forbidden", "Not available")
     p = _board_person(h, c, person)
     try:
-        data = await h.family_board.chores(p["family_board_id"])
+        raw = await h.family_board.today(p["family_board_id"], date)
     except AdapterError as exc:
         raise _unavailable(exc) from None
-    return {"person": {"id": p["id"], "name": p["name"]}, **(data if isinstance(data, dict) else {"items": data})}
+    return {"person": {"id": p["id"], "name": p["name"]}, **h.family_board.normalize_today(raw)}
+
+
+@router.get("/chores/all")
+async def chores_all(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    need(h, c, "chores.manage")
+    boards = []
+    for p in h.db.people():
+        if not p.get("family_board_id") or p["role"] not in ("child", "adult", "admin"):
+            continue
+        try:
+            raw = await h.family_board.today(p["family_board_id"])
+        except AdapterError as exc:
+            raise _unavailable(exc) from None
+        boards.append({"person": {"id": p["id"], "name": p["name"], "role": p["role"]},
+                       **h.family_board.normalize_today(raw)})
+    return {"boards": boards}
+
+
+@router.get("/family/board-people")
+async def board_people(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """Admin: the board's people, for linking each hub person (family_board_id)."""
+    need(h, c, "people")
+    try:
+        return {"people": await h.family_board.people()}
+    except AdapterError as exc:
+        raise _unavailable(exc) from None
 
 
 class ForPerson(BaseModel):
     person: str | None = None
+    date: str | None = None
 
 
 @router.post("/chores/{chore_id}/done")
@@ -59,7 +87,7 @@ async def chore_done(chore_id: str, body: ForPerson | None = None, c: Caller = D
         h.db.log("chores.done", "dry_run", person_id=c.subject.person_id, device_id=c.device["id"], target=chore_id)
         return {"ok": True, "dry_run": True, "message": "Practice mode: not sent to the family board"}
     try:
-        await h.family_board.chore_done(chore_id, p["family_board_id"])
+        await h.family_board.chore_done(chore_id, p["family_board_id"], body.date if body else None)
     except AdapterError as exc:
         raise _unavailable(exc) from None
     h.db.log("chores.done", "ok", person_id=c.subject.person_id, device_id=c.device["id"], target=chore_id)
@@ -149,6 +177,41 @@ async def shopping_add(list_id: str, body: ItemBody, c: Caller = Depends(caller)
     h.db.log("shopping.add", "ok", person_id=c.subject.person_id, device_id=c.device["id"], target=list_id,
              params={"text": body.text})
     return {"ok": True}
+
+
+class DoneBody(BaseModel):
+    done: bool
+
+
+@router.patch("/shopping/{list_id}/items/{item_id}")
+async def shopping_done(list_id: str, item_id: str, body: DoneBody, c: Caller = Depends(caller),
+                        h: Hub = Depends(hub)) -> dict[str, Any]:
+    if not h.policy.has(c.subject, "shopping.add"):
+        need(h, c, "family.edit")
+    if not item_id.replace("-", "").isalnum():
+        raise error(404, "not_found", "No such item")
+    if not h.actions.is_live("shopping.add"):
+        h.db.log("shopping.check", "dry_run", person_id=c.subject.person_id, device_id=c.device["id"], target=item_id,
+                 params={"done": body.done})
+        return {"ok": True, "dry_run": True}
+    try:
+        await h.mealie.set_item_done(item_id, body.done)
+    except AdapterError as exc:
+        raise _unavailable(exc) from None
+    h.db.log("shopping.check", "ok", person_id=c.subject.person_id, device_id=c.device["id"], target=item_id,
+             params={"done": body.done})
+    return {"ok": True}
+
+
+@router.get("/meals/recipes/{slug}")
+async def recipe(slug: str, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    need(h, c, "family.view")
+    if not slug.replace("-", "").replace("_", "").isalnum():
+        raise error(404, "not_found", "No such recipe")
+    try:
+        return await h.mealie.recipe(slug)
+    except AdapterError as exc:
+        raise _unavailable(exc) from None
 
 
 @router.get("/inventory/search")

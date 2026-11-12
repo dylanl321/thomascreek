@@ -20,7 +20,8 @@ iPhone / iPad ──HTTPS (pinned)──▶ Hub ──▶ Home Assistant, Frigat
 - **Activity log** of who, from which device, did what, and the outcome (ok, dry_run, denied, error).
 - **Inbox and push** (APNs, token auth) with four levels and per-device categories.
 - **Requests and approvals** for kids: movies, more internet time, rewards.
-- **Kids' internet time** through Firewalla MSP rules, with timed restore.
+- **Chores and rewards** from Family Command Center, normalized for the app.
+- **Kids' internet time** through the Firewalla MSP API: the hub creates a per-device block rule and pauses or resumes it, with timed restore.
 - **Built-in VPN.** Hands out WireGuard peers for the app's tunnel; revoking a phone removes its peer.
 - **Cameras** over WebRTC with short-lived passes; video never passes through the hub, credentials never reach the phone.
 

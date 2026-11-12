@@ -14,7 +14,7 @@ from fastapi.responses import JSONResponse
 from . import __version__
 from .config import Config, data_dir, load_config, master_key_path
 from .db import DB
-from .routes import auth, cameras, family, home, lights, media, people
+from .routes import auth, cameras, family, home, lights, media, network, people
 from .routes.deps import http_error_handler
 from .state import Hub
 from .vault import Vault, load_master_key
@@ -70,7 +70,7 @@ def build_app(hub: Hub | None = None, *, start_background: bool = True) -> FastA
         resp.headers.setdefault("Cache-Control", "no-store")
         return resp
 
-    for r in (auth.router, home.router, people.router, media.router, family.router, cameras.router, lights.router):
+    for r in (auth.router, home.router, people.router, media.router, family.router, network.router, cameras.router, lights.router, lights.pages):
         app.include_router(r)
     return app
 

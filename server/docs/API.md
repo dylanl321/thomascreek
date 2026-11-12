@@ -79,7 +79,8 @@ doors are absent (not greyed) without the capability; `systems` only for admin.
 Extra keys: `status.since` (when offline), `systems.services` (each connector's health),
 `devices[].actions` lists only actions this person may do on that device.
 
-`GET /v1/events` (SSE). Events: `hello`, `device` (full device object), `status`,
+`GET /v1/events` (SSE). Each event is sent as an `event: <type>` line followed by one
+`data: {"type": ..., "data": ...}` line; parsing only the `data:` lines is fine. Events: `hello`, `device` (full device object), `status`,
 `inbox` (one inbox item), `snapshot` (re-read `/v1/home`). Keepalive comment every 20 s.
 
 `POST /v1/actions {action, target, params}` -> `{ok, message, dry_run}`
@@ -113,14 +114,16 @@ Answering a decision clears it from every adult's inbox.
 
 ## Holiday lights
 
-`GET|POST /v1/lights/{path}` forwards to the show player with the hub's app token.
+`GET|POST /v1/lights/{path}` forwards to the show player with the hub's app token
+(`Authorization: Bearer <APP_TOKEN>`), keeping the method (commands are GET).
 Allowed paths by role: admin everything; adults `status start stop next play queue unqueue look brightness schedule api/live api/notifications house static`;
 children `status look play api/live house static`. Commands (anything but `status`, `api/*`, `house`, `wled`, `static`)
 are writes: in practice mode they return `{ok: true, dry_run: true, message}`.
-Web pages: open `/v1/lights/house?access_token=<token>`; the hub sets an httpOnly cookie
-scoped to `/v1/lights` and redirects without the token. **Caveat:** if those pages
-request absolute paths like `/api/live`, they will miss the `/v1/lights` prefix;
-the pages should use relative URLs.
+Web pages: open `/v1/lights/house?access_token=<token>` (or `/v1/lights/wled`); the hub sets an
+httpOnly `tc_page` cookie with `Path=/` and redirects without the token. With that cookie the hub
+also serves the absolute paths those pages load: `/layout.json`, `/frame`, `/house.obj`,
+`/house.mtl`, `/js/*`, `/status`, `/api/live` and (admin only) `/wled/api/*`.
+The cookie is accepted only by these page routes, never as a bearer for the rest of the API.
 
 ## Cameras
 
@@ -132,7 +135,7 @@ Load `player_url` (hub-relative, needs no bearer) in a WKWebView. Away from home
 
 ## Media
 
-`GET /v1/media/continue`, `GET /v1/media/search?q=` -> `{items:[{id,title,year,kind,poster_url,rating,summary,...}], requestable?:[..]}`
+`GET /v1/media/library?rated=1&kind=movie|show`, `GET /v1/media/continue`, `GET /v1/media/search?q=` -> `{items:[{id,title,year,kind,poster_url,rating,summary,...}], requestable?:[..]}`
 (children only see ratings on the allowed list; `requestable` are Jellyseerr results with `id` like `movie:603`).
 `POST /v1/media/play {item_id, target_device_id}` (not via `/v1/actions`).
 `GET /v1/media/{id}/stream` -> `{hls_url, expires_at}`: hub-proxied HLS, no Plex token on the device.
@@ -140,26 +143,44 @@ Load `player_url` (hub-relative, needs no bearer) in a WKWebView. Away from home
 
 ## Requests
 
-`GET /v1/requests` -> `{items:[{id,kind,title,poster_url,who,status,progress?,created_at}]}` (adults see all, children their own).
+`GET /v1/requests?mine=1` -> `{items:[{id,kind,title,poster_url,who,status,progress?,created_at}]}` (adults see all, children their own).
 `POST /v1/requests {kind:"media"|"internet"|"reward"|"other", media_id?, text?, minutes?, reward_id?, title?, poster_url?}`.
 Adults asking for media are auto-approved. Children's asks go to adults' inboxes.
 `POST /v1/requests/{id}/approve|deny`. Approving internet time is secure tier.
 
 ## Family
 
-`GET /v1/chores?person=` (Family Command Center), `POST /v1/chores/{id}/done`, `POST /v1/rewards/{id}/redeem`,
-`GET /v1/calendar?days=7`, `GET /v1/meals/today`, `GET /v1/meals/week`, `GET /v1/shopping`,
-`POST /v1/shopping/{list}/items {text}`, `GET /v1/inventory/search?q=`.
-Chores pass through the family board's own shape for now, wrapped as `{person:{id,name}, ...}`.
+Chores and rewards come from Family Command Center. A hub person is linked to a board person
+with `PATCH /v1/people/{id} {family_board_id}` (admin; `GET /v1/family/board-people` lists the board's people).
+
+`GET /v1/chores?person=&date=` ->
+`{person:{id,name}, date, points, streak, goal, done, items:[{id,title,icon,word,done,points,time,waiting,locked,kind}], rewards:[{id,title,icon,cost,available?}]}`.
+`waiting` means done and waiting for a parent's check; `locked` means another chore comes first.
+`GET /v1/chores/all` (adults) -> `{boards:[{person:{id,name,role}, ...same...}]}`.
+`POST /v1/chores/{id}/done {person?, date?}`, `POST /v1/rewards/{id}/redeem` (the board asks a parent to approve).
+`GET /v1/calendar?days=7` -> `{events:[{id,title,start,end,who,all_day,location}]}`.
+`GET /v1/meals/today`, `GET /v1/meals/week`, `GET /v1/meals/recipes/{slug}` ->
+`{id,slug,title,image_url,total_time,prep_time,cook_time,servings,ingredients:[str],steps:[str]}`.
+`GET /v1/shopping`, `POST /v1/shopping/{list}/items {text}`, `PATCH /v1/shopping/{list}/items/{id} {done}`.
+`GET /v1/inventory/search?q=`.
+
+## Kids' internet (Firewalla)
+
+`GET /v1/network/kids` (adults) -> `{kids:[{id,name,managed,paused,until,devices:[{mac,name,rule_id,paused}]}]}`.
+Pause or grant with `POST /v1/actions {action:"network.pause"|"network.grant", target:<child person id>, params:{minutes?}}` (secure tier).
+Admin: `GET /v1/network/devices` (everything Firewalla sees, with `linked_to`),
+`POST /v1/network/kids/{person_id}/devices {macs:[..]}` (admin tier; the hub creates one paused
+"block internet" rule per device), `DELETE /v1/network/kids/{person_id}/devices/{mac}`.
 
 ## People, devices, systems (admin unless noted)
 
 `GET /v1/people` -> `{people:[{id,name,role,ui_style,areas,shared_areas,grants,denies,tv_device,access_until,devices:[..]}], unassigned:[..], areas:[..]}`
 (non-admins get only themselves). `POST /v1/people`, `PATCH /v1/people/{id}` (anyone may change their own name and avatar).
 `POST /v1/devices/{id}/assign {person_id}`, `POST /v1/devices/{id}/revoke` (also allowed on your own device, secure tier).
-`GET /v1/activity?before=&person=&limit=` -> `{items:[{id,t,who,action,target,params,outcome,detail,source}], next_before}`.
+`GET /v1/activity?before=&person=&limit=&category=doors|lights|climate|media|network|people|cameras|chores` -> `{items:[{id,t,who,action,target,params,outcome,detail,source}], next_before}`.
 `outcome` is `ok`, `dry_run`, `denied` or `error`.
-`GET /v1/systems`, `GET /v1/pipeline`.
+`GET /v1/systems` -> `{pools:[{name,healthy,status,size_tb,used_pct,scrub_pct}], apps:[{name,state,update}], apps_summary, alerts, services, hub}`, `GET /v1/pipeline`.
+`POST /v1/push/test` sends a test notification to the calling device.
 
 ## VPN
 

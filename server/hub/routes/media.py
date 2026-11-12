@@ -66,6 +66,20 @@ async def search(q: str, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> 
     return out
 
 
+@router.get("/media/library")
+async def library(rated: bool = False, kind: str | None = None, limit: int = 200, c: Caller = Depends(caller),
+                  h: Hub = Depends(hub)) -> dict[str, Any]:
+    """Browse the library. Children always get the rated list; rated=1 asks for it explicitly."""
+    _watch_cap(h, c)
+    try:
+        items = await h.plex.library(kind=kind, limit=max(1, min(limit, 500)))
+    except AdapterError as exc:
+        raise error(503, "unavailable", str(exc)) from None
+    if rated or c.subject.role not in ("admin", "adult", "tablet"):
+        items = [i for i in items if i.get("rating") in h.config.child_policy.ratings]
+    return {"items": items}
+
+
 @router.get("/media/art")
 async def art(path: str, width: int = 400, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> Response:
     try:
@@ -170,11 +184,11 @@ def _req_out(r: dict[str, Any], names: dict[str, str]) -> dict[str, Any]:
 
 
 @router.get("/requests")
-async def list_requests(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+async def list_requests(mine: bool = False, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
     s = c.subject
     if not s.person_id:
         return {"items": []}
-    approver = any(h.policy.has(s, cap) for cap in ("media.approve", "chores.manage", "network.manage"))
+    approver = not mine and any(h.policy.has(s, cap) for cap in ("media.approve", "chores.manage", "network.manage"))
     if approver:
         rows = h.db.all("SELECT * FROM requests ORDER BY created_at DESC LIMIT 100")
     else:

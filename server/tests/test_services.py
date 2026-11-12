@@ -80,7 +80,7 @@ def test_lights_passthrough_roles_and_dry_run(hub, people, home_client):
         route = mock.get("http://show.test/status").mock(return_value=httpx.Response(200, json={"playing": True}))
         r = home_client.get("/v1/lights/status", headers=theo.h)
         assert r.status_code == 200 and r.json() == {"playing": True}
-        assert route.calls[0].request.headers["X-App-Token"] == "app-token-value"
+        assert route.calls[0].request.headers["Authorization"] == "Bearer app-token-value"
         # Kids can't stop the show; adults can, but only in practice mode until enabled.
         assert home_client.get("/v1/lights/stop", headers=theo.h).status_code == 403
         r = home_client.get("/v1/lights/stop", headers=avery.h)
@@ -186,3 +186,27 @@ async def test_refresh_reads_home_assistant(tmp_path, config):
     assert snap["floors"] == [{"id": "main", "name": "Main Floor", "room_ids": ["kitchen"]}]
     assert snap["status"]["level"] == "ok"
     await h.stop()
+
+
+def test_lights_page_cookie_reaches_absolute_paths(hub, people, home_client):
+    hub.config.show_player.enabled = True
+    hub.config.show_player.url = "http://show.test"
+    hub.vault.set("show_player.app_token", "app-token-value")
+    theo = people["phones"]["Theo"]
+    # Without the page cookie, root paths are not exposed at all.
+    assert home_client.get("/layout.json").status_code == 404
+    # The cookie never works as a bearer for the rest of the API.
+    home_client.cookies.set("tc_page", theo.token)
+    assert home_client.get("/v1/home").status_code == 401
+    home_client.cookies.clear()
+    with respx.mock(assert_all_called=False) as mock:
+        mock.get("http://show.test/house").mock(return_value=httpx.Response(200, text="<html>"))
+        layout = mock.get("http://show.test/layout.json").mock(return_value=httpx.Response(200, json={"m": 1}))
+        r = home_client.get(f"/v1/lights/house?access_token={theo.token}", follow_redirects=False)
+        assert r.status_code == 303 and r.headers["location"] == "/v1/lights/house"
+        assert "Path=/" in r.headers["set-cookie"] and "HttpOnly" in r.headers["set-cookie"]
+        home_client.cookies.set("tc_page", theo.token)
+        assert home_client.get("/layout.json").json() == {"m": 1}
+        assert layout.calls[0].request.headers["Authorization"] == "Bearer app-token-value"
+        # WLED control stays admin-only.
+        assert home_client.get("/wled/api/info").status_code == 403

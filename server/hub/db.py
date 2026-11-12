@@ -104,6 +104,15 @@ SCHEMA = [
         external_id TEXT
     )""",
     """
+    CREATE TABLE IF NOT EXISTS network_rules (
+        rule_id TEXT PRIMARY KEY,
+        person_id TEXT NOT NULL,
+        mac TEXT NOT NULL,
+        device_name TEXT,
+        gid TEXT,
+        created_at REAL NOT NULL
+    )""",
+    """
     CREATE TABLE IF NOT EXISTS timers (
         id TEXT PRIMARY KEY,
         due_at REAL NOT NULL,
@@ -220,9 +229,14 @@ class DB:
         )
         return int(cur.lastrowid or 0)
 
-    def activity(self, before: int | None = None, limit: int = 100, person_id: str | None = None) -> list[dict[str, Any]]:
+    def activity(self, before: int | None = None, limit: int = 100, person_id: str | None = None,
+                 prefixes: Iterable[str] | None = None) -> list[dict[str, Any]]:
         sql = "SELECT * FROM activity WHERE 1=1"
         args: list[Any] = []
+        if prefixes:
+            prefixes = list(prefixes)
+            sql += " AND (" + " OR ".join("action LIKE ?" for _ in prefixes) + ")"
+            args += [p.replace("%", "") + "%" for p in prefixes]
         if before:
             sql += " AND id < ?"
             args.append(before)

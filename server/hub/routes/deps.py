@@ -50,15 +50,19 @@ class Caller:
     ip: str | None
 
 
-def _token_from(request: Request) -> str | None:
+PAGE_COOKIE = "tc_page"
+
+
+def _token_from(request: Request, allow_cookie: bool) -> str | None:
     auth = request.headers.get("authorization", "")
     if auth.lower().startswith("bearer "):
         return auth[7:].strip()
-    return request.cookies.get("tc_page")
+    # The page cookie only works for the holiday-lights pages, never the rest of the API.
+    return request.cookies.get(PAGE_COOKIE) if allow_cookie else None
 
 
-def caller(request: Request, h: Hub = Depends(hub)) -> Caller:
-    token = _token_from(request)
+def caller(request: Request, h: Hub = Depends(hub), *, allow_cookie: bool = False) -> Caller:
+    token = _token_from(request, allow_cookie)
     if not token:
         raise error(401, "unauthorized", "Sign in from the app")
     try:

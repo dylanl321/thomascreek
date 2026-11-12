@@ -197,8 +197,7 @@ class HomeModel:
                 log.info("meal read failed: %s", exc)
         if self.hub.family_board.enabled:
             try:
-                cal = await self.hub.family_board.calendar(1)
-                self.calendar = cal.get("events", cal) if isinstance(cal, dict) else (cal or [])
+                self.calendar = (await self.hub.family_board.calendar(1))["events"]
             except Exception as exc:  # noqa: BLE001
                 log.info("calendar read failed: %s", exc)
 

@@ -15,11 +15,12 @@ from fastapi.responses import RedirectResponse, Response
 from ..adapters.base import AdapterError
 from ..crypto import CryptoError
 from ..state import Hub
-from .deps import Caller, caller, error, hub
+from .deps import PAGE_COOKIE, Caller, caller, error, hub
 
 router = APIRouter(prefix="/v1/lights", tags=["holiday lights"])
 
-READ_PATHS = ("status", "api/live", "api/notifications", "house", "wled", "static")
+READ_PATHS = ("status", "api/live", "api/notifications", "house", "wled", "static",
+              "layout.json", "frame", "house.obj", "house.mtl", "js")
 HOP_HEADERS = {"content-encoding", "transfer-encoding", "connection", "content-length", "set-cookie"}
 
 
@@ -52,11 +53,15 @@ async def passthrough(path: str, request: Request, h: Hub = Depends(hub)):
         params = [(k, v) for k, v in request.query_params.multi_items() if k != "access_token"]
         qs = urlencode(params)
         resp = RedirectResponse(url=f"/v1/lights/{path}" + (f"?{qs}" if qs else ""), status_code=303)
-        resp.set_cookie("tc_page", token, httponly=True, secure=True, samesite="strict",
-                        max_age=h.config.hub.access_token_ttl_s, path="/v1/lights")
+        # Path=/ because the pages fetch absolute paths (/layout.json, /api/live,
+        # /wled/api/...); only the root page routes below accept this cookie.
+        resp.set_cookie(PAGE_COOKIE, token, httponly=True, secure=True, samesite="strict",
+                        max_age=h.config.hub.access_token_ttl_s, path="/")
         return resp
+    return await _forward(path, request, h, caller(request, h, allow_cookie=True))
 
-    c = caller(request, h)
+
+async def _forward(path: str, request: Request, h: Hub, c: Caller):
     role = _lights_role(h, c)
     sp = h.show_player
     if role is None or not sp.path_allowed(role, path):
@@ -80,3 +85,21 @@ async def passthrough(path: str, request: Request, h: Hub = Depends(hub)):
         raise error(503, "unavailable", str(exc)) from None
     headers = {k: v for k, v in upstream.headers.items() if k.lower() not in HOP_HEADERS}
     return Response(upstream.content, status_code=upstream.status_code, headers=headers)
+
+
+# -- absolute paths the show player's /house and /wled pages request ---------
+pages = APIRouter(tags=["holiday lights"], include_in_schema=False)
+PAGE_ROUTES = ["/layout.json", "/frame", "/house.obj", "/house.mtl", "/status", "/api/live",
+               "/js/{rest:path}", "/wled/api/{rest:path}"]
+
+
+async def page_asset(request: Request, h: Hub = Depends(hub)):
+    if PAGE_COOKIE not in request.cookies:
+        raise error(404, "not_found", "Not found")
+    return await _forward(request.url.path.lstrip("/"), request, h, caller(request, h, allow_cookie=True))
+
+
+for _p in PAGE_ROUTES:
+    pages.add_api_route(_p, page_asset, methods=["GET"], operation_id=f"page_get_{_p}")
+    if _p.startswith("/wled"):
+        pages.add_api_route(_p, page_asset, methods=["POST"], operation_id=f"page_post_{_p}")

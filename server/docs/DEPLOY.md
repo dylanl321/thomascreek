@@ -84,12 +84,30 @@ it `true` and use the list. Names: see docs/API.md, plus `lights.control`,
 3. On the Firewalla, forward UDP 51820 to the NAS.
 4. Restart. The hub creates `wg0`, makes its server key in the vault, and re-adds every active phone.
 
-## Kids' internet time (Firewalla)
+## Family Command Center
 
-Needs Firewalla MSP (the documented API). For each child, create one "block internet"
-rule in the Firewalla app scoped to that child's devices, then list its rule id under
-`firewalla.person_rules.<person id>`. The hub only pauses and resumes those rules; it
-never creates or deletes firewall rules.
+Set `family_board.url` and `enabled: true`. On the LAN no credential is needed:
+completing chores and redeeming rewards are the board's "family actions", which it
+accepts from a private address. Link each person once, in the app (People) or with
+`PATCH /v1/people/{id} {family_board_id}`. Turn writes on with `chores.done` and
+`chores.redeem` in `live_actions`.
+
+## Kids' internet time (Firewalla MSP)
+
+The hub calls the Firewalla MSP API directly. Create a personal access token in MSP
+(Account Settings, Create New Token), then:
+
+```sh
+hub secrets set firewalla.msp_token
+```
+
+Set `firewalla.enabled: true` and `firewalla.msp_domain`, and add `network.setup`,
+`network.pause` and `network.grant` to `live_actions`. In the app, open a child under
+People and pick their devices from the Firewalla list. For each device the hub creates
+one rule (block, target internet, scoped to that MAC, noted "Thomas Creek hub") and
+pauses it at once, so nothing changes until someone pauses that child's internet.
+The MSP API has no delete, so unlinking a device pauses its rule and leaves it to be
+deleted in the Firewalla app.
 
 ## House assets
 

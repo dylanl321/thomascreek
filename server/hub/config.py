@@ -47,8 +47,14 @@ class FirewallaConfig(BaseModel):
     person_rules: dict[str, list[str]] = Field(default_factory=dict)
 
 
+# Files the show player's /house page loads by absolute path.
+PAGE_ASSETS = ["layout.json", "frame", "house.obj", "house.mtl", "js"]
+
+
 class ShowPlayerConfig(ServiceConfig):
-    token_header: str = "X-App-Token"
+    # show_player.py expects "Authorization: Bearer <APP_TOKEN>".
+    token_header: str = "Authorization"
+    token_prefix: str = "Bearer "
     # Paths a role may reach. Keys are role names; values are path prefixes.
     allowed_paths: dict[str, list[str]] = Field(
         default_factory=lambda: {
@@ -56,11 +62,11 @@ class ShowPlayerConfig(ServiceConfig):
             "adult": [
                 "status", "start", "stop", "next", "play", "queue", "unqueue",
                 "look", "brightness", "schedule", "api/live", "api/notifications",
-                "house", "static",
+                "house", "static", *PAGE_ASSETS,
             ],
-            "child": ["status", "look", "play", "api/live", "house", "static"],
+            "child": ["status", "look", "play", "api/live", "house", "static", *PAGE_ASSETS],
             "guest": ["status"],
-            "tablet": ["status", "look", "brightness", "next", "play", "api/live", "house", "static"],
+            "tablet": ["status", "look", "brightness", "next", "play", "api/live", "house", "static", *PAGE_ASSETS],
         }
     )
 
@@ -158,7 +164,7 @@ class Config(BaseModel):
     truenas: ServiceConfig = Field(default_factory=lambda: ServiceConfig(enabled=False, token_secret="truenas.api_key"))
     mealie: ServiceConfig = Field(default_factory=lambda: ServiceConfig(enabled=False, token_secret="mealie.token"))
     homebox: ServiceConfig = Field(default_factory=lambda: ServiceConfig(enabled=False, password_secret="homebox.password"))
-    family_board: ServiceConfig = Field(default_factory=lambda: ServiceConfig(enabled=False, token_secret="family_board.token"))
+    family_board: ServiceConfig = Field(default_factory=lambda: ServiceConfig(enabled=False, token_secret="family_board.admin_token"))
     show_player: ShowPlayerConfig = Field(default_factory=lambda: ShowPlayerConfig(enabled=False, token_secret="show_player.app_token"))
     firewalla: FirewallaConfig = Field(default_factory=FirewallaConfig)
     apns: ApnsConfig = Field(default_factory=ApnsConfig)
