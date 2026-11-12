@@ -15,6 +15,7 @@ person confirms. A 403 comes back as "not allowed" (with ask_parent for kids).
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import re
@@ -32,14 +33,24 @@ log = logging.getLogger("hub.assistant")
 CONV_IDLE_S = 20 * 60
 MAX_TURNS = 24  # user turns kept in one conversation before it starts fresh
 RESULT_CHARS = 20000
+MAX_IMAGE_BYTES = 3_500_000  # the API takes up to 5 MB per image
 RATE_WINDOW_S = 600
 RATE_MAX = 40
 
 # Never reachable from the assistant: sign-in, keys, raw media/camera bytes, device plumbing.
 DENY = re.compile(
     r"^/v1/(admin|auth|enroll|hello|ping|events|assistant|vpn|push|devices/(push|prefs|activity)|app/)"
-    r"|/(stream|hls|file|mjpeg|webrtc|player|pass)(/|$)|\.(jpg|mp4)$|/(art|image|assets|player-art)(/|$)"
+    r"|/(stream|hls|file|mjpeg|webrtc|player|pass)(/|$)|\.(jpg|mp4)$|/(art|image|assets|player-art|picture)(/|$)"
 )
+# binary_sensor device classes the assistant can read, and how to say on / off.
+SENSOR_WORDS: dict[str, tuple[str, str]] = {
+    "door": ("open", "closed"), "window": ("open", "closed"), "opening": ("open", "closed"),
+    "garage_door": ("open", "closed"), "motion": ("motion", "clear"), "occupancy": ("occupied", "clear"),
+    "presence": ("present", "away"), "moisture": ("wet", "dry"), "smoke": ("smoke", "clear"),
+    "gas": ("gas", "clear"), "carbon_monoxide": ("CO detected", "clear"), "safety": ("unsafe", "safe"),
+    "problem": ("problem", "ok"), "vibration": ("vibration", "still"), "sound": ("sound", "quiet"),
+}
+
 # Catalog sections hidden from people without the matching capability (the endpoints refuse anyway).
 TAG_CAPS: dict[str, tuple[str, ...]] = {
     "cameras": ("cameras",), "network": ("network.manage", "network.ask"), "people": ("people",),
@@ -102,6 +113,17 @@ def _fit(out: dict[str, Any], limit: int = RESULT_CHARS) -> str:
     out["more"] = f"{len(items) - lo} more {key} not shown; narrow by room or kind"
     text = dump(out)
     return text if len(text) <= limit else dump({"error": "result too large; ask for something narrower"})
+
+
+def _forget_pictures(messages: list[dict[str, Any]]) -> None:
+    """Pictures are sent once. Later turns keep a note instead, so a chat doesn't re-send megabytes."""
+    for m in messages:
+        if m.get("role") != "user" or not isinstance(m.get("content"), list):
+            continue
+        for b in m["content"]:
+            if b.get("type") == "tool_result" and isinstance(b.get("content"), list):
+                b["content"] = [{"type": "text", "text": "(picture shown earlier)"} if c.get("type") == "image" else c
+                                for c in b["content"]]
 
 
 class AssistantError(Exception):
@@ -184,12 +206,20 @@ class Assistant:
                 "Rooms, devices, scenes, modes, cameras and what is playing that this person can see, with ids, "
                 "current state and the actions each device allows. Filter by words in a room or device name "
                 "(e.g. 'basement', 'garage') or by kind (light, climate, garage, lock, media, speaker, fan, switch, "
-                "camera, oven, vacuum, valve, scene)."),
+                "camera, oven, vacuum, valve (sprinkler zones), sensor (door/window/motion/presence/leak/smoke, read-only), "
+                "scene, weather). With no filter it also gives the weather."),
              "input_schema": {"type": "object", "additionalProperties": False, "properties": {
                  "query": {"type": "string", "description": "Words to match in room or device names. Empty for everything."},
                  "kind": {"type": "string"},
                  "active": {"type": "boolean", "description": (
                      "true for only what is on, open, unlocked or playing right now. Use it for 'what is on'.")}}}},
+            {"name": "look", "description": (
+                "See a camera right now, or the snapshot of one camera event, as a picture. Use it for questions "
+                "like 'is there a car in the driveway' or 'what set off the back camera'. Camera ids come from "
+                "`house` (cameras) and event ids from GET /v1/cameras/events."),
+             "input_schema": {"type": "object", "additionalProperties": False, "properties": {
+                 "camera": {"type": "string", "description": "Camera id for a live picture."},
+                 "event_id": {"type": "string", "description": "Event id for that event's snapshot."}}}},
             {"name": "act", "description": (
                 "Control a device or run a scene or mode (POST /v1/actions). Actions and params: "
                 "light.set {on, brightness 0-100, color '#RRGGBB'}; fan.set {on, speed 0-100}; switch.set {on}; "
@@ -197,9 +227,13 @@ class Assistant:
                 "lock.set {locked}; garage.set {open}; media.command {command power|play|pause|next|prev|stop|mute|"
                 "vol_up|vol_down|volume|source|up|down|left|right|select|back|home, volume, source}; "
                 "media.volume {volume}; speaker.group {members[]}; announce {text, rooms[]} (no target); "
-                "vacuum.start; valve.run {minutes}; oven.set {mode, temp, minutes}; oven.timer {minutes}; "
+                "vacuum.start; valve.run {minutes 1-180 (default 10; it always stops itself), on:false to stop}; "
+                "oven.set {mode, temp, minutes}; oven.timer {minutes}; "
                 "shower.preheat; network.pause / network.grant {minutes} (target = child's person id); "
-                "system.app_restart (target app name). Use ids from `house`."),
+                "system.app_restart (target = NAS app name from GET /v1/systems); "
+                "steps.run {label, steps:[{action, target, params}]} to do several light/switch/fan/lock/garage/TV "
+                "changes as one (one confirmation). To play a Plex/library title on a TV use POST /v1/media/play "
+                "(find it with GET /v1/media/search). Use ids from `house`."),
              "input_schema": {"type": "object", "additionalProperties": False, "required": ["action", "summary"],
                               "properties": {
                                   "action": {"type": "string"}, "target": {"type": "string"},
@@ -317,12 +351,17 @@ class Assistant:
             results = []
             for b in uses:
                 out = await self._tool(ctx, b["name"], b.get("input") or {})
+                img = out.pop("_image", None)
+                content: Any = _fit(out) if img is None else [
+                    {"type": "image", "source": {"type": "base64", "media_type": img[0], "data": img[1]}},
+                    {"type": "text", "text": f"Picture: {out.get('about', '')}"}]
                 results.append({"type": "tool_result", "tool_use_id": b["id"],
-                                "content": _fit(out),
+                                "content": content,
                                 **({"is_error": True} if out.get("error") else {})})
             conv.messages.append({"role": "user", "content": results})
         else:
             reply = reply or "That took too many steps. Try asking in smaller pieces."
+        _forget_pictures(conv.messages)
         if not reply:
             reply = "Done." if turn.changed and not turn.confirms else "Okay."
 
@@ -337,6 +376,8 @@ class Assistant:
             if name == "house":
                 return self._house(ctx["subject"], str(inp.get("query") or ""), str(inp.get("kind") or ""),
                                    bool(inp.get("active")))
+            if name == "look":
+                return await self._look(ctx, str(inp.get("camera") or ""), str(inp.get("event_id") or ""))
             if name == "act":
                 body = {"action": str(inp.get("action", "")), "target": inp.get("target"),
                         "params": inp.get("params") or {}}
@@ -376,12 +417,31 @@ class Assistant:
                 st["actions"] = acts
             devices.append({"id": d["id"], "name": d["name"], "room": rooms.get(d["room_id"]), "kind": d["kind"],
                             "state": st, **({} if d.get("available", True) else {"offline": True})})
+        # Devices Home Assistant hasn't put in a room: the app leaves them out, but adults can still ask.
+        home = self.hub.home
+        if home.visible_areas(s) is None:
+            for eid in home.states:
+                if home.entity_area.get(eid):
+                    continue
+                d = home.device(eid, s)
+                if d is None or (kind and d["kind"] != kind) or (words and not hit(d["name"], d["id"], d["kind"])):
+                    continue
+                raw = d.get("state") or {}
+                if active and not (raw.get("on") or raw.get("open") or raw.get("playing")):
+                    continue
+                devices.append({"id": d["id"], "name": d["name"], "room": None, "kind": d["kind"],
+                                "state": {k: v for k, v in raw.items() if v not in (None, "", [], {})},
+                                **({"actions": d["actions"]} if d.get("actions") else {}),
+                                **({} if d.get("available", True) else {"offline": True})})
+        sensors = self._sensors(s, rooms, hit if words else None, active) if not kind or kind == "sensor" else []
         scenes = [{"id": eid, "name": st.get("attributes", {}).get("friendly_name", eid),
                    "room": rooms.get(self.hub.home.entity_area.get(eid) or "")}
                   for eid, st in self.hub.home.states.items() if eid.startswith("scene.")
                   and (not words or hit(st.get("attributes", {}).get("friendly_name", eid), eid))
                   and self.hub.policy.has(s, "lights.all")]
         out: dict[str, Any] = {"devices": devices, "actions_by_kind": kind_actions}
+        if sensors:
+            out["sensors"] = sensors
         if not kind or kind == "scene":
             out["scenes"] = scenes[:40]
         if not words and not kind and not active:
@@ -389,9 +449,57 @@ class Assistant:
             out["modes"] = snap.get("modes", [])
             out["now_playing"] = snap.get("now_playing", [])
             out["status"] = snap.get("status")
+        if (not words and not kind and not active) or kind == "weather":
+            wx = getattr(getattr(self.hub, "smart", None), "weather", None)
+            data = (wx.data if wx is not None else None) or snap.get("weather")
+            if data:
+                out["weather"] = data
         if (not kind or kind == "camera") and snap.get("cameras"):
             out["cameras"] = [{"id": c.get("id"), "name": c.get("name")} for c in snap["cameras"]
                               if not words or hit(c.get("name", ""), c.get("id", ""))]
+        return out
+
+    async def _look(self, ctx: dict[str, Any], camera: str, event_id: str) -> dict[str, Any]:
+        """A JPEG from the hub's own camera route, as the caller (so the cameras permission applies)."""
+        ref = event_id or camera
+        if not ref or not re.fullmatch(r"[\w.\-]+", ref):
+            return {"error": "give a camera id or an event id"}
+        path = f"/v1/cameras/events/{ref}/snapshot.jpg" if event_id else f"/v1/cameras/{ref}/snapshot.jpg"
+        transport = httpx.ASGITransport(app=ctx["app"], client=(ctx["ip"] or "127.0.0.1", 50000))
+        async with httpx.AsyncClient(transport=transport, base_url="https://hub.internal", timeout=20) as cl:
+            r = await cl.get(path, headers={"authorization": ctx["auth"], "x-tc-via": "ask"})
+        if r.status_code == 403:
+            return {"error": "not allowed for this person"}
+        if r.status_code >= 400 or not r.content:
+            return {"error": f"no picture ({r.status_code})"}
+        if len(r.content) > MAX_IMAGE_BYTES:
+            return {"error": "picture too large"}
+        kind = r.headers.get("content-type", "image/jpeg").split(";")[0]
+        return {"_image": (kind if kind.startswith("image/") else "image/jpeg", base64.b64encode(r.content).decode()),
+                "about": f"event {event_id}" if event_id else f"camera {camera}, live"}
+
+    def _sensors(self, s: Subject, rooms: dict[str, str], hit: Any, active: bool) -> list[dict[str, Any]]:
+        """Door, window, motion, presence, leak and smoke sensors: read-only, in rooms this person can see."""
+        home = self.hub.home
+        vis = home.visible_areas(s)
+        out = []
+        for eid, st in home.states.items():
+            if not eid.startswith("binary_sensor.") or st.get("state") in ("unavailable", "unknown", None):
+                continue
+            cls = st.get("attributes", {}).get("device_class")
+            if cls not in SENSOR_WORDS:
+                continue
+            area = home.entity_area.get(eid)
+            if vis is not None and area not in vis:
+                continue
+            name = st.get("attributes", {}).get("friendly_name", eid)
+            on = st["state"] == "on"
+            if active and not on:
+                continue
+            if hit is not None and not hit(name, rooms.get(area or "", ""), cls):
+                continue
+            out.append({"id": eid, "name": name, "room": rooms.get(area or ""), "type": cls,
+                        "state": SENSOR_WORDS[cls][0 if on else 1], "since": st.get("last_changed")})
         return out
 
     async def _call(self, ctx: dict[str, Any], method: str, path: str, query: dict[str, Any] | None,

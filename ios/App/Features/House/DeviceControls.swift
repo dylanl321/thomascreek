@@ -53,6 +53,9 @@ struct DeviceTile: View {
                 store.perform("lock.set", target: d.id, params: ["locked": !locked], confirm: "\(locked ? "Unlock" : "Lock") \(d.name)",
                               done: "\(d.name) \(locked ? "unlocked" : "locked")")
             }
+        case .valve:
+            StateTile(symbol: "drop.fill", title: d.name, detail: DeviceSymbols.value(d), on: d.isOn,
+                      tint: Theme.accent, big: big) { water(d.isOn ? nil : 10) }
         case .oven:
             StateTile(symbol: "oven.fill", title: d.name, detail: DeviceSymbols.value(d), on: d.isOn,
                       tint: Theme.warn, big: big) { router.go(.kitchen(d.id)) }
@@ -66,6 +69,12 @@ struct DeviceTile: View {
         if device.kind == .light || store.role == .admin {
             Button("Details", systemImage: "slider.horizontal.3") { detail = true }
         }
+        if device.kind == .valve {
+            ForEach([5, 15, 30], id: \.self) { m in
+                Button("Water \(m) min", systemImage: "drop") { water(m) }
+            }
+            if device.isOn { Button("Stop", systemImage: "stop.fill") { water(nil) } }
+        }
         if device.kind == .light {
             Button("Full brightness", systemImage: "sun.max.fill") {
                 store.perform("light.set", target: device.id, params: ["on": true, "brightness": 100]) { $0.state["on"] = .bool(true); $0.state["brightness"] = .number(100) }
@@ -73,6 +82,17 @@ struct DeviceTile: View {
             Button("Dim", systemImage: "sun.min") {
                 store.perform("light.set", target: device.id, params: ["on": true, "brightness": 25]) { $0.state["on"] = .bool(true); $0.state["brightness"] = .number(25) }
             }
+        }
+    }
+
+    /// Start a zone for a set time (the hub turns it off), or stop it with nil.
+    private func water(_ minutes: Int?) {
+        if let minutes {
+            store.perform("valve.run", target: device.id, params: ["on": true, "minutes": minutes]) {
+                $0.state["on"] = .bool(true); $0.state["remainingS"] = .number(Double(minutes * 60))
+            }
+        } else {
+            store.perform("valve.run", target: device.id, params: ["on": false]) { $0.state["on"] = .bool(false) }
         }
     }
 

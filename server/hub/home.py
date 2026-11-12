@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
@@ -55,6 +56,20 @@ def _symbol(name: str) -> str:
     return "square.split.2x2"
 
 
+# Sprinkler zones that Home Assistant exposes as plain switches (Rachio, Rain Bird, OpenSprinkler):
+# they show as valves so they run for a set time. The controller's schedules, rain delay and standby
+# switches stay switches.
+IRRIGATION = re.compile(r"irrigation|sprinkler|rachio|rain ?bird|opensprinkler", re.I)
+NOT_A_ZONE = re.compile(r"schedule|rain ?delay|standby|enabled?$", re.I)
+
+
+def is_irrigation_zone(state: dict[str, Any]) -> bool:
+    name = str(state.get("attributes", {}).get("friendly_name") or "")
+    eid = state["entity_id"]
+    return bool(IRRIGATION.search(eid) or IRRIGATION.search(name)) and not (
+        NOT_A_ZONE.search(name) or NOT_A_ZONE.search(eid.replace("_", " ")))
+
+
 def kind_for(state: dict[str, Any]) -> str | None:
     eid: str = state["entity_id"]
     domain = eid.split(".", 1)[0]
@@ -65,6 +80,8 @@ def kind_for(state: dict[str, Any]) -> str | None:
         return "speaker" if "group_members" in attrs else "media"
     if domain == "sensor" and attrs.get("device_class") in ("temperature", "humidity", "moisture"):
         return "sensor"
+    if domain == "switch" and is_irrigation_zone(state):
+        return "valve"
     if domain == "water_heater":
         from .kitchen import is_oven
 
@@ -334,12 +351,17 @@ class HomeModel:
             return None
         if kind == "lock" and not policy.has(s, "doors"):
             return None
+        state = device_state(kind, st, self.media_links.get(eid))
+        if kind == "valve" and state.get("on"):
+            left = self.hub.actions.valve_remaining(eid)
+            if left is not None:
+                state["remaining_s"] = left
         return {
             "id": eid,
             "kind": kind,
             "name": st.get("attributes", {}).get("friendly_name", eid),
             "room_id": area,
-            "state": device_state(kind, st, self.media_links.get(eid)),
+            "state": state,
             "updated_at": st.get("last_updated"),
             "available": st.get("state") not in ("unavailable", "unknown"),
             "actions": actions,
