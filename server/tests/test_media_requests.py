@@ -44,6 +44,7 @@ def seerr(hub, people):
     hub.config.jellyseerr.enabled, hub.config.jellyseerr.url = True, SEERR
     hub.config.hub.dry_run = False
     hub.jellyseerr._details.clear()
+    hub.jellyseerr._broken.clear()
     hub.db.insert("requests", {"id": new_id("req"), "created_at": time.time(), "kind": "media",
                                "requester_id": people["theo"]["id"], "title": "Flow", "payload": {},
                                "status": "approved", "external_id": "101"})
@@ -160,3 +161,16 @@ async def test_ready_push_once_and_not_for_old_news(hub, people, seerr):
         assert out[0]["title"] == "Flow is ready to watch" and out[0]["person_ids"] == [people["theo"]["id"]]
         assert await push_ready(hub) == 0      # once only
         assert hub.db.one("SELECT status FROM requests WHERE external_id='101'")["status"] == "ready"
+
+
+def test_one_broken_title_does_not_flag_jellyseerr(hub, seerr, people, home_client):
+    # Jellyseerr answers 500 for a film TMDB no longer knows; the list still loads and Home stays quiet.
+    seerr.get(f"{SEERR}/api/v1/movie/12").mock(return_value=httpx.Response(500, json={"message": "Unable to retrieve movie."}))
+    r = home_client.get("/v1/media/requests?scope=all", headers=people["phones"]["Dylan"].h)
+    assert r.status_code == 200, r.text
+    assert {i["id"]: i for i in r.json()["items"]}["103"]["title"] == "Unknown title"
+    assert hub.jellyseerr.last_error is None
+    assert not any(h["error"] for h in hub.health() if h.get("id") == "jellyseerr" or h.get("name") == "jellyseerr")
+    calls = len(seerr.calls)
+    home_client.get("/v1/media/requests?scope=all", headers=people["phones"]["Dylan"].h)
+    assert not any(c.request.url.path == "/api/v1/movie/12" for c in seerr.calls[calls:])  # not asked again for a while
