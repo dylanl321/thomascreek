@@ -3,7 +3,8 @@ import SwiftUI
 struct FamilyView: View {
     @Environment(HomeStore.self) private var store
     @Environment(Router.self) private var router
-    @State private var chores: ChoreBoard?
+    @State private var chores: [ChoreBoard]?
+    private struct Boards: Decodable { var boards: [ChoreBoard] }
 
     var body: some View {
         ScrollView {
@@ -16,7 +17,7 @@ struct FamilyView: View {
                     SectionTile(symbol: "calendar", title: "Calendar", detail: "This week") { router.go(.calendar) }
                     SectionTile(symbol: "fork.knife", title: "Meals", detail: store.home?.today?.dinner?.title ?? "Meal plan") { router.go(.meals) }
                     SectionTile(symbol: "cart.fill", title: "Shopping", detail: "Lists") { router.go(.shopping) }
-                    SectionTile(symbol: "star.fill", title: "Chores", detail: chores.map { "\($0.doneCount)/\($0.items.count) done today" } ?? "Points and rewards") { router.go(.chores) }
+                    SectionTile(symbol: "star.fill", title: "Chores", detail: chores.map { b in "\(b.reduce(0) { $0 + $1.doneCount })/\(b.reduce(0) { $0 + $1.items.count }) done today" } ?? "Points and rewards") { router.go(.chores) }
                     SectionTile(symbol: "shippingbox.fill", title: "Inventory", detail: "Where is it?") { router.go(.inventory) }
                 }
                 .padding(.top, 8)
@@ -26,7 +27,7 @@ struct FamilyView: View {
         .background(Backdrop())
         .navigationTitle("Family")
         .topBar()
-        .task { chores = try? await HubClient.shared.get("/v1/chores", ["person": "all"]) }
+        .task { chores = (try? await HubClient.shared.get("/v1/chores/all", as: Boards.self))?.boards }
     }
 }
 
@@ -222,9 +223,11 @@ struct ChoresManageView: View {
                     Section {
                         ForEach(b.items) { c in
                             HStack {
-                                Image(systemName: c.done ? "checkmark.circle.fill" : "circle").foregroundStyle(c.done ? Theme.accent : Theme.dim)
+                                Image(systemName: c.waiting ? "hourglass.circle.fill" : c.done ? "checkmark.circle.fill" : "circle")
+                                    .foregroundStyle(c.waiting ? Theme.warn : c.done ? Theme.accent : Theme.dim)
                                 Text("\(c.icon ?? "") \(c.title)")
                                 Spacer()
+                                if c.waiting { Text("Check").font(.caption.weight(.semibold)).foregroundStyle(Theme.warn) }
                                 if let p = c.points { Text("+\(p)").font(.caption.weight(.semibold)).foregroundStyle(Theme.star) }
                             }
                         }

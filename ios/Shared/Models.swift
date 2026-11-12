@@ -225,6 +225,7 @@ struct CalendarEvent: Codable, Hashable, Identifiable {
     var end: String?
     var who: String?
     var allDay: Bool?
+    var location: String?
     var stableID: String { id ?? "\(title)-\(start)" }
 }
 struct Dinner: Codable, Hashable { var title: String; var imageUrl: String?; var emoji: String?; var recipeId: String? }
@@ -234,8 +235,12 @@ struct Systems: Codable, Hashable {
     var apps: Apps?
     var internet: Internet?
     var backups: Backups?
-    struct Pool: Codable, Hashable, Identifiable { var name: String; var usedPct: Double; var sizeTb: Double?; var scrubPct: Double?; var healthy: Bool?; var id: String { name } }
-    struct Apps: Codable, Hashable { var total: Int; var crashed: Int; var updates: Int; var crashedNames: [String]? }
+    struct Pool: Codable, Hashable, Identifiable {
+        var name: String; var usedPct: Double?; var sizeTb: Double?; var scrubPct: Double?; var healthy: Bool?; var status: String?
+        var id: String { name }
+        var used: Double { usedPct ?? 0 }
+    }
+    struct Apps: Codable, Hashable { var total: Int?; var crashed: Int; var updates: Int?; var crashedNames: [String]? }
     struct Internet: Codable, Hashable { var up: Bool; var latencyMs: Double?; var downMbps: Double?; var since: String? }
     struct Backups: Codable, Hashable { var ok: Bool; var last: String? }
 }
@@ -303,6 +308,12 @@ struct ChoreBoard: Codable, Hashable {
     var rewards: [Reward]?
     struct Chore: Codable, Hashable, Identifiable {
         var id: String; var title: String; var icon: String?; var done: Bool; var points: Int?; var who: String?
+        /// Done, waiting for a parent to check it.
+        var waiting: Bool = false
+        /// Another chore comes first.
+        var locked: Bool = false
+        var time: String?
+        var word: String?
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: AnyKey.self)
             id = c.string("id") ?? UUID().uuidString
@@ -311,19 +322,25 @@ struct ChoreBoard: Codable, Hashable {
             done = c.bool("done") ?? c.bool("completed") ?? c.bool("isDone") ?? false
             points = c.int("points") ?? c.int("value")
             who = c.string("who")
+            waiting = c.bool("waiting") ?? false
+            locked = c.bool("locked") ?? false
+            time = c.string("time")
+            word = c.string("word")
         }
     }
     struct Reward: Codable, Hashable, Identifiable {
-        var id: String; var title: String; var icon: String?; var cost: Int
+        var id: String; var title: String; var icon: String?; var cost: Int; var available: Bool?
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: AnyKey.self)
             id = c.string("id") ?? UUID().uuidString
             title = c.string("title") ?? c.string("name") ?? "Reward"
             icon = c.string("icon") ?? c.string("emoji")
             cost = c.int("cost") ?? c.int("points") ?? 0
+            available = c.bool("available")
         }
     }
     var doneCount: Int { items.filter(\.done).count }
+    var date: String?
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: AnyKey.self)
@@ -334,6 +351,7 @@ struct ChoreBoard: Codable, Hashable {
         points = c.int("points") ?? c.int("balance") ?? 0
         streak = c.int("streak")
         goal = c.int("goal")
+        date = c.string("date")
         items = (try? c.decode([Chore].self, forKey: AnyKey("items"))) ?? (try? c.decode([Chore].self, forKey: AnyKey("chores"))) ?? []
         rewards = (try? c.decode([Reward].self, forKey: AnyKey("rewards")))
     }

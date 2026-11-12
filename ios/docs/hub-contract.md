@@ -102,3 +102,9 @@ More routes
 - `POST /v1/media/play {item_id, target_device_id}`; images and clips are hub paths fetched with the bearer; `player_url` is hub-relative without bearer.
 - Inbox `assign` opens People; push categories `NEW_DEVICE` and `REQUEST` are registered.
 - Activity items `{id,t,who,action,target,params,outcome,detail,source}`, paging `next_before`; people `{people:[{...,devices}], unassigned}`; meals `{items:[{date,meal,title,slug,image_url}]}`.
+
+## Matched to the hub's second round
+- Chores `{person, date, points, streak, goal, done, items:[{...,waiting,locked,time,word}], rewards:[{...,available}]}`; adults use `/v1/chores/all`.
+- `/v1/systems` pools and apps rows (TrueNAS states are upper case); `used_pct` may be null.
+- `/v1/network/kids` devices are objects and `paused` may be null. Dylan links devices from `/v1/network/devices` with `POST /v1/network/kids/{id}/devices {macs}` (Face ID) and unlinks with `DELETE`.
+- Calendar events carry `location`.

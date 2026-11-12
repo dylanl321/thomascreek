@@ -197,18 +197,24 @@ struct ChoreRow: View {
         Button { tapped = true; Task { await done() } } label: {
             HStack(spacing: 14) {
                 Text(chore.icon ?? "✅").font(.system(size: big ? 40 : 28))
-                Text(chore.title).font(Theme.kidFont(big ? 22 : 18, .semibold)).foregroundStyle(Theme.fg)
-                    .strikethrough(chore.done)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(chore.title).font(Theme.kidFont(big ? 22 : 18, .semibold)).foregroundStyle(Theme.fg)
+                        .strikethrough(chore.done && !chore.waiting)
+                    if chore.waiting { Text("Waiting for a grown-up to check").font(.caption).foregroundStyle(Theme.dim) }
+                    else if chore.locked { Text("Do the one before first").font(.caption).foregroundStyle(Theme.dim) }
+                    else if let t = chore.time { Text(t).font(.caption).foregroundStyle(Theme.dim) }
+                }
                 Spacer()
                 if let p = chore.points { Text("+\(p)").font(.headline).foregroundStyle(Theme.star) }
-                Image(systemName: chore.done || tapped ? "checkmark.circle.fill" : "circle")
+                Image(systemName: chore.locked ? "lock.fill" : chore.waiting ? "hourglass.circle.fill" : chore.done || tapped ? "checkmark.circle.fill" : "circle")
                     .font(.system(size: big ? 34 : 28)).foregroundStyle(color)
                     .symbolEffect(.bounce, value: tapped)
             }
             .card(padding: big ? 18 : 14)
         }
         .buttonStyle(.plain)
-        .disabled(chore.done)
+        .disabled(chore.done || chore.locked)
+        .opacity(chore.locked ? 0.55 : 1)
     }
 }
 

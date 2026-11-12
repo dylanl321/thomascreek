@@ -115,7 +115,7 @@ final class PushRegistration {
             let c = UNUserNotificationCenter.current()
             var s = await c.notificationSettings()
             if s.authorizationStatus == .notDetermined {
-                _ = try? await c.requestAuthorization(options: [.alert, .sound, .badge, .timeSensitive, .providesAppNotificationSettings])
+                _ = try? await c.requestAuthorization(options: [.alert, .sound, .badge, .providesAppNotificationSettings])
                 s = await c.notificationSettings()
             }
             allowed = s.authorizationStatus == .authorized || s.authorizationStatus == .provisional

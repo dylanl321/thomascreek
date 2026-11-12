@@ -55,7 +55,11 @@ struct StorageView: View {
     struct Detail: Decodable {
         var pools: [Systems.Pool]
         var apps: [AppRow]
-        struct AppRow: Decodable, Identifiable, Hashable { var name: String; var state: String; var update: Bool?; var id: String { name } }
+        struct AppRow: Decodable, Identifiable, Hashable {
+            var name: String; var state: String; var update: Bool?
+            var id: String { name }
+            var running: Bool { state.uppercased() == "RUNNING" }
+        }
     }
 
     var body: some View {
@@ -67,21 +71,21 @@ struct StorageView: View {
                             HStack {
                                 Text(p.name).font(.headline)
                                 Spacer()
-                                Text("\(Int(p.usedPct))% of \(p.sizeTb.map { "\(Int($0)) TB" } ?? "")").font(.caption).foregroundStyle(Theme.dim)
+                                Text("\(Int(p.used))% of \(p.sizeTb.map { "\(Int($0)) TB" } ?? "")").font(.caption).foregroundStyle(Theme.dim)
                             }
-                            ProgressBar(value: p.usedPct / 100, color: p.usedPct > 85 ? Theme.warn : Theme.accent)
+                            ProgressBar(value: p.used / 100, color: p.used > 85 ? Theme.warn : Theme.accent)
                             if let s = p.scrubPct { Text("Scrub \(Int(s))% done").font(.caption).foregroundStyle(Theme.dim) }
                         }
                     }
                 }
                 Section("Apps") {
-                    ForEach(d.apps.sorted { ($0.state == "running" ? 1 : 0, $0.name) < ($1.state == "running" ? 1 : 0, $1.name) }) { a in
+                    ForEach(d.apps.sorted { ($0.running ? 1 : 0, $0.name) < ($1.running ? 1 : 0, $1.name) }) { a in
                         HStack {
-                            Circle().fill(a.state == "running" ? .green : a.state == "stopped" ? Theme.dim : Theme.crit).frame(width: 9, height: 9)
+                            Circle().fill(a.running ? .green : a.state.uppercased() == "STOPPED" ? Theme.dim : Theme.crit).frame(width: 9, height: 9)
                             Text(a.name)
                             Spacer()
                             if a.update == true { Pill(text: "Update", color: Theme.warn) }
-                            Text(a.state).font(.caption).foregroundStyle(Theme.dim)
+                            Text(a.state.capitalized).font(.caption).foregroundStyle(Theme.dim)
                         }
                     }
                 }
@@ -221,22 +225,41 @@ struct PeopleView: View {
 }
 
 /// Children's internet: pause, or grant time until bedtime (Firewalla, through the hub).
+/// Dylan also links each child's devices here; the hub makes one paused "block internet" rule per device.
 struct KidNetView: View {
     @Environment(HomeStore.self) private var store
     @State private var kids: [Kid] = []
-    struct Kid: Decodable, Identifiable { var id: String; var name: String; var paused: Bool; var until: String?; var devices: Int? }
+    @State private var linking: Kid?
+    struct Kid: Decodable, Identifiable, Hashable {
+        var id: String; var name: String; var managed: Bool?; var paused: Bool?; var until: String?
+        var devices: [Device]?
+        struct Device: Decodable, Identifiable, Hashable { var mac: String; var name: String?; var ruleId: String?; var paused: Bool?; var id: String { mac } }
+    }
     private struct Reply: Decodable { var kids: [Kid] }
 
     var body: some View {
         List {
             ForEach(kids) { k in
                 Section(k.name) {
-                    LabeledContent("Internet", value: k.paused ? "Paused" : "On\(k.until.map { " until \($0)" } ?? "")")
-                    if let n = k.devices { LabeledContent("Devices", value: "\(n)") }
+                    LabeledContent("Internet", value: k.paused == nil ? "Unknown" : k.paused == true ? "Paused" : "On\(k.until.map { " until \(clock($0))" } ?? "")")
                     HStack {
-                        Button(k.paused ? "Resume" : "Pause now") { act(k.paused ? "network.grant" : "network.pause", k) }
-                            .buttonStyle(.borderedProminent).tint(k.paused ? Theme.accent : Theme.warn)
+                        Button(k.paused == true ? "Resume" : "Pause now") { act(k.paused == true ? "network.grant" : "network.pause", k) }
+                            .buttonStyle(.borderedProminent).tint(k.paused == true ? Theme.accent : Theme.warn)
                         Button("30 more minutes") { act("network.grant", k, minutes: 30) }.buttonStyle(.bordered)
+                    }
+                    ForEach(k.devices ?? []) { d in
+                        HStack {
+                            Image(systemName: d.paused == true ? "wifi.slash" : "wifi").foregroundStyle(d.paused == true ? Theme.warn : Theme.accent)
+                            Text(d.name ?? d.mac)
+                            Spacer()
+                            Text(d.paused == true ? "Paused" : "On").font(.caption).foregroundStyle(Theme.dim)
+                        }
+                        .swipeActions {
+                            if store.role == .admin { Button("Unlink", role: .destructive) { unlink(d, from: k) } }
+                        }
+                    }
+                    if store.role == .admin {
+                        Button { linking = k } label: { Label("Add a device", systemImage: "plus.circle") }
                     }
                 }
             }
@@ -245,6 +268,8 @@ struct KidNetView: View {
         .scrollContentBackground(.hidden).background(Backdrop())
         .navigationTitle("Device time")
         .task { await load() }
+        .refreshable { await load() }
+        .sheet(item: $linking) { k in LinkDevicesSheet(kid: k) { await load() } }
     }
 
     private func load() async { kids = (try? await HubClient.shared.get("/v1/network/kids", as: Reply.self))?.kids ?? [] }
@@ -254,5 +279,77 @@ struct KidNetView: View {
         if let minutes { p["minutes"] = minutes }
         store.perform(action, target: k.id, params: p, confirm: "\(action == "network.pause" ? "Pause" : "Give") \(k.name) internet")
         Task { try? await Task.sleep(for: .seconds(1)); await load() }
+    }
+
+    private func unlink(_ d: Kid.Device, from k: Kid) {
+        Task {
+            do {
+                let mac = d.mac.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? d.mac
+                let _: Empty = try await HubClient.shared.call("DELETE", "/v1/network/kids/\(k.id)/devices/\(mac)",
+                                                                confirm: "Stop managing \(d.name ?? "this device")")
+                store.show("Unlinked \(d.name ?? d.mac)")
+            } catch { store.show(error.localizedDescription, isError: true) }
+            await load()
+        }
+    }
+}
+
+/// Everything Firewalla sees on the network; pick the ones that belong to a child.
+struct LinkDevicesSheet: View {
+    @Environment(HomeStore.self) private var store
+    @Environment(\.dismiss) private var dismiss
+    let kid: KidNetView.Kid
+    let done: () async -> Void
+    @State private var devices: [NetDevice]?
+    @State private var picked: Set<String> = []
+    @State private var search = ""
+    struct NetDevice: Decodable, Identifiable, Hashable {
+        var mac: String; var name: String?; var ip: String?; var online: Bool?; var linkedTo: String?
+        var id: String { mac }
+    }
+    private struct Reply: Decodable { var devices: [NetDevice] }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                if let devices {
+                    let shown = devices.filter { search.isEmpty || ($0.name ?? $0.mac).localizedCaseInsensitiveContains(search) }
+                    ForEach(shown) { d in
+                        Button { toggle(d) } label: {
+                            HStack {
+                                Image(systemName: picked.contains(d.mac) ? "checkmark.circle.fill" : "circle").foregroundStyle(Theme.accent)
+                                VStack(alignment: .leading) {
+                                    Text(d.name ?? d.mac).foregroundStyle(Theme.fg)
+                                    Text(d.linkedTo.map { $0 == kid.id ? "Already linked" : "Linked to someone else" } ?? (d.online == true ? "Online" : "Offline"))
+                                        .font(.caption).foregroundStyle(Theme.dim)
+                                }
+                            }
+                        }
+                        .disabled(d.linkedTo != nil)
+                    }
+                } else { ProgressView() }
+            }
+            .searchable(text: $search)
+            .navigationTitle("\(kid.name)'s devices")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) { Button("Add") { save() }.disabled(picked.isEmpty) }
+            }
+            .task { devices = (try? await HubClient.shared.get("/v1/network/devices", as: Reply.self))?.devices ?? [] }
+        }
+    }
+
+    private func toggle(_ d: NetDevice) { if picked.contains(d.mac) { picked.remove(d.mac) } else { picked.insert(d.mac) } }
+
+    private func save() {
+        Task {
+            do {
+                try await HubClient.shared.send("/v1/network/kids/\(kid.id)/devices", ["macs": Array(picked)],
+                                                confirm: "Manage \(picked.count) device\(picked.count == 1 ? "" : "s") for \(kid.name)")
+                store.show("Added to \(kid.name)")
+                await done(); dismiss()
+            } catch { store.show(error.localizedDescription, isError: true) }
+        }
     }
 }
