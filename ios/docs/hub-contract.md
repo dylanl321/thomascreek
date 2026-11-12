@@ -142,3 +142,9 @@ App only, not a Plex library (Dylan, 2026-11-12). No approval step; parents get 
 - `POST /v1/youtube/videos/{videoId}/retry` for a failed one.
 - `GET /v1/youtube/picture/{videoId | src-<sourceId>}` → JPEG.
 - Downloads: `GET/POST /v1/media/yt-<videoId>/download` work as for films. Options: `original` (instant, the hub's own MP4) and `small` (480p, converted by the hub). `POST /v1/media/yt-<id>/progress` marks it watched on the hub (used for trimming).
+
+## App updates (2026-11-12)
+
+- `GET /v1/app/update?build=<CFBundleVersion>&version=<short version>` (no sign-in needed; with a token the hub records the phone's build). Reply `{latest_build, latest_version, min_build, notes, testflight_url, update_available, update_required}`.
+- `AppUpdate` (App/Core/AppUpdate.swift) checks on every open (at most every 5 min) and on the `app_update` event. Newer build: `UpdateBanner` above the tab bar (✕ hides it until the next build) and an Update row in Profile. Below `min_build`: `UpdateRequiredView` covers everything until updated. The last answer is cached, so a required update holds while away.
+- Update opens `testflight_url` (`itms-beta://beta.itunes.apple.com/v1/app/<Apple ID>`), then `itms-beta://`, then TestFlight's App Store page.

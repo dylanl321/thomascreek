@@ -45,7 +45,12 @@ def import_dropped(vault: Vault, folder: Path | None = None) -> list[str]:
             continue
         name = f.name.removesuffix(".txt").removesuffix(".conf")
         m = re.fullmatch(r"AuthKey_([A-Z0-9]{10})\.p8", f.name)
-        if m:
+        if m and vault.has("apns.key_id") and str(vault.get("apns.key_id")).strip() != m.group(1):
+            # Push already has its key, so a different AuthKey is the App Store Connect one (new app builds).
+            vault.set("appstore.key_id", m.group(1))
+            stored.append("appstore.key_id")
+            name = "appstore.auth_key_p8"
+        elif m:
             # Apple's push key as downloaded: its file name carries the key id.
             vault.set("apns.key_id", m.group(1))
             stored.append("apns.key_id")

@@ -250,6 +250,24 @@ A client named for a person (`vpn.pool.lauren`) is kept for that person; numbere
 go to anyone.
 A phone connecting through the tunnel counts as "away" (so cameras still ask for Face ID).
 
+## App updates
+
+`GET /v1/app/update?build=16&version=2.0` (no sign-in needed; with a token the hub records the phone's build for the web page)
+
+```json
+{"latest_build": 17, "latest_version": "2.0", "released_at": "2026-11-12T16:00:00Z", "min_build": 15,
+ "notes": null, "source": "testflight", "apple_id": "6700000001",
+ "testflight_url": "itms-beta://beta.itunes.apple.com/v1/app/6700000001", "checked_at": 1794500000.0,
+ "update_available": true, "update_required": false}
+```
+
+The hub finds the newest TestFlight build itself every 15 minutes when the vault holds an App Store Connect API key
+(`appstore.auth_key_p8`, `appstore.key_id`, `appstore.issuer_id`; add them on the web page). Only builds that are
+processed, unexpired and installable by internal testers count. On the web page Dylan can also type a latest build
+and a required minimum (`min_build`, never above the latest). Below `min_build` the app blocks with "Update required";
+below `latest_build` it shows an Update button that opens TestFlight. The event stream sends `app_update` when either
+changes. Config: `app_update: {bundle_id, apple_id, min_build, check_minutes}`.
+
 ## Assets
 
 `GET /v1/assets/house-model` (the `house-model-web.json` format) and `GET /v1/assets/header`,
