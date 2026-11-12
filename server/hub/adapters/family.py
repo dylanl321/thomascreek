@@ -383,9 +383,52 @@ class FamilyBoard(Adapter):
     async def redeem(self, reward_id: str, board_person_id: str) -> Any:
         return await self.post_json(f"/api/rewards/{reward_id}/redeem", {"person_id": board_person_id})
 
+    async def items(self) -> list[dict[str, Any]]:
+        data = await self.get_json("/api/bootstrap")
+        return [i for i in data.get("items", []) if not i.get("archived")]
+
+    async def _write(self, method: str, path: str, body: dict[str, Any]) -> dict[str, Any]:
+        """A change on the board. Its 400/404 messages ("Weekly items require at least one weekday")
+        come back as BoardRefused so the person, or the assistant, can fix the request."""
+        try:
+            resp = await self.client().request(method, path, json=body, headers=self.auth_headers())
+        except httpx.HTTPError as exc:
+            self._fail(f"cannot reach {self.title}: {type(exc).__name__}")
+            raise AdapterError(self.last_error) from exc
+        if resp.status_code in (401, 403):
+            raise BoardRefused(503, "The family board turned the hub away. To add or change chores and calendar "
+                                    "events, save the board's parent PIN on the hub's admin page (Family board).")
+        if resp.status_code in (400, 404):
+            try:
+                msg = str(resp.json().get("error") or "")
+            except ValueError:
+                msg = ""
+            raise BoardRefused(resp.status_code, msg or ("Not found" if resp.status_code == 404 else "Not accepted"))
+        if resp.status_code >= 400:
+            self._fail(f"{self.title} answered {resp.status_code} for {method} {path}")
+            raise AdapterError(self.last_error)
+        self.last_ok = time.time()
+        return resp.json() if resp.content else {}
+
+    async def create_item(self, body: dict[str, Any]) -> dict[str, Any]:
+        return await self._write("POST", "/api/items", body)
+
+    async def update_item(self, item_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        return await self._write("PATCH", f"/api/items/{item_id}", body)
+
+    async def archive_item(self, item_id: str) -> dict[str, Any]:
+        return await self._write("POST", f"/api/items/{item_id}/archive", {})
+
     async def calendar(self, days: int) -> dict[str, Any]:
         resp = await self.request("GET", "/api/export/calendar.ics", params={"days": days})
         return {"events": parse_ics(resp.text)}
+
+
+class BoardRefused(Exception):
+    def __init__(self, status: int, message: str):
+        super().__init__(message)
+        self.status = status
+        self.message = message
 
 
 def _ics_time(value: str) -> tuple[str | None, bool]:

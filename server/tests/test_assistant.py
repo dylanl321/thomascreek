@@ -152,3 +152,136 @@ def test_house_active_lists_only_what_is_on(hub, home_client, people, ai):
     res = fake.results(1)[0]
     assert res["devices"] and all(d["state"].get("on") for d in res["devices"])
     assert "actions_by_kind" in res and all("actions" not in d for d in res["devices"])
+
+
+def _add(hub, eid, state, area=None, **attrs):
+    hub.home.states[eid] = {"entity_id": eid, "state": state, "attributes": attrs,
+                            "last_updated": "2026-11-12T01:00:00+00:00", "last_changed": "2026-11-12T01:00:00+00:00"}
+    if area:
+        hub.home.entity_area[eid] = area
+
+
+def test_sprinkler_zones_are_timed_valves(hub, home_client, people):
+    from hub.home import kind_for
+    hub.config.hub.dry_run = False
+    _add(hub, "switch.irrigation_controller_garden", "off", "kitchen", friendly_name="Irrigation Controller Garden")
+    _add(hub, "switch.irrigation_controller_rain_delay", "off", "kitchen", friendly_name="Irrigation Controller Rain delay")
+    _add(hub, "switch.irrigation_controller_garden_schedule", "off", "kitchen",
+         friendly_name="Irrigation Controller Garden Schedule")
+    assert kind_for(hub.home.states["switch.irrigation_controller_garden"]) == "valve"
+    assert kind_for(hub.home.states["switch.irrigation_controller_rain_delay"]) == "switch"
+    assert kind_for(hub.home.states["switch.irrigation_controller_garden_schedule"]) == "switch"
+    dylan = people["phones"]["Dylan"]
+    r = dylan.secure_post("/v1/actions", {"action": "valve.run", "target": "switch.irrigation_controller_garden", "params": {}})
+    assert r.status_code == 200, r.text
+    assert ("switch", "turn_on", {"entity_id": "switch.irrigation_controller_garden"}) in hub.calls
+    left = hub.actions.valve_remaining("switch.irrigation_controller_garden")
+    assert left is not None and 590 <= left <= 600  # a start with no time still stops itself after 10 min
+    hub.home.states["switch.irrigation_controller_garden"]["state"] = "on"
+    zone = next(d for d in home_client.get("/v1/home", headers=dylan.h).json()["devices"]
+                if d["id"] == "switch.irrigation_controller_garden")
+    assert zone["kind"] == "valve" and zone["state"]["remaining_s"] > 500
+    dylan.secure_post("/v1/actions", {"action": "valve.run", "target": "switch.irrigation_controller_garden",
+                                    "params": {"minutes": 25}})
+    assert len(hub.actions._valve_timers("switch.irrigation_controller_garden")) == 1  # replaced, not stacked
+    dylan.secure_post("/v1/actions", {"action": "valve.run", "target": "switch.irrigation_controller_garden",
+                                    "params": {"on": False}})
+    assert ("switch", "turn_off", {"entity_id": "switch.irrigation_controller_garden"}) in hub.calls
+    assert hub.actions.valve_remaining("switch.irrigation_controller_garden") is None
+
+
+def test_sensors_unroomed_devices_and_weather(hub, home_client, people, ai):
+    _add(hub, "binary_sensor.theo_closet", "on", "theo_room", friendly_name="Theos Closet Door", device_class="door")
+    _add(hub, "binary_sensor.kitchen_motion", "off", "kitchen", friendly_name="Kitchen Motion", device_class="motion")
+    _add(hub, "binary_sensor.cat_outside", "off", None, friendly_name="cat_is_outside", device_class="presence")
+    _add(hub, "binary_sensor.dead", "unavailable", "kitchen", friendly_name="Motion", device_class="motion")
+    _add(hub, "light.porch", "on", None, friendly_name="Porch")
+
+    class Wx:
+        data = {"now": {"temp": 61, "words": "Cloudy"}}
+
+        def now(self):
+            return self.data["now"]
+    hub.smart.weather = Wx()
+    fake = ai([[("house", {})], "ok"])
+    ask(home_client, people["phones"]["Avery"], "anything open?")
+    res = fake.results(1)[0]
+    sensors = {x["id"]: x for x in res["sensors"]}
+    assert sensors["binary_sensor.theo_closet"]["state"] == "open"
+    assert sensors["binary_sensor.kitchen_motion"]["state"] == "clear"
+    assert sensors["binary_sensor.cat_outside"]["state"] == "away" and "binary_sensor.dead" not in sensors
+    assert any(d["id"] == "light.porch" and d["room"] is None for d in res["devices"])
+    assert res["weather"]["now"]["temp"] == 61
+    # A child sees sensors only in their own rooms, and nothing without a room
+    fake = ai([[("house", {"kind": "sensor"})], "ok"])
+    ask(home_client, people["phones"]["Theo"], "is my closet open")
+    kid = fake.results(1)[0]
+    assert [x["id"] for x in kid["sensors"]] == ["binary_sensor.theo_closet"]
+    assert all(d["id"] != "light.porch" for d in kid["devices"])
+
+
+def test_look_sends_a_picture_once(hub, home_client, people, ai):
+    async def jpg(*_a, **_k):
+        return b"\xff\xd8\xff fake jpeg"
+    hub.frigate.latest_jpg = jpg
+    hub.ha.camera_proxy = jpg
+    fake = ai([[("look", {"camera": "driveway"})], "A white car is in the driveway."])
+    r = ask(home_client, people["phones"]["Avery"], "is there a car in the driveway?")
+    assert r.json()["reply"].startswith("A white car")
+    block = fake.requests[1]["messages"][-1]["content"][0]["content"]
+    assert block[0]["type"] == "image" and block[0]["source"]["media_type"] == "image/jpeg"
+    # The next turn doesn't re-send the picture
+    fake = ai(["Still there."])
+    ask(home_client, people["phones"]["Avery"], "and now?", conversation_id=r.json()["conversation_id"])
+    assert '"type": "image"' not in json.dumps(fake.requests[0]["messages"])
+    # Children without the cameras permission get no picture
+    fake = ai([[("look", {"camera": "driveway"})], "I can't."])
+    ask(home_client, people["phones"]["Theo"], "show me the driveway")
+    assert "not allowed" in fake.results(1)[0]["error"]
+
+
+def test_nas_app_restart_needs_admin_face_id_and_spares_the_hub(hub, home_client, people):
+    hub.config.hub.dry_run = False
+    restarted = []
+
+    async def restart(name):
+        restarted.append(name)
+    hub.truenas.restart_app = restart
+    dylan = people["phones"]["Dylan"]
+    r = dylan.secure_post("/v1/actions", {"action": "system.app_restart", "target": "plex"})
+    assert r.status_code == 200, r.text
+    assert restarted == ["plex"]
+    assert dylan.secure_post("/v1/actions", {"action": "system.app_restart", "target": "thomascreek-hub"}).status_code == 400
+    avery = people["phones"]["Avery"]
+    assert avery.secure_post("/v1/actions", {"action": "system.app_restart", "target": "plex"}).status_code == 403
+
+
+def test_chores_and_trips_wait_for_a_tap(hub, home_client, people, ai):
+    fake = ai([[("hub_change", {"method": "POST", "path": "/v1/family/items", "summary": "Add chore: test chore",
+                                "body": {"title": "test chore", "kind": "chore", "people": ["Theo"]}})],
+               "Tap Confirm to add it."])
+    r = ask(home_client, people["phones"]["Avery"], "add a chore: test chore for Theo").json()
+    assert [c["kind"] for c in r["confirms"]] == ["tap"] and r["confirms"][0]["path"] == "/v1/family/items"
+    assert r["changed"] is False
+    fake = ai([[("hub_change", {"method": "POST", "path": "/v1/trip-tools/create_trip", "body": {}})], "Confirm?"])
+    assert ask(home_client, people["phones"]["Avery"], "plan a beach trip").json()["confirms"][0]["kind"] == "tap"
+
+
+def test_look_never_hands_over_an_offline_or_unknown_camera(hub, home_client, people, ai):
+    async def jpg(*_a, **_k):
+        return b"\xff\xd8 stale frame"
+    hub.frigate.latest_jpg = jpg
+    hub.config.frigate.enabled = True
+    hub.config.frigate.url = "http://frigate.test:5000"
+    hub.frigate._info = {"140_driveway": {"online": False}, "140_creek": {"online": True}, "140_creek_ptz": {"online": True}}
+    fake = ai([[("look", {"camera": "driveway"})], "I couldn't get a picture."])
+    ask(home_client, people["phones"]["Avery"], "show me the driveway camera")
+    res = fake.results(1)[0]
+    assert "offline" in res["error"] and "don't describe" in res["error"]
+    assert '"type": "image"' not in json.dumps(fake.requests[1]["messages"])
+    fake = ai([[("look", {"camera": "creek"})], "Which one?"])
+    ask(home_client, people["phones"]["Avery"], "show me the creek")
+    assert "More than one" in fake.results(1)[0]["error"] and len(fake.results(1)[0]["cameras"]) == 2
+    fake = ai([[("look", {"camera": "creek ptz"})], "Clear."])
+    ask(home_client, people["phones"]["Avery"], "show me the creek ptz")
+    assert fake.requests[1]["messages"][-1]["content"][0]["content"][0]["type"] == "image"
