@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 from urllib.parse import quote
 
-from .base import Adapter
+from .base import Adapter, AdapterError
 
 
 class Plex(Adapter):
@@ -175,7 +175,10 @@ class Jellyseerr(Adapter):
         return await self.get_json(f"/api/v1/request/{quote(request_id)}")
 
     # -- full request handling (list, detail, cancel, retry, discover) ---------
-    _details: dict[str, tuple[float, dict[str, Any]]] = {}
+    def __init__(self, cfg, vault):
+        super().__init__(cfg, vault)
+        self._details: dict[str, tuple[float, dict[str, Any]]] = {}
+        self._broken: dict[str, float] = {}
 
     async def details(self, kind: str, tmdb: int, fresh: bool = False) -> dict[str, Any]:
         """Movie or show details (overview, seasons, ratings, mediaInfo). Cached 10 minutes."""
@@ -187,7 +190,22 @@ class Jellyseerr(Adapter):
         hit = self._details.get(key)
         if hit and not fresh and _t.time() - hit[0] < 600:
             return hit[1]
-        data = await self.get_json(f"/api/v1/{kind}/{int(tmdb)}")
+        bad = self._broken.get(key)
+        if bad and _t.time() - bad < 1800:
+            raise AdapterError(f"Jellyseerr can't look up {key}")
+        before = self.last_error
+        try:
+            data = await self.get_json(f"/api/v1/{kind}/{int(tmdb)}")
+        except AdapterError as exc:
+            # One title Jellyseerr can't look up (it answers 500 when TMDB has dropped or changed it) is not
+            # Jellyseerr being down: don't put it on Home or the status page, and don't ask again for a while.
+            if "answered" in str(exc):
+                self.last_error = before
+                self._broken[key] = _t.time()
+                import logging
+                logging.getLogger("hub.adapters").info("jellyseerr: no details for %s (%s)", key, exc)
+            raise
+        self._broken.pop(key, None)
         if len(self._details) > 500:
             self._details.clear()
         self._details[key] = (_t.time(), data)
@@ -252,7 +270,7 @@ class Jellyseerr(Adapter):
             info: dict[str, Any] = {}
             if kind in ("movie", "tv") and tmdb:
                 try:
-                    info = await self.get_json(f"/api/v1/{kind}/{int(tmdb)}")
+                    info = await self.details(kind, int(tmdb))
                 except Exception:  # noqa: BLE001
                     info = {}
             return {
