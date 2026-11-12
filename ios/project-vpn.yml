@@ -1,16 +1,17 @@
 # The full app with the built-in VPN. Needs Go for the WireGuard bridge:
 #   brew install go xcodegen && cd ios && xcodegen --spec project-vpn.yml
-# Values here win over project.yml, so the app's dependency list is restated in full.
+# XcodeGen merges this over project.yml and appends lists, so only the tunnel is added here.
 include:
   - project.yml
 packages:
   WireGuardKit:
     url: https://git.zx2c4.com/wireguard-apple
-    branch: master
+    # 1.0.15-26. Later tags and master declare swift-tools-version 5.3 but use
+    # .iOS(.v15), which Xcode 27's manifest compiler rejects.
+    revision: 10da5cfdef362889b438cfbeff867a74e6d717fd
 targets:
   ThomasCreek:
     dependencies:
-      - target: HomeWidgets
       - target: ThomasCreekTunnel
     entitlements:
       properties:
@@ -30,6 +31,8 @@ targets:
       path: Tunnel/Info.plist
       properties:
         CFBundleDisplayName: Thomas Creek Tunnel
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         AppGroup: $(APP_GROUP)
         NSExtension:
           NSExtensionPointIdentifier: com.apple.networkextension.packet-tunnel

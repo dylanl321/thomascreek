@@ -5,9 +5,13 @@
 #   ~/.appstoreconnect/config with ASC_KEY_ID=... and ASC_ISSUER_ID=...
 # (or export ASC_KEY_ID / ASC_ISSUER_ID). Bump CURRENT_PROJECT_VERSION in
 # project.yml before each upload. Builds land in the internal "Family" group.
+# SPEC picks the XcodeGen spec: project.yml (default, no tunnel) or
+# project-vpn.yml (with the WireGuard tunnel; needs Go and a signing setup that
+# can provision me.dlewis.thomascreek.tunnel). Run SPEC=project-vpn.yml ./scripts/upload.sh
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+SPEC="${SPEC:-project.yml}"
 [ -f "$HOME/.appstoreconnect/config" ] && . "$HOME/.appstoreconnect/config"
 : "${ASC_KEY_ID:?set ASC_KEY_ID or add it to ~/.appstoreconnect/config}"
 : "${ASC_ISSUER_ID:?set ASC_ISSUER_ID or add it to ~/.appstoreconnect/config}"
@@ -21,7 +25,7 @@ AUTH=(-allowProvisioningUpdates
       -authenticationKeyID "$ASC_KEY_ID"
       -authenticationKeyIssuerID "$ASC_ISSUER_ID")
 
-xcodegen generate
+xcodegen generate --spec "$SPEC"
 xcodebuild -project ThomasCreek.xcodeproj -scheme ThomasCreek \
   -configuration Release -destination generic/platform=iOS \
   -archivePath "$OUT/ThomasCreek.xcarchive" "${AUTH[@]}" archive
