@@ -13,9 +13,12 @@ so the hub sends `X-Forwarded-Proto: https` when it talks to TREK on the LAN.
 from __future__ import annotations
 
 import html
+import json
 import time
 from datetime import date, timedelta
 from typing import Any
+
+import httpx
 
 from .base import Adapter, AdapterError
 
@@ -39,6 +42,30 @@ def unescape(v: Any) -> Any:
     if isinstance(v, dict):
         return {k: unescape(x) for k, x in v.items()}
     return v
+
+
+class TrekRefused(Exception):
+    """TREK said no to a change (bad arguments, missing scope); the message says why."""
+
+
+def parse_rpc(text: str, want_id: int) -> dict[str, Any]:
+    """A JSON-RPC answer from an MCP Streamable HTTP POST: plain JSON, or server-sent events."""
+    text = text.strip()
+    if text.startswith("{"):
+        return json.loads(text)
+    found: dict[str, Any] = {}
+    for block in text.split("\n\n"):
+        data = "\n".join(line[5:].lstrip() for line in block.splitlines() if line.startswith("data:"))
+        if not data:
+            continue
+        try:
+            msg = json.loads(data)
+        except ValueError:
+            continue
+        if isinstance(msg, dict) and msg.get("id") == want_id:
+            return msg
+        found = msg if isinstance(msg, dict) else found
+    return found
 
 
 class Trek(Adapter):
@@ -93,6 +120,116 @@ class Trek(Adapter):
 
     async def trip(self, trip_id: int) -> dict[str, Any]:
         return await self._cached(f"trip:{trip_id}", f"/api/v1/trips/{int(trip_id)}")
+
+    # -- changing trips: TREK's MCP server, signed in as a machine client ---------------------------
+    def mcp_ready(self) -> bool:
+        return bool(self.secret(self.cfg.mcp_client_id_secret) and self.secret(self.cfg.mcp_client_secret_secret))
+
+    def _proto(self) -> dict[str, str]:
+        return {"X-Forwarded-Proto": "https"} if (self.cfg.url or "").startswith("http://") else {}
+
+    async def _mcp_token(self) -> str:
+        tok = self.__dict__.get("_mcp_tok")
+        if tok and tok[1] > time.time() + 60:
+            return tok[0]
+        cid = (self.secret(self.cfg.mcp_client_id_secret) or "").strip()
+        csec = (self.secret(self.cfg.mcp_client_secret_secret) or "").strip()
+        if not (cid and csec):
+            raise AdapterError("TREK's machine client isn't saved on the hub yet (admin page, Trips)")
+        headers = {"Accept": "application/json", **self._proto()}
+        try:
+            # client_secret_post first; some servers only take HTTP Basic (RFC 6749 2.3.1)
+            r = await self.client().post("/oauth/token", data={"grant_type": "client_credentials",
+                                                               "client_id": cid, "client_secret": csec},
+                                         headers=headers)
+            if r.status_code in (400, 401):
+                r = await self.client().post("/oauth/token", data={"grant_type": "client_credentials"},
+                                             headers=headers, auth=(cid, csec))
+        except httpx.HTTPError as exc:
+            raise AdapterError(f"cannot reach TREK: {type(exc).__name__}") from exc
+        if r.status_code >= 400:
+            self._fail(f"TREK refused the hub's machine client ({r.status_code})")
+            raise AdapterError(self.last_error)
+        j = r.json()
+        self.__dict__["_mcp_tok"] = (j["access_token"], time.time() + int(j.get("expires_in") or 3600))
+        self.__dict__.pop("_mcp_sid", None)  # a new token starts a new session
+        return j["access_token"]
+
+    async def _rpc(self, method: str, params: dict[str, Any] | None = None, *, retry: bool = True) -> Any:
+        if method != "initialize" and not self.__dict__.get("_mcp_sid"):
+            await self._mcp_init()
+        token = await self._mcp_token()
+        headers = {"Authorization": f"Bearer {token}", "Accept": "application/json, text/event-stream",
+                   "Content-Type": "application/json", **self._proto()}
+        sid = self.__dict__.get("_mcp_sid")
+        if sid:
+            headers["Mcp-Session-Id"] = sid
+        n = self.__dict__["_mcp_n"] = self.__dict__.get("_mcp_n", 0) + 1
+        body = {"jsonrpc": "2.0", "id": n, "method": method, **({"params": params} if params is not None else {})}
+        try:
+            r = await self.client().post("/mcp", json=body, headers=headers, timeout=60)
+        except httpx.HTTPError as exc:
+            raise AdapterError(f"cannot reach TREK: {type(exc).__name__}") from exc
+        if r.status_code in (400, 404) and sid and retry:  # the session expired: start over once
+            self.__dict__.pop("_mcp_sid", None)
+            return await self._rpc(method, params, retry=False)
+        if r.status_code == 401 and retry:
+            self.__dict__.pop("_mcp_tok", None)
+            return await self._rpc(method, params, retry=False)
+        if r.status_code >= 400:
+            self._fail(f"TREK's MCP answered {r.status_code}")
+            raise AdapterError(self.last_error)
+        if r.headers.get("mcp-session-id"):
+            self.__dict__["_mcp_sid"] = r.headers["mcp-session-id"]
+        msg = parse_rpc(r.text, n)
+        if msg.get("error"):
+            raise TrekRefused(str(msg["error"].get("message") or msg["error"]))
+        return msg.get("result")
+
+    async def _mcp_init(self) -> None:
+        await self._rpc("initialize", {"protocolVersion": "2025-06-18", "capabilities": {},
+                                       "clientInfo": {"name": "thomascreek-hub", "version": "1"}})
+        token = await self._mcp_token()
+        headers = {"Authorization": f"Bearer {token}", "Accept": "application/json, text/event-stream",
+                   "Content-Type": "application/json", **self._proto()}
+        if self.__dict__.get("_mcp_sid"):
+            headers["Mcp-Session-Id"] = self.__dict__["_mcp_sid"]
+        try:
+            await self.client().post("/mcp", json={"jsonrpc": "2.0", "method": "notifications/initialized"},
+                                     headers=headers)
+        except httpx.HTTPError:
+            pass
+
+    async def mcp_tools(self) -> list[dict[str, Any]]:
+        hit = self.__dict__.get("_mcp_tools")
+        if hit and time.time() - hit[0] < 600:
+            return hit[1]
+        tools: list[dict[str, Any]] = []
+        cursor = None
+        for _ in range(10):
+            res = await self._rpc("tools/list", {"cursor": cursor} if cursor else {}) or {}
+            tools += res.get("tools", [])
+            cursor = res.get("nextCursor")
+            if not cursor:
+                break
+        self.__dict__["_mcp_tools"] = (time.time(), tools)
+        return tools
+
+    async def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:
+        res = await self._rpc("tools/call", {"name": name, "arguments": arguments}) or {}
+        texts = [c.get("text", "") for c in res.get("content", []) if c.get("type") == "text"]
+        out: Any = res.get("structuredContent")
+        if out is None:
+            joined = "\n".join(texts)
+            try:
+                out = json.loads(joined)
+            except ValueError:
+                out = joined
+        if res.get("isError"):
+            raise TrekRefused(out if isinstance(out, str) else json.dumps(out)[:500])
+        if not name.startswith(("list_", "get_", "search_")):
+            self._cache.clear()  # the app's trip views pick up the change
+        return out
 
     def plan_url(self, trip_id: int | None = None) -> str | None:
         base = (self.cfg.web_url or "").rstrip("/")
