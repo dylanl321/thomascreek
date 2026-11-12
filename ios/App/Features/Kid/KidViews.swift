@@ -55,6 +55,8 @@ struct KidHomeView: View {
             VStack(alignment: .leading, spacing: 14) {
                 header
                 if !store.reachable { KidNap() }
+                // Dinner and the next trip have their own cards on this screen.
+                RightNowSection(hide: ["my_dinner", "trip"], kid: true)
                 if store.me?.can(.tripsView) == true { KidTripCard(little: little, color: color) }
                 if little { littleHome } else { kidHome }
             }

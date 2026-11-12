@@ -41,7 +41,66 @@ enum JSONValue: Codable, Hashable {
         }
     }
     var array: [JSONValue]? { if case .array(let a) = self { a } else { nil } }
+
+    /// Plain Foundation value for a request body. The decoder camel-cased every key on the way in
+    /// (`timer_min` became `timerMin`), so keys go back to snake_case for the hub.
+    var hubBody: Any {
+        switch self {
+        case .string(let s): s
+        case .number(let n): n == n.rounded() && abs(n) < 1e15 ? Int(n) as Any : n
+        case .bool(let b): b
+        case .null: NSNull()
+        case .array(let a): a.map(\.hubBody)
+        case .object(let o): Dictionary(uniqueKeysWithValues: o.map { (Self.snake($0.key), $0.value.hubBody) })
+        }
+    }
+
+    static func snake(_ key: String) -> String {
+        var out = ""
+        for ch in key {
+            if ch.isUppercase { out += "_" + ch.lowercased() } else { out.append(ch) }
+        }
+        return out
+    }
 }
+
+// MARK: - Smart "Right now" cards (chosen by the hub)
+
+struct SmartCard: Codable, Hashable, Identifiable {
+    var id: String
+    var rule: String
+    var priority: Int
+    var tint: String
+    var symbol: String
+    var eyebrow: String
+    var title: String
+    var detail: String?
+    var items: [Item]?
+    var image: String?
+    var emoji: String?
+    var ref: String?
+    var why: String?
+    var style: String?
+    var buttons: [Button]
+
+    struct Item: Codable, Hashable { var title: String; var value: String?; var url: String? }
+
+    struct Button: Codable, Hashable {
+        var title: String
+        var kind: String          // action | open | call | done
+        var primary: Bool?
+        var action: String?
+        var target: String?
+        var params: JSONValue?
+        var secure: Bool?
+        var url: String?
+        var method: String?
+        var path: String?
+        var done: String?
+    }
+}
+
+struct SmartList: Codable { var cards: [SmartCard]; var weather: HomeSnapshot.Weather? }
 
 // MARK: - Who am I
 
@@ -130,6 +189,7 @@ struct HomeSnapshot: Codable, Hashable {
     var systems: Systems?
     var seasonal: Seasonal?
     var weather: Weather?
+    var smart: [SmartCard]?
 
     struct HouseStatus: Codable, Hashable {
         var level: String
@@ -147,7 +207,10 @@ struct HomeSnapshot: Codable, Hashable {
         var ref: String?
     }
     struct Seasonal: Codable, Hashable { var holidayLights: Bool? }
-    struct Weather: Codable, Hashable { var temp: Double?; var condition: String?; var symbol: String? }
+    struct Weather: Codable, Hashable {
+        var temp: Double?; var condition: String?; var symbol: String?
+        var high: Double?; var low: Double?; var sunset: String?; var sunrise: String?
+    }
 
     var generated: Date? { generatedAt.flatMap(ISO.parse) }
     func device(_ id: String?) -> DeviceItem? { id.flatMap { i in devices?.first { $0.id == i } } }

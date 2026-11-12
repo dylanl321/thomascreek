@@ -145,3 +145,32 @@ More routes
 - `POST /v1/meals/recipes/parse {text}` → draft `{title, ingredients, steps, oven}` (scanned or pasted text).
 - `GET /v1/meals/plan?start=&days=7` → `{days:[{date, dinner:{id,slug,recipe_id,title,image_url,total_time,note}|null, other:[]}]}`. `PUT /v1/meals/plan/{yyyy-mm-dd} {slug}` or `{title}` ("Eating out"); `{}` clears. `POST /v1/meals/plan/fill {start?, days?}` fills empty nights. `GET /v1/meals/suggest?n=`.
 - Editing needs `family.edit` (adults); viewing `family.view`.
+
+## Smart "Right now" cards
+
+`GET /v1/home` now carries `weather` ({temp, condition, symbol, high, low, sunrise, sunset}) and `smart`, a list of
+cards the hub picked for this person right now, highest priority first. `GET /v1/smart` returns just
+`{cards, weather}`; the event stream sends `{"type":"smart"}` when they may have changed (and device events can
+change them too), so the app refetches `/v1/smart`.
+
+Card: `{id, rule, priority, tint (accent|warn|bad|kid|night|sun), symbol (SF Symbol), eyebrow, title, detail?,
+items?: [{title, value?, url?}], image? (hub path), emoji?, ref? (deep link), why, style? ("picture" for the
+picture-first layout), buttons: [...]}`.
+
+Button kinds:
+- `action`: `{action, target?, params, secure}` → `POST /v1/actions` (Face ID when `secure`). `steps.run` takes
+  `{steps: [{action, target, params}], label}` and runs several taps in one (lights, switches, fans, locks,
+  garage, media); each step passes the normal policy and the strongest tier any step needs applies.
+- `open`: `{url}` deep link.
+- `call`: `{method, path}` e.g. `POST /v1/cameras/events/{id}/wrong` ("Not a package").
+- `done`: just closes the card.
+`done` on any button is the toast text after it worked.
+
+`POST /v1/smart/dismiss {id, rule, handled}`: handled=true after a button worked; false is "Not now", which hides
+the card until 4 am (30 min for safety cards). Three "Not now" in a row on one rule mutes it for that person
+(reply has `muted: true`, `rule_title`). `GET /v1/smart/settings` → `{muted, rules}`; `POST /v1/smart/settings
+{rule, muted}`.
+
+Hub config `smart:` dinner_time, dinner_lead_min, lockup_time, trash_night, bedtimes {name: "HH:MM"}, wake_time,
+latitude/longitude (default: Home Assistant's), goodnight_mode, off_rules. Weather is Open-Meteo, falling back
+to the first `weather.*` entity.

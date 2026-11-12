@@ -13,6 +13,7 @@ struct HomeView: View {
             VStack(alignment: .leading, spacing: 12) {
                 HeroHeader(title: greeting(me?.firstName), subtitle: dateLine, show3D: true)
                 VPNNotice()
+                RightNowSection()
                 if !store.reachable {
                     // Everyone sees the offline strip; Dylan also gets the likely cause.
                     if store.role == .admin { OfflineCard() }

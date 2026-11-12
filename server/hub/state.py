@@ -14,6 +14,7 @@ from .actions import ActionRunner
 from .assistant import Assistant
 from .alerts import Alerts
 from .adapters.cameras import Frigate
+from .smart import Smart
 from .adapters.family import FamilyBoard, Homebox, Mealie, ShowPlayer
 from .adapters.firewalla import Firewalla
 from .adapters.homeassistant import HomeAssistant
@@ -79,6 +80,7 @@ class Hub:
         self.actions = ActionRunner(self)
         self.timers = Timers(self)
         self.kitchen = Kitchen(self)
+        self.smart = Smart(self)
         self.assistant = Assistant(self)
         self._home_nets = [ipaddress.ip_network(n, strict=False) for n in config.hub.home_networks]
         self._proxies = [ipaddress.ip_network(n, strict=False) for n in config.hub.trusted_proxies]
@@ -197,6 +199,7 @@ class Hub:
         self.home.start()
         self.timers.start()
         self.kitchen.start()
+        self.smart.start()
         self.alerts.start()
         from .dropbox import watch
 
@@ -270,6 +273,7 @@ class Hub:
         await self.home.stop()
         await self.timers.stop()
         await self.kitchen.stop()
+        await self.smart.stop()
         await self.alerts.stop()
         await self.onepassword.stop()
         if getattr(self, "_dropbox", None):

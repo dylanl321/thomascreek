@@ -407,6 +407,8 @@ class HomeModel:
             "today": {"events": self.calendar if policy.has(s, "family.view") else [],
                       "dinner": self.dinner},
             "seasonal": {"holiday_lights": month in (11, 12, 1)},
+            "weather": self.hub.smart.weather.now(),
+            "smart": self.hub.smart.cards(s),
         }
         if policy.has(s, "systems"):
             snap["systems"] = self.systems_card()
