@@ -439,7 +439,8 @@ async def status_json(request: Request, h: Hub = Depends(hub)) -> JSONResponse:
             ver = f"failed: {type(exc).__name__}"
         dl = getattr(h, "downloads", None)
         return JSONResponse({"services": rows, "build": os.environ.get("HUB_BUILD"), "ffmpeg": ver,
-                             "download_failures": list(getattr(dl, "failures", []))})
+                             "download_failures": list(getattr(dl, "failures", [])),
+                             "youtube": h.youtube.summary() if getattr(h, "youtube", None) else None})
     return JSONResponse(rows)
 
 

@@ -119,9 +119,52 @@ SCHEMA = [
         kind TEXT NOT NULL,
         payload TEXT NOT NULL DEFAULT '{}'
     )""",
+    """
+    CREATE TABLE IF NOT EXISTS yt_sources (
+        id TEXT PRIMARY KEY,
+        kind TEXT NOT NULL,
+        url TEXT NOT NULL,
+        yt_id TEXT,
+        title TEXT NOT NULL,
+        channel TEXT,
+        channel_id TEXT,
+        thumb_url TEXT,
+        added_by TEXT,
+        created_at REAL NOT NULL,
+        follow INTEGER NOT NULL DEFAULT 0,
+        last_checked_at REAL,
+        last_error TEXT
+    )""",
+    """
+    CREATE TABLE IF NOT EXISTS yt_videos (
+        id TEXT PRIMARY KEY,
+        source_ids TEXT NOT NULL DEFAULT '[]',
+        title TEXT NOT NULL,
+        channel TEXT,
+        channel_id TEXT,
+        duration_s REAL,
+        uploaded TEXT,
+        thumb_url TEXT,
+        status TEXT NOT NULL,
+        error TEXT,
+        file TEXT,
+        bytes INTEGER,
+        height INTEGER,
+        added_at REAL NOT NULL,
+        ready_at REAL,
+        watched_at REAL,
+        position_s REAL
+    )""",
+    """
+    CREATE TABLE IF NOT EXISTS yt_blocked (
+        channel_id TEXT PRIMARY KEY,
+        name TEXT,
+        blocked_by TEXT,
+        blocked_at REAL NOT NULL
+    )""",
 ]
 
-JSON_COLUMNS = {"areas", "shared_areas", "grants", "denies", "prefs", "activity", "actions", "payload", "params"}
+JSON_COLUMNS = {"source_ids", "areas", "shared_areas", "grants", "denies", "prefs", "activity", "actions", "payload", "params"}
 
 
 def new_id(prefix: str) -> str:

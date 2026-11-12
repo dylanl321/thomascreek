@@ -22,6 +22,7 @@ from .config import Config
 from .crypto import TokenIssuer
 from .db import DB
 from .downloads import Downloads
+from .youtube import YouTube
 from .events import EventBus
 from .home import HomeModel
 from .notify import Notifier
@@ -67,6 +68,8 @@ class Hub:
         self.vpn = Vpn(config.vpn, vault, db)
         self.home = HomeModel(self)
         self.downloads = Downloads(self, (Path(db._path).parent if db._path != ":memory:" else Path("/tmp")) / "downloads")
+        data = Path(db._path).parent if db._path != ":memory:" else Path("/tmp")
+        self.youtube = YouTube(self, data / "youtube")
         self.notify = Notifier(self)
         self.actions = ActionRunner(self)
         self.timers = Timers(self)
@@ -159,6 +162,7 @@ class Hub:
             log.error("VPN did not come up: %s", exc)
         self.home.start()
         self.timers.start()
+        self.youtube.start()
         from .dropbox import watch
 
         self._dropbox = asyncio.create_task(watch(self.vault))
@@ -225,6 +229,7 @@ class Hub:
     async def stop(self) -> None:
         await self.home.stop()
         await self.timers.stop()
+        await self.youtube.stop()
         await self.onepassword.stop()
         if getattr(self, "_dropbox", None):
             self._dropbox.cancel()
