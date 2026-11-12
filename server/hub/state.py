@@ -157,6 +157,38 @@ class Hub:
         from .dropbox import watch
 
         self._dropbox = asyncio.create_task(watch(self.vault))
+        self._frigate = asyncio.create_task(self._watch_frigate()) if self.frigate.enabled else None
+
+    async def _watch_frigate(self, interval: float = 10.0) -> None:
+        """Keep the camera list fresh and send each new Frigate event to the app (SSE camera_event)."""
+        from .routes.cameras import event_item
+
+        seen: set[str] = set()
+        after: float | None = None
+        while True:
+            try:
+                await self.frigate.camera_info()
+                rows = await self.frigate.events(limit=50)
+                for e in sorted(rows, key=lambda r: r.get("start_time") or 0):
+                    cam = e.get("camera")
+                    item = event_item(self, e)
+                    prev = self.frigate.last_event.get(cam)
+                    if cam and (prev is None or (prev.get("start") or "") <= (item["start"] or "")):
+                        self.frigate.last_event[cam] = item
+                    if after is not None and e["id"] not in seen and (e.get("start_time") or 0) >= after:
+                        self.bus.publish({"type": "camera_event", "data": item})
+                    seen.add(e["id"])
+                if rows:
+                    after = max([after or 0] + [r.get("start_time") or 0 for r in rows])
+                elif after is None:
+                    after = time.time()
+                if len(seen) > 2000:
+                    seen = {r["id"] for r in rows}
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # noqa: BLE001
+                log.debug("Frigate watch: %s", exc)
+            await asyncio.sleep(interval)
 
     async def stop(self) -> None:
         await self.home.stop()
@@ -164,6 +196,8 @@ class Hub:
         await self.onepassword.stop()
         if getattr(self, "_dropbox", None):
             self._dropbox.cancel()
+        if getattr(self, "_frigate", None):
+            self._frigate.cancel()
         for a in self.adapters:
             await a.close()
         await self.apns.close()

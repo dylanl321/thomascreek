@@ -68,7 +68,64 @@ def kind_for(state: dict[str, Any]) -> str | None:
     return DOMAIN_KIND.get(domain)
 
 
-def device_state(kind: str, st: dict[str, Any]) -> dict[str, Any]:
+# media_player supported_features bits (MediaPlayerEntityFeature)
+MP_PAUSE, MP_VOLUME_SET, MP_VOLUME_MUTE, MP_PREV, MP_NEXT = 1, 4, 8, 16, 32
+MP_TURN_ON, MP_TURN_OFF, MP_VOLUME_STEP, MP_SELECT_SOURCE, MP_STOP, MP_PLAY = 128, 256, 1024, 2048, 4096, 16384
+# Remote buttons per integration: hub name -> (how, command). "remote" = remote.send_command
+# on the linked remote entity; anything else is "<domain>.<service>:<field>" on the media player.
+REMOTE_KEYS: dict[str, dict[str, str]] = {
+    "apple_tv": {"up": "up", "down": "down", "left": "left", "right": "right", "select": "select",
+                 "back": "menu", "home": "home"},
+    "androidtv_remote": {"up": "DPAD_UP", "down": "DPAD_DOWN", "left": "DPAD_LEFT", "right": "DPAD_RIGHT",
+                         "select": "DPAD_CENTER", "back": "BACK", "home": "HOME"},
+    "roku": {"up": "up", "down": "down", "left": "left", "right": "right", "select": "select", "back": "back",
+             "home": "home"},
+    "samsungtv": {"up": "KEY_UP", "down": "KEY_DOWN", "left": "KEY_LEFT", "right": "KEY_RIGHT",
+                  "select": "KEY_ENTER", "back": "KEY_RETURN", "home": "KEY_HOME"},
+    "braviatv": {"up": "Up", "down": "Down", "left": "Left", "right": "Right", "select": "Confirm",
+                 "back": "Return", "home": "Home"},
+    "webostv": {"up": "UP", "down": "DOWN", "left": "LEFT", "right": "RIGHT", "select": "ENTER",
+                "back": "BACK", "home": "HOME"},
+    "androidtv": {"up": "UP", "down": "DOWN", "left": "LEFT", "right": "RIGHT", "select": "CENTER",
+                  "back": "BACK", "home": "HOME"},
+}
+# Integrations whose buttons go to a service on the media player itself, not a remote entity.
+PLAYER_KEY_SERVICES = {"webostv": ("webostv", "button", "button"), "androidtv": ("androidtv", "adb_command", "command")}
+DPAD = ("up", "down", "left", "right", "select", "back", "home")
+
+
+def media_commands(st: dict[str, Any], link: dict[str, Any] | None) -> list[str]:
+    """The remote buttons this TV or player really supports through Home Assistant."""
+    f = int(st.get("attributes", {}).get("supported_features") or 0)
+    cmds = []
+    if f & (MP_TURN_ON | MP_TURN_OFF):
+        cmds.append("power")
+    if f & MP_PLAY:
+        cmds.append("play")
+    if f & MP_PAUSE:
+        cmds.append("pause")
+    if f & MP_STOP:
+        cmds.append("stop")
+    if f & MP_PREV:
+        cmds.append("prev")
+    if f & MP_NEXT:
+        cmds.append("next")
+    if f & (MP_VOLUME_STEP | MP_VOLUME_SET):
+        cmds += ["vol_up", "vol_down"]
+    if f & MP_VOLUME_SET:
+        cmds.append("volume")
+    if f & MP_VOLUME_MUTE:
+        cmds.append("mute")
+    if f & MP_SELECT_SOURCE and st.get("attributes", {}).get("source_list"):
+        cmds.append("source")
+    link = link or {}
+    plat = link.get("platform")
+    if plat in REMOTE_KEYS and (link.get("remote") or plat in PLAYER_KEY_SERVICES):
+        cmds += list(DPAD)
+    return cmds
+
+
+def device_state(kind: str, st: dict[str, Any], link: dict[str, Any] | None = None) -> dict[str, Any]:
     s = st.get("state")
     a = st.get("attributes", {})
     out: dict[str, Any] = {}
@@ -92,7 +149,10 @@ def device_state(kind: str, st: dict[str, Any]) -> dict[str, Any]:
     elif kind in ("media", "speaker"):
         out.update(on=s not in ("off", "standby", "unavailable"), playing=s == "playing",
                    volume=round(a["volume_level"] * 100) if a.get("volume_level") is not None else None,
-                   source=a.get("source") or a.get("app_name"))
+                   muted=bool(a.get("is_volume_muted")) if "is_volume_muted" in a else None,
+                   source=a.get("source") or a.get("app_name"),
+                   sources=list(a.get("source_list") or []),
+                   commands=media_commands(st, link))
     elif kind == "vacuum":
         out["value"] = s
     elif kind == "sensor":
@@ -109,6 +169,8 @@ class HomeModel:
         self.areas: dict[str, dict[str, Any]] = {}
         self.floors: list[dict[str, Any]] = []
         self.entity_area: dict[str, str] = {}
+        # media_player -> {"remote": remote entity or None, "platform": integration}
+        self.media_links: dict[str, dict[str, Any]] = {}
         self.systems: dict[str, Any] | None = None
         self.dinner: dict[str, Any] | None = None
         self.calendar: list[dict[str, Any]] = []
@@ -160,6 +222,10 @@ class HomeModel:
     async def _refresh_areas(self) -> None:
         areas = await self.hub.ha.areas()
         floors = await self.hub.ha.floors()
+        links = await self.hub.ha.media_links()
+        extra = self.hub.config.home_assistant.extra.get("remotes", {})
+        self.media_links = {m["entity_id"]: {"remote": extra.get(m["entity_id"]) or m.get("remote"),
+                                             "platform": m.get("platform")} for m in links if m.get("entity_id")}
         overrides = self.hub.config.areas
         self.areas = {}
         self.entity_area = {}
@@ -245,7 +311,7 @@ class HomeModel:
             "kind": kind,
             "name": st.get("attributes", {}).get("friendly_name", eid),
             "room_id": area,
-            "state": device_state(kind, st),
+            "state": device_state(kind, st, self.media_links.get(eid)),
             "updated_at": st.get("last_updated"),
             "available": st.get("state") not in ("unavailable", "unknown"),
             "actions": actions,
@@ -274,7 +340,11 @@ class HomeModel:
         floors = [f for f in floors if f["room_ids"]]
 
         cameras = []
-        if policy.has(s, "cameras"):
+        if policy.has(s, "cameras") and self.hub.frigate.enabled:
+            from .routes.cameras import camera_list
+
+            cameras = camera_list(self.hub)
+        elif policy.has(s, "cameras"):
             for eid, st in self.states.items():
                 if eid.startswith("camera."):
                     cameras.append({

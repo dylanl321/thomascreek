@@ -95,6 +95,12 @@ Extra keys: `status.since` (when offline), `systems.services` (each connector's 
 `speaker.group {members}`, `scene.run`, `mode.run`, `valve.run {minutes}`, `vacuum.start`,
 `shower.preheat`, `announce {text, rooms}`, `network.pause {minutes?}`, `network.grant {minutes?}`.
 
+`media.command` commands: `power play pause stop prev next vol_up vol_down mute`, `volume {volume:0-100}`,
+`source {source}` (one of the TV's `sources`), and the remote keys `up down left right select back home`.
+A media device's `state` lists only what that TV supports through Home Assistant in `commands`, plus
+`sources`, `source`, `volume` (0-100) and `muted`. Remote keys go to the TV's own remote entity (Apple TV,
+Android TV, Roku, Samsung, Sony) or to the LG/ADB key service, in that integration's key names.
+
 While the hub is in practice mode every write returns `dry_run: true` and nothing changes.
 Show this quietly (e.g. a "Practice mode" chip from `/v1/me.dry_run`).
 
@@ -134,6 +140,14 @@ object id (`camera.driveway` -> `driveway`), which must match the Frigate/go2rtc
 Load `player_url` (hub-relative, needs no bearer) in a WKWebView. Away from home this is secure tier.
 `GET /v1/cameras/{id}/snapshot.jpg`, `GET /v1/cameras/{id}/events` -> `{items:[{id,label,start,end,thumb_url,clip_url}]}`,
 `GET /v1/cameras/events/{event_id}/thumb.jpg`, `.../clip.mp4`.
+
+Frigate only (when Frigate is set up):
+`GET /v1/cameras` -> `{cameras:[{id,name,width,height,online,room_id,snapshot_url,last_event:{label,start}|null}]}`
+(width/height are Frigate's detect size; /v1/home `cameras` has the same items).
+`GET /v1/cameras/events?limit=&before=&camera=&label=` and `GET /v1/cameras/{id}/events?limit=&before=` ->
+`{items:[{id,camera,camera_name,label,sub_label,score,zones,start,end,thumb_url,snapshot_url,clip_url}], next_before}`.
+`GET /v1/cameras/events/{id}` -> one item. `GET /v1/cameras/events/{id}/snapshot.jpg`.
+SSE `camera_event` carries one item when Frigate records a new event.
 
 ## Media
 
@@ -179,9 +193,15 @@ Admin: `GET /v1/network/devices` (everything Firewalla sees, with `linked_to`),
 `GET /v1/people` -> `{people:[{id,name,role,ui_style,areas,shared_areas,grants,denies,tv_device,access_until,devices:[..]}], unassigned:[..], areas:[..]}`
 (non-admins get only themselves). `POST /v1/people`, `PATCH /v1/people/{id}` (anyone may change their own name and avatar).
 `POST /v1/devices/{id}/assign {person_id}`, `POST /v1/devices/{id}/revoke` (also allowed on your own device, secure tier).
-`GET /v1/activity?before=&person=&limit=&category=doors|lights|climate|media|network|people|cameras|chores` -> `{items:[{id,t,who,action,target,params,outcome,detail,source}], next_before}`.
+`GET /v1/activity?before=&person=&limit=&category=doors|lights|climate|media|network|people|cameras|chores|automation` ->
+`{items:[{id,t,at,who,action,target,params,outcome,detail,source}], next_before}`. `id` is a string, `t` epoch seconds,
+`at` ISO. `source` is `app`, `hub`, `home` (Home Assistant logbook: doors, locks, garage, presence) or `automation`.
+`next_before` is an opaque string to pass back as `before`.
 `outcome` is `ok`, `dry_run`, `denied` or `error`.
-`GET /v1/systems` -> `{pools:[{name,healthy,status,size_tb,used_pct,scrub_pct}], apps:[{name,state,update}], apps_summary, alerts, services, hub}`, `GET /v1/pipeline`.
+`GET /v1/systems` -> `{pools:[{name,healthy,status,size_tb,used_pct,scrub_pct}], apps:[{name,state,update}], apps_summary, alerts, services, hub}`.
+`GET /v1/pipeline` -> `{requests:[{id,kind,title,year,poster_url,status,media_status,requested_by,requested_at}],
+downloads:[{title,progress,eta_s,state,source,error?}], recent:[{kind,title,detail,at,source}],
+upcoming:[{kind,title,detail,at,has_file,source}], failures:[{source,error}], services:[..]}`.
 `POST /v1/push/test` sends a test notification to the calling device.
 
 ## VPN

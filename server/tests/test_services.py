@@ -494,3 +494,59 @@ def test_drop_folder_takes_house_model(hub, tmp_path, monkeypatch):
     assert import_dropped(hub.vault, drop) == ["asset:house-model-web.json"]
     assert (tmp_path / "assets" / "house-model-web.json").read_text() == '{"rooms": []}'
     assert not hub.vault.has("house-model-web.json")
+
+
+def test_tv_remote_commands_follow_home_assistant(hub, people, home_client):
+    from hub.home import device_state
+
+    st = hub.home.states["media_player.theo_tv"]
+    st["state"] = "on"
+    st["attributes"].update(supported_features=128 | 256 | 1 | 16384 | 1024 | 4 | 8 | 2048,
+                            source_list=["HDMI 1", "Netflix"], source="Netflix", volume_level=0.3, is_volume_muted=False)
+    hub.config.hub.dry_run = False
+    hub.home.media_links = {"media_player.theo_tv": {"remote": "remote.theo_tv", "platform": "androidtv_remote"}}
+    s = device_state("media", st, hub.home.media_links["media_player.theo_tv"])
+    assert s["volume"] == 30 and s["muted"] is False and s["sources"] == ["HDMI 1", "Netflix"]
+    assert {"power", "play", "pause", "vol_up", "volume", "mute", "source", "up", "select", "home"} <= set(s["commands"])
+    assert "next" not in s["commands"]
+    dylan = people["phones"]["Dylan"]
+    for params in ({"command": "up"}, {"command": "source", "source": "HDMI 1"}, {"command": "volume", "volume": 55}):
+        r = home_client.post("/v1/actions", json={"action": "media.command", "target": "media_player.theo_tv",
+                                                  "params": params}, headers=dylan.h)
+        assert r.status_code == 200, r.text
+    assert ("remote", "send_command", {"entity_id": "remote.theo_tv", "command": "DPAD_UP"}) in hub.calls
+    assert ("media_player", "select_source", {"entity_id": "media_player.theo_tv", "source": "HDMI 1"}) in hub.calls
+    assert ("media_player", "volume_set", {"entity_id": "media_player.theo_tv", "volume_level": 0.55}) in hub.calls
+    bad = home_client.post("/v1/actions", json={"action": "media.command", "target": "media_player.theo_tv",
+                                                "params": {"command": "source", "source": "Nope"}}, headers=dylan.h)
+    assert bad.status_code == 400
+
+
+def test_frigate_cameras_events_and_home(hub, people, home_client):
+    hub.config.frigate.enabled, hub.config.frigate.url = True, "http://frigate.test:5000"
+    dylan = people["phones"]["Dylan"]
+    ev = {"id": "1700.5-abc", "camera": "140_creek", "label": "person", "sub_label": None, "zones": ["yard"],
+          "start_time": 1700000000.5, "end_time": None, "has_clip": True, "has_snapshot": True,
+          "data": {"top_score": 0.81}}
+    with respx.mock(assert_all_called=False) as mock:
+        mock.get("http://frigate.test:5000/api/config").mock(return_value=httpx.Response(200, json={"cameras": {
+            "140_creek": {"detect": {"width": 2560, "height": 720}},
+            "140_garden": {"detect": {"width": 1280, "height": 720}}}}))
+        mock.get("http://frigate.test:5000/api/stats").mock(return_value=httpx.Response(200, json={"cameras": {
+            "140_creek": {"camera_fps": 5}, "140_garden": {"camera_fps": 0}}}))
+        events = mock.get("http://frigate.test:5000/api/events").mock(return_value=httpx.Response(200, json=[ev]))
+        mock.get("http://frigate.test:5000/api/events/1700.5-abc").mock(return_value=httpx.Response(200, json=ev))
+        cams = home_client.get("/v1/cameras", headers=dylan.h).json()["cameras"]
+        assert [(c["id"], c["width"], c["height"], c["online"]) for c in cams] == [
+            ("140_creek", 2560, 720, True), ("140_garden", 1280, 720, False)]
+        assert cams[0]["name"] == "Creek"
+        feed = home_client.get("/v1/cameras/events?limit=1&label=person", headers=dylan.h).json()
+        item = feed["items"][0]
+        assert item["camera_name"] == "Creek" and item["score"] == 0.81 and item["end"] is None
+        assert item["snapshot_url"].endswith("/snapshot.jpg") and feed["next_before"] == 1700000000.5
+        assert events.calls[-1].request.url.params["labels"] == "person"
+        assert home_client.get("/v1/cameras/events/1700.5-abc", headers=dylan.h).json()["id"] == "1700.5-abc"
+        # Only Frigate cameras exist now: the HA-only one is gone from Home and the API.
+        assert home_client.get("/v1/cameras/driveway/snapshot.jpg", headers=dylan.h).status_code == 404
+        home = home_client.get("/v1/home", headers=dylan.h).json()
+        assert [c["id"] for c in home["cameras"]] == ["140_creek", "140_garden"]

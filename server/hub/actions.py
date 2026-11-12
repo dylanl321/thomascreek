@@ -139,16 +139,36 @@ class ActionRunner:
         if action == "garage.set":
             return [("cover", "open_cover" if p.get("open") else "close_cover", t)]
         if action == "media.command":
+            from .home import DPAD, PLAYER_KEY_SERVICES, REMOTE_KEYS
+
             cmd = p.get("command")
             if cmd in MEDIA_COMMANDS:
                 dom, svc, extra = MEDIA_COMMANDS[cmd]
                 return [(dom, svc, {**t, **extra})]
+            if cmd == "stop":
+                return [("media_player", "media_stop", t)]
             if cmd == "mute":
                 muted = bool(self.hub.home.states.get(eid, {}).get("attributes", {}).get("is_volume_muted"))
                 return [("media_player", "volume_mute", {**t, "is_volume_muted": not muted})]
-            if cmd in REMOTE_COMMANDS:
-                remote = self.hub.config.home_assistant.extra.get("remotes", {}).get(eid) or "remote." + eid.split(".", 1)[1]
-                return [("remote", "send_command", {"entity_id": remote, "command": REMOTE_COMMANDS[cmd]})]
+            if cmd == "volume":
+                return [("media_player", "volume_set", {**t, "volume_level": max(0, min(100, int(p["volume"]))) / 100})]
+            if cmd == "source":
+                src = p.get("source")
+                options = self.hub.home.states.get(eid, {}).get("attributes", {}).get("source_list") or []
+                if src not in options:
+                    raise ActionError(400, "bad_params", "source must be one of the TV's inputs")
+                return [("media_player", "select_source", {**t, "source": src})]
+            if cmd in DPAD:
+                link = self.hub.home.media_links.get(eid) or {}
+                plat = link.get("platform")
+                remote = link.get("remote") or self.hub.config.home_assistant.extra.get("remotes", {}).get(eid)
+                key = REMOTE_KEYS.get(plat or "", {}).get(cmd)
+                if plat in PLAYER_KEY_SERVICES and key:
+                    dom, svc, field = PLAYER_KEY_SERVICES[plat]
+                    return [(dom, svc, {**t, field: key})]
+                if remote:
+                    return [("remote", "send_command", {"entity_id": remote, "command": key or REMOTE_COMMANDS[cmd]})]
+                raise ActionError(400, "bad_params", "this TV has no remote control in Home Assistant")
             raise ActionError(400, "bad_params", "unknown media command")
         if action == "media.volume":
             return [("media_player", "volume_set", {**t, "volume_level": max(0, min(100, int(p["volume"]))) / 100})]

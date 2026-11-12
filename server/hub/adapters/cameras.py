@@ -29,6 +29,9 @@ class Frigate(Adapter):
         self._go2rtc: httpx.AsyncClient | None = None
         self._names: set[str] = set()
         self._names_at = 0.0
+        self._info: dict[str, dict[str, Any]] = {}
+        self._info_at = 0.0
+        self.last_event: dict[str, dict[str, Any]] = {}
 
     async def _login(self) -> None:
         # Only needed on Frigate's authenticated port (8971). Port 5000 is open.
@@ -73,11 +76,46 @@ class Frigate(Adapter):
                     return False
         return camera in self._names
 
-    async def events(self, camera: str | None = None, limit: int = 25) -> list[dict[str, Any]]:
+    async def camera_info(self, max_age: float = 300) -> dict[str, dict[str, Any]]:
+        """name -> {width, height, enabled, online}, from Frigate's config and stats."""
+        if self._info and time.time() - self._info_at < max_age:
+            return self._info
+        cfg = await self.get_json("/api/config")
+        try:
+            stats = await self.get_json("/api/stats")
+        except AdapterError:
+            stats = {}
+        out = {}
+        for name, c in (cfg.get("cameras") or {}).items():
+            det = c.get("detect") or {}
+            st = (stats.get("cameras") or {}).get(name) or {}
+            out[name] = {
+                "width": det.get("width"), "height": det.get("height"),
+                "enabled": c.get("enabled", True) is not False,
+                "online": bool(st.get("camera_fps", 0)) if st else None,
+                "name": (c.get("ui") or {}).get("name") or c.get("friendly_name"),
+                "order": (c.get("ui") or {}).get("order", 0),
+            }
+        self._info, self._info_at = out, time.time()
+        self._names, self._names_at = set(out), time.time()
+        return out
+
+    async def events(self, camera: str | None = None, limit: int = 25, before: float | None = None,
+                     label: str | None = None) -> list[dict[str, Any]]:
         params: dict[str, Any] = {"limit": limit, "include_thumbnails": 0}
         if camera:
             params["cameras"] = camera
+        if before:
+            params["before"] = before
+        if label:
+            params["labels"] = label
         return await self.get_json("/api/events", params=params)
+
+    async def event(self, event_id: str) -> dict[str, Any]:
+        return await self.get_json(f"/api/events/{quote(event_id)}")
+
+    async def event_snapshot(self, event_id: str) -> bytes:
+        return (await self.request("GET", f"/api/events/{quote(event_id)}/snapshot.jpg", params={"bbox": 1})).content
 
     async def latest_jpg(self, camera: str, height: int = 360) -> bytes:
         return (await self.request("GET", f"/api/{quote(camera)}/latest.jpg", params={"h": height})).content

@@ -15,6 +15,19 @@ from typing import Any
 
 from .base import Adapter, AdapterError
 
+# For each media_player: the remote.* entity on the same device (if any) and the
+# integration that made the device, so the hub knows which buttons it can press.
+MEDIA_LINKS_TEMPLATE = """
+{%- set ns = namespace(out=[]) -%}
+{%- for mp in states.media_player -%}
+  {%- set d = device_id(mp.entity_id) -%}
+  {%- set r = (device_entities(d) | select('match', 'remote\\.') | list | first) if d else none -%}
+  {%- set ids = (device_attr(d, 'identifiers') | list) if d else [] -%}
+  {%- set ns.out = ns.out + [{'entity_id': mp.entity_id, 'remote': r, 'platform': (ids[0][0] if ids else none)}] -%}
+{%- endfor -%}
+{{ ns.out | tojson }}
+"""
+
 AREAS_TEMPLATE = """
 {%- set ns = namespace(out=[]) -%}
 {%- for a in areas() -%}
@@ -51,6 +64,12 @@ class HomeAssistant(Adapter):
 
     async def areas(self) -> list[dict[str, Any]]:
         return json.loads(await self.render(AREAS_TEMPLATE))
+
+    async def media_links(self) -> list[dict[str, Any]]:
+        try:
+            return json.loads(await self.render(MEDIA_LINKS_TEMPLATE))
+        except Exception:  # noqa: BLE001
+            return []
 
     async def floors(self) -> list[dict[str, Any]]:
         try:
