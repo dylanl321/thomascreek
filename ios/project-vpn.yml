@@ -1,0 +1,55 @@
+# The full app with the built-in VPN. Needs Go for the WireGuard bridge:
+#   brew install go xcodegen && cd ios && xcodegen --spec project-vpn.yml
+# Values here win over project.yml, so the app's dependency list is restated in full.
+include:
+  - project.yml
+packages:
+  WireGuardKit:
+    url: https://git.zx2c4.com/wireguard-apple
+    branch: master
+targets:
+  ThomasCreek:
+    dependencies:
+      - target: HomeWidgets
+      - target: ThomasCreekTunnel
+    entitlements:
+      properties:
+        com.apple.developer.networking.networkextension: [packet-tunnel-provider]
+  ThomasCreekTunnel:
+    type: app-extension
+    platform: iOS
+    sources:
+      - Tunnel
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(BUNDLE_ID).tunnel
+        PRODUCT_NAME: ThomasCreekTunnel
+        SKIP_INSTALL: YES
+        ENABLE_BITCODE: NO
+    info:
+      path: Tunnel/Info.plist
+      properties:
+        CFBundleDisplayName: Thomas Creek Tunnel
+        AppGroup: $(APP_GROUP)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.networkextension.packet-tunnel
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).PacketTunnelProvider
+    entitlements:
+      path: Tunnel/Tunnel.entitlements
+      properties:
+        com.apple.security.application-groups: [$(APP_GROUP)]
+        com.apple.developer.networking.networkextension: [packet-tunnel-provider]
+    dependencies:
+      - target: WireGuardGoBridgeiOS
+      - package: WireGuardKit
+  # Builds wireguard-go into libwg-go.a with the Makefile that ships inside the package.
+  WireGuardGoBridgeiOS:
+    type: ""
+    platform: iOS
+    legacy:
+      toolPath: /usr/bin/make
+      passSettings: true
+      workingDirectory: ${BUILD_DIR%Build/*}SourcePackages/checkouts/wireguard-apple/Sources/WireGuardKitGo
+    settings:
+      base:
+        SDKROOT: iphoneos
