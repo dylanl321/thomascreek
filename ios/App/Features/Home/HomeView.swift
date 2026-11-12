@@ -12,7 +12,10 @@ struct HomeView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 HeroHeader(title: greeting(me?.firstName), subtitle: dateLine, show3D: true)
-                if !store.reachable { OfflineCard() } else { StatusBlock() }
+                if !store.reachable {
+                    // Everyone sees the offline strip; Dylan also gets the likely cause.
+                    if store.role == .admin { OfflineCard() }
+                } else { StatusBlock() }
 
                 if let modes = home?.modes, !modes.isEmpty {
                     SectionHeader("Modes")

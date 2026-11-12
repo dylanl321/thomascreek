@@ -55,6 +55,8 @@ struct Freshness: View {
             Circle().fill(stale ? Theme.dim : Color.green).frame(width: 6, height: 6)
             if stale, let d = date ?? store.lastUpdate {
                 Text(d, format: .relative(presentation: .named, unitsStyle: .abbreviated))
+            } else if !store.reachable {
+                Text("Offline")
             } else {
                 Text("Live")
             }

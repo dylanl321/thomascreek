@@ -62,8 +62,7 @@ struct MainTabs: View {
     private func stack<V: View>(_ tab: AppTab, @ViewBuilder _ root: () -> V) -> some View {
         NavigationStack(path: router.path(tab)) {
             root()
-                // Adults' Home has its own, fuller offline card.
-                .modifier(StripUnless(skip: tab == .home && store.role != .child))
+                .offlineStrip()
                 .navigationDestination(for: Destination.self) { DestinationView(destination: $0).offlineStrip() }
         }
     }
@@ -166,9 +165,3 @@ extension View {
     func topBar() -> some View { modifier(TopBar()) }
 }
 
-private struct StripUnless: ViewModifier {
-    let skip: Bool
-    func body(content: Content) -> some View {
-        if skip { content } else { content.offlineStrip() }
-    }
-}

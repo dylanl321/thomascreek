@@ -412,7 +412,7 @@ struct OfflineStorageView: View {
             }
 
             Section("Recent, trimmed by itself") {
-                row("house", "Home, calendar, meals, lists", (usage.first { $0.category == .home }?.newest).map { "Saved \(Freshness.text($0))" } ?? "Nothing saved yet")
+                row("house", "Home, calendar, meals, lists", (usage.first { $0.category == .home }?.newest ?? store.lastUpdate).map { "Saved \(Freshness.text($0))" } ?? "Nothing saved yet")
                 if store.me?.can(.cameras) == true {
                     row("video", "Camera pictures", "Last 24 hours only · \(byteSize(usage.first { $0.category == .cameras }?.bytes ?? 0))")
                 }

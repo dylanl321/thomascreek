@@ -255,7 +255,13 @@ struct WatchView: View {
             VStack(alignment: .leading, spacing: 12) {
                 if query.isEmpty {
                     SectionHeader("Continue watching")
-                    PosterRow(items: continueItems) { picked = $0 }
+                    if continueItems.isEmpty {
+                        EmptyCard(symbol: store.reachable ? "play.rectangle" : "wifi.slash",
+                                  title: store.reachable ? "Nothing in progress" : "Library needs home",
+                                  detail: store.reachable ? "Search for a film or show above." : "Downloads still play. Open Downloads on the Media tab.")
+                    } else {
+                        PosterRow(items: continueItems) { picked = $0 }
+                    }
                 } else {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 104), spacing: 12)], spacing: 14) {
                         ForEach(results) { m in Poster(item: m).onTapGesture { picked = m } }

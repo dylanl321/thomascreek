@@ -564,6 +564,15 @@ enum ISO {
         if let d = f.date(from: s) { return d }
         f.formatOptions = [.withInternetDateTime]
         if let d = f.date(from: s) { return d }
+        // Local wall-clock time with no zone ("2026-11-12T06:58:00"), as calendars often send.
+        if s.count >= 16, s.dropFirst(10).first == "T" {
+            let l = DateFormatter()
+            l.locale = Locale(identifier: "en_US_POSIX"); l.timeZone = .current
+            for fmt in ["yyyy-MM-dd'T'HH:mm:ss.SSS", "yyyy-MM-dd'T'HH:mm:ss", "yyyy-MM-dd'T'HH:mm"] {
+                l.dateFormat = fmt
+                if let d = l.date(from: s) { return d }
+            }
+        }
         f.formatOptions = [.withFullDate]
         f.timeZone = .current
         return f.date(from: s)
