@@ -1,7 +1,9 @@
 """Opt-in house alerts: Frigate detections, the doorbell, Home Assistant sensors,
 and alerts sent by Home Assistant automations.
 
-Each person chooses their own alerts (``alert_prefs`` table). Dylan chooses which
+Each person chooses their own alerts (``alert_prefs`` table). Alerts are off for
+a person until they switch them on; the choices underneath start at sensible
+defaults. Dylan chooses which
 extra Home Assistant things are on offer and, if auto-detection misses it, which
 entity is the doorbell (``hub_kv`` key ``alerts.sources``).
 
@@ -102,6 +104,8 @@ class Alerts:
             saved = json.loads(saved)
         out = json.loads(json.dumps(DEFAULT_PREFS))
         out["cameras"] = self.default_cameras()
+        # Opt-in: nobody gets house alerts until they switch them on in the app.
+        out["on"] = False if row is None else out["on"]
         person = self.hub.db.person(person_id)
         if person and person["role"] == "child":
             out["quiet"] = {"on": True, "from": "21:00", "to": "07:00", "ring_urgent": False}

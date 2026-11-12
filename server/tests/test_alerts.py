@@ -12,6 +12,8 @@ import pytest
 def sent(hub, people):
     """Capture what would be pushed (inbox rows are still written)."""
     hub.frigate._info = {"140_frontdoor": {"enabled": True}, "140_driveway": {"enabled": True}}
+    for p in ("dylan", "avery", "theo"):
+        hub.alerts.set_prefs(people[p]["id"], {"on": True})
     out = []
     orig = hub.notify.send
 
@@ -30,6 +32,14 @@ def ev(cam="140_frontdoor", label="person", sub=None, eid=None):
 
 def who(hub, rows):
     return sorted(hub.db.person(r["person_ids"][0])["name"] for r in rows)
+
+
+async def test_off_until_switched_on(hub, people):
+    hub.frigate._info = {"140_frontdoor": {"enabled": True}}
+    assert hub.alerts.prefs(people["avery"]["id"])["on"] is False
+    assert await hub.alerts.on_frigate(ev()) == 0
+    hub.alerts.set_prefs(people["avery"]["id"], {"on": True})
+    assert await hub.alerts.on_frigate(ev()) == 1
 
 
 async def test_frigate_defaults_front_door_person_adults_only(hub, sent):
@@ -125,6 +135,8 @@ def test_settings_api_by_role(hub, people, home_client):
 
 def test_automation_webhook(hub, people, home_client, away_client):
     hub.vault.set("alerts.webhook_token", "tok123")
+    for p in ("avery", "theo"):
+        hub.alerts.set_prefs(people[p]["id"], {"on": True})
     body = {"title": "Freezer is warm", "message": "15°F", "to": ["Avery", "kids"]}
     assert home_client.post("/v1/alerts/notify", json=body).status_code == 401
     assert away_client.post("/v1/alerts/notify", json=body, headers={"Authorization": "Bearer tok123"}).status_code == 403
