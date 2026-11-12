@@ -537,6 +537,8 @@ struct EnrolledDevice: Codable, Hashable, Identifiable {
     var model: String?
     var status: String
     var lastSeen: String?
+    /// A Simulator that joined with a test key (hub web page, Test simulators).
+    var test: Bool?
 }
 struct PeopleList: Codable {
     var people: [PersonEntry]

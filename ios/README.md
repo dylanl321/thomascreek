@@ -40,6 +40,16 @@ Bump `CURRENT_PROJECT_VERSION` for each upload.
   Live Activity, widgets, Control Center, Siri). It now reaches the show player through the hub.
 - **3D house:** drawn natively with SceneKit from `/v1/assets/house-model`. The model is not in this public repo.
 
+## Testing in the Simulator
+
+Simulator builds join the hub as Dylan by themselves when the Mac has a test key, so a new named Simulator
+needs no approval. Dylan makes the key once on the hub web page (`/admin`, **Test simulators**, Make a test key)
+and pastes the Terminal line it shows, which saves it to `~/.thomascreek/test-key`. Each Simulator build reads that
+file (or `THOMASCREEK_TEST_KEY`, e.g. `SIMCTL_CHILD_THOMASCREEK_TEST_KEY=... xcrun simctl launch ...`) on first open
+on home Wi-Fi. The code is inside `#if targetEnvironment(simulator)`, so App Store and TestFlight builds never send it.
+These devices show a **Test** tag in People and on the web page and get no VPN client. Turning the key off on the
+web page removes all of them.
+
 `docs/hub-contract.md` lists every route and JSON shape the app uses.
 
 ## Layout
