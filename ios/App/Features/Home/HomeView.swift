@@ -449,39 +449,71 @@ struct SystemsStrip: View {
 }
 
 
-/// A clear line on Home whenever the away-from-home VPN is set up or connected, with a one-tap Off.
+/// Always on Home (VPN builds): connected or not, and one button to connect or disconnect.
 struct VPNNotice: View {
     @Environment(Router.self) private var router
     @Environment(HomeStore.self) private var store
+    @State private var busy = false
     var body: some View {
         let vpn = VPN.shared
-        let connected = vpn.status == .connected || vpn.status == .connecting || vpn.status == .reasserting
-        if vpn.isAvailable && (vpn.mode != .off || connected) {
+        let connected = vpn.status == .connected
+        let working = busy || vpn.status == .connecting || vpn.status == .reasserting || vpn.status == .disconnecting
+        if vpn.isAvailable {
             HStack(spacing: 12) {
-                Image(systemName: connected ? "lock.shield.fill" : "lock.shield")
+                Image(systemName: connected ? "lock.shield.fill" : "lock.open")
                     .font(.title3).foregroundStyle(connected ? Theme.accent : Theme.dim)
+                    .frame(width: 28)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(connected ? "VPN is on" : "VPN ready").font(.subheadline.weight(.semibold))
-                    Text(connected ? "Home traffic is going through Thomas Creek's tunnel"
-                         : vpn.mode == .away ? "Turns on by itself when you leave home Wi-Fi" : "Set to always on")
-                        .font(.caption).foregroundStyle(Theme.dim)
+                    Text(title(vpn)).font(.subheadline.weight(.semibold))
+                    Text(detail(vpn)).font(.caption).foregroundStyle(Theme.dim).lineLimit(2)
                 }
                 Spacer(minLength: 8)
-                Button("Turn off") {
-                    Task {
-                        do { try await vpn.setMode(.off); store.show("VPN turned off") }
-                        catch { store.show(error.localizedDescription, isError: true) }
+                if working {
+                    ProgressView().frame(width: 96)
+                } else {
+                    Button(connected ? "Disconnect" : "Connect") {
+                        busy = true
+                        Task {
+                            defer { busy = false }
+                            if connected { await vpn.disconnectNow() }
+                            else {
+                                do { try await vpn.connectNow() }
+                                catch { store.show(error.localizedDescription, isError: true) }
+                            }
+                        }
                     }
+                    .buttonStyle(.borderedProminent)
+                    .tint(connected ? Theme.crit : Theme.accent)
+                    .controlSize(.small)
+                    .frame(minWidth: 96)
                 }
-                .buttonStyle(.borderedProminent).tint(Theme.crit).controlSize(.small)
             }
             .padding(12)
             .background(Theme.card, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(connected ? Theme.accent : Theme.line, lineWidth: 1))
+            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(connected ? Theme.accent : Theme.line, lineWidth: connected ? 1.5 : 1))
             .contentShape(Rectangle())
             .onTapGesture { router.showProfile = true }
-            .accessibilityElement(children: .combine)
-            .accessibilityHint("Opens VPN settings in Profile")
+            .task { await vpn.refreshStatus() }
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("VPN, \(title(vpn))")
+        }
+    }
+
+    private func title(_ vpn: VPN) -> String {
+        switch vpn.status {
+        case .connected: "VPN connected"
+        case .connecting, .reasserting: "VPN connecting…"
+        case .disconnecting: "VPN disconnecting…"
+        default: "VPN not connected"
+        }
+    }
+    private func detail(_ vpn: VPN) -> String {
+        if let p = vpn.problem { return p }
+        if vpn.status == .connected { return "Home traffic goes through Thomas Creek's tunnel" }
+        return switch vpn.mode {
+        case .off: vpn.isSetUp ? "Tap Connect to reach home from anywhere" : "Tap Connect once at home to set it up"
+        case .away: "Connects by itself when you leave home Wi-Fi"
+        case .always: "Set to always on; it should connect shortly"
         }
     }
 }
