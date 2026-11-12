@@ -19,6 +19,9 @@ struct FamilyView: View {
                     SectionTile(symbol: "cart.fill", title: "Shopping", detail: "Lists") { router.go(.shopping) }
                     SectionTile(symbol: "star.fill", title: "Chores", detail: chores.map { b in "\(b.reduce(0) { $0 + $1.doneCount })/\(b.reduce(0) { $0 + $1.items.count }) done today" } ?? "Points and rewards") { router.go(.chores) }
                     SectionTile(symbol: "shippingbox.fill", title: "Inventory", detail: "Where is it?") { router.go(.inventory) }
+                    if store.me?.can(.tripsView) == true {
+                        SectionTile(symbol: "suitcase.rolling.fill", title: "Trips", detail: tripDetail) { router.go(.trips) }
+                    }
                 }
                 .padding(.top, 8)
             }
@@ -28,6 +31,12 @@ struct FamilyView: View {
         .navigationTitle("Family")
         .topBar()
         .task { chores = (try? await HubClient.shared.get("/v1/chores/all", as: Boards.self))?.boards }
+        .task { if store.me?.can(.tripsView) == true { await TripStore.shared.load() } }
+    }
+
+    private var tripDetail: String {
+        guard let t = TripStore.shared.list?.next else { return "Plan in TREK" }
+        return t.isOn ? "On the trip now" : "\(t.title) · \(t.countdown)"
     }
 }
 

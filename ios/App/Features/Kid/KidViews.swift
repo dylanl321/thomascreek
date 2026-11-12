@@ -55,6 +55,7 @@ struct KidHomeView: View {
             VStack(alignment: .leading, spacing: 14) {
                 header
                 if !store.reachable { KidNap() }
+                if store.me?.can(.tripsView) == true { KidTripCard(little: little, color: color) }
                 if little { littleHome } else { kidHome }
             }
             .screen()
@@ -62,7 +63,8 @@ struct KidHomeView: View {
         .background(Backdrop())
         .toolbar(.hidden, for: .navigationBar)
         .task { await loadChores() }
-        .refreshable { await loadChores(); await store.refreshAll() }
+        .task { if store.me?.can(.tripsView) == true { await TripStore.shared.load() } }
+        .refreshable { await loadChores(); await store.refreshAll(); if store.me?.can(.tripsView) == true { await TripStore.shared.load(force: true) } }
     }
 
     private var header: some View {

@@ -119,3 +119,11 @@ More routes
 - TV remote: media device state may carry `commands` (only these buttons are shown), `sources` and `source`, `volume` 0-100 and `muted`. New `media.command` params: `{command:"source", source}` and `{command:"volume", volume}`.
 - Activity entries decode leniently: `id` string or number, `t` epoch seconds or ISO (`at` as fallback).
 - `GET /v1/pipeline` -> `{requests, downloads, recent, upcoming, failures:[{source,error}], services}`; the app shows Problems, Requests, Downloading, Coming up, Recently added. Download `progress` may be 0-1 or 0-100.
+
+## Trips (TREK)
+
+- `GET /v1/trips` (`trips.view`) gives `{trips, next, plan_url}`; `GET /v1/trips/{id}` gives one trip with `days`, `accommodations`, `travellers`, `unplanned_places`, `unscheduled_reservations` and `today` while it's on. Full shapes in server/docs/API.md.
+- Screens: Family → Trips tile → `TripsView` → `TripView` (Plan, Bookings, Stay, Ideas) → `TripDayView` (map and stops). Home shows `NextTripCard` once a trip is 3 weeks out (countdown only on the tablet). Kids' Home shows `KidTripCard`; the 5-year-old gets sleeps to count.
+- Children get no booking or stay notes from the hub; `plan_url` ("Plan in TREK") is only sent to people with `trips.plan`.
+- Deep links: `thomascreek://trips`, `thomascreek://trip/<id>`.
+- Trip days also come back from `/v1/calendar` as all-day events, so the Calendar screen needs no change.

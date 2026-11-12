@@ -47,6 +47,8 @@ struct HomeView: View {
                     HolidayHomeCard()
                 }
 
+                if me?.can(.tripsView) == true { NextTripCard() }
+
                 if let today = home?.today {
                     SectionHeader(title: "Today") { MoreButton("Calendar") { router.show(.family, .calendar) } }
                     TodayCard(today: today)
@@ -60,8 +62,13 @@ struct HomeView: View {
             .screen()
         }
         .background(Backdrop())
-        .refreshable { await store.refreshAll() }
+        .refreshable { await store.refreshAll(); await loadTrips(force: true) }
         .toolbar(.hidden, for: .navigationBar)
+        .task { await loadTrips() }
+    }
+
+    private func loadTrips(force: Bool = false) async {
+        if me?.can(.tripsView) == true { await TripStore.shared.load(force: force) }
     }
 
     private var kids: [Person] { (home?.people ?? []).filter { $0.role == .child } }
