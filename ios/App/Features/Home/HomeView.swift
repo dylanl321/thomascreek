@@ -219,7 +219,7 @@ struct OfflineCard: View {
             }
             if store.role == .admin {
                 InfoRow("iphone", "This \(UIDevice.current.model) is online", "Showing what the house last reported")
-                if VPN.shared.isAvailable { InfoRow("lock.shield", color: Theme.warn, "Home tunnel isn't answering", "It connects by itself when home is back") }
+                if VPN.shared.isAvailable && VPN.shared.mode != .off { InfoRow("lock.shield", color: Theme.warn, "Home tunnel isn't answering", "It connects by itself when home is back") }
                 InfoRow("wifi.exclamationmark", color: Theme.warn, "Likely cause: home internet or the hub", "Light switches, the wall tablets and the Home Assistant app keep working")
             } else {
                 Text("Showing what the house last said. Light switches and the wall tablets still work.")

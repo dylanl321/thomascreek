@@ -3,11 +3,33 @@ import NetworkExtension
 import CryptoKit
 
 /// The built-in way home. The app makes its own WireGuard key (the private key never leaves this phone),
-/// the hub hands back the tunnel settings, and iOS connects on demand whenever the phone is off home Wi-Fi.
+/// the hub hands back the tunnel settings. The person picks Off (default), When I'm away, or Always on in Profile.
 /// Only home addresses go through the tunnel. The one unavoidable step is iOS's "Allow VPN" prompt.
 @MainActor
+@Observable
 final class VPN {
     static let shared = VPN()
+
+    enum Mode: String, CaseIterable, Identifiable {
+        case off, away, always
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .off: "Off"
+            case .away: "When I'm away from home"
+            case .always: "Always on"
+            }
+        }
+    }
+    /// The person's choice; nothing is installed until they pick something other than Off.
+    var mode: Mode { Mode(rawValue: AppSettings.vpnMode) ?? .off }
+
+    private init() {
+        NotificationCenter.default.addObserver(forName: .NEVPNStatusDidChange, object: nil, queue: .main) { [weak self] n in
+            let s = (n.object as? NEVPNConnection)?.status
+            Task { @MainActor in if let s { self?.status = s } }
+        }
+    }
 
     private struct Config: Decodable {
         var interface: Interface
@@ -31,12 +53,21 @@ final class VPN {
     /// Install (or refresh) the tunnel once per launch. Safe to call often.
     func ensureInstalled() async {
         guard isAvailable, !checked else { return }
+        guard mode != .off else {
+            // Earlier builds turned the tunnel on by themselves; respect Off by removing it.
+            if let managers = try? await NETunnelProviderManager.loadAllFromPreferences(), !managers.isEmpty { await remove() }
+            status = .invalid
+            return
+        }
         checked = true
         do {
             let managers = try await NETunnelProviderManager.loadAllFromPreferences()
             let mgr = managers.first ?? NETunnelProviderManager()
             if let proto = mgr.protocolConfiguration as? NETunnelProviderProtocol, proto.providerConfiguration?["wg"] != nil,
-               mgr.isEnabled { status = mgr.connection.status; return }
+               mgr.isEnabled {
+                try await applyRules(mgr, homeSsids: AppSettings.defaults.stringArray(forKey: "vpnHomeSsids"))
+                status = mgr.connection.status; return
+            }
             try await install(into: mgr)
         } catch HubClient.HubError.server(let code, _) where code == 400 || code == 503 {
             problem = "Ask Dylan to add a VPN client"
@@ -81,24 +112,58 @@ final class VPN {
         mgr.localizedDescription = "Thomas Creek"
         mgr.isEnabled = true
 
-        // On home Wi-Fi: no tunnel. Anywhere else: connect when needed.
+        AppSettings.defaults.set(cfg.homeSsids, forKey: "vpnHomeSsids")
+        try await applyRules(mgr, homeSsids: cfg.homeSsids)    // first save shows iOS's "Allow VPN Configuration" prompt
+    }
+
+    /// Away: off on home Wi-Fi, on anywhere else. Always: on everywhere.
+    private func applyRules(_ mgr: NETunnelProviderManager, homeSsids: [String]?) async throws {
         var rules: [NEOnDemandRule] = []
-        if let ssids = cfg.homeSsids, !ssids.isEmpty {
+        if mode == .away, let ssids = homeSsids, !ssids.isEmpty {
             let home = NEOnDemandRuleDisconnect(); home.interfaceTypeMatch = .wiFi; home.ssidMatch = ssids
             rules.append(home)
         }
         rules.append(NEOnDemandRuleConnect())
         mgr.onDemandRules = rules
         mgr.isOnDemandEnabled = true
-
-        try await mgr.saveToPreferences()        // shows iOS's one-time "Allow VPN Configuration" prompt
+        mgr.isEnabled = true
+        try await mgr.saveToPreferences()
         try await mgr.loadFromPreferences()
         status = mgr.connection.status
     }
 
+    /// Change the setting from the Profile screen.
+    func setMode(_ m: Mode) async throws {
+        AppSettings.vpnMode = m.rawValue
+        checked = false
+        if m == .off {
+            await remove()
+            status = .invalid
+            return
+        }
+        let managers = try await NETunnelProviderManager.loadAllFromPreferences()
+        if let mgr = managers.first, (mgr.protocolConfiguration as? NETunnelProviderProtocol)?.providerConfiguration?["wg"] != nil {
+            try await applyRules(mgr, homeSsids: AppSettings.defaults.stringArray(forKey: "vpnHomeSsids"))
+        } else {
+            try await reinstall()
+        }
+        checked = true
+    }
+
+    /// Stop the tunnel now without changing the setting (it comes back on its own when on-demand applies).
+    func disconnectNow() async {
+        guard let mgr = try? await NETunnelProviderManager.loadAllFromPreferences().first else { return }
+        mgr.connection.stopVPNTunnel()
+    }
+
     func remove() async {
         guard let managers = try? await NETunnelProviderManager.loadAllFromPreferences() else { return }
-        for m in managers { try? await m.removeFromPreferences() }
+        for m in managers {
+            m.isOnDemandEnabled = false
+            try? await m.saveToPreferences()
+            m.connection.stopVPNTunnel()
+            try? await m.removeFromPreferences()
+        }
         checked = false
     }
 }
