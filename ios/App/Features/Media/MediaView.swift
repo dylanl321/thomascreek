@@ -123,15 +123,21 @@ struct RemoteView: View {
                         key(playing ? "pause.fill" : "play.fill", has("play_pause") ? "play_pause" : (playing ? "pause" : "play"))
                     }
                     if has("next") { key("forward.fill", "next") }
-                    Spacer()
-                    if has("mute") { key(d?["muted"]?.bool == true ? "speaker.slash.fill" : "speaker.fill", "mute") }
                 }
+                .frame(maxWidth: .infinity)
                 if let level = d?["volume"]?.double {
                     HStack(spacing: 12) {
                         Button { send("vol_down") } label: { Image(systemName: "speaker.minus.fill") }.buttonStyle(.plain)
                         Slider(value: Binding(get: { volume ?? level }, set: { setVolume($0) }), in: 0...100, step: 1)
                             .tint(Theme.accent)
                         Button { send("vol_up") } label: { Image(systemName: "speaker.plus.fill") }.buttonStyle(.plain)
+                        if has("mute") {
+                            Button { send("mute") } label: {
+                                Image(systemName: d?["muted"]?.bool == true ? "speaker.slash.fill" : "speaker.fill")
+                                    .foregroundStyle(d?["muted"]?.bool == true ? Theme.crit : Theme.fg)
+                            }
+                            .buttonStyle(.plain).padding(.leading, 6).accessibilityLabel("Mute")
+                        }
                     }
                     .foregroundStyle(Theme.fg)
                     .padding(.horizontal, 16).frame(minHeight: 52)
@@ -140,7 +146,9 @@ struct RemoteView: View {
                     HStack(spacing: 14) {
                         key("speaker.minus.fill", "vol_down")
                         key("speaker.plus.fill", "vol_up")
+                        if has("mute") { key(d?["muted"]?.bool == true ? "speaker.slash.fill" : "speaker.fill", "mute") }
                     }
+                    .frame(maxWidth: .infinity)
                 }
                 if let apps = d?["apps"]?.array?.compactMap(\.string), !apps.isEmpty {
                     SectionHeader("Apps")

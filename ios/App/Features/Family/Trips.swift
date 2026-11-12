@@ -212,6 +212,24 @@ final class TripStore {
 
 /// TREK trips have no photo through the API, so each trip gets a scene from its title.
 enum TripArt {
+    /// TREK has no cover images, so the cover shows the destination's flag, found by a country name
+    /// in the trip's title or description ("Germany: History and Christmas Markets" -> 🇩🇪), else ✈️.
+    static func flag(_ trip: Trip) -> String {
+        let text = " " + [trip.title, trip.description ?? ""].joined(separator: " ").lowercased() + " "
+        let en = Locale(identifier: "en_US")
+        for region in Locale.Region.isoRegions where region.identifier.count == 2 && region.identifier.allSatisfy { $0.isLetter } {
+            guard let name = en.localizedString(forRegionCode: region.identifier)?.lowercased(), name.count > 3 else { continue }
+            if text.range(of: "\\b\(NSRegularExpression.escapedPattern(for: name))\\b", options: .regularExpression) != nil {
+                return region.identifier.uppercased().unicodeScalars
+                    .compactMap { UnicodeScalar(127397 + $0.value) }.map { String($0) }.joined()
+            }
+        }
+        return "✈️"
+    }
+
+    /// Warm sunset gradient for every trip cover.
+    static let warm: [Color] = [Color(red: 0.93, green: 0.45, blue: 0.33), Color(red: 0.98, green: 0.76, blue: 0.45)]
+
     static func symbol(_ title: String) -> String {
         let t = title.lowercased()
         if ["beach", "bank", "island", "coast", "shore", "ocean", "bay"].contains(where: t.contains) { return "beach.umbrella.fill" }
@@ -251,12 +269,12 @@ struct TripCover: View {
     var height: CGFloat = 120
     var body: some View {
         ZStack(alignment: .bottomLeading) {
-            LinearGradient(colors: TripArt.colors(trip.id), startPoint: .top, endPoint: .bottom)
-            Image(systemName: TripArt.symbol(trip.title))
-                .font(.system(size: height * 0.5, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.22))
+            LinearGradient(colors: TripArt.warm, startPoint: .topLeading, endPoint: .bottomTrailing)
+            Text(TripArt.flag(trip))
+                .font(.system(size: height * 0.42))
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
                 .padding(14)
+                .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text(trip.title).font(.title3.weight(.bold)).lineLimit(2)
                 Text(trip.range).font(.footnote).opacity(0.9)

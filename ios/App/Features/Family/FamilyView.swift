@@ -52,7 +52,7 @@ struct CalendarView: View {
                     Section(day.formatted(.dateTime.weekday(.wide).month().day())) {
                         ForEach(days[day] ?? [], id: \.stableID) { e in
                             HStack(alignment: .top, spacing: 12) {
-                                Text(e.allDay == true ? "All day" : clock(e.start)).font(.subheadline.monospacedDigit()).foregroundStyle(Theme.dim).frame(width: 72, alignment: .leading)
+                                Text(e.isAllDay ? "All day" : clock(e.start)).font(.subheadline.monospacedDigit()).foregroundStyle(Theme.dim).frame(width: 72, alignment: .leading)
                                 VStack(alignment: .leading) {
                                     Text(e.title).font(.subheadline.weight(.medium))
                                     if let w = e.who { Text(w).font(.caption).foregroundStyle(Theme.dim) }

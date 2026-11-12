@@ -104,7 +104,7 @@ final class HomeStore {
         do {
             let (m, savedAt) = try await HubClient.shared.fetch("/v1/me", as: Me.self)
             if savedAt != nil { markUnreachable(); return }
-            if m.person.id != OfflineCache.owner, OfflineCache.owner != "device" {
+            if !m.person.id.isEmpty, m.person.id != OfflineCache.owner, OfflineCache.owner != "device" {
                 // This phone now belongs to someone else: their downloads and saved copies go.
                 Downloads.shared.forgetAll()
             }

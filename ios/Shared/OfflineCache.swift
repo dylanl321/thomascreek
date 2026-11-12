@@ -64,7 +64,8 @@ enum OfflineCache {
     /// Called with the signed-in person's id. A different person means a different phone owner:
     /// forget everything that was saved for the last one.
     static func setOwner(_ id: String) {
-        guard id != owner else { return }
+        // A phone still waiting for approval has no person yet ("").
+        guard !id.isEmpty, id != owner else { return }
         let old = root
         owner = id
         try? fm.removeItem(at: old)

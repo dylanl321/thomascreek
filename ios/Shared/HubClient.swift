@@ -219,8 +219,12 @@ actor HubClient {
 
     private func request(_ base: URL, _ method: String, _ path: String, query: [String: String], body: Data?,
                          bearer: String?, confirmHeader: String?) -> URLRequest {
-        var c = URLComponents(url: base.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
-        if !query.isEmpty { c.queryItems = query.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) } }
+        // A path may carry its own query ("snapshot.jpg?m=…"); appendingPathComponent would encode the "?".
+        let parts = path.split(separator: "?", maxSplits: 1).map(String.init)
+        var c = URLComponents(url: base.appendingPathComponent(parts[0]), resolvingAgainstBaseURL: false)!
+        var items = parts.count > 1 ? (URLComponents(string: "?" + parts[1])?.queryItems ?? []) : []
+        items += query.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) }
+        if !items.isEmpty { c.queryItems = items }
         var r = URLRequest(url: c.url!)
         r.httpMethod = method
         r.httpBody = body
@@ -271,10 +275,17 @@ struct Empty: Codable {}
 
 /// Certificate pinning for the hub's self-signed certificate. The pin (hex SHA-256 of the certificate's
 /// SubjectPublicKeyInfo) comes from the hub's Bonjour record, read on home Wi-Fi at enrollment.
-final class HubPinning: NSObject, URLSessionDelegate, @unchecked Sendable {
+final class HubPinning: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
     static let shared = HubPinning()
 
     func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge,
+                    completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+        let (d, c) = Self.evaluate(challenge)
+        completionHandler(d, c)
+    }
+
+    /// Streaming tasks (`bytes(for:)`, downloads) get the server-trust challenge at task level.
+    func urlSession(_ session: URLSession, task: URLSessionTask, didReceive challenge: URLAuthenticationChallenge,
                     completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
         let (d, c) = Self.evaluate(challenge)
         completionHandler(d, c)
