@@ -189,8 +189,12 @@ actor HubClient {
 
     private func request(_ base: URL, _ method: String, _ path: String, query: [String: String], body: Data?,
                          bearer: String?, confirmHeader: String?) -> URLRequest {
-        var c = URLComponents(url: base.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
-        if !query.isEmpty { c.queryItems = query.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) } }
+        // A path may carry its own query ("snapshot.jpg?m=…"); appendingPathComponent would encode the "?".
+        let parts = path.split(separator: "?", maxSplits: 1).map(String.init)
+        var c = URLComponents(url: base.appendingPathComponent(parts[0]), resolvingAgainstBaseURL: false)!
+        var items = parts.count > 1 ? (URLComponents(string: "?" + parts[1])?.queryItems ?? []) : []
+        items += query.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) }
+        if !items.isEmpty { c.queryItems = items }
         var r = URLRequest(url: c.url!)
         r.httpMethod = method
         r.httpBody = body
