@@ -160,3 +160,13 @@ App only, not a Plex library (Dylan, 2026-11-12). No approval step; parents get 
 - `POST /v1/meals/recipes/parse {text}` → draft `{title, ingredients, steps, oven}` (scanned or pasted text).
 - `GET /v1/meals/plan?start=&days=7` → `{days:[{date, dinner:{id,slug,recipe_id,title,image_url,total_time,note}|null, other:[]}]}`. `PUT /v1/meals/plan/{yyyy-mm-dd} {slug}` or `{title}` ("Eating out"); `{}` clears. `POST /v1/meals/plan/fill {start?, days?}` fills empty nights. `GET /v1/meals/suggest?n=`.
 - Editing needs `family.edit` (adults); viewing `family.view`.
+
+## Search (2026-11-12)
+
+`GET /v1/search?q=` (see server/docs/API.md "Search"). The app shows rooms, devices, cameras and people from the
+last snapshot at once (LocalSearch), then the hub's groups; `pending` types are asked for once more. Rows run
+`action` through `HomeStore.perform` (Face ID for secure), `batch` step by step, `media` opens Play on (kids: the
+kids' player), `request` posts `/v1/requests`, `chore` posts `/v1/chores/{id}/done`; otherwise `deep_link`.
+New deep links: search?q=, remote/<entity>, climate, music, calendar, shopping, inventory, pipeline, hubweb,
+vpnpool, downloads. Spotlight indexes rooms, devices, cameras and screens (identifier = deep link). Siri:
+"Search Thomas Creek". The "Ask Thomas Creek" row calls `Router.ask`, which opens the assistant with the words.

@@ -33,11 +33,29 @@ final class Router {
     /// Storage and downloads (from the offline strip).
     var showOffline = false
     var showSearch = false
+    /// Words to put in the search box when it opens (Spotlight, Siri, thomascreek://search?q=).
+    var searchQuery: String?
     /// Opens "Add from YouTube", prefilled with this link ("" for an empty box).
     var youtubeAdd: String?
 
     /// Ask Thomas Creek, the quick chat and voice panel.
     var showAssistant = false
+
+    /// Open search, optionally with words already typed.
+    func startSearch(_ q: String? = nil) {
+        searchQuery = q
+        showSearch = true
+    }
+
+    /// Hand a question from search to Ask Thomas Creek, once the search sheet has gone.
+    func ask(_ q: String) {
+        showSearch = false
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(450))
+            showAssistant = true
+            AssistantModel.shared.send(q, screen: screenName)
+        }
+    }
 
     /// Where the person is, so "turn that off" can mean the thing on screen.
     var screenName: String {
@@ -101,6 +119,17 @@ final class Router {
         case "people", "devices": show(role == .admin ? .systems : .home, role == .admin ? .people : nil); if role != .admin { showProfile = true }
         case "activity": show(.systems, .activity)
         case "settings", "profile": showProfile = true
+        case "search": startSearch(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "q" }?.value)
+        case "remote": if parts.count > 1, !kid { show(.media, .remote(parts[1])) } else if kid { show(.myRoom) }
+        case "climate": kid ? show(.myRoom) : show(.house, .climate)
+        case "music": if !kid { show(.media, .music) }
+        case "calendar": if !kid { show(.family, .calendar) }
+        case "shopping": if !kid { show(.family, .shopping) }
+        case "inventory": if !kid { show(.family, .inventory) }
+        case "pipeline": if !kid { show(.media, .pipeline) }
+        case "hubweb": show(.systems, .hubWeb)
+        case "vpnpool": show(.systems, .vpnPool)
+        case "downloads": showOffline = true
         default: show(.home)
         }
     }

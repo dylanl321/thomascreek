@@ -22,5 +22,23 @@ struct HomeShortcuts: AppShortcutsProvider {
                     shortTitle: "Lights Status", systemImageName: "info.circle")
         AppShortcut(intent: SkipTonightIntent(), phrases: ["Skip \(.applicationName) tonight"],
                     shortTitle: "Skip Tonight", systemImageName: "moon.zzz")
+        AppShortcut(intent: SearchHomeIntent(), phrases: ["Search \(.applicationName)", "Find something in \(.applicationName)"],
+                    shortTitle: "Search", systemImageName: "magnifyingglass")
+    }
+}
+
+/// "Search Thomas Creek": opens the app's search, with the words if Siri or Shortcuts passed any.
+struct SearchHomeIntent: AppIntent {
+    static var title: LocalizedStringResource = "Search Thomas Creek"
+    static var description = IntentDescription("Find a room, light, camera, film, recipe, trip or setting.")
+    static var openAppWhenRun = true
+    @Parameter(title: "Search for") var query: String?
+
+    static var parameterSummary: some ParameterSummary { Summary("Search for \(\.$query)") }
+
+    @MainActor
+    func perform() async throws -> some IntentResult {
+        Router.shared.startSearch(query)
+        return .result()
     }
 }

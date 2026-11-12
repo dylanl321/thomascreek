@@ -278,3 +278,30 @@ changes. Config: `app_update: {bundle_id, apple_id, min_build, check_minutes}`.
 
 `GET /v1/assets/house-model` (the `house-model-web.json` format) and `GET /v1/assets/header`,
 both with `ETag` / `If-None-Match`. 404 until the files are placed on the NAS.
+
+## Search
+
+`GET /v1/search?q=&types=&limit=8` runs as the caller. Instant sources (rooms, lights and switches, scenes and
+modes, doors and garage, climate, TVs and speakers, ovens, cameras, people, app screens) answer from memory; the
+slower ones (Plex and Jellyseerr, YouTube, Mealie, Frigate events, family calendar, chores, TREK trips, alert
+history, Homebox) run in parallel for about 1.2 s. Anything slower is listed in `pending` (types); ask again with
+`types=<those>` and it answers from a 45 s cache.
+
+```
+{query, groups: [{type, title, total, items: [item]}], top: item|null,
+ command: {title, subtitle, deep_link?, action}|null, pending: [type], failed: [source], ask: bool}
+item = {id: "<type>:<id>", type, title, subtitle, score, source, ref, deep_link, verb, image_url, symbol,
+        room_id?, kind?, media?: MediaItem, request?: {media_id, title}, chore?: {id, person, done},
+        action: {action, target, params, tier, label, toggle?, on?, steps?}|null}
+```
+
+Types: room, light, scene, door, climate, player, appliance, camera, event, media, youtube, recipe, chore,
+calendar, trip, person, inventory, alert, screen. Groups come best match first.
+
+`action` is only present when `Policy.decide` allows it, and `POST /v1/actions` accepts it as-is (secure tier
+asks for Face ID). `action: "batch"` (room "All off", the "kitchen off" command) is not a hub action: run each
+of `steps` through `/v1/actions`. Commands understood: "<room> on|off", "turn on|off <room>", "preheat
+[upper|lower] [to] 350". `ask` is true when the words read like a question (or nothing matched) and
+`/v1/assistant` exists. Children get their own room, TV, rated films, own chores and trips; no cameras, doors,
+ovens, network, alerts beyond house/media, recipes or inventory. Unnamed, unavailable-and-roomless, Plex-cast and
+light-segment entities are left out, and several players with one name are folded into one row.

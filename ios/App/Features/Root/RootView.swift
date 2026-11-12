@@ -60,6 +60,7 @@ struct MainTabs: View {
         .onReceive(NotificationCenter.default.publisher(for: .openAssistant)) { _ in openAskIfFlagged() }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in openAskIfFlagged() }
         .sheet(isPresented: $router.showInbox) { InboxView() }
+        .sheet(isPresented: $router.showSearch) { SearchView() }
         .sheet(isPresented: $router.showProfile) { ProfileView() }
         .sheet(isPresented: $router.showOffline) {
             NavigationStack { OfflineStorageView().toolbar { Button("Done") { router.showOffline = false } } }
@@ -166,7 +167,10 @@ struct TopBar: ViewModifier {
                 }
                 .accessibilityLabel("Profile")
             }
-            ToolbarItem(placement: .topBarTrailing) { BellButton() }
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                SearchButton()
+                BellButton()
+            }
         }
     }
 }
