@@ -208,7 +208,7 @@ struct AlertsView: View {
             Toggle(isOn: Binding(get: { model.reply?.prefs.on ?? true }, set: { v in model.reply?.prefs.on = v; model.set("on", v) })) {
                 Label { VStack(alignment: .leading, spacing: 2) {
                     Text("Alerts")
-                    Text("Off pauses every alert. The inbox still fills.").font(.caption).foregroundStyle(Theme.dim)
+                    Text(model.reply?.prefs.on == true ? "Off pauses every alert. The inbox still fills." : "Turn on to get the alerts you pick below.").font(.caption).foregroundStyle(Theme.dim)
                 } } icon: { Image(systemName: "bell.badge.fill").foregroundStyle(Theme.accent) }
             }
         } footer: {
