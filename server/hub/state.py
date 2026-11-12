@@ -7,6 +7,7 @@ import ipaddress
 import logging
 import secrets
 import time
+from pathlib import Path
 from typing import Any
 
 from .actions import ActionRunner
@@ -20,6 +21,7 @@ from .adapters.truenas import TrueNAS
 from .config import Config
 from .crypto import TokenIssuer
 from .db import DB
+from .downloads import Downloads
 from .events import EventBus
 from .home import HomeModel
 from .notify import Notifier
@@ -64,6 +66,7 @@ class Hub:
         self.onepassword = OnePasswordSync(config.onepassword, vault)
         self.vpn = Vpn(config.vpn, vault, db)
         self.home = HomeModel(self)
+        self.downloads = Downloads(self, (Path(db._path).parent if db._path != ":memory:" else Path("/tmp")) / "downloads")
         self.notify = Notifier(self)
         self.actions = ActionRunner(self)
         self.timers = Timers(self)
@@ -181,6 +184,7 @@ class Hub:
         while True:
             try:
                 await self.probe_once()
+                self.downloads.cleanup()
             except asyncio.CancelledError:
                 raise
             except Exception as exc:  # noqa: BLE001

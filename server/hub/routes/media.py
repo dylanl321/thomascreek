@@ -6,7 +6,7 @@ import time
 from typing import Any
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 from ..adapters.base import AdapterError
@@ -162,6 +162,140 @@ async def hls(pass_token: str, path: str, request: Request, h: Hub = Depends(hub
     except AdapterError:
         raise error(502, "unavailable", "The movie server didn't answer") from None
     return Response(resp.content, media_type=resp.headers.get("content-type", "application/vnd.apple.mpegurl"))
+
+
+# -- downloads for offline viewing ---------------------------------------------
+FILE_AUD = "media-file"
+FILE_TTL_S = 24 * 3600
+
+
+async def _downloadable(h: Hub, c: Caller, item_id: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    """The title and its file info, if this person may watch it. Children: rated titles only, no asking."""
+    _watch_cap(h, c)
+    try:
+        item = await h.plex.metadata(item_id)
+        media = await h.plex.media_info(item_id) if item else None
+    except AdapterError as exc:
+        raise error(503, "unavailable", str(exc)) from None
+    if item is None or media is None or not _rating_ok(h, c, item):
+        raise error(404, "not_found", "That isn't in the library")
+    if item["kind"] not in ("movie", "episode"):
+        raise error(400, "bad_request", "Pick a film or an episode to download")
+    return item, media
+
+
+def _job_out(h: Hub, job: Any) -> dict[str, Any]:
+    out = job.out()
+    if job.status == "ready":
+        token, exp = h.tokens.issue_scoped({"aud": FILE_AUD, "job": job.id, "dev": job.device_id}, FILE_TTL_S)
+        out["url"] = f"/v1/media/file/{token}"
+        out["expires_at"] = iso(exp)
+    return out
+
+
+@router.get("/media/{item_id}/episodes")
+async def episodes(item_id: str, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """A show's episodes, to pick which to download. Children: only shows with an allowed rating."""
+    _watch_cap(h, c)
+    try:
+        show = await h.plex.metadata(item_id)
+        if show is None or not _rating_ok(h, c, show):
+            raise error(404, "not_found", "That isn't in the library")
+        items = await h.plex.episodes(item_id)
+    except AdapterError as exc:
+        raise error(503, "unavailable", str(exc)) from None
+    # Episodes often carry no rating of their own; they inherit the show's.
+    for i in items:
+        i["rating"] = i.get("rating") or show.get("rating")
+    return {"items": _filter(h, c, items)}
+
+
+@router.get("/media/{item_id}/download")
+async def download_options(item_id: str, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    from ..downloads import options
+
+    item, media = await _downloadable(h, c, item_id)
+    return {"item": item, "options": options(media)}
+
+
+class DownloadBody(BaseModel):
+    quality: str = Field(default="original", pattern="^(original|high|small)$")
+
+
+@router.post("/media/{item_id}/download")
+async def start_download(item_id: str, body: DownloadBody, c: Caller = Depends(caller),
+                         h: Hub = Depends(hub)) -> dict[str, Any]:
+    item, media = await _downloadable(h, c, item_id)
+    job = await h.downloads.start(item_id, body.quality, media, item, c.device["id"], c.subject.person_id)
+    h.db.log("media.download", "ok" if job.status != "failed" else "error", person_id=c.subject.person_id,
+             device_id=c.device["id"], target=item_id, params={"title": item["title"], "quality": body.quality})
+    return _job_out(h, job)
+
+
+@router.get("/media/downloads/{job_id}")
+async def download_status(job_id: str, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    job = h.downloads.get(job_id)
+    if job is None or job.device_id != c.device["id"]:
+        raise error(404, "not_found", "That download has expired. Start it again.")
+    return _job_out(h, job)
+
+
+@router.get("/media/file/{pass_token}")
+async def download_file(pass_token: str, request: Request, h: Hub = Depends(hub)) -> Response:
+    try:
+        claims = h.tokens.verify(pass_token, audience=FILE_AUD)
+    except CryptoError:
+        raise error(401, "expired", "Download link expired") from None
+    job = h.downloads.get(claims["job"])
+    if job is None or job.device_id != claims["dev"] or job.status != "ready":
+        raise error(404, "not_found", "That download has expired. Start it again.")
+    name = f"{job.item_id}.mp4"
+    if job.path is not None:
+        return FileResponse(job.path, media_type="video/mp4", filename=name)
+    # Original MP4 straight from Plex, with Range so iOS can resume.
+    plex = h.plex
+    headers = plex.auth_headers()
+    if request.headers.get("range"):
+        headers["Range"] = request.headers["range"]
+    try:
+        client = plex.client()
+        upstream = await client.send(client.build_request("GET", job.passthrough, headers=headers), stream=True)
+    except Exception:  # noqa: BLE001
+        raise error(502, "unavailable", "The movie server didn't answer") from None
+    if upstream.status_code >= 400:
+        await upstream.aclose()
+        raise error(502, "unavailable", "The movie server didn't answer")
+    keep = {k: upstream.headers[k] for k in ("content-length", "content-range", "last-modified", "etag")
+            if k in upstream.headers}
+    keep["accept-ranges"] = "bytes"
+
+    async def body():
+        try:
+            async for chunk in upstream.aiter_bytes(1 << 16):
+                yield chunk
+        finally:
+            await upstream.aclose()
+
+    return StreamingResponse(body(), status_code=upstream.status_code, media_type="video/mp4", headers=keep)
+
+
+class ProgressBody(BaseModel):
+    offset_s: float = Field(ge=0)
+    duration_s: float | None = Field(default=None, ge=0)
+    watched: bool = False
+
+
+@router.post("/media/{item_id}/progress")
+async def report_progress(item_id: str, body: ProgressBody, c: Caller = Depends(caller),
+                          h: Hub = Depends(hub)) -> dict[str, Any]:
+    """Where a downloaded title was stopped (sent when the phone is back online)."""
+    _watch_cap(h, c)
+    try:
+        await h.plex.report_progress(item_id, int(body.offset_s * 1000),
+                                     int(body.duration_s * 1000) if body.duration_s else None, body.watched)
+    except AdapterError as exc:
+        raise error(503, "unavailable", str(exc)) from None
+    return {"ok": True}
 
 
 # -- requests and approvals -----------------------------------------------

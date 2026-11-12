@@ -39,6 +39,7 @@ class Plex(Adapter):
             "season": m.get("parentIndex"),
             "episode": m.get("index"),
             "view_offset_s": int(m.get("viewOffset", 0)) // 1000 if m.get("viewOffset") else None,
+            "duration_s": int(m["duration"]) // 1000 if m.get("duration") else None,
         }
 
     async def continue_watching(self) -> list[dict[str, Any]]:
@@ -72,6 +73,42 @@ class Plex(Adapter):
         data = await self.get_json(f"/library/metadata/{quote(item_id)}")
         items = data.get("MediaContainer", {}).get("Metadata", [])
         return self._item(items[0]) if items else None
+
+    async def episodes(self, show_id: str) -> list[dict[str, Any]]:
+        data = await self.get_json(f"/library/metadata/{quote(show_id)}/allLeaves")
+        return [self._item(m) for m in data.get("MediaContainer", {}).get("Metadata", [])]
+
+    async def media_info(self, item_id: str) -> dict[str, Any] | None:
+        """The first file behind a title: what the hub needs to offer it for download."""
+        data = await self.get_json(f"/library/metadata/{quote(item_id)}")
+        items = data.get("MediaContainer", {}).get("Metadata", [])
+        if not items:
+            return None
+        m = items[0]
+        media = (m.get("Media") or [{}])[0]
+        part = (media.get("Part") or [{}])[0]
+        if not part.get("key"):
+            return None
+        return {
+            "duration_ms": m.get("duration") or media.get("duration"),
+            "container": part.get("container") or media.get("container"),
+            "video_codec": media.get("videoCodec"),
+            "audio_codec": media.get("audioCodec"),
+            "resolution": f"{media['videoResolution']}p" if str(media.get("videoResolution", "")).isdigit() else (media.get("videoResolution") or "").upper() or None,
+            "size": part.get("size"),
+            "part_key": part["key"],
+        }
+
+    async def report_progress(self, item_id: str, offset_ms: int, duration_ms: int | None, watched: bool) -> None:
+        """Where someone stopped in a downloaded title, so Plex resumes from there on the TV."""
+        if watched:
+            await self.request("GET", "/:/scrobble", params={"identifier": "com.plexapp.plugins.library", "key": item_id})
+            return
+        params: dict[str, Any] = {"ratingKey": item_id, "key": f"/library/metadata/{item_id}", "state": "stopped",
+                                  "time": max(0, offset_ms)}
+        if duration_ms:
+            params["duration"] = duration_ms
+        await self.request("GET", "/:/timeline", params=params)
 
     async def art(self, path: str, width: int = 400) -> tuple[bytes, str]:
         if not path.startswith("/library/"):
