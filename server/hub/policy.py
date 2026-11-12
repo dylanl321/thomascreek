@@ -17,6 +17,7 @@ Tiers (from the plan):
 from __future__ import annotations
 
 import fnmatch
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, time as dtime
 from typing import Any, Callable
@@ -108,6 +109,13 @@ class ActionSpec:
     tier_fn: Callable[[dict[str, Any], Subject], str] | None = None
     # Child can ask for it instead (becomes a request to a parent).
     askable: bool = False
+
+
+DOOR_OPENER = re.compile(r"garage_?door|gate|door_?opener", re.I)
+
+
+def is_door_opener(entity_id: str | None) -> bool:
+    return bool(entity_id) and entity_id.startswith("switch.") and bool(DOOR_OPENER.search(entity_id))
 
 
 def _lock_tier(params: dict[str, Any], _s: Subject) -> str:
@@ -220,6 +228,12 @@ class Policy:
             return Decision(False, reason="unknown action")
         tier = spec.tier_fn(params, s) if spec.tier_fn else spec.tier
         if action == "camera.view" and not s.at_home:
+            tier = "secure"
+        # A plain switch wired to a garage door or gate (e.g. "Small Garage Door Toggle Only") moves the
+        # door, so it gets the same rules as the garage itself: Face ID, and only people with doors.
+        if action == "switch.set" and is_door_opener(target.entity_id):
+            if "doors" not in self.capabilities_for(s):
+                return Decision(False, "secure", "doors are not allowed for this person")
             tier = "secure"
 
         # Explicit denies win over everything.
