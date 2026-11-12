@@ -18,6 +18,7 @@ from .adapters.homeassistant import HomeAssistant
 from .adapters.media import Arr, Jellyseerr, Plex
 from .adapters.trips import Trek
 from .adapters.truenas import TrueNAS
+from .appupdate import AppUpdates
 from .config import Config
 from .crypto import TokenIssuer
 from .db import DB
@@ -66,6 +67,9 @@ class Hub:
         self.onepassword = OnePasswordSync(config.onepassword, vault)
         self.vpn = Vpn(config.vpn, vault, db)
         self.home = HomeModel(self)
+        self.app_update = AppUpdates(config.app_update, vault,
+                                     Path(db._path).parent / "app_update.json" if db._path != ":memory:" else None)
+        self.app_update.on_change = lambda info: self.bus.publish({"type": "app_update", "data": info})
         self.downloads = Downloads(self, (Path(db._path).parent if db._path != ":memory:" else Path("/tmp")) / "downloads")
         self.notify = Notifier(self)
         self.actions = ActionRunner(self)
@@ -191,6 +195,7 @@ class Hub:
         self._dropbox = asyncio.create_task(watch(self.vault))
         self._frigate = asyncio.create_task(self._watch_frigate()) if self.frigate.enabled else None
         self._prober = asyncio.create_task(self._probe_services())
+        self.app_update.start()
 
     async def probe_once(self) -> None:
         """Touch each enabled service so the status page shows a real answer, not "never checked"."""
@@ -262,3 +267,4 @@ class Hub:
         for a in self.adapters:
             await a.close()
         await self.apns.close()
+        await self.app_update.stop()

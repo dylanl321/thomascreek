@@ -112,6 +112,16 @@ class VpnConfig(BaseModel):
     server_key_secret: str = "wireguard.server_private_key"
 
 
+class AppUpdateConfig(BaseModel):
+    """Telling phones a newer TestFlight build is out (see hub/appupdate.py)."""
+
+    bundle_id: str = "me.dlewis.thomascreek"
+    apple_id: str | None = None  # the app's numeric Apple ID; looked up from App Store Connect when unset
+    min_build: int = 0  # a floor in config; the web page can raise it
+    latest_build: int | None = None  # a latest build typed in config (the web page and App Store Connect also set it)
+    check_minutes: int = 15
+
+
 class ChildPolicy(BaseModel):
     climate_min: float = 66
     climate_max: float = 74
@@ -200,6 +210,7 @@ class Config(BaseModel):
     apns: ApnsConfig = Field(default_factory=ApnsConfig)
     onepassword: OnePasswordConfig = Field(default_factory=OnePasswordConfig)
     vpn: VpnConfig = Field(default_factory=VpnConfig)
+    app_update: AppUpdateConfig = Field(default_factory=AppUpdateConfig)
     child_policy: ChildPolicy = Field(default_factory=ChildPolicy)
     guest: GuestInfo = Field(default_factory=GuestInfo)
     areas: dict[str, AreaOverride] = Field(default_factory=dict)

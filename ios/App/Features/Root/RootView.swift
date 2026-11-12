@@ -13,6 +13,9 @@ struct RootView: View {
             case .ready: MainTabs()
             }
         }
+        .overlay {
+            if AppUpdate.shared.required { UpdateRequiredView().transition(.opacity) }
+        }
         .overlay(alignment: .top) { ToastView() }
         .animation(.spring(duration: 0.35), value: store.toast)
     }
@@ -48,6 +51,8 @@ struct MainTabs: View {
             }
         }
         .tint(store.role == .child ? (store.me?.style == .little ? Theme.little : Theme.kid) : Theme.accent)
+        .overlay(alignment: .bottom) { UpdateBanner() }
+        .animation(.spring(duration: 0.35), value: AppUpdate.shared.showBanner)
         .sheet(isPresented: $router.showInbox) { InboxView() }
         .sheet(isPresented: $router.showProfile) { ProfileView() }
         .sheet(item: Binding(get: { router.vpnImport.map(IdentifiedURL.init) }, set: { router.vpnImport = $0?.url })) { f in VPNImportSheet(file: f.url) }

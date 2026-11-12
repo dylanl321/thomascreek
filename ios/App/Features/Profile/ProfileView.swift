@@ -50,6 +50,11 @@ struct ProfileView: View {
                     LabeledContent("Connection", value: store.reachable ? (store.isLive ? "Live" : "Connected") : "Can't reach home")
                     if VPN.shared.isAvailable { LabeledContent("Away from home", value: vpnLine) }
                     LabeledContent("Version", value: version)
+                    if AppUpdate.shared.available {
+                        Button { AppUpdate.shared.openTestFlight() } label: {
+                            Label("Update to \(AppUpdate.shared.latestLabel)", systemImage: "arrow.down.app.fill")
+                        }
+                    }
                 }
                 if store.role == .admin {
                     Section {
