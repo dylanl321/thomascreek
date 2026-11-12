@@ -8,6 +8,7 @@
 # SPEC picks the XcodeGen spec:
 #   project-vpn-appstore.yml (default): the app with the WireGuard tunnel, signed manually with the
 #     "Thomas Creek <app|widgets|tunnel|notifications> App Store" profiles and the iPhone Distribution identity. Needs Go.
+#   project-watch.yml: the above plus the Apple Watch app (needs the "Thomas Creek watch App Store" profile).
 #   project.yml: the app without the tunnel, automatic signing.
 set -euo pipefail
 
@@ -31,10 +32,13 @@ xcodebuild -project ThomasCreek.xcodeproj -scheme ThomasCreek \
   -configuration Release -destination generic/platform=iOS \
   -archivePath "$OUT/ThomasCreek.xcarchive" "${AUTH[@]}" archive
 
-if [ "$SPEC" = project-vpn-appstore.yml ]; then
+if [ "$SPEC" = project-vpn-appstore.yml ] || [ "$SPEC" = project-watch.yml ]; then
+  WATCH=""
+  [ "$SPEC" = project-watch.yml ] && WATCH="<key>me.dlewis.thomascreek.watchkitapp</key><string>Thomas Creek watch App Store</string>"
   SIGNING="<key>signingStyle</key><string>manual</string>
 <key>signingCertificate</key><string>iPhone Distribution</string>
 <key>provisioningProfiles</key><dict>
+$WATCH
 <key>me.dlewis.thomascreek</key><string>Thomas Creek app App Store</string>
 <key>me.dlewis.thomascreek.widgets</key><string>Thomas Creek widgets App Store</string>
 <key>me.dlewis.thomascreek.tunnel</key><string>Thomas Creek tunnel App Store</string>

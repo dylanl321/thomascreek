@@ -160,8 +160,10 @@ actor HubClient {
 
     /// Run an action through the hub's policy check.
     @discardableResult
-    func action(_ name: String, target: String? = nil, params: [String: Any] = [:], confirm: String? = nil) async throws -> ActionReply {
+    func action(_ name: String, target: String? = nil, params: [String: Any] = [:], confirm: String? = nil,
+                quick: Bool = false) async throws -> ActionReply {
         var body: [String: Any] = ["action": name, "params": params]
+        if quick { body["quick"] = true }   // widget, Control Center, CarPlay or Watch on an unlocked device
         if let target { body["target"] = target }
         return try await call("POST", "/v1/actions", body: body, confirm: confirm)
     }

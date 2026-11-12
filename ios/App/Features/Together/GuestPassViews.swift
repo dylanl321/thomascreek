@@ -29,11 +29,11 @@ struct GuestPassesView: View {
                 let old = (list?.passes ?? []).filter { $0.state == "ended" || $0.state == "revoked" }
                 if !live.isEmpty {
                     SectionHeader("Current")
-                    ForEach(live) { PassCard(pass: $0) { await revoke($0) } }
+                    ForEach(live) { p in PassCard(pass: p, revoke: { g in await revoke(g) }) }
                 }
                 if !old.isEmpty {
                     SectionHeader("Ended")
-                    ForEach(old) { PassCard(pass: $0, revoke: nil) }
+                    ForEach(old) { p in PassCard(pass: p, revoke: nil) }
                 }
                 if list != nil && live.isEmpty && old.isEmpty {
                     EmptyCard(symbol: "ticket", title: "No passes yet", detail: "Make one when someone comes to stay.")
@@ -148,7 +148,7 @@ struct NewGuestPassSheet: View {
                 Form {
                     Section("Who's visiting") { TextField("Name", text: $name).textContentType(.name) }
                     Section("How long") {
-                        Picker("Length", selection: $length) { ForEach(lengths, id: \.0) { Text($0.1).tag($0.0) } }
+                        Picker("Length", selection: $length) { ForEach(lengths.indices, id: \.self) { i in Text(lengths[i].1).tag(lengths[i].0) } }
                             .pickerStyle(.segmented)
                         if length == -1 { DatePicker("Until", selection: $custom, in: Date.now..., displayedComponents: [.date, .hourAndMinute]) }
                     }

@@ -226,3 +226,16 @@ to the first `weather.*` entity.
 - Parents: `GET/PATCH /v1/people/{id}/settings`, `PUT/DELETE /v1/people/{id}/favorites/{kind}/{item}`, `POST /v1/people/{id}/favorites/{kind}/order`. Adults may edit children's; Dylan anyone's.
 - Rooms in `/v1/home` now carry the caller's own `favorite` (seeded from the config list until the person stars a room).
 - View as (admin only): send `X-TC-View-As: <person_id>` on every request, the event stream too. The hub answers as that person; `/v1/me` adds `preview {person_id, by}`. Any non-GET except `/v1/me/settings*` and `/v1/me/favorites*` → 403 `preview_only`. `GET /v1/me/view-as` lists who can be previewed; `POST /v1/me/view-as {person_id|null}` (sent WITHOUT the header) logs start/stop.
+
+## Family life (hub/household.py, routes/household.py)
+
+- `GET /v1/today` → `{date, part_of_day, headline, weather{temp,condition,symbol,high,low,rain_chance,rain_at,sunset,line}, events[], dinner{title,image_url,slug,time}, family[], chores{mine{done,total,points,next}|kids[{id,name,done,total,points}]}, bedtime, kids_bedtimes[] (grown-ups), trip}`.
+- Who's home: `GET /v1/family/presence` → `{people:[{id,name,first,role,home(true/false/null),since,where,me}]}`. Presence = the person's `presence_entity`, else HA `person.<first name>`, else the phone's last `POST /v1/presence {event: arrive|leave}` (18 h). `/v1/home` people use the same.
+- Leaving: `POST /v1/presence` answers `{departure{last_one_out,others_home,open[],all_clear}}` on leave (the hub also pushes "You're the last one out", ref `thomascreek://leaving`) or `{welcome{mode,name,message}}` on arrive. `GET /v1/departure` (grown-ups) → open items `{id,kind,title,fix,action,target,params,secure}` to run through `/v1/actions`. `GET/PUT /v1/me/welcome {mode}`; GET also gives `modes[]` and the house `location{lat,lon}` for the geofence. Welcome modes run only everyday steps.
+- Quick actions: `/v1/actions` body may carry `quick: true` (widgets, Control Center, CarPlay, Watch). Grown-ups' secure actions listed in `hub.quick_actions` (default `["garage.set"]`) then skip Face ID; logged with source `quick`. Door unlocks are never quick.
+- Intercom: `GET /v1/intercom` → `{phrases[{id,emoji,text}], rooms[{id,name,speakers}]}`; send with action `announce {text, rooms[]}`.
+- `POST /v1/ask-parent {text, emoji}` (children): pushes grown-ups at home first → `{sent_to[]}`.
+- Bedtime: `GET/PUT /v1/people/{id}/bedtime {time,wake,enabled}`, `POST .../bedtime/extend {minutes}` → `{enabled,time,wake,label,wake_label,active,minutes_left,extended_until}`.
+- Doorbell Live Activity: `POST /v1/devices/live-activity {push_to_start_token, env}`; the hub starts `DoorbellAttributes {camera,cameraName,door}` / state `{status, atUnix, answeredBy}` when the doorbell rings.
+- Guest passes (capability `guests`): `GET/POST /v1/guest-passes {name, days|until, starts, show_wifi, door_code, note}` (door code = Face ID), `DELETE /v1/guest-passes/{id}`. Public page `/g/{token}` (+ `.json`), no sign-in, ends by itself. Optional `guest.lock_code {entity, service: zwave_js|keymaster, slots}` puts the code on the lock and clears it at the end.
+- Tell Dylan: `POST /v1/feedback {text, screen, app_build, screenshot_jpeg_b64}` → inbox item (cat `feedback`) for admins; `GET /v1/feedback`, `/v1/feedback/{id}/shot.jpg`, `POST /v1/feedback/{id}/done` (admin).

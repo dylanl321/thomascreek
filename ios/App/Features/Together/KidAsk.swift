@@ -35,7 +35,8 @@ struct AskGrownUpSheet: View {
                     }
                 } else {
                     LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
-                        ForEach(asks, id: \.1) { a in
+                        ForEach(asks.indices, id: \.self) { i in
+                            let a = asks[i]
                             Button { Task { await send(a) } } label: {
                                 VStack(spacing: 6) {
                                     Text(a.0).font(.system(size: little ? 56 : 44))

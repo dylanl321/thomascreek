@@ -10,6 +10,7 @@ struct WhosHomeRow: View {
 
     var body: some View {
         let people = family.family
+        Group {
         if !people.isEmpty {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 14) {
@@ -27,10 +28,11 @@ struct WhosHomeRow: View {
                 }
                 .padding().presentationCompactAdaptation(.popover)
             }
-            .task { await family.load() }
             .accessibilityElement(children: .contain)
             .accessibilityLabel("Who's home")
         }
+        }
+        .task { await family.load() }
     }
 
     private func face(_ p: FamilyMember) -> some View {

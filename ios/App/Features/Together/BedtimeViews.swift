@@ -99,9 +99,8 @@ struct NightScreen: View {
         for l in lights {
             var p: [String: Any] = ["on": on]
             if let brightness { p["brightness"] = brightness }
-            store.perform("light.set", target: l.id, params: p, done: on ? "Nightlight on" : "Lights off") {
-                $0.state["on"] = .bool(on)
-            }
+            store.perform("light.set", target: l.id, params: p, optimistic: { $0.state["on"] = .bool(on) },
+                          done: on ? "Nightlight on" : "Lights off")
         }
         if lights.isEmpty { store.show("Your room's lights aren't set up yet", isError: true) }
     }
