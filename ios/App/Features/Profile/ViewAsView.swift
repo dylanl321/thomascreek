@@ -103,7 +103,7 @@ struct PreviewBanner: View {
             .foregroundStyle(.white)
             .padding(.horizontal, 16).padding(.vertical, 8)
             .frame(maxWidth: .infinity)
-            .background(Theme.accent)
+            .background(Theme.accent.ignoresSafeArea(edges: .top))
         }
     }
 }

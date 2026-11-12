@@ -67,6 +67,7 @@ struct FamilyView: View {
 }
 
 struct CalendarView: View {
+    @ScaledMetric(relativeTo: .subheadline) private var timeWidth: CGFloat = 72
     @State private var events: [CalendarEvent]?
     private struct Reply: Decodable { var events: [CalendarEvent] }
 
@@ -78,7 +79,7 @@ struct CalendarView: View {
                     Section(day.formatted(.dateTime.weekday(.wide).month().day())) {
                         ForEach(days[day] ?? [], id: \.stableID) { e in
                             HStack(alignment: .top, spacing: 12) {
-                                Text(e.isAllDay ? "All day" : clock(e.start)).font(.subheadline.monospacedDigit()).foregroundStyle(Theme.dim).frame(width: 72, alignment: .leading)
+                                Text(e.isAllDay ? "All day" : clock(e.start)).font(.subheadline.monospacedDigit()).foregroundStyle(Theme.dim).lineLimit(1).minimumScaleFactor(0.7).frame(width: timeWidth, alignment: .leading)
                                 VStack(alignment: .leading) {
                                     Text(e.title).font(.subheadline.weight(.medium))
                                     if let w = e.who { Text(w).font(.caption).foregroundStyle(Theme.dim) }
