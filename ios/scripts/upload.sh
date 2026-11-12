@@ -7,7 +7,7 @@
 # project.yml before each upload. Builds land in the internal "Family" group.
 # SPEC picks the XcodeGen spec:
 #   project-vpn-appstore.yml (default): the app with the WireGuard tunnel, signed manually with the
-#     "Thomas Creek <app|widgets|tunnel> App Store" profiles and the iPhone Distribution identity. Needs Go.
+#     "Thomas Creek <app|widgets|tunnel|notifications> App Store" profiles and the iPhone Distribution identity. Needs Go.
 #   project.yml: the app without the tunnel, automatic signing.
 set -euo pipefail
 
@@ -38,6 +38,7 @@ if [ "$SPEC" = project-vpn-appstore.yml ]; then
 <key>me.dlewis.thomascreek</key><string>Thomas Creek app App Store</string>
 <key>me.dlewis.thomascreek.widgets</key><string>Thomas Creek widgets App Store</string>
 <key>me.dlewis.thomascreek.tunnel</key><string>Thomas Creek tunnel App Store</string>
+<key>me.dlewis.thomascreek.notifications</key><string>Thomas Creek notifications App Store</string>
 </dict>"
 else
   SIGNING="<key>signingStyle</key><string>automatic</string>"
