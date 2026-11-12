@@ -56,6 +56,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
                     try await HubClient.shared.send("/v1/inbox/\(inboxID)/act", ["action": approve ? "approve" : "deny"],
                                                     confirm: approve ? "Approve: \(response.notification.request.content.title)" : nil)
                 }
+            case NotificationActions.wrongDetection:
+                if let id = info["event_id"] as? String {
+                    try await HubClient.shared.send("/v1/cameras/events/\(id)/wrong")
+                }
             case NotificationActions.view where response.notification.request.content.categoryIdentifier == "NEW_DEVICE":
                 await MainActor.run { Router.shared.show(.systems, .people) }
             default:
@@ -75,7 +79,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
 /// Buttons on alerts. Category ids match the hub's push sender (cat.upper()).
 enum NotificationActions {
     static let skip = "SKIP_TONIGHT", calm = "CALM_NOW", next = "NEXT_SCENE", start = "START_LOOP", off = "LIGHTS_OFF", open = "OPEN"
-    static let approve = "APPROVE", deny = "DENY", view = "VIEW", live = "LIVE_VIEW"
+    static let approve = "APPROVE", deny = "DENY", view = "VIEW", live = "LIVE_VIEW", wrongDetection = "WRONG_DETECTION"
 
     static func register() {
         let skipA = UNNotificationAction(identifier: skip, title: "Skip tonight", options: [.destructive], icon: .init(systemImageName: "moon.zzz"))
@@ -91,6 +95,9 @@ enum NotificationActions {
         // Secure-tier things (garage, locks) open the app, where Face ID confirms the action.
         let viewA = UNNotificationAction(identifier: view, title: "Open", options: [.foreground], icon: .init(systemImageName: "arrow.up.forward.app"))
         let liveA = UNNotificationAction(identifier: live, title: "Live view", options: [.foreground], icon: .init(systemImageName: "video.fill"))
+        func wrong(_ title: String) -> UNNotificationAction {
+            UNNotificationAction(identifier: wrongDetection, title: title, options: [], icon: .init(systemImageName: "hand.thumbsdown"))
+        }
         let cats: [UNNotificationCategory] = [
             .init(identifier: "SHOW", actions: [calmA, skipA, offA], intentIdentifiers: []),
             .init(identifier: "HEALTH", actions: [openA, startA], intentIdentifiers: []),
@@ -107,6 +114,11 @@ enum NotificationActions {
             .init(identifier: "DEVICE", actions: [viewA], intentIdentifiers: []),
             // The doorbell: open the front door camera (the default tap does the same).
             .init(identifier: "DOORBELL", actions: [liveA], intentIdentifiers: []),
+            // Camera alerts: say the detection was wrong without opening the app.
+            .init(identifier: "CAMERA_PERSON", actions: [liveA, wrong("Not a person")], intentIdentifiers: []),
+            .init(identifier: "CAMERA_CAR", actions: [liveA, wrong("Not a car")], intentIdentifiers: []),
+            .init(identifier: "CAMERA_ANIMAL", actions: [liveA, wrong("Not an animal")], intentIdentifiers: []),
+            .init(identifier: "CAMERA_PACKAGE", actions: [liveA, wrong("Not a package")], intentIdentifiers: []),
         ]
         UNUserNotificationCenter.current().setNotificationCategories(Set(cats))
     }

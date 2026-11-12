@@ -47,6 +47,12 @@ def _view(h: Hub, c: Caller) -> dict[str, Any]:
         "gaps": list(GAPS),
         "found": h.alerts.summary(),
     }
+    if role != "admin":
+        prefs.pop("network", None)
+    if grown:
+        out["found"]["kids"] = [p["name"] for p in h.db.people_with_role("child")]
+        out["found"]["network"] = h.firewalla.enabled
+        out["found"]["ignored"] = len(h.alerts.suppressions())
     if not grown:
         found = out["found"]
         out["found"] = {"extra": found["extra"], "hazards": found["hazards"], "listening": found["listening"]}

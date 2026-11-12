@@ -27,8 +27,10 @@ struct AlertsReply: Codable {
         var entities: [String: Bool]?
         var automations: Bool?
         var quiet: Quiet
+        var network: [String: Bool]?
+        var kids: [String: Bool]?
         enum CodingKeys: String, CodingKey {
-            case on, doorbell, package, cameras, garage, hazards, entities, automations, quiet
+            case on, doorbell, package, cameras, garage, hazards, entities, automations, quiet, network, kids
             case skipKnown = "skip_known", onlyAway = "only_away", gapS = "gap_s", awayDoors = "away_doors"
         }
     }
@@ -46,8 +48,11 @@ struct AlertsReply: Codable {
         var extra: [Thing]?
         var garageAfterS: Int?
         var listening: Bool?
+        var kids: [String]?
+        var network: Bool?
+        var ignored: Int?
         enum CodingKeys: String, CodingKey {
-            case doorbells, garages, hazards, extra, listening
+            case doorbells, garages, hazards, extra, listening, kids, network, ignored
             case outsideDoors = "outside_doors", garageAfterS = "garage_after_s"
         }
     }
@@ -202,6 +207,16 @@ struct AlertsView: View {
         .refreshable { await model.load() }
     }
 
+    /// One switch inside a group such as network or kids.
+    private func sub(_ group: String, _ kp: WritableKeyPath<AlertsReply.Prefs, [String: Bool]?>, _ key: String) -> Binding<Bool> {
+        Binding(get: { model.reply?.prefs[keyPath: kp]?[key] ?? false },
+                set: { v in
+                    if model.reply?.prefs[keyPath: kp] == nil { model.reply?.prefs[keyPath: kp] = [:] }
+                    model.reply?.prefs[keyPath: kp]?[key] = v
+                    model.set(group, [key: v])
+                })
+    }
+
     private func bind(_ key: String, _ kp: WritableKeyPath<AlertsReply.Prefs, Bool?>, default d: Bool = false) -> Binding<Bool> {
         Binding(get: { model.reply?.prefs[keyPath: kp] ?? d },
                 set: { v in model.reply?.prefs[keyPath: kp] = v; model.set(key, v) })
@@ -257,6 +272,26 @@ struct AlertsView: View {
                     }
                 }
                 Toggle(isOn: bind("automations", \.automations, default: true)) { row("From automations", "Alerts your Home Assistant automations send", "gearshape.2") }
+            }
+            if r.grownUp, let kids = r.found.kids, !kids.isEmpty, r.found.network == true {
+                Section {
+                    Toggle(isOn: sub("kids", \.kids, "adult")) { row("Adult sites", "Firewalla blocked or flagged one", "hand.raised") }
+                    Toggle(isOn: sub("kids", \.kids, "bedtime")) { row("Up after bedtime", "Videos or games after their bedtime", "moon.zzz") }
+                    Toggle(isOn: sub("kids", \.kids, "gaming")) { row("Gaming", "Any time Firewalla sees games", "gamecontroller") }
+                    Toggle(isOn: sub("kids", \.kids, "video")) { row("Video", "Any time Firewalla sees streaming", "play.rectangle") }
+                    Toggle(isOn: sub("kids", \.kids, "bandwidth")) { row("Big downloads", "Lots of data in a short time", "arrow.down.circle") }
+                } header: { Text("Kids' devices") } footer: {
+                    Text("From Firewalla, for \(kids.joined(separator: " and "))'s devices. At most one alert per kid and kind every 30 minutes.")
+                }
+            }
+            if r.role == "admin", r.found.network == true {
+                Section("Network") {
+                    Toggle(isOn: sub("network", \.network, "new_device")) { row("New device joins", "Something new on the Wi-Fi", "plus.app") }
+                    Toggle(isOn: sub("network", \.network, "security")) { row("Security", "Intrusions, open ports, odd uploads", "shield.lefthalf.filled") }
+                    Toggle(isOn: sub("network", \.network, "internet")) { row("Internet down or back", "The connection itself", "wifi.exclamationmark") }
+                    Toggle(isOn: sub("network", \.network, "vpn")) { row("VPN", "Connections and errors", "lock.shield") }
+                    Toggle(isOn: sub("network", \.network, "offline")) { row("Device offline", "A device drops off the network", "bolt.horizontal.circle") }
+                }
             }
         }
         .disabled(!(model.reply?.prefs.on ?? true))
@@ -359,10 +394,40 @@ struct CameraAlertsView: View {
                         ForEach(r.gaps, id: \.self) { g in Text(g < 3600 ? "\(g / 60) min" : "1 hour").tag(g) }
                     }
                 } footer: { Text("A busy camera like the driveway can see dozens of people a day. This keeps it to one alert per camera and kind in that window.") }
+                if !ignored.isEmpty {
+                    Section {
+                        ForEach(ignored) { i in
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("\(i.cameraName): not a \(i.label)")
+                                Text("No alerts for a \(i.label) in that spot").font(.caption).foregroundStyle(Theme.dim)
+                            }
+                            .swipeActions { Button("Alert again") { Task { await unignore(i) } }.tint(Theme.accent) }
+                        }
+                    } header: { Text("Ignored spots") } footer: { Text("Added when someone taps Not a person on an alert. Swipe to alert for that spot again.") }
+                }
             }
         }
+        .task { await loadIgnored() }
         .navigationTitle("Cameras")
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    @State private var ignored: [IgnoredSpot] = []
+
+    struct IgnoredSpot: Decodable, Identifiable {
+        var id: String; var camera: String; var label: String; var cameraName: String
+        enum CodingKeys: String, CodingKey { case id, camera, label, cameraName = "camera_name" }
+    }
+    private struct IgnoredReply: Decodable { var items: [IgnoredSpot] }
+
+    private func loadIgnored() async {
+        guard let d = try? await HubClient.shared.raw("GET", "/v1/cameras/ignored") else { return }
+        ignored = (try? JSONDecoder().decode(IgnoredReply.self, from: d))?.items ?? []
+    }
+
+    private func unignore(_ i: IgnoredSpot) async {
+        _ = try? await HubClient.shared.raw("DELETE", "/v1/cameras/ignored/\(i.id)")
+        await loadIgnored()
     }
 
     private func toggle(_ cam: String, _ label: String) {

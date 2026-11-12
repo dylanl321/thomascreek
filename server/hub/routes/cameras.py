@@ -9,6 +9,7 @@ phone. No camera credential ever reaches the phone.
 from __future__ import annotations
 
 import html
+import re
 from typing import Any
 
 from fastapi import APIRouter, Depends, Request
@@ -282,3 +283,30 @@ async def event_clip(event_id: str, c: Caller = Depends(caller), h: Hub = Depend
     except AdapterError:
         raise error(404, "not_found", "No clip") from None
     return Response(resp.content, media_type="video/mp4", headers={"Cache-Control": "private, no-store"})
+
+
+# -- "That's not a person" -------------------------------------------------
+@router.post("/events/{event_id}/wrong")
+async def mark_wrong(event_id: str, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """A detection was wrong: Frigate+ learns from it and the hub stops alerting for that spot."""
+    need(h, c, "cameras")
+    if not re.fullmatch(r"[0-9A-Za-z.\-_]{1,80}", event_id):
+        raise error(400, "bad_id", "Unknown event")
+    try:
+        return await h.alerts.mark_wrong(event_id, c.subject.person_id)
+    except AdapterError as exc:
+        raise error(502, "frigate", str(exc)) from None
+
+
+@router.get("/ignored")
+async def ignored(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    need(h, c, "cameras")
+    return {"items": [{**s, "camera_name": camera_name(h, s["camera"])} for s in reversed(h.alerts.suppressions())]}
+
+
+@router.delete("/ignored/{rule_id}")
+async def unignore(rule_id: str, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    need(h, c, "cameras")
+    if not h.alerts.forget_suppression(rule_id):
+        raise error(404, "not_found", "Already removed")
+    return {"ok": True}

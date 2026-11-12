@@ -191,3 +191,89 @@ def test_test_alert_reports_apples_answer(hub, people, home_client):
     r = home_client.post("/v1/alerts/test", headers=ph.h).json()
     assert r["ok"] is False and r["reason"] == "BadDeviceToken" and r["env"] == "sandbox"
     assert sent[0][2]["env"] == "sandbox"
+
+
+async def test_not_a_person_teaches_frigate_and_mutes_that_spot(hub, people, sent, home_client):
+    box = [0.5, 0.5, 0.1, 0.3]
+    e = {**ev(eid="evt1"), "data": {"box": box}}
+    plus = []
+
+    async def event(eid):
+        return e
+
+    async def fp(eid):
+        plus.append(eid)
+
+    hub.frigate.event = event  # type: ignore[method-assign]
+    hub.frigate.mark_false_positive = fp  # type: ignore[method-assign]
+    assert await hub.alerts.on_frigate(e) == 2
+    r = home_client.post("/v1/cameras/events/evt1/wrong", headers=people["phones"]["Avery"].h).json()
+    assert r["frigate_plus"] is True and plus == ["evt1"] and r["ignored_spot"]["camera"] == "140_frontdoor"
+    # Same spot again: no alert. Somewhere else on the same camera: alert.
+    later = time.time() + 999
+    assert await hub.alerts.on_frigate({**ev(eid="evt2"), "data": {"box": [0.51, 0.49, 0.1, 0.3]}}, now=later) == 0
+    assert await hub.alerts.on_frigate({**ev(eid="evt3"), "data": {"box": [0.05, 0.1, 0.1, 0.3]}}, now=later) == 2
+    # The earlier alert left the inbox
+    assert hub.db.one("SELECT COUNT(*) n FROM inbox WHERE acked_at IS NULL AND title LIKE 'Person at%' "
+                      "AND person_id=?", [people["avery"]["id"]])["n"] == 1
+    items = home_client.get("/v1/cameras/ignored", headers=people["phones"]["Dylan"].h).json()["items"]
+    assert len(items) == 1
+    assert home_client.delete(f"/v1/cameras/ignored/{items[0]['id']}", headers=people["phones"]["Dylan"].h).status_code == 200
+    assert home_client.post("/v1/cameras/events/evt1/wrong", headers=people["phones"]["Theo"].h).status_code == 403
+    assert sent[0]["extra"] == {"event_id": e["id"], "label": "person"} and sent[0]["push_category"] == "CAMERA_PERSON"
+
+
+async def test_firewalla_alarms_new_device_and_kids(hub, people, sent):
+    hub.db.insert("network_rules", {"rule_id": "r1", "person_id": people["theo"]["id"], "mac": "AA:BB:CC:00:11:22",
+                                    "device_name": "Theo's iPad", "created_at": time.time()})
+    noon = datetime(2026, 11, 12, 12, 0, tzinfo=__import__("zoneinfo").ZoneInfo("America/New_York")).timestamp()
+    night = noon + 11 * 3600  # 11 pm
+    # New device: Dylan only (admin)
+    n = await hub.alerts.on_firewalla({"aid": 1, "type": 5, "ts": noon, "message": "A new device joined",
+                                       "device": {"name": "Pixel 9", "mac": "11:22:33:44:55:66"}}, now=noon)
+    assert n == 1 and who(hub, sent) == ["Dylan"] and sent[0]["cat"] == "systems"
+    sent.clear()
+    # Adult site on Theo's iPad: both parents
+    n = await hub.alerts.on_firewalla({"aid": 2, "type": 10, "ts": noon, "message": "porn activity",
+                                       "device": {"name": "iPad", "mac": "aa:bb:cc:00:11:22"}}, now=noon)
+    assert n == 2 and who(hub, sent) == ["Avery", "Dylan"] and "Theo" in sent[0]["title"]
+    sent.clear()
+    # Gaming in the afternoon is off by default; at 11 pm it's a bedtime alert
+    assert await hub.alerts.on_firewalla({"aid": 3, "type": 9, "ts": noon, "device": {"mac": "AA:BB:CC:00:11:22", "name": "iPad"}}, now=noon) == 0
+    n = await hub.alerts.on_firewalla({"aid": 4, "type": 9, "ts": night, "device": {"mac": "AA:BB:CC:00:11:22", "name": "iPad"}}, now=night)
+    assert n == 2 and "bedtime" in sent[0]["title"]
+    # A device in a Firewalla group named after the child counts too
+    assert hub.alerts.kid_for_device({"name": "Switch", "mac": "X", "group": {"name": "Theo"}})["name"] == "Theo"
+
+
+async def test_firewalla_poll_starts_from_now(hub, people, sent):
+    rows = [{"aid": 9, "type": 5, "ts": 100.0, "device": {"name": "Old"}}]
+
+    async def alarms(limit=50):
+        return rows
+
+    hub.config.firewalla.enabled = True
+    hub.config.firewalla.msp_domain = "x.firewalla.net"
+    hub.firewalla.alarms = alarms  # type: ignore[method-assign]
+    assert await hub.alerts.poll_firewalla() == 0          # first look: no backlog
+    rows.append({"aid": 10, "type": 5, "ts": 200.0, "device": {"name": "New"}})
+    assert await hub.alerts.poll_firewalla() == 1
+    assert await hub.alerts.poll_firewalla() == 0
+
+
+async def test_media_ready_is_pushed_without_opening_the_app(hub, people, sent):
+    from hub.db import new_id
+
+    rid = new_id("req")
+    hub.db.insert("requests", {"id": rid, "created_at": time.time(), "kind": "media", "requester_id": people["theo"]["id"],
+                               "title": "Bluey", "payload": {}, "status": "approved", "external_id": "77"})
+
+    async def status(ext):
+        return {"media": {"status": 5}}
+
+    hub.config.jellyseerr.enabled = True
+    hub.config.jellyseerr.url = "http://js.test"
+    hub.jellyseerr.request_status = status  # type: ignore[method-assign]
+    await hub.alerts.poll_media()
+    assert hub.db.one("SELECT status FROM requests WHERE id=?", [rid])["status"] == "ready"
+    assert [s["title"] for s in sent] == ["Bluey is ready to watch"] and who(hub, sent) == ["Theo"]
