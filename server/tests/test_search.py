@@ -142,3 +142,16 @@ def test_pending_phone_is_refused(hub, home_client):
     ph.enroll()
     ph.sign_in()
     assert home_client.get("/v1/search", params={"q": "x"}, headers=ph.h).status_code == 403
+
+
+def test_youtube_videos_are_found(hub, people, home_client):
+    import time
+
+    hub.config.youtube.enabled = True
+    hub.db.insert("yt_videos", {"id": "abcdefghijk", "source_ids": [], "title": "How to draw a robot",
+                                "channel": "Art for Kids Hub", "duration_s": 720, "status": "ready",
+                                "added_at": time.time(), "ready_at": time.time()})
+    theo = people["phones"]["Theo"]
+    body = home_client.get("/v1/search", params={"q": "robot"}, headers=theo.h).json()
+    hit = _find(body, "How to draw a robot")
+    assert hit and hit["type"] == "youtube" and hit["media"]["id"] == "yt-abcdefghijk"

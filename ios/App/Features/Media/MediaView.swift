@@ -26,6 +26,7 @@ struct MediaView: View {
                     }
                 }
                 DownloadsEntry()
+                YouTubeShelf()
                 let tvs = store.home?.devices(kind: .media) ?? []
                 if !tvs.isEmpty {
                     SectionHeader("TVs", live: true)

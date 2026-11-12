@@ -66,6 +66,7 @@ struct MainTabs: View {
             NavigationStack { OfflineStorageView().toolbar { Button("Done") { router.showOffline = false } } }
         }
         .sheet(item: Binding(get: { router.vpnImport.map(IdentifiedURL.init) }, set: { router.vpnImport = $0?.url })) { f in VPNImportSheet(file: f.url) }
+        .sheet(item: Binding(get: { router.youtubeAdd.map(YouTubeLink.init) }, set: { router.youtubeAdd = $0?.text })) { YouTubeAddSheet(link: $0.text) }
         .sheet(item: Binding(get: { store.askParent }, set: { store.askParent = $0 })) { a in AskParentSheet(ask: a) }
     }
 
@@ -127,6 +128,7 @@ struct DestinationView: View {
         case .kidNet: KidNetView()
         case .vpnPool: VPNPoolView()
         case .hubWeb: HubWebPageView()
+        case .youtube: YouTubeManageView()
         }
     }
 }

@@ -25,6 +25,7 @@ from .config import Config
 from .crypto import TokenIssuer
 from .db import DB
 from .downloads import Downloads
+from .youtube import YouTube
 from .events import EventBus
 from .home import HomeModel
 from .notify import Notifier
@@ -74,6 +75,8 @@ class Hub:
                                      Path(db._path).parent / "app_update.json" if db._path != ":memory:" else None)
         self.app_update.on_change = lambda info: self.bus.publish({"type": "app_update", "data": info})
         self.downloads = Downloads(self, (Path(db._path).parent if db._path != ":memory:" else Path("/tmp")) / "downloads")
+        data = Path(db._path).parent if db._path != ":memory:" else Path("/tmp")
+        self.youtube = YouTube(self, data / "youtube")
         self.notify = Notifier(self)
         self.alerts = Alerts(self)
         self.actions = ActionRunner(self)
@@ -196,6 +199,7 @@ class Hub:
             log.error("VPN did not come up: %s", exc)
         self.home.start()
         self.timers.start()
+        self.youtube.start()
         self.kitchen.start()
         self.alerts.start()
         from .dropbox import watch
@@ -269,6 +273,7 @@ class Hub:
     async def stop(self) -> None:
         await self.home.stop()
         await self.timers.stop()
+        await self.youtube.stop()
         await self.kitchen.stop()
         await self.alerts.stop()
         await self.onepassword.stop()
