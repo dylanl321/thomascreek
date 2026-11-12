@@ -157,6 +157,15 @@ SSE `camera_event` carries one item when Frigate records a new event.
 `GET /v1/media/{id}/stream` -> `{hls_url, expires_at}`: hub-proxied HLS, no Plex token on the device.
 `poster_url`, `art_url` and `image_url` values are hub paths; fetch them with the bearer header.
 
+### Downloads for offline viewing
+No approval step: anyone who may watch a title may download it (children: rated titles only).
+- `GET /v1/media/{id}/download` -> `{item, options:[{quality:"original|high|small", label, detail, bytes?, instant}]}`. Films and episodes only. `original` is offered only when an iPhone can play the file (H.264/HEVC video, AAC/AC3/EAC3/MP3/ALAC/FLAC/Opus audio); `instant` means it's already an MP4 and streams straight from Plex.
+- `POST /v1/media/{id}/download {quality}` -> job `{id, item_id, quality, status:"preparing|ready|failed", progress 0-1, bytes?, error?, item, url?, expires_at?}`. Original MKV files are rewrapped to MP4 without re-encoding; `high` (720p, 4 Mbps) and `small` (480p, 1.5 Mbps) are converted by Plex and stitched into one MP4 by ffmpeg. Asking again for the same title and quality returns the same job.
+- `GET /v1/media/downloads/{job_id}` -> the job (only to the phone that started it). Each reply carries a fresh `url`.
+- `GET /v1/media/file/{pass}` (no bearer; the pass lasts 24 h and is tied to the job and phone) -> `video/mp4`, Range supported for resumable background downloads.
+- `POST /v1/media/{id}/progress {offset_s, duration_s?, watched?}` -> `{ok}`: where a downloaded title was stopped, passed on to Plex.
+- Prepared files are kept in `<data>/downloads` for 24 hours, at most two prepare at once.
+
 ## Requests
 
 `GET /v1/requests?mine=1` -> `{items:[{id,kind,title,poster_url,who,status,progress?,created_at}]}` (adults see all, children their own).
