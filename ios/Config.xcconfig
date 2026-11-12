@@ -1,4 +1,4 @@
 // Your Apple Developer team id (developer.apple.com > Membership) and the app's bundle id.
 TEAM_ID = Z9Q392PD67
-BUNDLE_ID = me.dlewis.christmaslights
+BUNDLE_ID = me.dlewis.thomascreek
 APP_GROUP = group.$(BUNDLE_ID)

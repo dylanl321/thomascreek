@@ -20,8 +20,8 @@ brew install go xcodegen
 xcodegen --spec project-vpn.yml
 ```
 
-Edit `project.yml` / `project-vpn.yml` only; the `.xcodeproj` and Info.plists are generated. Bundle id, App Group and
-team stay those of the Christmas Lights app (`Config.xcconfig`), so the TestFlight "Family" group keeps working.
+Edit `project.yml` / `project-vpn.yml` only; the `.xcodeproj` and Info.plists are generated. Bundle id `me.dlewis.thomascreek`, App Group
+`group.me.dlewis.thomascreek` and team are set in `Config.xcconfig`. It is its own App Store Connect app, separate from Christmas Lights.
 Bump `CURRENT_PROJECT_VERSION` for each upload.
 
 ## How it fits together
