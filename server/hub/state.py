@@ -15,6 +15,7 @@ from .adapters.family import FamilyBoard, Homebox, Mealie, ShowPlayer
 from .adapters.firewalla import Firewalla
 from .adapters.homeassistant import HomeAssistant
 from .adapters.media import Arr, Jellyseerr, Plex
+from .adapters.trips import Trek
 from .adapters.truenas import TrueNAS
 from .config import Config
 from .crypto import TokenIssuer
@@ -56,6 +57,7 @@ class Hub:
         self.mealie = Mealie(config.mealie, vault)
         self.homebox = Homebox(config.homebox, vault)
         self.family_board = FamilyBoard(config.family_board, vault)
+        self.trek = Trek(config.trek, vault)
         self.show_player = ShowPlayer(config.show_player, vault)
         self.firewalla = Firewalla(config.firewalla, vault, db)
         self.apns = APNs(config.apns, vault)
@@ -72,7 +74,7 @@ class Hub:
     @property
     def adapters(self) -> list[Any]:
         return [self.ha, self.frigate, self.plex, self.jellyseerr, self.sonarr, self.radarr, self.truenas, self.mealie,
-                self.homebox, self.family_board, self.show_player, self.firewalla]
+                self.homebox, self.family_board, self.trek, self.show_player, self.firewalla]
 
     def health(self) -> list[dict[str, Any]]:
         return [a.health() for a in self.adapters]

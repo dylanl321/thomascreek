@@ -30,6 +30,7 @@ ALL_CAPABILITIES = (
     "holiday.full", "holiday.looks", "holiday.pick", "family.edit", "family.view",
     "shopping.add", "chores.manage", "chores.do", "inventory.edit", "inventory.search",
     "appliances", "network.manage", "network.ask", "systems", "people", "activity",
+    "trips.view", "trips.plan",
 )
 
 ROLE_CAPABILITIES: dict[str, frozenset[str]] = {
@@ -38,17 +39,19 @@ ROLE_CAPABILITIES: dict[str, frozenset[str]] = {
         "lights.all", "climate.all", "doors", "cameras", "media.all", "media.request",
         "media.approve", "holiday.looks", "family.edit", "family.view", "shopping.add",
         "chores.manage", "inventory.edit", "inventory.search", "appliances", "network.manage",
+        "trips.view", "trips.plan",
     }),
     "child": frozenset({
         "lights.own_room", "climate.own_room", "media.own_tv", "media.request", "holiday.pick",
         "family.view", "shopping.add", "chores.do", "inventory.search", "network.ask",
+        "trips.view",
     }),
     # A guest gets "own room" style control of their area (e.g. the apartment).
     "guest": frozenset({"lights.own_room", "climate.own_room", "media.own_tv"}),
     # Shared wall screen: everyday adult controls, nothing private.
     "tablet": frozenset({
         "lights.all", "climate.all", "media.all", "holiday.looks", "family.view",
-        "shopping.add", "inventory.search", "chores.do",
+        "shopping.add", "inventory.search", "chores.do", "trips.view",
     }),
     # A phone nobody has been assigned to yet: the child's limits, no room.
     "pending": frozenset({"family.view", "holiday.pick"}),

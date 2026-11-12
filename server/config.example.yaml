@@ -43,6 +43,12 @@ family_board:                 # Family Command Center
   # Not needed on the LAN (chores and redemptions are its "family actions").
   # Only if the hub reaches it through a proxy: store the parent PIN here.
   token_secret: family_board.admin_token
+trek:                         # TREK trip planner (read-only API key)
+  enabled: true
+  url: http://TREK:3000
+  web_url: https://TREK_SITE    # what "Plan in TREK" opens on a phone
+  token_secret: trek.api_key    # TREK: Settings > Integrations > API key, "trips" allowed
+  hidden_from_children: []      # trip ids kids and the tablet never see
 show_player:
   enabled: true
   url: http://SHOW_PLAYER:8770

@@ -180,6 +180,19 @@ with `PATCH /v1/people/{id} {family_board_id}` (admin; `GET /v1/family/board-peo
 `GET /v1/shopping`, `POST /v1/shopping/{list}/items {text}`, `PATCH /v1/shopping/{list}/items/{id} {done}`.
 `GET /v1/inventory/search?q=`.
 
+## Trips (TREK)
+
+`GET /v1/trips` (`trips.view`) ->
+`{trips:[{id,title,description,start_date,end_date,archived,status,days_until,day_number,day_count,travellers?,plan_url?}], next, plan_url}`.
+`status` is `now`, `upcoming`, `someday` (no dates) or `past`; the list is ordered now, soonest, someday, then past newest first.
+`travellers:[{name,owner}]` is filled for trips that are not past. `plan_url` (TREK's own page) only for `trips.plan`.
+The kitchen tablet gets only `next`. Children don't get trips in `trek.hidden_from_children`.
+`GET /v1/trips/{id}` -> the summary plus `today` (ISO date while the trip is on),
+`days:[{date,day_number,title,notes,places:[{name,address,lat,lng,time,end_time,duration_minutes,category,notes,transport_mode}],day_notes:[{text,time}],reservations:[{type,title,location,time,end_time,status,notes}]}]`,
+`accommodations:[{name,address,lat,lng,start_date,end_date,check_in,check_out,notes}]`, `travellers`,
+`unplanned_places` (ideas) and `unscheduled_reservations`. Children get no `notes` on reservations or stays.
+`GET /v1/calendar` also lists each trip day as an all-day event (`id` `trek-<trip>-<date>`).
+
 ## Kids' internet (Firewalla)
 
 `GET /v1/network/kids` (adults) -> `{kids:[{id,name,managed,paused,until,devices:[{mac,name,rule_id,paused}]}]}`.
