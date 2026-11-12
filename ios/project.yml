@@ -57,6 +57,7 @@ targets:
         NSFaceIDUsageDescription: Face ID confirms it's you before a door, lock, camera or oven changes.
         NSLocalNetworkUsageDescription: Finds the Thomas Creek hub on your home Wi-Fi.
         NSBonjourServices: [_thomascreek._tcp]
+        LSApplicationQueriesSchemes: [itms-beta]
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
           NSAllowsLocalNetworking: true

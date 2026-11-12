@@ -64,6 +64,11 @@ final class AppUpdate {
     /// Open this app's page in TestFlight (its Update button), or TestFlight's App Store page if it's missing.
     func openTestFlight() {
         let url = info?.testflightUrl.flatMap(URL.init(string:)) ?? URL(string: "itms-beta://")!
+        // Without TestFlight there is nothing to update with: send them to get it.
+        guard UIApplication.shared.canOpenURL(URL(string: "itms-beta://")!) else {
+            UIApplication.shared.open(Self.testFlightStore)
+            return
+        }
         UIApplication.shared.open(url) { ok in
             guard !ok else { return }
             UIApplication.shared.open(URL(string: "itms-beta://")!) { ok2 in
@@ -100,7 +105,8 @@ struct UpdateBanner: View {
                 .accessibilityLabel("Not now")
             }
             .padding(.leading, 14).padding(.trailing, 8).padding(.vertical, 10)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .background(Theme.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Theme.line))
             .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
             .frame(maxWidth: 520)
             .padding(.horizontal, 12)
