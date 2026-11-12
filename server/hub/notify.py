@@ -21,7 +21,7 @@ log = logging.getLogger("hub.notify")
 
 CATEGORIES = [
     {"id": "doors", "title": "Doors and garage", "detail": "Opened, closed, or left open", "default": True},
-    {"id": "cameras", "title": "Cameras", "detail": "Doorbell and a daily summary", "default": True},
+    {"id": "cameras", "title": "Cameras", "detail": "Doorbell and the cameras you pick under Alerts", "default": True},
     {"id": "requests", "title": "Requests", "detail": "Asks from the kids and their answers", "default": True},
     {"id": "media", "title": "Movies and shows", "detail": "When something you asked for is ready", "default": True},
     {"id": "chores", "title": "Chores and rewards", "detail": "Reminders and approvals", "default": True},
@@ -64,6 +64,9 @@ class Notifier:
         group_key: str | None = None,
         exclude_person: str | None = None,
         push_category: str | None = None,
+        silent: bool = False,
+        image: str | None = None,
+        interruption: str | None = None,
     ) -> list[str]:
         assert level in LEVELS
         db = self.hub.db
@@ -80,7 +83,8 @@ class Notifier:
             self.hub.bus.publish({"type": "inbox", "data": self.item(db.one("SELECT * FROM inbox WHERE id=?", [iid]))},
                                  person_id=p["id"])
             await self._push_person(p["id"], title, body, cat=cat, level=level, inbox_id=iid, ref=ref,
-                                    category=push_category)
+                                    category=push_category, silent=silent, image=image,
+                                    interruption=interruption)
         return ids
 
     async def _push_person(self, person_id: str, title: str, body: str | None, **kw: Any) -> None:
@@ -94,7 +98,9 @@ class Notifier:
             if not prefs.get(kw["cat"], True):
                 continue
             payload = alert_payload(title, body, cat=kw["cat"], inbox_id=kw.get("inbox_id"), ref=kw.get("ref"),
-                                    category=kw.get("category"), level=kw.get("level", "fyi"), thread=kw["cat"])
+                                    category=kw.get("category"), level=kw.get("level", "fyi"), thread=kw["cat"],
+                                    silent=kw.get("silent", False), image=kw.get("image"),
+                                    interruption=kw.get("interruption"))
             res = await apns.send(d["apns_token"], payload, env=d.get("apns_env") or "production",
                                   collapse_id=kw.get("inbox_id"))
             if res.token_dead:

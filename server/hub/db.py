@@ -119,6 +119,18 @@ SCHEMA = [
         kind TEXT NOT NULL,
         payload TEXT NOT NULL DEFAULT '{}'
     )""",
+    """
+    CREATE TABLE IF NOT EXISTS alert_prefs (
+        person_id TEXT PRIMARY KEY,
+        prefs TEXT NOT NULL DEFAULT '{}',
+        updated_at REAL NOT NULL
+    )""",
+    """
+    CREATE TABLE IF NOT EXISTS hub_kv (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at REAL NOT NULL
+    )""",
 ]
 
 JSON_COLUMNS = {"areas", "shared_areas", "grants", "denies", "prefs", "activity", "actions", "payload", "params"}
@@ -181,6 +193,15 @@ class DB:
         sets = ",".join(f"{k}=?" for k in values)
         vals = [json.dumps(v) if k in JSON_COLUMNS and not isinstance(v, str) else v for k, v in values.items()]
         self.execute(f"UPDATE {table} SET {sets} WHERE {key}=?", [*vals, key_value])
+
+    # -- small hub-wide settings -------------------------------------------
+    def kv_get(self, key: str) -> Any:
+        row = self.one("SELECT value FROM hub_kv WHERE key=?", [key])
+        return json.loads(row["value"]) if row else None
+
+    def kv_set(self, key: str, value: Any) -> None:
+        self.execute("INSERT INTO hub_kv (key, value, updated_at) VALUES (?,?,?) ON CONFLICT(key) DO UPDATE SET "
+                     "value=excluded.value, updated_at=excluded.updated_at", [key, json.dumps(value), time.time()])
 
     # -- people ----------------------------------------------------------
     def person(self, person_id: str | None) -> dict[str, Any] | None:
