@@ -145,9 +145,13 @@ final class PushRegistration {
 
     /// "development" builds (run from Xcode) use Apple's sandbox push server; TestFlight uses production.
     nonisolated static var apsEnvironment: String {
+        #if targetEnvironment(simulator)
+        return "sandbox"   // simulator tokens only work with Apple's sandbox push server
+        #else
         guard let url = Bundle.main.url(forResource: "embedded", withExtension: "mobileprovision"),
               let data = try? Data(contentsOf: url), let text = String(data: data, encoding: .isoLatin1) else { return "production" }
         guard let r = text.range(of: "<key>aps-environment</key>") else { return "production" }
         return text[r.upperBound...].prefix(80).contains("development") ? "sandbox" : "production"
+        #endif
     }
 }
