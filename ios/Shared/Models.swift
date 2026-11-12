@@ -187,7 +187,14 @@ struct DeviceItem: Codable, Hashable, Identifiable {
     var available: Bool?
     var actions: [String]?
 
-    subscript(_ key: String) -> JSONValue? { state[key] }
+    /// State keys may arrive camelCase or snake_case (dictionary keys aren't always converted by the decoder),
+    /// so look up both: d["targetTemp"] also finds "target_temp".
+    subscript(_ key: String) -> JSONValue? { state[key] ?? state[Self.snake(key)] }
+    static func snake(_ key: String) -> String {
+        key.reduce(into: "") { out, ch in
+            if ch.isUppercase { out += "_" + ch.lowercased() } else { out.append(ch) }
+        }
+    }
     var isOn: Bool { state["on"]?.bool ?? (state["state"]?.string == "on") }
     var brightness: Double? { state["brightness"]?.double }
     var isAvailable: Bool { available ?? true }

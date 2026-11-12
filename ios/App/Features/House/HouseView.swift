@@ -62,7 +62,7 @@ struct HouseView: View {
     }
 
     private var climateLine: String {
-        let temps = (store.home?.devices(kind: .climate) ?? []).compactMap { $0["currentTemp"]?.double }
+        let temps = (store.home?.devices(kind: .climate) ?? []).filter { ($0.available != false && $0["available"]?.bool != false) }.compactMap { $0["currentTemp"]?.double }
         guard !temps.isEmpty else { return "–" }
         return "\(Int((temps.reduce(0, +) / Double(temps.count)).rounded()))° inside"
     }
@@ -119,7 +119,7 @@ struct RoomDetailView: View {
         let room = store.home?.room(roomID)
         let devices = room.map { store.home?.devices(in: $0) ?? [] } ?? []
         let lights = devices.filter { [.light, .fan, .switch].contains($0.kind) }
-        let climate = devices.filter { $0.kind == .climate }
+        let climate = devices.filter { $0.kind == .climate && ($0.available != false && $0["available"]?.bool != false) }
         let media = devices.filter { [.media, .speaker].contains($0.kind) }
         let other = devices.filter { ![.light, .fan, .switch, .climate, .media, .speaker, .camera].contains($0.kind) }
         ScrollView {
@@ -170,7 +170,7 @@ struct ClimateView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 12) {
-                ForEach(store.home?.devices(kind: .climate) ?? []) { ClimateCard(device: $0) }
+                ForEach((store.home?.devices(kind: .climate) ?? []).filter { ($0.available != false && $0["available"]?.bool != false) }) { ClimateCard(device: $0) }
                 ForEach((store.home?.devices(kind: .shower) ?? [])) { s in
                     HStack {
                         Label(s.name, systemImage: "shower.fill").font(.headline)
