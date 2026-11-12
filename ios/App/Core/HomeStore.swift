@@ -123,6 +123,7 @@ final class HomeStore {
             if AppSettings.deviceID == nil {
                 me = nil; AppSettings.cachedMe = nil; AppSettings.cachedHome = nil; home = nil
                 Downloads.shared.forgetAll()
+                SpotlightIndex.clear()
                 phase = .findingHome
             }
         } catch {
@@ -134,7 +135,7 @@ final class HomeStore {
         do {
             let (h, savedAt) = try await HubClient.shared.fetch("/v1/home", as: HomeSnapshot.self)
             home = h; AppSettings.cachedHome = h
-            if savedAt == nil { markReachable() } else { markUnreachable() }
+            if savedAt == nil { markReachable(); SpotlightIndex.update(h, me: me) } else { markUnreachable() }
         } catch { markUnreachable() }
     }
 

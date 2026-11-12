@@ -54,6 +54,7 @@ struct MainTabs: View {
         .overlay(alignment: .bottom) { UpdateBanner() }
         .animation(.spring(duration: 0.35), value: AppUpdate.shared.showBanner)
         .sheet(isPresented: $router.showInbox) { InboxView() }
+        .sheet(isPresented: $router.showSearch) { SearchView() }
         .sheet(isPresented: $router.showProfile) { ProfileView() }
         .sheet(isPresented: $router.showOffline) {
             NavigationStack { OfflineStorageView().toolbar { Button("Done") { router.showOffline = false } } }
@@ -150,7 +151,10 @@ struct TopBar: ViewModifier {
                 }
                 .accessibilityLabel("Profile")
             }
-            ToolbarItem(placement: .topBarTrailing) { BellButton() }
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                SearchButton()
+                BellButton()
+            }
         }
     }
 }

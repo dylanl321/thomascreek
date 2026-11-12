@@ -75,6 +75,11 @@ struct KidHomeView: View {
                 if !little { Text(Date.now.formatted(.dateTime.weekday(.wide))).foregroundStyle(Theme.dim) }
             }
             Spacer()
+            Button { router.showSearch = true } label: {
+                Image(systemName: "magnifyingglass").font(little ? .title2.weight(.bold) : .title3)
+                    .padding(little ? 12 : 8).background(color.opacity(0.15), in: Circle())
+            }
+            .foregroundStyle(color).accessibilityLabel(little ? "Find" : "Search")
             if little { SayButton(text: "Hi \(name)! You have \(board?.points ?? 0) stars.").foregroundStyle(color) }
             else { BellButton() }
         }

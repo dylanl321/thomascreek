@@ -715,3 +715,86 @@ extension Pipeline.Item {
         hasFile = try? c.decodeIfPresent(Bool.self, forKey: .hasFile)
     }
 }
+
+// MARK: - Search (GET /v1/search)
+
+struct SearchResults: Decodable, Hashable {
+    var query: String
+    var groups: [SearchGroup]
+    var top: SearchItem?
+    var command: SearchCommand?
+    var pending: [String]?
+    var ask: Bool?
+}
+
+struct SearchGroup: Decodable, Hashable, Identifiable {
+    var type: String
+    var title: String
+    var total: Int?
+    var items: [SearchItem]
+    var id: String { type }
+}
+
+struct SearchItem: Decodable, Hashable, Identifiable {
+    var id: String
+    var type: String
+    var title: String
+    var subtitle: String?
+    var score: Double?
+    var source: String?
+    var ref: String?
+    var deepLink: String?
+    var action: SearchAction?
+    var verb: String?
+    var imageUrl: String?
+    var symbol: String?
+    var roomId: String?
+    var kind: String?
+    var media: MediaItem?
+    var request: MediaAsk?
+    var chore: ChoreRef?
+
+    struct MediaAsk: Decodable, Hashable { var mediaId: String; var title: String }
+    struct ChoreRef: Decodable, Hashable { var id: JSONValue; var person: String; var done: Bool }
+}
+
+/// An action POST /v1/actions accepts as-is. "batch" runs each of `steps` in turn.
+struct SearchAction: Decodable, Hashable {
+    var action: String
+    var target: String?
+    var params: [String: JSONValue]?
+    var tier: String?
+    var label: String?
+    var toggle: Bool?
+    var on: Bool?
+    var steps: [SearchAction]?
+
+    /// Parameters as the hub wants them (keys back in snake_case).
+    var body: [String: Any] {
+        var out: [String: Any] = [:]
+        for (k, v) in params ?? [:] { out[DeviceItem.snake(k)] = v.any }
+        return out
+    }
+    var secure: Bool { tier == "secure" || tier == "admin" }
+}
+
+struct SearchCommand: Decodable, Hashable {
+    var title: String
+    var subtitle: String?
+    var deepLink: String?
+    var action: SearchAction?
+}
+
+extension JSONValue {
+    /// Back to Foundation types, for a request body.
+    var any: Any {
+        switch self {
+        case .string(let s): s
+        case .number(let n): n == n.rounded() && abs(n) < 1e15 ? Int(n) as Any : n
+        case .bool(let b): b
+        case .object(let o): o.mapValues { $0.any }
+        case .array(let a): a.map { $0.any }
+        case .null: NSNull()
+        }
+    }
+}
