@@ -173,8 +173,20 @@ class SmartConfig(BaseModel):
     off_rules: list[str] = Field(default_factory=list)  # rule ids switched off for everyone
 
 
+class GuestLockCode(BaseModel):
+    """Guest passes can put their door code on a lock: Z-Wave JS user codes or Keymaster slots."""
+
+    entity: str | None = None          # e.g. lock.front_door
+    door_name: str = "Front door"
+    service: str = "zwave_js"          # zwave_js | keymaster
+    slots: list[int] = Field(default_factory=lambda: [20, 21, 22, 23])
+
+
 class GuestInfo(BaseModel):
     wifi_ssid: str | None = None
+    address: str | None = None         # shown on a guest pass
+    host_phone: str | None = None      # "Text Dylan" on a guest pass
+    lock_code: GuestLockCode | None = None
     wifi_password_secret: str = "guest_wifi.password"
     host_name: str | None = None
     guidance: list[dict[str, str]] = Field(default_factory=list)  # {icon,title,detail}

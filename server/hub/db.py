@@ -202,6 +202,39 @@ SCHEMA = [
 ]
 
 # Columns added after the first deploy: (table, column, definition). Added on start if missing.
+SCHEMA += [
+    """
+    CREATE TABLE IF NOT EXISTS guest_passes (
+        id TEXT PRIMARY KEY,
+        token TEXT NOT NULL,
+        token_hash TEXT NOT NULL UNIQUE,
+        name TEXT NOT NULL,
+        created_by TEXT,
+        created_at REAL NOT NULL,
+        starts_at REAL NOT NULL,
+        expires_at REAL NOT NULL,
+        show_wifi INTEGER NOT NULL DEFAULT 1,
+        door_name TEXT,
+        lock_slot INTEGER,
+        note TEXT,
+        views INTEGER NOT NULL DEFAULT 0,
+        last_viewed_at REAL,
+        revoked_at REAL
+    )""",
+    """
+    CREATE TABLE IF NOT EXISTS feedback (
+        id TEXT PRIMARY KEY,
+        ts REAL NOT NULL,
+        person_id TEXT,
+        device_id TEXT,
+        text TEXT NOT NULL,
+        screen TEXT,
+        app_build TEXT,
+        has_shot INTEGER NOT NULL DEFAULT 0,
+        done_at REAL
+    )""",
+]
+
 ADDED_COLUMNS = [
     ("devices", "kind", "TEXT NOT NULL DEFAULT 'phone'"),   # phone | test (a simulator joined with a test key)
     ("devices", "test_key_id", "TEXT"),

@@ -400,6 +400,11 @@ class Alerts:
             sent += await self._deliver(who, title="Someone's at the front door", body="Doorbell pressed",
                                         cat="cameras", urgent=True, ref=f"thomascreek://camera/{cam}" if cam else None,
                                         image=image, push_category="DOORBELL", group="doorbell")
+            try:
+                await self.hub.household.doorbell_live([p["id"] for p, _ in who], cam,
+                                                       self._name(self.hub.home.states.get(f"camera.{cam}"), cam or "Door") if cam else "Front door")
+            except Exception as exc:  # noqa: BLE001
+                log.info("doorbell live activity failed: %s", exc)
         # Leak, smoke, gas, CO
         if eid in self.hazards() and n == "on":
             dc = (new.get("attributes") or {}).get("device_class")

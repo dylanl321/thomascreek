@@ -29,6 +29,7 @@ from .downloads import Downloads
 from .youtube import YouTube
 from .events import EventBus
 from .home import HomeModel
+from .household import Household
 from .notify import Notifier
 from .policy import Policy, Subject
 from .push import APNs
@@ -85,6 +86,7 @@ class Hub:
         self.kitchen = Kitchen(self)
         self.smart = Smart(self)
         self.assistant = Assistant(self)
+        self.household = Household(self)
         self._home_nets = [ipaddress.ip_network(n, strict=False) for n in config.hub.home_networks]
         self._proxies = [ipaddress.ip_network(n, strict=False) for n in config.hub.trusted_proxies]
         self.started_at = time.time()
@@ -205,6 +207,7 @@ class Hub:
         self.kitchen.start()
         self.smart.start()
         self.alerts.start()
+        self.household.start()
         from .dropbox import watch
 
         self._dropbox = asyncio.create_task(watch(self.vault))
@@ -280,6 +283,7 @@ class Hub:
         await self.kitchen.stop()
         await self.smart.stop()
         await self.alerts.stop()
+        await self.household.stop()
         await self.onepassword.stop()
         if getattr(self, "_dropbox", None):
             self._dropbox.cancel()

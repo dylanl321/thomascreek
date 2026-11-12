@@ -30,7 +30,7 @@ ALL_CAPABILITIES = (
     "holiday.full", "holiday.looks", "holiday.pick", "family.edit", "family.view",
     "shopping.add", "chores.manage", "chores.do", "inventory.edit", "inventory.search",
     "appliances", "network.manage", "network.ask", "systems", "people", "activity",
-    "trips.view", "trips.plan",
+    "trips.view", "trips.plan", "guests",
 )
 
 ROLE_CAPABILITIES: dict[str, frozenset[str]] = {
@@ -39,7 +39,7 @@ ROLE_CAPABILITIES: dict[str, frozenset[str]] = {
         "lights.all", "climate.all", "doors", "cameras", "media.all", "media.request",
         "media.approve", "holiday.looks", "family.edit", "family.view", "shopping.add",
         "chores.manage", "inventory.edit", "inventory.search", "appliances", "network.manage",
-        "trips.view", "trips.plan",
+        "trips.view", "trips.plan", "guests",
     }),
     "child": frozenset({
         "lights.own_room", "climate.own_room", "media.own_tv", "media.request", "holiday.pick",
