@@ -187,7 +187,14 @@ struct DeviceItem: Codable, Hashable, Identifiable {
     var available: Bool?
     var actions: [String]?
 
-    subscript(_ key: String) -> JSONValue? { state[key] }
+    /// State keys may arrive camelCase or snake_case (dictionary keys aren't always converted by the decoder),
+    /// so look up both: d["targetTemp"] also finds "target_temp".
+    subscript(_ key: String) -> JSONValue? { state[key] ?? state[Self.snake(key)] }
+    static func snake(_ key: String) -> String {
+        key.reduce(into: "") { out, ch in
+            if ch.isUppercase { out += "_" + ch.lowercased() } else { out.append(ch) }
+        }
+    }
     var isOn: Bool { state["on"]?.bool ?? (state["state"]?.string == "on") }
     var brightness: Double? { state["brightness"]?.double }
     var isAvailable: Bool { available ?? true }
@@ -242,6 +249,19 @@ struct CalendarEvent: Codable, Hashable, Identifiable {
     var allDay: Bool?
     var location: String?
     var stableID: String { id ?? "\(title)-\(start)" }
+    /// Calendars often send all-day events as a bare date or as midnight-to-midnight without the flag.
+    var isAllDay: Bool {
+        // The board's export marks timed-looking midnight tasks all_day=false, so only trust `true`.
+        if allDay == true { return true }
+        if start.count <= 10 { return true }
+        guard let s = ISO.parse(start) else { return false }
+        let cal = Calendar.current
+        guard cal.component(.hour, from: s) == 0, cal.component(.minute, from: s) == 0 else { return false }
+        guard let e = end.flatMap(ISO.parse) else { return true }
+        let hours = e.timeIntervalSince(s) / 3600
+        let rest = hours.truncatingRemainder(dividingBy: 24)
+        return hours <= 0 || (hours >= 23 && (rest < 1 || rest > 23))
+    }
 }
 struct Dinner: Codable, Hashable { var title: String; var imageUrl: String?; var emoji: String?; var recipeId: String? }
 
@@ -437,7 +457,25 @@ struct ActivityEntry: Codable, Hashable, Identifiable {
     var source: String?
     var date: Date { Date(timeIntervalSince1970: t) }
     /// "Opened the large garage door" style line.
-    var what: String { detail ?? [action, target].compactMap { $0 }.joined(separator: " ") }
+    var what: String { detail ?? [action.map(Self.verb), target.map(Self.thing)].compactMap { $0 }.joined(separator: " ") }
+
+    /// "camera.view" -> "Watched", "lock.unlock" -> "Unlocked"; unknown codes become readable words.
+    static func verb(_ code: String) -> String {
+        let known = ["camera.view": "Watched", "camera.pass": "Watched", "lock.unlock": "Unlocked", "lock.lock": "Locked",
+                     "garage.open": "Opened", "garage.close": "Closed", "light.on": "Turned on", "light.off": "Turned off",
+                     "media.command": "Used the remote for", "scene.run": "Ran", "mode.run": "Switched to",
+                     "device.approve": "Approved", "device.revoke": "Removed", "enroll": "Joined", "login": "Signed in"]
+        if let k = known[code] { return k }
+        let last = code.split(separator: ".").last.map(String.init) ?? code
+        return last.replacingOccurrences(of: "_", with: " ").capitalized
+    }
+    /// "camera.140_driveway" -> "Driveway", "light.kitchen_main" -> "Kitchen Main".
+    static func thing(_ code: String) -> String {
+        guard !code.contains(" ") else { return code }
+        var last = code.split(separator: ".").last.map(String.init) ?? code
+        if let r = last.range(of: #"^\d+_"#, options: .regularExpression) { last.removeSubrange(r) }
+        return last.replacingOccurrences(of: "_", with: " ").capitalized
+    }
 
     private enum K: String, CodingKey { case id, t, at, who, action, target, outcome, detail, source }
     /// Lenient: id may be a number or a string, and the time may be epoch seconds or ISO text.
@@ -518,7 +556,18 @@ struct CameraEvent: Codable, Hashable, Identifiable {
         }
     }
 }
-struct CameraEvents: Codable { var items: [CameraEvent]; var nextBefore: String? }
+struct CameraEvents: Codable {
+    var items: [CameraEvent]
+    /// The hub may send this as text or a number.
+    var nextBeforeValue: JSONValue?
+    var nextBefore: String? {
+        guard let v = nextBeforeValue else { return nil }
+        if let s = v.string { return s }
+        if let d = v.double { return d == d.rounded() ? String(Int(d)) : String(d) }
+        return nil
+    }
+    private enum CodingKeys: String, CodingKey { case items, nextBeforeValue = "nextBefore" }
+}
 struct CameraList: Codable { var cameras: [Camera] }
 struct StreamInfo: Codable { var hlsUrl: String; var expiresAt: String? }
 
@@ -564,8 +613,73 @@ enum ISO {
         if let d = f.date(from: s) { return d }
         f.formatOptions = [.withInternetDateTime]
         if let d = f.date(from: s) { return d }
+        // Floating local time with no zone ("2026-11-12T16:00:00"), as the calendar export sends.
+        let local = DateFormatter()
+        local.locale = Locale(identifier: "en_US_POSIX"); local.timeZone = .current
+        for fmt in ["yyyy-MM-dd'T'HH:mm:ss", "yyyy-MM-dd'T'HH:mm"] {
+            local.dateFormat = fmt
+            if let d = local.date(from: s) { return d }
+        }
         f.formatOptions = [.withFullDate]
         f.timeZone = .current
         return f.date(from: s)
+    }
+}
+
+extension Me {
+    /// A phone still waiting for approval has no person yet, and the hub sends `"person": null`.
+    /// Decode that as a placeholder so the app shows the waiting screen instead of hanging on launch.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        person = try c.decodeIfPresent(Person.self, forKey: .person) ?? Person(id: "", name: "")
+        role = try c.decode(Role.self, forKey: .role)
+        capabilities = try c.decodeIfPresent([String].self, forKey: .capabilities) ?? []
+        device = try c.decodeIfPresent(DeviceInfo.self, forKey: .device)
+        remoteUrl = try c.decodeIfPresent(String.self, forKey: .remoteUrl)
+        atHome = try c.decodeIfPresent(Bool.self, forKey: .atHome)
+        dryRun = try c.decodeIfPresent(Bool.self, forKey: .dryRun)
+        child = try c.decodeIfPresent(ChildInfo.self, forKey: .child)
+        guest = try c.decodeIfPresent(GuestInfo.self, forKey: .guest)
+    }
+}
+
+// The hub sends `year` as text ("2024") and can leave `title` null when a lookup fails;
+// decode both leniently so one odd row doesn't blank the whole pipeline.
+extension Pipeline.Request {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        kind = try c.decodeIfPresent(String.self, forKey: .kind)
+        title = (try? c.decodeIfPresent(String.self, forKey: .title)) ?? "Untitled"
+        year = (try? c.decodeIfPresent(Int.self, forKey: .year))
+            ?? (try? c.decodeIfPresent(String.self, forKey: .year)).flatMap { $0.flatMap { Int($0) } }
+        posterUrl = try? c.decodeIfPresent(String.self, forKey: .posterUrl)
+        status = try? c.decodeIfPresent(String.self, forKey: .status)
+        mediaStatus = try? c.decodeIfPresent(String.self, forKey: .mediaStatus)
+        requestedBy = try? c.decodeIfPresent(String.self, forKey: .requestedBy)
+        requestedAt = try? c.decodeIfPresent(String.self, forKey: .requestedAt)
+    }
+}
+
+extension Pipeline.Download {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        title = (try? c.decodeIfPresent(String.self, forKey: .title)) ?? "Untitled"
+        progress = try? c.decodeIfPresent(Double.self, forKey: .progress)
+        etaS = try? c.decodeIfPresent(Double.self, forKey: .etaS)
+        state = try? c.decodeIfPresent(String.self, forKey: .state)
+        source = try? c.decodeIfPresent(String.self, forKey: .source)
+        error = try? c.decodeIfPresent(String.self, forKey: .error)
+    }
+}
+
+extension Pipeline.Item {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        kind = try? c.decodeIfPresent(String.self, forKey: .kind)
+        title = (try? c.decodeIfPresent(String.self, forKey: .title)) ?? "Untitled"
+        detail = try? c.decodeIfPresent(String.self, forKey: .detail)
+        at = try? c.decodeIfPresent(String.self, forKey: .at)
+        source = try? c.decodeIfPresent(String.self, forKey: .source)
+        hasFile = try? c.decodeIfPresent(Bool.self, forKey: .hasFile)
     }
 }

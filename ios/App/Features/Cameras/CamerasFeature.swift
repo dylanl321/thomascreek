@@ -149,7 +149,7 @@ struct EventCard: View {
                     .padding(.horizontal, 7).padding(.vertical, 3)
                     .background(.black.opacity(0.55), in: Capsule())
                     .foregroundStyle(.white).padding(6)
-                if event.end == nil {
+                if event.end == nil && Date().timeIntervalSince(event.date) < 180 {
                     Text("NOW").font(.caption2.weight(.heavy)).padding(.horizontal, 6).padding(.vertical, 2)
                         .background(Theme.warn, in: Capsule()).foregroundStyle(.black)
                         .padding(6).frame(maxWidth: .infinity, alignment: .topTrailing)
@@ -223,6 +223,8 @@ struct CameraView: View {
     @State private var playerURL: URL?
     @State private var reload = 0
     @State private var fullScreen = false
+    /// The WebRTC page takes a few seconds to show video; until then the last snapshot and "Connecting" are shown.
+    @State private var liveStarted = false
 
     var body: some View {
         let cam = camera ?? store.home?.cameras?.first { $0.id == cameraID }
@@ -272,7 +274,13 @@ struct CameraView: View {
     @ViewBuilder private func live(_ cam: Camera?, aspect: Double) -> some View {
         ZStack(alignment: .bottomTrailing) {
             if let url = playerURL {
-                WebPlayer(url: url, reload: reload)
+                if let cam, !liveStarted {
+                    CameraThumb(camera: cam).overlay {
+                        VStack(spacing: 8) { ProgressView().tint(.white); Text("Connecting…").font(.caption.weight(.semibold)).foregroundStyle(.white) }
+                    }
+                }
+                WebPlayer(url: url, reload: reload).opacity(liveStarted ? 1 : 0.01)
+                    .task(id: reload) { liveStarted = false; try? await Task.sleep(for: .seconds(12)); liveStarted = true }
             } else if let cam {
                 CameraThumb(camera: cam).overlay { if error == nil { ProgressView().tint(.white) } }
             } else { Theme.card2 }

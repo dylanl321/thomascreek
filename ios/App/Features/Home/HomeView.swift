@@ -62,6 +62,8 @@ struct HomeView: View {
             .screen()
         }
         .background(Backdrop())
+        // With the navigation bar hidden nothing covers the status bar, so headings scrolled under the clock.
+        .safeAreaInset(edge: .top, spacing: 0) { Color.clear.frame(height: 0).background(.bar) }
         .refreshable { await store.refreshAll(); await loadTrips(force: true) }
         .toolbar(.hidden, for: .navigationBar)
         .task { await loadTrips() }
@@ -335,7 +337,7 @@ struct RecentEventsStrip: View {
             }
             .scrollClipDisabled()
         } else if events == nil {
-            LoadingCard()
+            LoadingCard().task { await store.loadRecentEvents() }
         } else if let err = store.recentEventsError {
             EmptyCard(symbol: "exclamationmark.triangle", title: "Couldn't load camera events", detail: err)
         } else {
@@ -352,10 +354,14 @@ struct CameraThumb: View {
     }
     var body: some View {
         ZStack(alignment: .bottomLeading) {
-            HubImage(path: camera.snapshotUrl.map { CameraThumb.fresh($0) }) {
-                LinearGradient(colors: [Theme.card2, Theme.off], startPoint: .top, endPoint: .bottom)
-                    .overlay(Image(systemName: "video.fill").foregroundStyle(Theme.dim))
+            // The snapshot sits in an overlay so its pixel size never widens the tile (it fills, then clips).
+            Color.clear.overlay {
+                HubImage(path: camera.snapshotUrl.map { CameraThumb.fresh($0) }) {
+                    LinearGradient(colors: [Theme.card2, Theme.off], startPoint: .top, endPoint: .bottom)
+                        .overlay(Image(systemName: "video.fill").foregroundStyle(Theme.dim))
+                }
             }
+            .clipped()
             LinearGradient(colors: [.clear, .black.opacity(0.6)], startPoint: .center, endPoint: .bottom)
             HStack {
                 Text(camera.name).font(.caption.weight(.semibold))
@@ -373,9 +379,9 @@ struct TodayCard: View {
     let today: Today
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ForEach(today.events ?? [], id: \.stableID) { e in
+            ForEach((today.events ?? []).sorted { ($0.isAllDay ? 0 : 1, ISO.parse($0.start) ?? .distantFuture) < ($1.isAllDay ? 0 : 1, ISO.parse($1.start) ?? .distantFuture) }, id: \.stableID) { e in
                 HStack(alignment: .top, spacing: 12) {
-                    Text(e.allDay == true ? "All day" : clock(e.start)).font(.subheadline.monospacedDigit()).foregroundStyle(Theme.dim)
+                    Text(e.isAllDay ? "All day" : clock(e.start)).font(.subheadline.monospacedDigit()).foregroundStyle(Theme.dim)
                         .frame(width: 70, alignment: .leading)
                     VStack(alignment: .leading, spacing: 1) {
                         Text(e.title).font(.subheadline.weight(.medium))

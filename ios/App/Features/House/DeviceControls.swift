@@ -125,6 +125,10 @@ enum ClimateText {
         guard d.isAvailable else { return "Not responding" }
         let cur = d["currentTemp"]?.double.map { "\(Int($0.rounded()))°" } ?? "–"
         let target = d["targetTemp"]?.double.map { "\(Int($0.rounded()))°" }
+        // Auto (heat_cool) holds a range rather than one target.
+        if d["hvac"]?.string == "heat_cool", let lo = d["targetLow"]?.double, let hi = d["targetHigh"]?.double {
+            return "\(cur) · Holding \(Int(lo.rounded()))–\(Int(hi.rounded()))°"
+        }
         switch d["hvacAction"]?.string {
         case "heating": return "\(cur) heating to \(target ?? "")"
         case "cooling": return "\(cur) cooling to \(target ?? "")"
@@ -235,10 +239,10 @@ struct ClimateCard: View {
                     Spacer()
                     Menu {
                         ForEach(["heat", "cool", "auto", "off"], id: \.self) { m in
-                            Button(m.capitalized) { store.perform("climate.set", target: device.id, params: ["hvac": m]) { $0.state["hvac"] = .string(m) } }
+                            Button(m.replacingOccurrences(of: "_", with: "/").capitalized) { store.perform("climate.set", target: device.id, params: ["hvac": m]) { $0.state["hvac"] = .string(m) } }
                         }
                     } label: {
-                        Label((device["hvac"]?.string ?? "auto").capitalized, systemImage: "slider.horizontal.3")
+                        Label((device["hvac"]?.string ?? "auto").replacingOccurrences(of: "_", with: "/").capitalized, systemImage: "slider.horizontal.3")
                             .font(.subheadline.weight(.semibold))
                     }
                 }
