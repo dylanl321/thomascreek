@@ -28,6 +28,8 @@ from zoneinfo import ZoneInfo
 if TYPE_CHECKING:
     from .state import Hub
 
+from .db import new_id
+
 log = logging.getLogger("hub.alerts")
 
 WEBHOOK_SECRET = "alerts.webhook_token"
@@ -83,6 +85,8 @@ class Alerts:
         self.ws_connected = False
         self.ws_error: str | None = None
         self.sent = 0
+        self._hist_last: dict[str, float] = {}
+        self._pruned = 0.0
 
     # -- settings ----------------------------------------------------------
     def sources(self) -> dict[str, Any]:
@@ -263,6 +267,45 @@ class Alerts:
         self._last[k] = now
         return True
 
+    # -- history: every alert, pushed or not ----------------------------------
+    HISTORY_KINDS = ("camera", "package", "doorbell", "house", "doors", "kids", "network", "media")
+    KEEP_DAYS = 30
+
+    def record(self, kind: str, title: str, body: str | None, people: list[dict[str, Any]], *,
+               ref: str | None = None, image: str | None = None, key: str | None = None, gap: float = 0,
+               payload: dict[str, Any] | None = None, now: float | None = None) -> str | None:
+        """One line in the alert history for everyone who could get this alert, whether or not
+        they turned its push on. `key`+`gap` keep a busy source (a driveway camera) to one line per gap."""
+        now = now or time.time()
+        if not people:
+            return None
+        if key and gap and now - self._hist_last.get(key, 0) < gap:
+            return None
+        if key:
+            self._hist_last[key] = now
+        hid = new_id("alh")
+        self.hub.db.insert("alert_log", {
+            "id": hid, "ts": now, "kind": kind, "title": title, "body": body, "ref": ref, "image": image,
+            "people": "," + ",".join(p["id"] for p in people) + ",", "payload": payload or {}})
+        if now - self._pruned > 3600:
+            self._pruned = now
+            self.hub.db.execute("DELETE FROM alert_log WHERE ts < ?", [now - self.KEEP_DAYS * 86400])
+        return hid
+
+    def history(self, person_id: str, kind: str | None = None, before: float | None = None,
+                limit: int = 50) -> list[dict[str, Any]]:
+        sql = "SELECT * FROM alert_log WHERE people LIKE ?"
+        args: list[Any] = [f"%,{person_id},%"]
+        if kind:
+            sql += " AND kind IN (" + ",".join("?" * len(kind.split(","))) + ")"
+            args += kind.split(",")
+        if before:
+            sql += " AND ts < ?"
+            args.append(before)
+        sql += " ORDER BY ts DESC LIMIT ?"
+        args.append(max(1, min(limit, 200)))
+        return [{k: v for k, v in r.items() if k != "people"} for r in self.hub.db.all(sql, args)]
+
     async def _deliver(self, people: list[tuple[dict[str, Any], dict[str, Any]]], *, title: str, body: str | None,
                        cat: str, urgent: bool = False, level: str = "fyi", ref: str | None = None,
                        image: str | None = None, push_category: str | None = None, group: str | None = None,
@@ -297,6 +340,9 @@ class Alerts:
         image = f"/v1/cameras/events/{e['id']}/snapshot.jpg" if e.get("has_snapshot", True) else None
         ref = f"thomascreek://camera/{cam}"
         if label in PACKAGE_LABELS:
+            self.record("package", f"Package at the {cam_title.lower()}", f"{cam_title} camera", self._people(),
+                        ref=ref, image=image, key=f"pkg:{cam}", gap=1800, now=now,
+                        payload={"event_id": e["id"], "label": label, "camera": cam})
             who = [(p, pr) for p in self._people() if (pr := self.prefs(p["id"]))["on"] and pr["package"]
                    and self._cooled(p["id"], cam, "package", 1800, now)]
             return await self._deliver(who, title=f"Package at the {cam_title.lower()}", body=f"{cam_title} camera",
@@ -305,6 +351,10 @@ class Alerts:
         group = next((g for g, labels in LABEL_GROUPS.items() if label in labels), None)
         if not group:
             return 0
+        what = LABEL_TITLES[group] if group != "car" or label == "car" else label.capitalize()
+        body = f"{sub} · {cam_title}" if sub else f"{cam_title} camera"
+        self.record("camera", f"{what} at the {cam_title.lower()}", body, self._people(), ref=ref, image=image,
+                    key=f"cam:{cam}:{group}", gap=60, now=now, payload={"event_id": e["id"], "label": label, "camera": cam})
         away = None
         who = []
         for p in self._people():
@@ -321,8 +371,6 @@ class Alerts:
                 who.append((p, pr))
         if not who:
             return 0
-        what = LABEL_TITLES[group] if group != "car" or label == "car" else label.capitalize()
-        body = f"{sub} · {cam_title}" if sub else f"{cam_title} camera"
         return await self._deliver(who, title=f"{what} at the {cam_title.lower()}", body=body, cat="cameras",
                                    ref=ref, image=image, group=f"cam:{cam}", push_category=f"CAMERA_{group.upper()}",
                                    extra={"event_id": e["id"], "label": label})
@@ -345,6 +393,8 @@ class Alerts:
         if eid in self.doorbells() and (eid.startswith("event.") or n in OPEN_STATES):
             cam = src["doorbell_camera"] or next(iter(self.default_cameras()), None)
             image = f"/v1/cameras/{cam}/snapshot.jpg" if cam else None
+            self.record("doorbell", "Someone's at the front door", "Doorbell pressed", self._people(),
+                        ref=f"thomascreek://camera/{cam}" if cam else None, image=image, key=f"bell:{eid}", gap=20, now=now)
             who = [(p, pr) for p in self._people() if (pr := self.prefs(p["id"]))["on"] and pr["doorbell"]
                    and self._cooled(p["id"], eid, "doorbell", 20, now)]
             sent += await self._deliver(who, title="Someone's at the front door", body="Doorbell pressed",
@@ -354,12 +404,16 @@ class Alerts:
         if eid in self.hazards() and n == "on":
             dc = (new.get("attributes") or {}).get("device_class")
             what = {"moisture": "Water leak", "smoke": "Smoke", "gas": "Gas", "carbon_monoxide": "Carbon monoxide"}[dc]
+            self.record("house", f"{what}: {name}", "Detected just now", self._people(("admin", "adult", "child")),
+                        key=f"hz:{eid}", gap=300, now=now)
             who = [(p, pr) for p in self._people(("admin", "adult", "child")) if (pr := self.prefs(p["id"]))["on"]
                    and pr["hazards"] and self._cooled(p["id"], eid, "hazard", 300, now)]
             sent += await self._deliver(who, title=f"{what}: {name}", body="Detected just now", cat="house",
                                         urgent=True, group="hazard")
         # Outside doors while nobody is home
         if eid in src["outside_doors"] and n in OPEN_STATES and self.nobody_home():
+            self.record("doors", f"{name} opened", "Nobody is home", self._people(), ref="thomascreek://doors",
+                        key=f"door:{eid}", gap=120, now=now)
             who = [(p, pr) for p in self._people() if (pr := self.prefs(p["id"]))["on"] and pr["away_doors"]
                    and self._cooled(p["id"], eid, "away_door", 120, now)]
             sent += await self._deliver(who, title=f"{name} opened", body="Nobody is home", cat="doors",
@@ -368,6 +422,8 @@ class Alerts:
         # Extra entities Dylan offered
         if any(x["entity_id"] == eid for x in src["extra"]):
             label = next((x.get("name") for x in src["extra"] if x["entity_id"] == eid), None) or name
+            self.record("house", label, f"Now {self._state_words(new)}", self._people(("admin", "adult", "child")),
+                        key=f"ha:{eid}", gap=60, now=now)
             who = [(p, pr) for p in self._people(("admin", "adult", "child")) if (pr := self.prefs(p["id"]))["on"]
                    and (pr["entities"] or {}).get(eid) and self._cooled(p["id"], eid, "entity", 60, now)]
             sent += await self._deliver(who, title=label, body=f"Now {self._state_words(new)}", cat="house",
@@ -404,6 +460,8 @@ class Alerts:
                 continue
             self._garage_sent[eid] = changed
             mins = int((now - since) // 60)
+            self.record("doors", f"{self._name(st, eid)} is open", f"Open for {mins} minutes", self._people(),
+                        ref="thomascreek://garage", now=now)
             who = [(p, pr) for p in self._people() if (pr := self.prefs(p["id"]))["on"] and pr["garage"]]
             sent += await self._deliver(who, title=f"{self._name(st, eid)} is open", body=f"Open for {mins} minutes",
                                         cat="doors", level="decision", ref="thomascreek://garage",
@@ -425,6 +483,8 @@ class Alerts:
                     chosen[p["id"]] = p
         who = [(p, pr) for p in chosen.values() if (pr := self.prefs(p["id"]))["on"] and pr["automations"]]
         image = f"/v1/cameras/{camera}/snapshot.jpg" if camera else None
+        self.record("house", title, message, list(chosen.values()),
+                    ref=f"thomascreek://camera/{camera}" if camera else None, image=image)
         return await self._deliver(who, title=title, body=message, cat="house", urgent=urgent,
                                    ref=f"thomascreek://camera/{camera}" if camera else None, image=image, group="automation")
 
@@ -461,6 +521,7 @@ class Alerts:
             self.hub.db.kv_set("alerts.suppress", rules[-200:])
         self.hub.db.execute("UPDATE inbox SET acked_at=? WHERE acked_at IS NULL AND ref LIKE ? AND title LIKE ?",
                             [time.time(), f"thomascreek://camera/{cam}%", f"{LABEL_TITLES.get(label, label.capitalize())}%"])
+        self.hub.db.execute("DELETE FROM alert_log WHERE payload LIKE ?", [f'%"event_id": {json.dumps(event_id)}%'])
         self.hub.db.log("cameras.wrong", "ok", person_id=person_id, target=event_id,
                         params={"camera": cam, "label": label, "frigate_plus": taught}, source="app")
         return {"camera": cam, "label": label, "frigate_plus": taught, "ignored_spot": rule}
@@ -513,6 +574,9 @@ class Alerts:
                           "gaming": f"{kid['name']} is gaming", "video": f"{kid['name']} is watching video",
                           "bandwidth": f"{kid['name']}'s {dname} is using a lot of data",
                           "bedtime": f"{kid['name']}'s {dname} is up past bedtime"}
+                self.record("kids", titles[kind], msg or None, self._people(), ref="thomascreek://kids",
+                            key=f"kid:{dev.get('mac') or dname}:{kind}", gap=1800, now=now,
+                            payload={"kid": kid["name"], "kind": kind})
                 who = [(p, pr) for p in self._people() if (pr := self.prefs(p["id"]))["on"] and pr["kids"].get(kind)
                        and self._cooled(p["id"], f"fw:{dev.get('mac') or dname}", kind, 1800, now)]
                 sent += await self._deliver(who, title=titles[kind], body=msg or None, cat="house",
@@ -523,6 +587,8 @@ class Alerts:
         if kind:
             title = {"new_device": f"New device on the network: {dname}", "security": "Network security alert",
                      "internet": "Internet connection changed", "vpn": "VPN alert", "offline": f"{dname} went offline"}[kind]
+            self.record("network", title, msg or None, self._people(("admin",)), ref="thomascreek://systems",
+                        now=now, payload={"kind": kind})
             who = [(p, pr) for p in self._people(("admin",)) if (pr := self.prefs(p["id"]))["on"] and pr["network"].get(kind)
                    and self._cooled(p["id"], f"fw:{a.get('aid')}", kind, 60, now)]
             sent += await self._deliver(who, title=title, body=msg or None, cat="systems",

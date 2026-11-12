@@ -112,6 +112,33 @@ async def test_alert(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict
             "env": c.device.get("apns_env") or "production"}
 
 
+# -- history: every alert, pushed or not --------------------------------------
+HISTORY_TITLES = {"camera": "Cameras", "package": "Packages", "doorbell": "Doorbell", "doors": "Doors and garage",
+                  "house": "House", "kids": "Kids", "network": "Network", "media": "Media"}
+
+
+def _history_kinds(role: str) -> list[str]:
+    if role == "admin":
+        return list(HISTORY_TITLES)
+    if role in ALERT_ROLES:
+        return [k for k in HISTORY_TITLES if k != "network"]
+    return ["house", "media"]
+
+
+@router.get("/history")
+async def history(kind: str | None = None, before: float | None = None, limit: int = 50,
+                  c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """Everything that could have alerted this person, whether or not they turned its push on."""
+    pid = _person(c)
+    allowed = _history_kinds(c.subject.role)
+    kinds = [k for k in (kind.split(",") if kind else allowed) if k in allowed]
+    if not kinds:
+        return {"items": [], "kinds": [{"id": k, "title": HISTORY_TITLES[k]} for k in allowed]}
+    items = h.alerts.history(pid, ",".join(kinds), before, limit)
+    return {"items": items, "kinds": [{"id": k, "title": HISTORY_TITLES[k]} for k in allowed],
+            "keep_days": h.alerts.KEEP_DAYS}
+
+
 # -- Dylan: what's on offer -----------------------------------------------
 def _admin(c: Caller) -> None:
     if c.subject.role != "admin":

@@ -296,6 +296,12 @@ struct AlertsView: View {
         }
         .disabled(!(model.reply?.prefs.on ?? true))
 
+        Section {
+            NavigationLink { AlertHistoryList(close: {}).navigationTitle("History").navigationBarTitleDisplayMode(.inline) } label: {
+                row("History", "Every alert from the last 30 days, even ones you don't get pushed", "clock.arrow.circlepath")
+            }
+        }
+
         Section("Family and app") {
             ForEach(r.categories) { c in
                 Toggle(isOn: Binding(get: { model.reply?.devicePrefs[c.id] ?? c.default },

@@ -277,3 +277,21 @@ async def test_media_ready_is_pushed_without_opening_the_app(hub, people, sent):
     await hub.alerts.poll_media()
     assert hub.db.one("SELECT status FROM requests WHERE id=?", [rid])["status"] == "ready"
     assert [s["title"] for s in sent] == ["Bluey is ready to watch"] and who(hub, sent) == ["Theo"]
+
+
+async def test_history_keeps_alerts_whether_pushed_or_not(hub, people, home_client):
+    hub.frigate._info = {"140_frontdoor": {"enabled": True}}
+    # Nobody has alerts on: nothing is pushed, but the history still has it, once per minute per camera.
+    t = time.time()
+    assert await hub.alerts.on_frigate(ev(eid="h1"), now=t) == 0
+    assert await hub.alerts.on_frigate(ev(eid="h2"), now=t + 5) == 0
+    assert await hub.alerts.on_firewalla({"aid": 7, "type": 5, "ts": t, "device": {"name": "Pixel", "mac": "1"}}, now=t) == 0
+    dylan, avery, theo = (people["phones"][n].h for n in ("Dylan", "Avery", "Theo"))
+    d = home_client.get("/v1/alerts/history", headers=dylan).json()
+    assert [i["kind"] for i in d["items"]] == ["network", "camera"]
+    assert d["items"][1]["payload"]["event_id"] == "h1" and "network" in [k["id"] for k in d["kinds"]]
+    a = home_client.get("/v1/alerts/history", headers=avery).json()
+    assert [i["kind"] for i in a["items"]] == ["camera"]           # network is Dylan's
+    assert home_client.get("/v1/alerts/history?kind=network", headers=avery).json()["items"] == []
+    assert home_client.get("/v1/alerts/history", headers=theo).json()["items"] == []  # no cameras for kids
+    assert [i["kind"] for i in home_client.get("/v1/alerts/history?kind=camera", headers=dylan).json()["items"]] == ["camera"]
