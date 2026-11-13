@@ -67,10 +67,11 @@ final class DollhouseController {
 
     func place(_ preset: CameraPreset, animated: Bool) {
         guard let cameraNode, let camera = cameraNode.camera else { return }
+        let shot = room.shot(preset)
         let move = {
-            cameraNode.position = preset.position
-            cameraNode.look(at: preset.target)
-            camera.fieldOfView = preset.fov
+            cameraNode.position = shot.position
+            cameraNode.look(at: shot.target)
+            camera.fieldOfView = shot.fov
         }
         if animated {
             SCNTransaction.begin()
@@ -96,16 +97,28 @@ final class DollhouseController {
 
     private func buildHitNames() {
         for device in room.devices.devices {
-            for name in device.hitNames where nodes[name] != nil {
-                hitNames[name] = device.name
+            for name in device.hitNames {
+                guard let key = resolved(name) else { continue }
+                hitNames[key] = device.name
             }
         }
     }
 
+    /// USD prim names cannot contain a dot, so `light_recessed_row_1.3` is stored as `light_recessed_row_1_3`.
+    private func resolved(_ name: String) -> String? {
+        if nodes[name] != nil { return name }
+        let safe = name.replacingOccurrences(of: ".", with: "_")
+        return nodes[safe] != nil ? safe : nil
+    }
+
     private func mesh(for name: String) -> SCNNode? {
-        guard let node = nodes[name] else { return nil }
+        guard let key = resolved(name), let node = nodes[key] else { return nil }
         if node.geometry != nil { return node }
         return node.childNodes.first { $0.geometry != nil }
+    }
+
+    private func prep(_ name: String) -> Prepared? {
+        prepared[name] ?? prepared[name.replacingOccurrences(of: ".", with: "_")]
     }
 
     private func prepareMaterials() {
@@ -117,13 +130,13 @@ final class DollhouseController {
             let picture = texture(look.baseTexture) ?? texture(look.emissiveTexture) ?? image(from: copy.firstMaterial?.diffuse.contents)
             prepared[name] = Prepared(node: node, materials: copy.materials, look: look, picture: picture)
             rest(name, on: false)
-            if look.kind == "glow" || look.kind == "flame" { node.isHidden = true }
+            if look.kind == "glow" || look.kind == "flame" || look.kind == "cone" { node.isHidden = true }
         }
     }
 
     private func addDeviceLights() {
         for (name, spec) in room.appearance.lights {
-            guard let parent = nodes[name] else { continue }
+            guard let key = resolved(name), let parent = nodes[key] else { continue }
             let light = SCNLight()
             light.type = spec.type == "spot" ? .spot : .omni
             light.color = UIColor(srgb: spec.colorSrgb)
@@ -141,6 +154,7 @@ final class DollhouseController {
             node.name = name
             parent.addChildNode(node)
             lamps[name] = node
+            lamps[key] = node
         }
     }
 
@@ -168,10 +182,12 @@ final class DollhouseController {
         key.light?.shadowMapSize = CGSize(width: 2048, height: 2048)
         key.light?.shadowColor = UIColor(white: 0, alpha: 0.28)
         key.light?.zNear = 0.5
-        key.light?.zFar = 40
-        key.light?.orthographicScale = 7
-        key.position = SCNVector3(-7, 10, 6)
-        key.look(at: SCNVector3(-2, 0.4, 2))
+        key.light?.zFar = 80
+        let aim = room.shot(.dollhouse)
+        let span = max(CGFloat(8), abs(aim.position.x - aim.target.x))
+        key.light?.orthographicScale = span
+        key.position = SCNVector3(aim.target.x - 5, aim.target.y + 10, aim.target.z + 4)
+        key.look(at: aim.target)
         scene.rootNode.addChildNode(key)
 
         let camera = SCNNode()
@@ -194,11 +210,11 @@ final class DollhouseController {
     private func apply(_ device: DollhouseDevice, on: Bool, animated: Bool) {
         let ticket = (tickets[device.name] ?? 0) + 1
         tickets[device.name] = ticket
-        if !on { stopFlicker(device) }
+        if !on { stopFlicker(device); spinDrums(device, on: false) }
         let names = device.meshNodes + device.glowDecals + device.onState.shows
         if on {
             for name in device.glowDecals + device.onState.shows {
-                prepared[name]?.node.isHidden = false
+                prep(name)?.node.isHidden = false
             }
         }
         SCNTransaction.begin()
@@ -206,19 +222,22 @@ final class DollhouseController {
         SCNTransaction.animationTimingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
         for name in names { rest(name, on: on) }
         for (index, name) in device.lightNodes.enumerated() {
-            let spec = room.appearance.lights[name]
+            let spec = lightSpec(name)
             let listed = index < device.lightOnIntensity.count ? device.lightOnIntensity[index] : (spec?.intensity ?? 0)
             let candela = listed > 0 ? listed : (spec?.intensity ?? 0)
             lamps[name]?.light?.intensity = on ? CGFloat(candela * Self.lumensPerCandela) : 0
+            lamps[name.replacingOccurrences(of: ".", with: "_")]?.light?.intensity = on ? CGFloat(candela * Self.lumensPerCandela) : 0
         }
         SCNTransaction.completionBlock = { [weak self] in
             guard let self, self.tickets[device.name] == ticket else { return }
             if on {
                 if device.type == .fireplace { self.startFlicker(device) }
+                self.spinDrums(device, on: true)
             } else {
                 self.stopFlicker(device)
+                self.spinDrums(device, on: false)
                 for name in device.glowDecals + device.onState.shows {
-                    self.prepared[name]?.node.isHidden = true
+                    self.prep(name)?.node.isHidden = true
                 }
             }
         }
@@ -226,7 +245,7 @@ final class DollhouseController {
     }
 
     private func rest(_ name: String, on: Bool) {
-        guard let item = prepared[name] else { return }
+        guard let item = prep(name) else { return }
         let look = item.look
         switch look.kind {
         case "glow":
@@ -241,7 +260,7 @@ final class DollhouseController {
                 mat.transparency = CGFloat(look.opacity)
             }
             item.node.opacity = on ? 1 : 0
-        case "flame":
+        case "flame", "cone":
             paintEmission(item, on: on, strength: look.strength)
             item.node.opacity = on ? CGFloat(look.opacity) : 0
         case "screen":
@@ -281,7 +300,7 @@ final class DollhouseController {
 
     private func startFlicker(_ device: DollhouseDevice) {
         for (index, name) in device.onState.shows.enumerated() {
-            guard let item = prepared[name] else { continue }
+            guard let item = prep(name) else { continue }
             pulse(item.node, base: CGFloat(max(item.look.strength, 0.2)), amount: 0.34, duration: 0.55 + Double(index) * 0.11)
         }
         if let lamp = lamps["light_fireplace"], let base = lamp.light?.intensity, base > 0 {
@@ -290,7 +309,7 @@ final class DollhouseController {
     }
 
     private func stopFlicker(_ device: DollhouseDevice) {
-        for name in device.onState.shows { prepared[name]?.node.removeAction(forKey: "flicker") }
+        for name in device.onState.shows { prep(name)?.node.removeAction(forKey: "flicker") }
         lamps["light_fireplace"]?.removeAction(forKey: "flicker")
     }
 
@@ -308,10 +327,26 @@ final class DollhouseController {
         node.runAction(.repeatForever(action), forKey: "flicker")
     }
 
+    private func spinDrums(_ device: DollhouseDevice, on: Bool) {
+        guard device.type == .appliance else { return }
+        for name in device.glowDecals where name.contains("drum") {
+            guard let node = prep(name)?.node else { continue }
+            node.removeAction(forKey: "spin")
+            if on {
+                node.runAction(.repeatForever(.rotateBy(x: 0, y: 0, z: .pi * 2, duration: 1.6)), forKey: "spin")
+            }
+        }
+    }
+
+    private func lightSpec(_ name: String) -> LitLight? {
+        room.appearance.lights[name] ?? room.appearance.lights[name.replacingOccurrences(of: ".", with: "_")]
+    }
+
     private func texture(_ name: String?) -> UIImage? {
         guard let name else { return nil }
-        let relative = "LivingRoom/textures/\(name)"
-        guard let url = DollhouseFiles.url(relative) ?? DollhouseFiles.url("textures/\(name)") else { return nil }
+        let folder = (room.model as NSString).deletingLastPathComponent
+        let relative = folder.isEmpty ? "textures/\(name)" : "\(folder)/textures/\(name)"
+        guard let url = DollhouseFiles.url(relative) else { return nil }
         return UIImage(contentsOfFile: url.path)
     }
 
@@ -345,27 +380,38 @@ private struct Prepared {
     var picture: UIImage?
 }
 
+extension DollhouseRoom {
+    /// The catalog's camera, or the living-room angle when a room doesn't list one.
+    fileprivate func shot(_ preset: CameraPreset) -> DollhouseShot {
+        let spec: DollhouseShotSpec?
+        switch preset {
+        case .dollhouse: spec = views?.dollhouse
+        case .close: spec = views?.close
+        case .top: spec = views?.top
+        }
+        if let spec, spec.position.count == 3, spec.target.count == 3 {
+            return DollhouseShot(position: SCNVector3(spec.position[0], spec.position[1], spec.position[2]),
+                                 target: SCNVector3(spec.target[0], spec.target[1], spec.target[2]),
+                                 fov: CGFloat(spec.fov))
+        }
+        return preset.builtIn
+    }
+}
+
+private struct DollhouseShot {
+    var position: SCNVector3
+    var target: SCNVector3
+    var fov: CGFloat
+}
+
 enum CameraPreset {
     case dollhouse, close, top
 
-    var position: SCNVector3 {
+    var builtIn: DollhouseShot {
         switch self {
-        case .dollhouse: SCNVector3(-8.4, 6.9, 8.6)
-        case .close: SCNVector3(-6.6, 4.6, 6.9)
-        case .top: SCNVector3(-4.2, 9.5, 5.2)
-        }
-    }
-    var target: SCNVector3 {
-        switch self {
-        case .dollhouse: SCNVector3(-1.75, 0.95, 1.8)
-        case .close: SCNVector3(-1.6, 1.15, 1.6)
-        case .top: SCNVector3(-1.9, 0.4, 1.9)
-        }
-    }
-    var fov: CGFloat {
-        switch self {
-        case .dollhouse, .close: 30
-        case .top: 34
+        case .dollhouse: DollhouseShot(position: SCNVector3(-8.4, 6.9, 8.6), target: SCNVector3(-1.75, 0.95, 1.8), fov: 30)
+        case .close: DollhouseShot(position: SCNVector3(-6.6, 4.6, 6.9), target: SCNVector3(-1.6, 1.15, 1.6), fov: 30)
+        case .top: DollhouseShot(position: SCNVector3(-4.2, 9.5, 5.2), target: SCNVector3(-1.9, 0.4, 1.9), fov: 34)
         }
     }
 }

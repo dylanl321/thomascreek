@@ -244,7 +244,7 @@ private struct DollhouseDeviceCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 12) {
-                Image(systemName: device.name == "soundbar" ? "hifispeaker.fill" : device.type.symbol)
+                Image(systemName: device.symbol)
                     .font(.title3)
                     .foregroundStyle(on ? Theme.warn : Theme.dim)
                     .frame(width: 28)

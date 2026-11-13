@@ -7,7 +7,26 @@
       "model": "LivingRoom/room_corner.usdz",
       "devices": "LivingRoom/devices.json",
       "mapping": "LivingRoom/hub-mapping.json",
-      "appearance": "LivingRoom/appearance.json"
+      "appearance": "LivingRoom/appearance.json",
+      "views": {
+        "dollhouse": { "position": [-8.4, 6.9, 8.6], "target": [-1.75, 0.95, 1.8], "fov": 30 },
+        "close": { "position": [-6.6, 4.6, 6.9], "target": [-1.6, 1.15, 1.6], "fov": 30 },
+        "top": { "position": [-4.2, 9.5, 5.2], "target": [-1.9, 0.4, 1.9], "fov": 34 }
+      }
+    },
+    {
+      "id": "kitchen",
+      "title": "Kitchen",
+      "symbol": "fork.knife",
+      "model": "Kitchen/kitchen.usdz",
+      "devices": "Kitchen/devices.json",
+      "mapping": "Kitchen/hub-mapping.json",
+      "appearance": "Kitchen/appearance.json",
+      "views": {
+        "dollhouse": { "position": [-15.6, 10.9, 12.6], "target": [-2.3, 0.5, 5.0], "fov": 30 },
+        "close": { "position": [-9.9, 7.4, 12.0], "target": [-1.9, 0.8, 4.0], "fov": 31 },
+        "top": { "position": [-6.0, 21.0, 12.5], "target": [-2.3, 0.0, 5.3], "fov": 34 }
+      }
     }
   ]
 }

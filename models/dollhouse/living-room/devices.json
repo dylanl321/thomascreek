@@ -1,0 +1,488 @@
+{
+  "room": "den",
+  "units": "meters",
+  "up": "+Y",
+  "origin": "room corner at floor level (bookshelf wall = z=0 plane, fireplace wall = x=0 plane, room interior x<0, z>0)",
+  "presets": {
+    "all_off": {},
+    "all_on": {
+      "shelf_lights": 1,
+      "soffit_downlights": 1,
+      "sconce_left": 1,
+      "sconce_right": 1,
+      "table_lamp": 1,
+      "chandelier": 1,
+      "fireplace": 1,
+      "tv": 1,
+      "soundbar": 1
+    },
+    "evening": {
+      "shelf_lights": 1,
+      "sconce_left": 1,
+      "sconce_right": 1,
+      "table_lamp": 1
+    },
+    "movie_night": {
+      "tv": 1,
+      "soundbar": 1,
+      "fireplace": 1,
+      "shelf_lights": 1
+    }
+  },
+  "devices": [
+    {
+      "name": "shelf_lights",
+      "label": "Bookshelf LED strips",
+      "type": "light",
+      "room": "den",
+      "anchor_node": "anchor_shelf_lights",
+      "position_m": [
+        -2.26,
+        2.1,
+        0.36
+      ],
+      "group_node": "shelf_lights",
+      "light_nodes": [
+        "light_shelf_bay_1",
+        "light_shelf_bay_2",
+        "light_shelf_bay_3"
+      ],
+      "light_on_intensity": [
+        1.8,
+        1.8,
+        1.8
+      ],
+      "glow_decals": [
+        "glow_shelf_1_1_back",
+        "glow_shelf_1_1_shelf",
+        "glow_shelf_1_2_back",
+        "glow_shelf_1_2_shelf",
+        "glow_shelf_1_3_back",
+        "glow_shelf_1_3_shelf",
+        "glow_shelf_1_4_back",
+        "glow_shelf_1_4_shelf",
+        "glow_shelf_2_1_back",
+        "glow_shelf_2_1_shelf",
+        "glow_shelf_2_2_back",
+        "glow_shelf_2_2_shelf",
+        "glow_shelf_2_3_back",
+        "glow_shelf_2_3_shelf",
+        "glow_shelf_2_4_back",
+        "glow_shelf_2_4_shelf",
+        "glow_shelf_3_1_back",
+        "glow_shelf_3_1_shelf",
+        "glow_shelf_3_2_back",
+        "glow_shelf_3_2_shelf",
+        "glow_shelf_3_3_back",
+        "glow_shelf_3_3_shelf",
+        "glow_shelf_3_4_back",
+        "glow_shelf_3_4_shelf"
+      ],
+      "mesh_nodes": [
+        "light_shelf_strip_1_1",
+        "light_shelf_strip_1_2",
+        "light_shelf_strip_1_3",
+        "light_shelf_strip_1_4",
+        "light_shelf_strip_2_1",
+        "light_shelf_strip_2_2",
+        "light_shelf_strip_2_3",
+        "light_shelf_strip_2_4",
+        "light_shelf_strip_3_1",
+        "light_shelf_strip_3_2",
+        "light_shelf_strip_3_3",
+        "light_shelf_strip_3_4"
+      ],
+      "on_state": {
+        "emissive": [
+          6
+        ],
+        "shows": []
+      }
+    },
+    {
+      "name": "soffit_downlights",
+      "label": "Shelf downlights",
+      "type": "light",
+      "room": "den",
+      "anchor_node": "anchor_soffit_downlights",
+      "position_m": [
+        -2.26,
+        2.62,
+        0.46
+      ],
+      "group_node": "soffit_downlights",
+      "light_nodes": [
+        "light_downlight_1",
+        "light_downlight_2",
+        "light_downlight_3"
+      ],
+      "light_on_intensity": [
+        6,
+        6,
+        6
+      ],
+      "glow_decals": [
+        "glow_downlight_1_doors",
+        "glow_downlight_1_counter",
+        "glow_downlight_1_floor",
+        "glow_downlight_2_doors",
+        "glow_downlight_2_counter",
+        "glow_downlight_2_floor",
+        "glow_downlight_3_doors",
+        "glow_downlight_3_counter",
+        "glow_downlight_3_floor"
+      ],
+      "mesh_nodes": [
+        "recessed_light_1_trim",
+        "recessed_light_1",
+        "recessed_light_2_trim",
+        "recessed_light_2",
+        "recessed_light_3_trim",
+        "recessed_light_3"
+      ],
+      "on_state": {
+        "emissive": [
+          6
+        ],
+        "shows": []
+      }
+    },
+    {
+      "name": "sconce_left",
+      "label": "Sconce (left of TV)",
+      "type": "light",
+      "room": "den",
+      "anchor_node": "anchor_sconce_left",
+      "position_m": [
+        -0.39,
+        2.08,
+        2.495
+      ],
+      "group_node": "sconce_left",
+      "light_nodes": [
+        "light_sconce_left"
+      ],
+      "light_on_intensity": [
+        1.5
+      ],
+      "glow_decals": [
+        "glow_sconce_left_up",
+        "glow_sconce_left_halo"
+      ],
+      "mesh_nodes": [
+        "sconce_left_backplate",
+        "sconce_left_finial",
+        "sconce_left_arm_1",
+        "sconce_left_cup_1",
+        "sconce_left_candle_1",
+        "sconce_left_bulb_1",
+        "sconce_left_arm_2",
+        "sconce_left_cup_2",
+        "sconce_left_candle_2",
+        "sconce_left_bulb_2"
+      ],
+      "on_state": {
+        "emissive": [
+          8
+        ],
+        "shows": []
+      }
+    },
+    {
+      "name": "sconce_right",
+      "label": "Sconce (right of TV)",
+      "type": "light",
+      "room": "den",
+      "anchor_node": "anchor_sconce_right",
+      "position_m": [
+        -0.39,
+        2.08,
+        4.805
+      ],
+      "group_node": "sconce_right",
+      "light_nodes": [
+        "light_sconce_right"
+      ],
+      "light_on_intensity": [
+        1.5
+      ],
+      "glow_decals": [
+        "glow_sconce_right_up",
+        "glow_sconce_right_halo"
+      ],
+      "mesh_nodes": [
+        "sconce_right_backplate",
+        "sconce_right_finial",
+        "sconce_right_arm_1",
+        "sconce_right_cup_1",
+        "sconce_right_candle_1",
+        "sconce_right_bulb_1",
+        "sconce_right_arm_2",
+        "sconce_right_cup_2",
+        "sconce_right_candle_2",
+        "sconce_right_bulb_2"
+      ],
+      "on_state": {
+        "emissive": [
+          8
+        ],
+        "shows": []
+      }
+    },
+    {
+      "name": "table_lamp",
+      "label": "Table lamp",
+      "type": "light",
+      "room": "den",
+      "anchor_node": "anchor_table_lamp",
+      "position_m": [
+        -3.45,
+        1.22,
+        1.05
+      ],
+      "group_node": "table_lamp",
+      "light_nodes": [
+        "light_table_lamp"
+      ],
+      "light_on_intensity": [
+        2
+      ],
+      "glow_decals": [
+        "glow_table_lamp_floor",
+        "glow_table_lamp_table",
+        "glow_table_lamp_wall"
+      ],
+      "mesh_nodes": [
+        "table_lamp_base",
+        "table_lamp_stem",
+        "table_lamp_bulb",
+        "table_lamp_shade"
+      ],
+      "on_state": {
+        "emissive": [
+          5,
+          0.9
+        ],
+        "shows": []
+      }
+    },
+    {
+      "name": "chandelier",
+      "label": "Chandelier",
+      "type": "light",
+      "room": "den",
+      "anchor_node": "anchor_chandelier",
+      "position_m": [
+        -3.1,
+        3.92,
+        3.3
+      ],
+      "group_node": "chandelier",
+      "light_nodes": [
+        "light_chandelier"
+      ],
+      "light_on_intensity": [
+        9
+      ],
+      "glow_decals": [
+        "glow_chandelier_floor"
+      ],
+      "mesh_nodes": [
+        "chandelier_canopy",
+        "chandelier_chain_link_1",
+        "chandelier_chain_link_2",
+        "chandelier_chain_link_3",
+        "chandelier_chain_link_4",
+        "chandelier_chain_link_5",
+        "chandelier_chain_link_6",
+        "chandelier_chain_link_7",
+        "chandelier_chain_link_8",
+        "chandelier_chain_link_9",
+        "chandelier_chain_link_10",
+        "chandelier_chain_link_11",
+        "chandelier_chain_link_12",
+        "chandelier_chain_link_13",
+        "chandelier_chain_link_14",
+        "chandelier_chain_link_15",
+        "chandelier_chain_link_16",
+        "chandelier_chain_link_17",
+        "chandelier_chain_link_18",
+        "chandelier_chain_link_19",
+        "chandelier_chain_link_20",
+        "chandelier_chain_link_21",
+        "chandelier_body",
+        "chandelier_bottom_finial",
+        "chandelier_lower_arm_1",
+        "chandelier_lower_cup_1",
+        "chandelier_lower_candle_1",
+        "chandelier_lower_bulb_1",
+        "chandelier_lower_arm_2",
+        "chandelier_lower_cup_2",
+        "chandelier_lower_candle_2",
+        "chandelier_lower_bulb_2",
+        "chandelier_lower_arm_3",
+        "chandelier_lower_cup_3",
+        "chandelier_lower_candle_3",
+        "chandelier_lower_bulb_3",
+        "chandelier_lower_arm_4",
+        "chandelier_lower_cup_4",
+        "chandelier_lower_candle_4",
+        "chandelier_lower_bulb_4",
+        "chandelier_lower_arm_5",
+        "chandelier_lower_cup_5",
+        "chandelier_lower_candle_5",
+        "chandelier_lower_bulb_5",
+        "chandelier_lower_arm_6",
+        "chandelier_lower_cup_6",
+        "chandelier_lower_candle_6",
+        "chandelier_lower_bulb_6",
+        "chandelier_lower_arm_7",
+        "chandelier_lower_cup_7",
+        "chandelier_lower_candle_7",
+        "chandelier_lower_bulb_7",
+        "chandelier_lower_arm_8",
+        "chandelier_lower_cup_8",
+        "chandelier_lower_candle_8",
+        "chandelier_lower_bulb_8",
+        "chandelier_upper_arm_1",
+        "chandelier_upper_cup_1",
+        "chandelier_upper_candle_1",
+        "chandelier_upper_bulb_1",
+        "chandelier_upper_arm_2",
+        "chandelier_upper_cup_2",
+        "chandelier_upper_candle_2",
+        "chandelier_upper_bulb_2",
+        "chandelier_upper_arm_3",
+        "chandelier_upper_cup_3",
+        "chandelier_upper_candle_3",
+        "chandelier_upper_bulb_3",
+        "chandelier_upper_arm_4",
+        "chandelier_upper_cup_4",
+        "chandelier_upper_candle_4",
+        "chandelier_upper_bulb_4",
+        "chandelier_upper_arm_5",
+        "chandelier_upper_cup_5",
+        "chandelier_upper_candle_5",
+        "chandelier_upper_bulb_5",
+        "chandelier_upper_arm_6",
+        "chandelier_upper_cup_6",
+        "chandelier_upper_candle_6",
+        "chandelier_upper_bulb_6",
+        "chandelier_lower_ring"
+      ],
+      "on_state": {
+        "emissive": [
+          7
+        ],
+        "shows": []
+      }
+    },
+    {
+      "name": "fireplace",
+      "label": "Fireplace",
+      "type": "fireplace",
+      "room": "den",
+      "anchor_node": "anchor_fireplace",
+      "position_m": [
+        -0.31,
+        0.5,
+        3.65
+      ],
+      "group_node": "fireplace_flames",
+      "light_nodes": [
+        "light_fireplace"
+      ],
+      "light_on_intensity": [
+        3.5
+      ],
+      "glow_decals": [
+        "glow_fire_hearth",
+        "glow_fire_back"
+      ],
+      "mesh_nodes": [
+        "fire_flame_1",
+        "fire_flame_2",
+        "fire_flame_3",
+        "fire_flame_4",
+        "fire_flame_5",
+        "fire_flame_6",
+        "fire_flame_7",
+        "fire_embers"
+      ],
+      "on_state": {
+        "emissive": [
+          3
+        ],
+        "shows": [
+          "fire_flame_1",
+          "fire_flame_2",
+          "fire_flame_3",
+          "fire_flame_4",
+          "fire_flame_5",
+          "fire_flame_6",
+          "fire_flame_7"
+        ]
+      }
+    },
+    {
+      "name": "tv",
+      "label": "TV",
+      "type": "media",
+      "room": "den",
+      "anchor_node": "anchor_tv",
+      "position_m": [
+        -0.32,
+        2.06,
+        3.65
+      ],
+      "group_node": "tv",
+      "light_nodes": [],
+      "light_on_intensity": [],
+      "glow_decals": [
+        "glow_tv_wall",
+        "glow_tv_floor"
+      ],
+      "mesh_nodes": [
+        "tv_frame_top",
+        "tv_frame_bottom",
+        "tv_frame_left",
+        "tv_frame_right",
+        "tv_body",
+        "tv_screen"
+      ],
+      "on_state": {
+        "emissive": [],
+        "shows": []
+      }
+    },
+    {
+      "name": "soundbar",
+      "label": "Soundbar",
+      "type": "media",
+      "room": "den",
+      "anchor_node": "anchor_soundbar",
+      "position_m": [
+        -0.36,
+        1.44,
+        3.65
+      ],
+      "group_node": "soundbar",
+      "light_nodes": [],
+      "light_on_intensity": [],
+      "glow_decals": [
+        "glow_soundbar"
+      ],
+      "mesh_nodes": [
+        "soundbar_body",
+        "soundbar_grille",
+        "soundbar_led"
+      ],
+      "on_state": {
+        "emissive": [
+          6
+        ],
+        "shows": []
+      }
+    }
+  ]
+}

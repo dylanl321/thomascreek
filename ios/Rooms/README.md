@@ -1,6 +1,6 @@
 # Dollhouse rooms
 
-Each room the app can draw is one entry in `catalog.json`. The living room is the first. Kitchen, dining, laundry and the garage apartment are the same shape of folder when their models exist: a USDZ, a `devices.json`, an `appearance.json` from the converter, and a `hub-mapping.json` you can edit. Nothing else in the app has to change. The page title comes from the catalog. The source model calls this corner "den"; the hub room id, and every label in the app, is Living Room.
+Each room the app can draw is one entry in `catalog.json`. The living room and the kitchen (the kitchen, the dining booth, and the laundry in one cutaway) are the first two. A garage apartment is the same shape of folder when its model exists: a USDZ, a `devices.json`, an `appearance.json` from the converter, and a `hub-mapping.json` you can edit. Nothing else in the app has to change. The page title comes from the catalog. The living-room generator still calls that corner "den"; the hub room id, and every label in the app, is Living Room. The three.js sources live in `models/dollhouse/`.
 
 ```
 Rooms/

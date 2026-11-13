@@ -95,22 +95,27 @@ def node_matrix(node: dict) -> Gf.Matrix4d:
 
 
 def kind_for(name: str) -> str | None:
+    """Which nodes the app turns on and off. Names come from the three.js builders."""
     if name.startswith("glow_"):
         return "glow"
     if name.startswith("fire_flame"):
         return "flame"
+    if name.startswith("light_cone_"):
+        return "cone"
     if name == "fire_embers":
         return "embers"
     if name == "tv_screen":
         return "screen"
     if name == "soundbar_led":
         return "led"
-    if "shade" in name:
+    if "shade" in name or name.endswith("_dome") or "glass_dome" in name:
         return "shade"
-    if "bulb" in name or "puck" in name or name == "cabinet_light_strip":
+    if name == "cabinet_light_strip" or any(part in name for part in ("bulb", "puck", "_strip", "toe_kick", "_lamp")):
         return "bulb"
     if name.startswith("recessed_light") and "trim" not in name:
         return "bulb"
+    if any(part in name for part in ("_display", "_door_glass", "_door_ring", "_status_arc")):
+        return "led"
     return None
 
 
@@ -294,9 +299,14 @@ def main() -> None:
     opened = Usd.Stage.Open(str(dst))
     if not opened:
         raise SystemExit(f"could not reopen {dst}")
-    names = [p.GetName() for p in opened.Traverse()]
-    needed = ["anchor_tv", "tv_screen", "glow_chandelier_floor", "fire_flame_1", "soundbar_led", "light_chandelier"]
-    missing = [n for n in needed if n not in names]
+    names = {p.GetName() for p in opened.Traverse()}
+    # The living room has a known set. Any other room must still carry its device anchors.
+    if "anchor_tv" in names:
+        missing = [n for n in ("anchor_tv", "tv_screen", "glow_chandelier_floor", "fire_flame_1", "soundbar_led", "light_chandelier") if n not in names]
+    else:
+        missing = [n for n in ("anchor_under_cabinet_lights", "anchor_washer", "anchor_dryer", "glow_washer_drum", "light_laundry") if n not in names]
+        if len([n for n in names if n.startswith("anchor_")]) < 3:
+            missing.append("anchors")
     if missing:
         raise SystemExit(f"USDZ is missing nodes: {missing}")
     print(f"wrote {dst} ({dst.stat().st_size} bytes), {len(converter.appearance['nodes'])} lit nodes, "

@@ -12,9 +12,10 @@ struct DollhouseRoom: Identifiable {
     var devices: DollhouseDevices
     var mapping: HubMapping
     var appearance: DollhouseAppearance
+    var views: DollhouseViews?
 
     func presetIDs() -> [String] {
-        let preferred = ["all_off", "all_on", "evening", "movie_night"]
+        let preferred = ["all_off", "all_on", "evening", "movie_night", "laundry_running"]
         let extra = devices.presets.keys.filter { !preferred.contains($0) }.sorted()
         return preferred.filter { devices.presets[$0] != nil } + extra
     }
@@ -35,6 +36,7 @@ struct DollhouseRoom: Identifiable {
         case "all_on": "All on"
         case "evening": "Evening"
         case "movie_night": "Movie night"
+        case "laundry_running": "Laundry running"
         default: id.replacingOccurrences(of: "_", with: " ").capitalized
         }
     }
@@ -64,10 +66,19 @@ struct DollhouseDevice: Decodable, Identifiable {
     var hitNames: [String] {
         meshNodes + glowDecals + lightNodes + onState.shows + [name, anchorNode] + (groupNode.map { [$0] } ?? [])
     }
+
+    var symbol: String {
+        switch name {
+        case "soundbar": "hifispeaker.fill"
+        case "washer": "washer.fill"
+        case "dryer": "dryer.fill"
+        default: type.symbol
+        }
+    }
 }
 
 enum DollhouseDeviceType: String, Decodable {
-    case light, fireplace, media, other
+    case light, fireplace, media, appliance, other
     init(from decoder: Decoder) throws {
         let raw = try decoder.singleValueContainer().decode(String.self)
         self = DollhouseDeviceType(rawValue: raw) ?? .other
@@ -78,6 +89,7 @@ enum DollhouseDeviceType: String, Decodable {
         case .light: "lightbulb.fill"
         case .fireplace: "flame.fill"
         case .media: "tv.fill"
+        case .appliance: "washer.fill"
         case .other: "circle.grid.2x2"
         }
     }
@@ -135,6 +147,18 @@ struct LitLight: Decodable {
     var outerDeg: Double?
 }
 
+struct DollhouseShotSpec: Decodable {
+    var position: [Double]
+    var target: [Double]
+    var fov: Double
+}
+
+struct DollhouseViews: Decodable {
+    var dollhouse: DollhouseShotSpec
+    var close: DollhouseShotSpec
+    var top: DollhouseShotSpec
+}
+
 enum DollhouseCatalog {
     static let rooms: [DollhouseRoom] = load()
 
@@ -149,6 +173,7 @@ enum DollhouseCatalog {
             var devices: String
             var mapping: String
             var appearance: String
+            var views: DollhouseViews?
         }
         var rooms: [Row]
     }
@@ -167,7 +192,7 @@ enum DollhouseCatalog {
             else { return nil }
             return DollhouseRoom(id: row.id, title: row.title, symbol: row.symbol, model: row.model,
                                  devicesName: row.devices, mappingName: row.mapping, appearanceName: row.appearance,
-                                 devices: devices, mapping: mapping, appearance: appearance)
+                                 devices: devices, mapping: mapping, appearance: appearance, views: row.views)
         }
     }
 
