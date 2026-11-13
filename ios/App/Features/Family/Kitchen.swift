@@ -175,6 +175,7 @@ struct KitchenView: View {
         }
         .background(Backdrop())
         .navigationTitle("Kitchen")
+        .onAppear { CatDirector.shared.perform(.kikiFood, chance: 0.25) }
         .toolbar { ToolbarItem(placement: .topBarTrailing) { Button { router.go(.dinners) } label: { Label("Dinners", systemImage: "fork.knife") } } }
         .task { if let focus { ovenID = focus }; await load() }
         .refreshable { await load() }
@@ -383,6 +384,7 @@ struct DinnersView: View {
         }
         .scrollContentBackground(.hidden).background(Backdrop())
         .navigationTitle("Dinners")
+        .onAppear { CatDirector.shared.perform(.kikiFood, chance: 0.25) }
         .toolbar {
             if canEdit { ToolbarItem(placement: .topBarTrailing) { Button { adding = true } label: { Image(systemName: "plus") } } }
         }

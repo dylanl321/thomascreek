@@ -28,8 +28,20 @@ struct InboxView: View {
     private var inbox: some View {
             List {
                 if store.inbox.isEmpty {
-                    ContentUnavailableView(store.role == .child ? "Nothing new" : "All clear", systemImage: "bell.slash",
-                                           description: Text(store.role == .child ? "Answers to what you ask for show up here." : "Problems, approvals and house news show up here."))
+                    if CatDirector.shared.isOn {
+                        // Kiki asleep on the empty list.
+                        ContentUnavailableView {
+                            VStack(spacing: 6) {
+                                LivingCat(kind: .kiki, pose: .sleep, scale: 1.3)
+                                Text(store.role == .child ? "Nothing new" : "Nothing to report")
+                            }
+                        } description: {
+                            Text(store.role == .child ? "Answers to what you ask for show up here." : "Problems, approvals and house news show up here.")
+                        }
+                    } else {
+                        ContentUnavailableView(store.role == .child ? "Nothing new" : "All clear", systemImage: "bell.slash",
+                                               description: Text(store.role == .child ? "Answers to what you ask for show up here." : "Problems, approvals and house news show up here."))
+                    }
                 }
                 ForEach(InboxLevel.allCases, id: \.self) { level in
                     let items = store.inbox.filter { $0.bucket == level }

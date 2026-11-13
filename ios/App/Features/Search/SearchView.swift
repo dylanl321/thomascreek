@@ -77,6 +77,7 @@ struct SearchView: View {
 
     @ViewBuilder private var found: some View {
         let groups = shownGroups
+        if CatDirector.shared.isOn && catWords.contains(query.trimmingCharacters(in: .whitespaces).lowercased()) { catsRow }
         if results?.ask == true && looksLikeQuestion { askRow }
         if let cmd = results?.command { commandRow(cmd) }
         if !little && groups.count > 1 { filterBar(groups) }
@@ -138,6 +139,26 @@ struct SearchView: View {
         let all = groups.flatMap(\.items).sorted { ($0.score ?? 0) > ($1.score ?? 0) }
         guard let first = all.first, (first.score ?? 0) >= 6, all.count == 1 || (first.score ?? 0) > (all[1].score ?? 0) else { return nil }
         return first
+    }
+
+    // Search for the cats and they turn up.
+    private var catWords: Set<String> { ["cat", "cats", "kitty", "kitten", "meow", "kiki", "bri", "kiki and bri"] }
+
+    private var catsRow: some View {
+        HStack(alignment: .bottom, spacing: 4) {
+            LivingCat(kind: .kiki, pose: .sit)
+            LivingCat(kind: .bri, pose: .sit)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Kiki and Bri").font(.headline)
+                Text(query.lowercased().contains("bri") ? "Bri is probably hunting something." : "Kiki would like to know if you brought food.")
+                    .font(.footnote).foregroundStyle(Theme.dim)
+            }
+            .padding(.bottom, 8)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading).padding(12)
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .onTapGesture { UIImpactFeedbackGenerator(style: .soft).impactOccurred() }
+        .accessibilityElement(children: .combine)
     }
 
     private var looksLikeQuestion: Bool {

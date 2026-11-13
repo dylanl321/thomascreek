@@ -455,6 +455,7 @@ struct KidChoresView: View {
             if store.me?.style == .little { Speaker.say("Great job!") }
             if sent { await load() } else { markDoneOffline(c); store.show("Ticked!", "It's sent when home is back") }
             AppSettings.refreshSurfaces()
+            if let b = board, !b.items.isEmpty, b.doneCount == b.items.count { CatDirector.shared.perform(.celebrate) }
         } catch { store.show(error.localizedDescription, isError: true) }
     }
 

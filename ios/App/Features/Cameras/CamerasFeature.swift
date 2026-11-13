@@ -38,6 +38,7 @@ struct CamerasView: View {
         }
         .background(Backdrop())
         .navigationTitle("Cameras")
+        .catsStayAway()
         .refreshable { await reload() }
         .task { if let list: CameraList = try? await HubClient.shared.get("/v1/cameras") { cameras = list.cameras } }
         .task(id: "\(cameraFilter ?? "")|\(labelFilter ?? "")") { await loadEvents(reset: true) }
@@ -253,6 +254,7 @@ struct CameraView: View {
         }
         .background(Backdrop())
         .navigationTitle(cam?.name ?? "Camera")
+        .catsStayAway()
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button { reload += 1 } label: { Image(systemName: "arrow.clockwise") }.accessibilityLabel("Reload live view")
@@ -370,6 +372,7 @@ struct CameraEventView: View {
         }
         .background(Backdrop())
         .navigationTitle(event?.title ?? "Event")
+        .catsStayAway()
         .navigationBarTitleDisplayMode(.inline)
         .task {
             if let e = store.recentEvents?.first(where: { $0.id == eventID }) { event = e; return }

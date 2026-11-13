@@ -54,8 +54,12 @@ struct ProfileView: View {
                         Text("Large").tag("large")
                         Text("Larger").tag("larger")
                     } label: { Label("Text size", systemImage: "textformat.size") }
+                    Picker(selection: Binding(get: { CatDirector.shared.frequency.rawValue },
+                                              set: { SettingsStore.shared.set(SettingKey.cats, $0) })) {
+                        ForEach(CatDirector.Frequency.allCases) { Text($0.label).tag($0.rawValue) }
+                    } label: { Label("Kiki and Bri", systemImage: "cat.fill") }
                 } header: { Text("You") } footer: {
-                    Text("These follow you to your other iPhone and iPad.")
+                    Text("These follow you to your other iPhone and iPad. Kiki and Bri wander around the top of the screen now and then; tap one to say hi.")
                 }
                 FamilySettingsSection()
                 if store.me?.can(.holidayFull) == true || store.me?.can(.holidayLooks) == true {
