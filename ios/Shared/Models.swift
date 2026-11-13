@@ -612,7 +612,8 @@ struct ActivityEntry: Codable, Hashable, Identifiable {
         return last.replacingOccurrences(of: "_", with: " ").capitalized
     }
 
-    private enum K: String, CodingKey { case id, t, at, who, action, target, outcome, detail, source }
+    // The decoder converts snake_case first, so person_id arrives as personId.
+    private enum K: String, CodingKey { case id, t, at, who, personId, action, target, outcome, detail, source, ref }
     /// Lenient: id may be a number or a string, and the time may be epoch seconds or ISO text.
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: K.self)
@@ -623,6 +624,8 @@ struct ActivityEntry: Codable, Hashable, Identifiable {
         else if let s = (try? c.decode(String.self, forKey: .t)) ?? (try? c.decode(String.self, forKey: .at)), let d = ISO.parse(s) { t = d.timeIntervalSince1970 }
         else { t = 0 }
         who = try? c.decode(String.self, forKey: .who)
+        personId = try? c.decode(String.self, forKey: .personId)
+        ref = try? c.decode(String.self, forKey: .ref)
         action = try? c.decode(String.self, forKey: .action)
         target = try? c.decode(String.self, forKey: .target)
         outcome = try? c.decode(String.self, forKey: .outcome)
@@ -635,6 +638,7 @@ struct ActivityEntry: Codable, Hashable, Identifiable {
         try c.encodeIfPresent(who, forKey: .who); try c.encodeIfPresent(action, forKey: .action)
         try c.encodeIfPresent(target, forKey: .target); try c.encodeIfPresent(outcome, forKey: .outcome)
         try c.encodeIfPresent(detail, forKey: .detail); try c.encodeIfPresent(source, forKey: .source)
+        try c.encodeIfPresent(personId, forKey: .personId); try c.encodeIfPresent(ref, forKey: .ref)
     }
 }
 struct ActivityList: Codable {
