@@ -91,6 +91,7 @@ struct MainTabs: View {
         .tabViewStyle(.sidebarAdaptable)
         }
         .familyWelcome()
+        .onAppear { CatDirector.shared.install() }
         .kidBedtime()
         .tellDylan()
         .animation(.spring(duration: 0.3), value: store.previewing)

@@ -127,6 +127,7 @@ struct HeroHeader: View {
                 Image("HomeHeader").resizable().scaledToFill()
             }
             .frame(height: height).frame(maxWidth: .infinity).clipped()
+            .onLongPressGesture(minimumDuration: 0.7) { CatDirector.shared.perform(.briDash) }
             LinearGradient(colors: [.black.opacity(0.35), .clear], startPoint: .top, endPoint: .center)
             VStack(alignment: .leading, spacing: 0) {
                 if store.me?.dryRun == true {
@@ -141,6 +142,7 @@ struct HeroHeader: View {
             .padding(.horizontal, 18)
             .padding(.top, 62) // clears the avatar / 3D / bell row
         }
+        .catLedge()
         .overlay(alignment: .top) {
             HStack {
                 Button { router.showProfile = true } label: {

@@ -56,4 +56,6 @@ enum SettingKey {
     static let downloadCellular = "downloads.cellular"
     static let removeWatched = "downloads.remove_watched"
     static let liveActivityAuto = "live_activity.auto"
+    /// How often Kiki and Bri come out: off, rarely, sometimes, often (an app-only key the hub stores as is).
+    static let cats = "app.cats"
 }
