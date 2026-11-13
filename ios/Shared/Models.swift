@@ -224,7 +224,10 @@ struct HomeSnapshot: Codable, Hashable {
         var high: Double?; var low: Double?; var sunset: String?; var sunrise: String?
         /// The most serious official alert for the house (warnings only for children).
         var alert: AlertRef?; var alertCount: Int?
-        struct AlertRef: Codable, Hashable { var id: String; var event: String; var level: String }
+        /// True just after the hub starts, before the first forecast arrives.
+        var pending: Bool?
+        /// `when`: "From Sun 1 am until 9 am" before it starts, then "Until 9 am".
+        struct AlertRef: Codable, Hashable { var id: String; var event: String; var level: String; var when: String? }
     }
 
     var generated: Date? { generatedAt.flatMap(ISO.parse) }

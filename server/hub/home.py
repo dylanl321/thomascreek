@@ -657,10 +657,18 @@ class HomeModel:
             alerts = [a for a in alerts if a["level"] == "warning"]
         alerts = [a for a in alerts if a["level"] != "statement"]
         if alerts:
+            from .smart import alert_when
+
             w = dict(w or {})
-            w["alert"] = {"id": alerts[0]["id"], "event": alerts[0]["event"], "level": alerts[0]["level"]}
+            a = alerts[0]
+            w["alert"] = {"id": a["id"], "event": a["event"], "level": a["level"],
+                          "when": alert_when(a, self.hub.policy.now(), self.hub.policy.tz)}
             if len(alerts) > 1:
                 w["alert_count"] = len(alerts)
+        if (not w or w.get("temp") is None) and time.time() - self.hub.started_at < 180:
+            # Just after a restart nothing has been fetched yet: say so, so the app shows "loading" not nothing.
+            # (After a few minutes with nothing, the weather is really unavailable and the card stays hidden.)
+            w = {**(w or {}), "pending": True}
         return w
 
     def systems_card(self) -> dict[str, Any]:
