@@ -860,6 +860,9 @@ class Forecasts:
         home = await self.home()
         if home:
             await self.forecast(*home)
+            pt = await self.nws_point(*home)
+            if pt and pt.get("forecast"):
+                await self.nws_text(pt["forecast"])  # tonight's low, as the forecast text says it
 
     def cached_home_now(self) -> dict[str, Any] | None:
         """Home's date-line weather from the Weather page's own forecast, when it's fresh."""
@@ -871,8 +874,14 @@ class Forecasts:
             return None
         fc = hit[1]
         n, d = fc.get("now") or {}, (fc.get("daily") or [{}])[0]
+        tonight = fc.get("tonight_low")
+        pt = self._c.get(f"points:{loc[0]:.2f},{loc[1]:.2f}")
+        url = pt[1].get("forecast") if pt and isinstance(pt[1], dict) else None
+        text = self._c.get(f"text:{url}") if url else None
+        if text and (t := nws_tonight(text[1] or [])) is not None:
+            tonight = t  # same number as the Weather page
         out = {"temp": n.get("temp"), "condition": n.get("condition"), "symbol": n.get("symbol"),
-               "high": d.get("high"), "low": fc.get("tonight_low") if fc.get("evening") else d.get("low"),
+               "high": d.get("high"), "low": tonight if fc.get("evening") else d.get("low"),
                "sunrise": d.get("sunrise"), "sunset": d.get("sunset")}
         return {k: v for k, v in out.items() if v is not None}
 

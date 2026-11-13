@@ -383,4 +383,4 @@ async def test_home_line_uses_the_weather_pages_forecast(hub, people):
     dylan = hub.subject_for(hub.db.device(people["phones"]["Dylan"].device_id), True)
     w = hub.home._weather_now(dylan)
     assert w["temp"] == 64 and w["condition"] == "Thunderstorms" and w["symbol"] == "cloud.bolt.rain.fill"
-    assert w["high"] == 68 and w["low"] == 50  # evening: tonight's low
+    assert w["high"] == 68 and w["low"] == 44  # evening: tonight's low, the NWS number like the page
