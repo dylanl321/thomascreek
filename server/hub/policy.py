@@ -275,6 +275,13 @@ class Policy:
         if s.is_child_like and tier in ("secure", "admin"):
             return Decision(False, tier, "needs a grown-up", ask_parent=True)
 
+        # A child's remote opens only the kids' apps; anything else asks a grown-up.
+        if action == "media.command" and params.get("command") == "app" and s.is_child_like:
+            from .tvremote import kid_app
+
+            if not kid_app(str(params.get("app") or "")):
+                return Decision(False, tier, "that app needs a grown-up", ask_parent=True)
+
         clamp: dict[str, Any] = {}
         if action == "climate.set" and "climate.all" not in caps:
             for key in ("target_temp", "target_low", "target_high"):

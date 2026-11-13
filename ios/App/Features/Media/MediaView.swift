@@ -4,6 +4,7 @@ struct MediaView: View {
     @Environment(HomeStore.self) private var store
     @Environment(Router.self) private var router
     @State private var requests: [TitleRequest] = []
+    @State private var watchAnywhere = false
 
     var body: some View {
         ScrollView {
@@ -17,6 +18,11 @@ struct MediaView: View {
                     SectionTile(symbol: "hifispeaker.2.fill", title: "Music", detail: speakersLine) { router.go(.music) }
                 }
                 .padding(.top, 8)
+                if !(store.home?.devices(kind: .media) ?? []).isEmpty {
+                    SectionTile(symbol: "tv.badge.wifi", title: "Watch on a TV", detail: "YouTube, Netflix, Plex and more, on any TV") {
+                        watchAnywhere = true
+                    }
+                }
                 HStack(spacing: 10) {
                     let onWay = requests.filter { ["searching", "downloading", "waiting", "failed"].contains($0.status) }.count
                     SectionTile(symbol: "tray.and.arrow.down.fill", title: "Requests",
@@ -63,6 +69,7 @@ struct MediaView: View {
         .topBar()
         .task { while !Task.isCancelled { await loadRequests(); try? await Task.sleep(for: .seconds(20)) } }
         .refreshable { await store.loadHome(); await loadRequests() }
+        .sheet(isPresented: $watchAnywhere) { WatchAnywhereSheet() }
     }
 
     private var speakersLine: String {
@@ -72,145 +79,6 @@ struct MediaView: View {
 
     private func loadRequests() async {
         if let l: TitleRequestList = try? await HubClient.shared.get("/v1/media/requests", ["scope": "mine"]) { requests = l.items }
-    }
-}
-
-// MARK: - TV remote
-
-/// Talks to the TV through Home Assistant (media_player and remote services, via the hub).
-/// Only the buttons the TV actually supports are shown; the hub lists them in `commands`.
-struct RemoteView: View {
-    @Environment(HomeStore.self) private var store
-    let deviceID: String
-    @State private var volume: Double?
-    @State private var volumeTask: Task<Void, Never>?
-
-    var body: some View {
-        let d = store.home?.device(deviceID)
-        let cmds: Set<String>? = d?["commands"]?.array.map { Set($0.compactMap(\.string)) }
-        let has: (String) -> Bool = { cmds?.contains($0) ?? true }
-        let sources = d?["sources"]?.array?.compactMap(\.string) ?? []
-        let playing = d?["state"]?.string == "playing"
-        ScrollView {
-            VStack(spacing: 22) {
-                VStack(spacing: 4) {
-                    Text(d?.name ?? "TV").font(.title2.weight(.bold))
-                    Text(d.map { $0.isOn ? ($0["title"]?.string ?? $0["source"]?.string ?? "On") : "Off" } ?? "").foregroundStyle(Theme.dim)
-                }
-                HStack(spacing: 14) {
-                    if has("power") || has("turn_on") { key("power", "power", tint: d?.isOn == true ? Theme.crit : Theme.accent) }
-                    Spacer()
-                    if has("home") { key("house.fill", "home") }
-                    if has("back") { key("arrow.uturn.backward", "back") }
-                }
-                if !sources.isEmpty {
-                    Menu {
-                        ForEach(sources, id: \.self) { src in
-                            Button { store.perform("media.command", target: deviceID, params: ["command": "source", "source": src], done: "Switched to \(src)") } label: {
-                                if d?["source"]?.string == src { Label(src, systemImage: "checkmark") } else { Text(src) }
-                            }
-                        }
-                    } label: {
-                        HStack {
-                            Image(systemName: "rectangle.on.rectangle")
-                            Text(d?["source"]?.string ?? "Choose input")
-                            Spacer()
-                            Image(systemName: "chevron.up.chevron.down").font(.caption)
-                        }
-                        .font(.subheadline.weight(.semibold)).foregroundStyle(Theme.fg)
-                        .padding(.horizontal, 16).frame(minHeight: 48)
-                        .background(Theme.card, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    }
-                }
-                if ["up", "down", "left", "right", "select"].contains(where: has) {
-                    ZStack {
-                        Circle().fill(Theme.card).frame(width: 240, height: 240)
-                        VStack(spacing: 0) {
-                            key("chevron.up", "up", plain: true)
-                            HStack(spacing: 0) {
-                                key("chevron.left", "left", plain: true)
-                                Button { send("select") } label: {
-                                    Text("OK").font(.headline).frame(width: 84, height: 84).background(Theme.card2, in: Circle())
-                                }
-                                .buttonStyle(.plain)
-                                key("chevron.right", "right", plain: true)
-                            }
-                            key("chevron.down", "down", plain: true)
-                        }
-                    }
-                }
-                HStack(spacing: 14) {
-                    if has("prev") { key("backward.fill", "prev") }
-                    if has("play") || has("pause") || has("play_pause") {
-                        key(playing ? "pause.fill" : "play.fill", has("play_pause") ? "play_pause" : (playing ? "pause" : "play"))
-                    }
-                    if has("next") { key("forward.fill", "next") }
-                }
-                .frame(maxWidth: .infinity)
-                if let level = d?["volume"]?.double {
-                    HStack(spacing: 12) {
-                        Button { send("vol_down") } label: { Image(systemName: "speaker.minus.fill") }.buttonStyle(.plain)
-                        Slider(value: Binding(get: { volume ?? level }, set: { setVolume($0) }), in: 0...100, step: 1)
-                            .tint(Theme.accent)
-                        Button { send("vol_up") } label: { Image(systemName: "speaker.plus.fill") }.buttonStyle(.plain)
-                        if has("mute") {
-                            Button { send("mute") } label: {
-                                Image(systemName: d?["muted"]?.bool == true ? "speaker.slash.fill" : "speaker.fill")
-                                    .foregroundStyle(d?["muted"]?.bool == true ? Theme.crit : Theme.fg)
-                            }
-                            .buttonStyle(.plain).padding(.leading, 6).accessibilityLabel("Mute")
-                        }
-                    }
-                    .foregroundStyle(Theme.fg)
-                    .padding(.horizontal, 16).frame(minHeight: 52)
-                    .background(Theme.card, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                } else if has("vol_up") || has("vol_down") {
-                    HStack(spacing: 14) {
-                        key("speaker.minus.fill", "vol_down")
-                        key("speaker.plus.fill", "vol_up")
-                        if has("mute") { key(d?["muted"]?.bool == true ? "speaker.slash.fill" : "speaker.fill", "mute") }
-                    }
-                    .frame(maxWidth: .infinity)
-                }
-                if let apps = d?["apps"]?.array?.compactMap(\.string), !apps.isEmpty {
-                    SectionHeader("Apps")
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 100), spacing: 10)], spacing: 10) {
-                        ForEach(apps, id: \.self) { a in
-                            ChipButton(title: a) { store.perform("media.command", target: deviceID, params: ["command": "app", "app": a]) }
-                        }
-                    }
-                }
-            }
-            .padding(.top, 12).screen()
-        }
-        .background(Backdrop())
-        .navigationTitle("Remote").navigationBarTitleDisplayMode(.inline)
-    }
-
-    /// Slider moves are coalesced so Home Assistant gets one volume_set, not dozens.
-    private func setVolume(_ v: Double) {
-        volume = v
-        volumeTask?.cancel()
-        volumeTask = Task {
-            try? await Task.sleep(for: .milliseconds(250))
-            guard !Task.isCancelled else { return }
-            store.perform("media.command", target: deviceID, params: ["command": "volume", "volume": Int(v)])
-            try? await Task.sleep(for: .seconds(2))
-            if !Task.isCancelled { volume = nil }
-        }
-    }
-
-    private func send(_ cmd: String) {
-        store.perform("media.command", target: deviceID, params: ["command": cmd])
-    }
-
-    private func key(_ symbol: String, _ cmd: String, tint: Color = Theme.fg, plain: Bool = false) -> some View {
-        Button { send(cmd) } label: {
-            Image(systemName: symbol).font(.title3.weight(.semibold)).foregroundStyle(tint)
-                .frame(width: plain ? 64 : 58, height: plain ? 64 : 58)
-                .background(plain ? Color.clear : Theme.card, in: Circle())
-        }
-        .buttonStyle(.plain)
     }
 }
 
@@ -410,6 +278,11 @@ struct PlayOnSheet: View {
                 Section {
                     DownloadButton(item: item)
                 } footer: { Text("Downloads play here, with no connection.") }
+                Section {
+                    Button { store.fixLanguage(item, on: usual) } label: {
+                        Label("Not in English? Fix audio and subtitles", systemImage: "captions.bubble")
+                    }
+                } footer: { Text("Picks English audio, or the original audio with English subtitles.") }
                 Section("Play on") {
                     ForEach(tvs) { tv in
                         Button {

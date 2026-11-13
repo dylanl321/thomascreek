@@ -217,6 +217,11 @@ final class HomeStore {
                                      setUp: st.setUp, job: st.job, color: st.activeTray?.color)
             if let i = h.printers?.firstIndex(where: { $0.id == st.id }) { h.printers?[i] = sum; home = h }
             NotificationCenter.default.post(name: .printerStatus, object: st)
+        case "watch":
+            // "Watch this on that TV" finished in the background (Plex opened, title started, tracks picked).
+            guard case .object(let o)? = e.data else { return }
+            let ok = o["ok"]?.bool ?? false
+            show(o["message"]?.string ?? (ok ? "Playing" : "Couldn't start it"), o["tracks"]?.string, isError: !ok)
         case "hello":
             return
         case "camera_event":
@@ -390,12 +395,27 @@ final class HomeStore {
         }
     }
 
+    /// Not in English? The hub picks English audio, or the original audio with English subtitles, and switches
+    /// the TV now if it's playing there.
+    func fixLanguage(_ item: MediaItem, on tv: String?) {
+        Task {
+            do {
+                var body: [String: Any] = [:]
+                if let tv { body["target_device_id"] = tv }
+                let r: LanguageFix = try await HubClient.shared.post("/v1/media/\(item.id)/language", body)
+                show(r.message, [r.audio, r.subtitles.map { "Subtitles: \($0)" }].compactMap { $0 }.joined(separator: " · "),
+                     isError: r.ok == false)
+            } catch { show(error.localizedDescription, isError: true) }
+        }
+    }
+
     /// Hand a title to a TV ("play on").
     func play(_ item: MediaItem, on tv: DeviceItem) {
         Task {
             do {
                 let r: ActionReply = try await HubClient.shared.post("/v1/media/play", ["item_id": item.id, "target_device_id": tv.id])
-                show(r.dryRun == true ? "Practice mode" : "Playing on \(tv.name)", r.dryRun == true ? r.message : item.title)
+                // A TV with a Plex app answers right away ("Opening Plex on …"); the hub reports when it's playing.
+                show(r.dryRun == true ? "Practice mode" : (r.message ?? "Playing on \(tv.name)"), r.dryRun == true ? r.message : item.title)
             } catch { show(error.localizedDescription, isError: true) }
         }
     }

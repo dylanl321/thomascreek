@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import time
 from typing import Any
 
@@ -122,9 +123,44 @@ async def play(body: PlayBody, request: Request, c: Caller = Depends(caller), h:
         raise error(503, "unavailable", str(exc)) from None
     if item is None or not _rating_ok(h, c, item):
         raise error(404, "not_found", "That isn't in the library")
+    st = h.home.states.get(body.target_device_id) or {}
+    from ..home import device_state
+
+    rc = device_state("media", st, h.home.media_links.get(body.target_device_id)).get("remote") if st else None
+    if rc and any(a["id"] == "plex" for a in rc.get("apps") or []):
+        # A TV with a Plex app: turn it on, open Plex, then the hub starts the title on it (in the background,
+        # since the app takes a few seconds to open). The result arrives on the event stream as type "watch".
+        out = await perform(request, c, h, "media.command", body.target_device_id, {"command": "app", "app": "plex"})
+        h.watch.launch(c.subject, body.target_device_id, body.item_id)
+        name = st.get("attributes", {}).get("friendly_name", body.target_device_id)
+        return {**out, "message": f"Opening Plex on {name}…", "pending": True}
     ctype, cid = h.plex.ha_play_payload(item)
     return await perform(request, c, h, "media.play", body.target_device_id,
                          {"item_id": body.item_id, "_content_type": ctype, "_content_id": cid})
+
+
+class LanguageBody(BaseModel):
+    target_device_id: str | None = Field(default=None, max_length=200)
+
+
+@router.post("/media/{item_id}/language")
+async def fix_language(item_id: str, body: LanguageBody, c: Caller = Depends(caller),
+                       h: Hub = Depends(hub)) -> dict[str, Any]:
+    """Not in English? Pick English audio, or the original audio with English subtitles, and switch the TV
+    now if it's playing there."""
+    _watch_cap(h, c)
+    if not re.fullmatch(r"[0-9]{1,12}", item_id):
+        raise error(400, "bad_params", "Unknown title")
+    if body.target_device_id:
+        from ..policy import Target
+
+        t = Target(entity_id=body.target_device_id, area=h.home.entity_area.get(body.target_device_id), kind="media")
+        if not h.policy.decide(c.subject, "media.command", t, {}).allowed:
+            raise error(403, "forbidden", "Not allowed", ask_parent=c.subject.is_child_like)
+    try:
+        return await h.watch.fix_language(item_id, body.target_device_id)
+    except AdapterError as exc:
+        raise error(503, "unavailable", str(exc)) from None
 
 
 # -- the kids' built-in player: HLS through the hub, so no Plex token on the iPad
@@ -520,3 +556,86 @@ async def pipeline(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[s
     configured = [a.name for a in (h.jellyseerr, h.sonarr, h.radarr) if a.enabled]
     return {"requests": requests, "downloads": downloads, "recent": recent[:20], "upcoming": upcoming[:30],
             "failures": failures, "services": configured}
+
+
+@router.get("/media/watch")
+async def watch_anywhere(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """Every app, and the TVs this person can open it on: "Watch YouTube on the basement TV" is the same
+    tap whatever the TV is. A child sees only the kids' apps and the TVs they're allowed to use."""
+    _watch_cap(h, c)
+    from ..tvremote import APPS
+
+    home = h.home
+    order = {a["id"]: i for i, a in enumerate(APPS)}
+    apps: dict[str, dict[str, Any]] = {}
+    for eid in sorted(home.states):
+        if not eid.startswith("media_player."):
+            continue
+        d = home.device(eid, c.subject)
+        if not d or d["kind"] != "media" or "media.command" not in d["actions"]:
+            continue
+        rc = (d.get("state") or {}).get("remote") or {}
+        screen = {"entity_id": eid, "name": d["name"], "room_id": d.get("room_id"),
+                  "room": (home.areas.get(d.get("room_id") or "") or {}).get("name"),
+                  "on": bool(d["state"].get("on")), "available": d["available"]}
+        for a in rc.get("apps") or []:
+            if c.subject.is_child_like and not a.get("kid"):
+                continue
+            entry = apps.setdefault(a["id"], {"id": a["id"], "name": a["name"], "kid": a.get("kid", False),
+                                              "screens": []})
+            entry["screens"].append(screen)
+    out = sorted(apps.values(), key=lambda a: (order.get(a["id"], 999), a["name"].lower()))
+    return {"apps": out}
+
+
+# -- which TV each streaming box is plugged into ---------------------------------------------------------
+class HookupBody(BaseModel):
+    display_entity_id: str | None = Field(default=None, max_length=200)  # None unplugs it
+    input: str | None = Field(default=None, max_length=100)
+
+
+def _media_ids(h: Hub) -> list[str]:
+    from ..home import kind_for
+
+    return sorted(e for e, st in h.home.states.items() if e.startswith("media_player.") and kind_for(st) == "media")
+
+
+@router.get("/media/hookups")
+async def hookups(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """Boxes, TVs with their inputs, and which box is plugged into which TV."""
+    if c.subject.role not in ("admin", "adult"):
+        raise error(403, "forbidden", "Ask a parent", ask_parent=c.subject.is_child_like)
+    from ..tvremote import is_input
+
+    screens = []
+    for eid in _media_ids(h):
+        a = h.home.states[eid].get("attributes", {})
+        sources = [str(x) for x in a.get("source_list") or []]
+        screens.append({"entity_id": eid, "name": a.get("friendly_name", eid),
+                        "platform": (h.home.media_links.get(eid) or {}).get("platform"),
+                        "inputs": [x for x in sources if is_input(x)] or sources,
+                        "plugged_into": h.hookups.summary(eid), "boxes": h.hookups.boxes_on(eid)})
+    return {"screens": screens}
+
+
+@router.put("/media/hookups/{box_id}")
+async def set_hookup(box_id: str, body: HookupBody, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """"This Apple TV is plugged into the Samsung TV, on HDMI 2." Adults only."""
+    if c.subject.role not in ("admin", "adult"):
+        raise error(403, "forbidden", "Ask a parent", ask_parent=c.subject.is_child_like)
+    ids = set(_media_ids(h))
+    if box_id not in ids:
+        raise error(404, "not_found", "That box isn't in the hub")
+    tv = body.display_entity_id
+    if tv is not None:
+        if tv not in ids or tv == box_id:
+            raise error(400, "bad_params", "Pick a TV other than the box itself")
+        if h.hookups.get(tv):
+            raise error(400, "bad_params", "That one is itself plugged into a TV; pick the TV")
+        sources = [str(x) for x in h.home.states[tv].get("attributes", {}).get("source_list") or []]
+        if body.input and sources and body.input not in sources:
+            raise error(400, "bad_params", "That TV has no input with that name")
+    h.hookups.set(box_id, tv, body.input)
+    h.db.log("media.hookup", "ok", person_id=c.subject.person_id, device_id=c.device["id"], target=box_id,
+             params={"display": tv, "input": body.input})
+    return {"ok": True, "plugged_into": h.hookups.summary(box_id)}
