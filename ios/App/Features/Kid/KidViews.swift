@@ -485,15 +485,15 @@ struct KidActionTile: View {
     let action: () -> Void
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 10) {
-                Text(emoji).font(.system(size: 28))
-                // Never break a word across lines ("Rewa rds"): shrink to fit instead.
-                Text(title).font(Theme.kidFont(18, .semibold)).foregroundStyle(.white)
-                    // One word ("Rewards") stays on one line and shrinks; a phrase ("Ask a parent") wraps between words.
-                    .lineLimit(title.contains(" ") ? 2 : 1).minimumScaleFactor(title.contains(" ") ? 0.85 : 0.5)
-                    .allowsTightening(true).fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 0)
+            // Emoji on top, title underneath with the tile's full width, so every title uses the same
+            // font size and nothing is split mid-word ("Rewa rds") or shrunk ("Ask a par…").
+            VStack(alignment: .leading, spacing: 4) {
+                Text(emoji).font(.system(size: 26))
+                Text(title).font(Theme.kidFont(17, .semibold)).foregroundStyle(.white)
+                    .lineLimit(2).multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(14).frame(maxWidth: .infinity, minHeight: 64)
             .background(color.gradient, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
         }
