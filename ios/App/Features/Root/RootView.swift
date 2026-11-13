@@ -114,6 +114,9 @@ struct MainTabs: View {
             NavigationStack { OfflineStorageView().toolbar { Button("Done") { router.showOffline = false } } }.personalStyle()
         }
         .sheet(item: Binding(get: { router.vpnImport.map(IdentifiedURL.init) }, set: { router.vpnImport = $0?.url })) { f in VPNImportSheet(file: f.url).personalStyle() }
+        .sheet(item: Binding(get: { router.tvApprove.map(TvApproveLink.init) }, set: { router.tvApprove = $0?.code })) { link in
+            ApproveTvSheet(code: link.code).personalStyle()
+        }
         .sheet(item: Binding(get: { router.youtubeAdd.map(YouTubeLink.init) }, set: { router.youtubeAdd = $0?.text })) { l in
             // A shared-in link goes straight to its preview; the + button opens the search wizard.
             Group { if l.text.isEmpty { YouTubeWizard() } else { YouTubeAddSheet(link: l.text) } }.personalStyle()
@@ -163,6 +166,9 @@ struct DestinationView: View {
         case .house3D: House3DScreen()
         case .remote(let id): RemoteView(deviceID: id)
         case .tvSetup: TVSetupView()
+        case .tvGuide: TVGuideView()
+        case .tvSeries(let id): TVSeriesView(seriesID: id)
+        case .tvMovie(let id): TVMovieView(movieID: id)
         case .music: MusicView()
         case .watch: WatchView()
         case .requests: RequestsView()

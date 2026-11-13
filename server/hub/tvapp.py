@@ -27,6 +27,12 @@ How a TV gets its source (no typing on a remote)
   (vault keys iptv.*), the guide address and its profile (adult or kids, with the kids' category list). Changing a
   source on the hub reaches every TV on its next config call. Revoking a TV stops that at once.
 
+  POST /v1/tv/token is the same kind of signature ("tvtoken:<id>:<unix time>" or with ":<person id>") and returns
+  the same short-lived bearer the phones use. That bearer is limited to the TV's room and profile: a kids' TV is a
+  child, an adult TV is room-scoped everyday control, and neither can ever lock, open the garage or view a camera.
+  The bearer then calls the existing home, action and event routes. Revoking the TV rejects the bearer on the
+  next request.
+
 Nothing is installed on a box that an admin hasn't added. Downgrades aren't possible without losing the app's data
 (Android only allows them for debuggable apps), so there is no automatic rollback: the previous APK is kept so a
 fixed build can be re-tagged quickly.
@@ -41,6 +47,7 @@ import json
 import logging
 import os
 import re
+import secrets
 import shutil
 import struct
 import time
@@ -50,6 +57,12 @@ from typing import Any, Awaitable, Callable
 
 import httpx
 
+from .crypto import verify_signature
+from .db import new_id
+from .home import iso
+from .policy import ALL_CAPABILITIES, Subject
+from .tvlineup import LineupError, normalize_channel, public_channel, valid_key
+
 log = logging.getLogger("hub.tvapp")
 
 TOKEN_SECRET = "github.tv_app_token"
@@ -58,9 +71,75 @@ KV_BOXES = "tvapp.boxes"
 KV_LATEST = "tvapp.latest"
 KV_TVS = "tvapp.tvs"
 KV_KIDS = "tvapp.kids_categories"
+KV_CONFIG_VERSION = "tvapp.config_version"
+KV_LINEUP = "tvapp.lineup"
+KV_COMMANDS = "tvapp.commands"
+KV_INSTALL = "tvapp.install_links"
+INSTALL_TTL_S = 2 * 3600
+_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 PROFILES = ("adult", "kids")
 MAX_TVS = 40
+MAX_CHANNELS = 5000
+MAX_COMMANDS = 20
+COMMAND_TTL_S = 120
 CONFIG_SKEW_S = 300
+# What a TV token is allowed to keep. Everything else in a role is denied, so
+# an admin narrowed onto a TV does not bring doors, cameras or the whole house.
+TV_KEEP = frozenset({"lights.own_room", "climate.own_room", "media.own_tv", "family.view"})
+_UNSET = object()
+_PERSON_ID = re.compile(r"^[A-Za-z0-9_-]{1,40}$")
+_ROOM = re.compile(r"^[a-z0-9_]{1,40}$")
+_MEDIA = re.compile(r"^media_player\.[a-z0-9_]+$")
+_URL = re.compile(r"https?://\S+", re.I)
+
+
+def token_message(install_id: str, ts: int, person_id: str | None) -> bytes:
+    """Bytes the TV signs for POST /v1/tv/token. person_id is omitted when it isn't narrowing."""
+    if person_id:
+        return f"tvtoken:{install_id}:{int(ts)}:{person_id}".encode()
+    return f"tvtoken:{install_id}:{int(ts)}".encode()
+
+
+def _clip(value: object, limit: int) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text[:limit] or None
+
+
+def _command_result(body: dict[str, Any]) -> dict[str, Any] | None:
+    """The TV reporting how a tv.play / tv.stop turned out. Absent when this heartbeat isn't a result."""
+    if not body.get("command_id"):
+        return None
+    ok = body.get("command_ok")
+    if not isinstance(ok, bool):
+        raise TvAppError(400, "bad_request", "command_ok must be true or false with command_id")
+    return {
+        "id": str(body["command_id"])[:48],
+        "ok": ok,
+        "error": None if ok else _redact(body.get("command_error")),
+    }
+
+
+def _redact(value: object) -> str | None:
+    text = _clip(value, 200)
+    if not text:
+        return None
+    return _URL.sub("[url]", text)
+
+
+_COMMAND_FIELDS = ("kind", "channel_key", "start", "movie_id", "series_id", "episode_id", "resume",
+                    "name", "number", "title")
+
+
+def _public_command(row: dict[str, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {
+        "id": row["id"], "install_id": row["install_id"], "action": row["action"], "at": row.get("at"),
+    }
+    for key in _COMMAND_FIELDS:
+        if key in row and row[key] is not None:
+            out[key] = row[key]
+    return out
 IPTV_SECRETS = ("iptv.xtream_server", "iptv.xtream_username", "iptv.xtream_password", "iptv.m3u_url", "iptv.epg_url")
 APK_NAME = "ThomasCreekTV.apk"
 GITHUB = "https://api.github.com"
@@ -205,6 +284,42 @@ class Adb:
     async def install(self, serial: str, apk: Path) -> AdbResult:
         return await self.run(["-s", serial, "install", "-r", str(apk)], 300)
 
+    async def pair(self, host_port: str, code: str) -> AdbResult:
+        """Android 11+ wireless debugging: `adb pair ip:port code`."""
+        return await self.run(["pair", host_port, code], 30)
+
+    async def props(self, serial: str) -> dict[str, str]:
+        r = await self.run(["-s", serial, "shell", "getprop"], 15)
+        out: dict[str, str] = {}
+        for line in r.out.splitlines():
+            m = re.match(r"\[([^\]]+)\]: \[([^\]]*)\]", line.strip())
+            if m:
+                out[m.group(1)] = m.group(2)
+        return out
+
+    async def grant_overlay(self, serial: str, package: str) -> AdbResult:
+        return await self.run(["-s", serial, "shell", "appops", "set", package, "SYSTEM_ALERT_WINDOW", "allow"], 15)
+
+    async def grant(self, serial: str, package: str, permission: str) -> AdbResult:
+        return await self.run(["-s", serial, "shell", "pm", "grant", package, permission], 15)
+
+    async def current_home(self, serial: str) -> str | None:
+        r = await self.run(["-s", serial, "shell", "cmd", "package", "resolve-activity", "--brief",
+                            "-a", "android.intent.action.MAIN", "-c", "android.intent.category.HOME"], 15)
+        for line in r.out.splitlines():
+            line = line.strip()
+            if "/" in line and " " not in line:
+                return line
+        return None
+
+    async def set_home(self, serial: str, component: str) -> AdbResult:
+        """Points Home at component. Does not disable the previous launcher."""
+        return await self.run(["-s", serial, "shell", "cmd", "package", "set-home-activity", component], 20)
+
+    async def mdns(self) -> str:
+        r = await self.run(["mdns", "services"], 8)
+        return r.out
+
 
 # -- the manager -----------------------------------------------------------------------------------------------------------
 
@@ -231,6 +346,7 @@ class TvApp:
         self.notify = notify
         self._task: asyncio.Task | None = None
         self._lock = asyncio.Lock()
+        self._waiters: dict[str, list[asyncio.Event]] = {}
         self.last_error: str | None = None
         self.last_check: float | None = None
 
@@ -262,6 +378,8 @@ class TvApp:
             "tvs": [dict(v, id=k) for k, v in sorted(self.tvs().items(), key=lambda kv: kv[1].get("created_at", 0))],
             "source": self.source_summary(),
             "kids_categories": self.kids_categories(),
+            "config_version": self.config_version(),
+            "lineup_version": self.lineup_version(),
         }
 
     # -- releases ----------------------------------------------------------------------------------------------------
@@ -430,6 +548,8 @@ class TvApp:
             if not box.get("auto"):
                 continue
             try:
+                if box.get("overnight_only") and not self.in_update_window():
+                    continue
                 cur = await self.refresh_box(ip)
                 if cur.get("state") == "ok" and (cur.get("installed") or 0) < int(latest["versionCode"]):
                     await self.install(ip)
@@ -437,6 +557,16 @@ class TvApp:
                 log.info("tvapp: %s: %s", ip, exc.message)
             except Exception as exc:  # noqa: BLE001
                 log.warning("tvapp: %s: %s", ip, exc)
+
+    def in_update_window(self, moment: Any | None = None) -> bool:
+        """Automatic installs run from 1am to 6am in the house timezone. A manual install does not wait."""
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+
+        if moment is None:
+            clock = getattr(self, "now", None)
+            moment = clock() if clock else datetime.now(ZoneInfo("America/New_York"))
+        return 1 <= moment.hour < 6
 
     # -- TVs and their source ------------------------------------------------------------------------------------------
     def tvs(self) -> dict[str, dict[str, Any]]:
@@ -451,6 +581,7 @@ class TvApp:
     def set_kids_categories(self, cats: list[str]) -> list[str]:
         clean = list(dict.fromkeys(str(c).strip()[:80] for c in cats if str(c).strip()))[:200]
         self.db.kv_set(KV_KIDS, clean)
+        self.bump_config()
         return clean
 
     def source_summary(self) -> dict[str, Any]:
@@ -472,8 +603,96 @@ class TvApp:
                               "url": v("iptv.m3u_url")})
         return {"playlists": playlists, "epg_url": v("iptv.epg_url") or None}
 
+    def _short_code(self) -> str:
+        return "".join(secrets.choice(_CODE_ALPHABET) for _ in range(6))
+
+    def install_links(self) -> dict[str, dict[str, Any]]:
+        raw = self.db.kv_get(KV_INSTALL) or {}
+        now = time.time()
+        live = {k: v for k, v in raw.items() if float(v.get("expires_at") or 0) > now}
+        if live != raw:
+            self.db.kv_set(KV_INSTALL, live)
+        return live
+
+    def create_install_link(self, *, name: str | None, room: str | None, profile: str) -> dict[str, Any]:
+        """A short-lived code that lets Downloader or a browser fetch the signed APK on the home network."""
+        if profile not in PROFILES:
+            raise TvAppError(400, "bad_profile", "Profile is adult or kids")
+        if room:
+            self._room(room)
+        latest = self.latest()
+        if not latest or not self.apk_path(int(latest["versionCode"])).exists():
+            raise TvAppError(409, "no_build", "The hub doesn't have a TV app build yet")
+        links = self.install_links()
+        code = self._short_code()
+        while code in links:
+            code = self._short_code()
+        rec = {
+            "code": code, "name": (name or "TV")[:80], "room": room, "profile": profile,
+            "created_at": time.time(), "expires_at": time.time() + INSTALL_TTL_S, "mode": "non-adb",
+        }
+        links[code] = rec
+        self.db.kv_set(KV_INSTALL, links)
+        boxes = self.boxes()
+        boxes[f"code:{code}"] = {
+            "added_at": rec["created_at"], "name": rec["name"], "profile": profile, "room": room,
+            "auto": False, "setup": True, "mode": "non-adb", "phase": "install",
+            "message": "On the TV, open Downloader or a browser and open the address from the phone.",
+            "you_do": "Install Thomas Creek TV from the address on the phone",
+            "install_code": code, "home": {"wanted": False},
+            "capabilities": {"overlay": False, "home": False, "adb": False},
+        }
+        self._save_boxes(boxes)
+        return rec
+
+    def install_link(self, code: str) -> dict[str, Any] | None:
+        return self.install_links().get((code or "").strip().upper())
+
+    def apk_file(self) -> Path:
+        latest = self.latest()
+        if not latest:
+            raise TvAppError(409, "no_build", "The hub doesn't have a TV app build yet")
+        path = self.apk_path(int(latest["versionCode"]))
+        if not path.is_file():
+            raise TvAppError(409, "no_build", "The hub doesn't have a TV app build yet")
+        return path
+
+    def update_manifest(self) -> dict[str, Any]:
+        """What the installed app needs to download and check the next APK itself."""
+        latest = self.latest() or {}
+        if not latest or not self.apk_path(int(latest.get("versionCode") or 0)).is_file():
+            raise TvAppError(409, "no_build", "The hub doesn't have a TV app build yet")
+        return {
+            "version_code": int(latest["versionCode"]),
+            "version_name": latest.get("versionName"),
+            "sha256": latest.get("sha256"),
+            "signer_sha256": self.db.kv_get(KV_SIGNER),
+            "apk_path": "/v1/tv/apk",
+            "package": self.cfg.package,
+            "notes": latest.get("notes") or None,
+            "install": "Download the APK with this TV's bearer, check sha256 and signer_sha256, then hand the file to PackageInstaller. The person confirms on the TV.",
+        }
+
+    def approve_code(self, code: str, *, room: str | None = None, profile: str | None = None) -> dict[str, Any]:
+        """Approve a TV that is showing this code. No credentials are typed on the TV."""
+        want = (code or "").strip().upper()
+        if not re.fullmatch(r"[A-Z2-9]{6}", want):
+            raise TvAppError(400, "bad_code", "That code isn't one the TV would show")
+        found = None
+        for install_id, tv in self.tvs().items():
+            if tv.get("approve_code") == want and tv.get("status") == "pending":
+                found = install_id
+                break
+        if found is None:
+            raise TvAppError(404, "not_found", "No TV is waiting with that code")
+        if profile is not None and profile not in PROFILES:
+            raise TvAppError(400, "bad_profile", "Profile is adult or kids")
+        if room:
+            self._room(room)
+        return self.set_tv(found, status="approved", profile=profile, room=room if room else _UNSET)
+
     async def enroll(self, ip: str, install_id: str, name: str, model: str | None, app_version: str | None,
-                     public_key: str) -> dict[str, Any]:
+                     public_key: str, code: str | None = None) -> dict[str, Any]:
         from .crypto import CryptoError, normalize_public_key
 
         if not re.fullmatch(r"[A-Za-z0-9_-]{16,64}", install_id or ""):
@@ -492,23 +711,47 @@ class TvApp:
             tv = {"public_key": pk, "status": "pending", "profile": "adult", "created_at": time.time()}
         tv.update(name=(name or "TV")[:80], model=(model or "")[:80] or None, app_version=(app_version or "")[:40] or None,
                   ip=ip, last_seen_at=time.time())
+        link = self.install_link(code) if code else None
         box = self.boxes().get(ip)
         newly_pending = False
-        if tv["status"] == "pending" and box is not None:
+        if tv["status"] == "pending" and link is not None:
+            # The phone already created this install link, so the TV is approved without anyone typing on it.
+            tv.update(status="approved", profile=link.get("profile") or "adult", approved_at=time.time(),
+                      approved_by="code", mode="non-adb", room=link.get("room") or tv.get("room"))
+            if link.get("name"):
+                tv["name"] = link["name"]
+            boxes = self.boxes()
+            manual = boxes.get(f"code:{link['code']}")
+            if manual is not None:
+                manual.update(phase="ready", message="This TV is registered and has its source.", you_do=None, ip=ip)
+                boxes[f"code:{link['code']}"] = manual
+                self._save_boxes(boxes)
+        elif tv["status"] == "pending" and box is not None:
             # An admin added this box for the TV app already: that is the approval.
-            tv.update(status="approved", profile=box.get("profile") or "adult", approved_at=time.time(), approved_by="box")
+            tv.update(status="approved", profile=box.get("profile") or "adult", approved_at=time.time(), approved_by="box",
+                      mode=box.get("mode") or "adb")
+            if box.get("room") and not tv.get("room"):
+                tv["room"] = box["room"]
         elif tv["status"] == "pending" and install_id not in tvs:
             newly_pending = True
+        if tv["status"] == "pending" and not tv.get("approve_code"):
+            tv["approve_code"] = self._short_code()
+            tv["mode"] = tv.get("mode") or "non-adb"
         tvs[install_id] = tv
         self._save_tvs(tvs)
         self.db.log("tvapp.enroll", "ok", target=install_id, params={"name": tv["name"], "ip": ip, "status": tv["status"]},
                     source="tv")
         if newly_pending and self.notify:
-            await self.notify("A TV wants the TV app source", f"{tv['name']} ({ip}) is waiting. Approve it in Systems, TV app.")
-        return {"status": tv["status"], "profile": tv["profile"]}
+            await self.notify("A TV wants the TV app source",
+                              f"{tv['name']} is showing code {tv.get('approve_code')}. Approve it in the app.")
+        out = {"status": tv["status"], "profile": tv["profile"], "mode": tv.get("mode") or "adb"}
+        if tv["status"] == "pending" and tv.get("approve_code"):
+            out["code"] = tv["approve_code"]
+            out["approve_url"] = f"thomascreek://tv/{tv['approve_code']}"
+        return out
 
     def set_tv(self, install_id: str, *, status: str | None = None, profile: str | None = None,
-               name: str | None = None) -> dict[str, Any]:
+               name: str | None = None, room: Any = _UNSET, media_entity: Any = _UNSET) -> dict[str, Any]:
         tvs = self.tvs()
         tv = tvs.get(install_id)
         if tv is None:
@@ -526,9 +769,32 @@ class TvApp:
             tv["profile"] = profile
         if name:
             tv["name"] = name[:80]
+        if room is not _UNSET:
+            tv["room"] = self._room(room)
+        if media_entity is not _UNSET:
+            tv["media_entity"] = self._media_entity(media_entity)
         tvs[install_id] = tv
         self._save_tvs(tvs)
+        self.bump_config()
         return dict(tv, id=install_id)
+
+    @staticmethod
+    def _room(value: object) -> str | None:
+        if value is None or value == "":
+            return None
+        text = str(value)
+        if not _ROOM.fullmatch(text):
+            raise TvAppError(400, "bad_room", "room is a house area id, such as living_room")
+        return text
+
+    @staticmethod
+    def _media_entity(value: object) -> str | None:
+        if value is None or value == "":
+            return None
+        text = str(value)
+        if not _MEDIA.fullmatch(text):
+            raise TvAppError(400, "bad_target", "media_entity is a media_player id")
+        return text
 
     def remove_tv(self, install_id: str) -> None:
         tvs = self.tvs()
@@ -536,31 +802,413 @@ class TvApp:
             raise TvAppError(404, "not_found", "No such TV")
         self._save_tvs(tvs)
 
-    def config_for(self, install_id: str, ts: int, signature: str, ip: str | None, now: float | None = None) -> dict[str, Any]:
-        from .crypto import verify_signature
-
-        now = time.time() if now is None else now
+    def _verified(self, install_id: str, ts: int, signature: str, message: bytes, now: float, *,
+                  log_action: str) -> dict[str, Any]:
         tv = self.tvs().get(install_id or "")
         if tv is None:
             raise TvAppError(404, "unknown_tv", "This TV isn't registered. Open the app at home to register it.")
         if abs(now - int(ts)) > CONFIG_SKEW_S:
             raise TvAppError(400, "clock", "The TV's clock is off by more than five minutes")
-        if not verify_signature(tv["public_key"], f"tvconfig:{install_id}:{int(ts)}".encode(), signature or ""):
-            self.db.log("tvapp.config", "denied", target=install_id, detail="bad signature", source="tv")
+        if not verify_signature(tv["public_key"], message, signature or ""):
+            self.db.log(log_action, "denied", target=install_id, detail="bad signature", source="tv")
             raise TvAppError(401, "bad_signature", "Signature didn't match this TV")
-        if tv["status"] == "revoked":
+        if tv.get("status") == "revoked":
             raise TvAppError(403, "revoked", "This TV was removed on the hub")
+        return tv
+
+    def config_for(self, install_id: str, ts: int, signature: str, ip: str | None, now: float | None = None) -> dict[str, Any]:
+        now = time.time() if now is None else now
+        tv = self._verified(install_id, ts, signature, f"tvconfig:{install_id}:{int(ts)}".encode(), now,
+                            log_action="tvapp.config")
         if tv["status"] != "approved":
             return {"status": "pending"}
         tvs = self.tvs()
         tvs[install_id].update(last_config_at=now, ip=ip or tv.get("ip"))
         self._save_tvs(tvs)
         src = self._source()
-        out: dict[str, Any] = {"status": "approved", "name": tv.get("name"), "profile": tv.get("profile", "adult"),
-                               "playlists": src["playlists"], "epg_url": src["epg_url"], "updated_at": int(now)}
+        out: dict[str, Any] = {
+            "status": "approved",
+            "version": self.config_version(),
+            "name": tv.get("name"),
+            "profile": tv.get("profile", "adult"),
+            "room": tv.get("room"),
+            "media_entity": tv.get("media_entity"),
+            "playlists": src["playlists"],
+            "epg_url": src["epg_url"],
+            "lineup_version": self.lineup_version(),
+            "theme": self.theme(),
+        }
         if out["profile"] == "kids":
             out["kids_categories"] = self.kids_categories()
         return out
+
+    def config_version(self) -> int:
+        return int(self.db.kv_get(KV_CONFIG_VERSION) or 1)
+
+    def bump_config(self) -> int:
+        version = self.config_version() + 1
+        self.db.kv_set(KV_CONFIG_VERSION, version)
+        return version
+
+    def theme(self) -> dict[str, str] | None:
+        raw = self.db.kv_get("tvapp.theme")
+        if not isinstance(raw, dict):
+            return None
+        out: dict[str, str] = {}
+        for key in ("accent", "background", "motion"):
+            value = raw.get(key)
+            if isinstance(value, str) and value.strip():
+                out[key] = value.strip()[:40]
+        return out or None
+
+    # -- token, lineup, state, commands --------------------------------------------------------------------------------
+    @staticmethod
+    def key_fingerprint(tv: dict[str, Any]) -> str:
+        return hashlib.sha256(str(tv.get("public_key") or "").encode()).hexdigest()[:16]
+
+    def begin_token(self, install_id: str, ts: int, signature: str, person_id: str | None,
+                    ip: str | None, now: float | None = None) -> tuple[Subject, dict[str, Any], str]:
+        """Check the device-key signature and return (subject, device, key fingerprint).
+
+        The same timestamp cannot be used twice, so a captured sign-in cannot mint
+        another bearer. The caller still has to put the fingerprint in the token
+        and re-check it on every later request.
+        """
+        now = time.time() if now is None else now
+        person_id = person_id or None
+        if person_id is not None and not _PERSON_ID.fullmatch(person_id):
+            raise TvAppError(400, "bad_request", "person_id is not a person id")
+        tv = self._verified(install_id, ts, signature, token_message(install_id, ts, person_id), now,
+                            log_action="tvapp.token")
+        if tv.get("status") != "approved":
+            raise TvAppError(403, "pending", "This TV isn't approved yet")
+        if int(ts) <= int(tv.get("last_token_ts") or 0):
+            raise TvAppError(401, "replay", "This sign-in was already used. Ask again.")
+        subject = self.subject_for(tv, install_id, person_id)
+        device = self._device(tv, install_id)
+        fingerprint = self.key_fingerprint(tv)
+        tvs = self.tvs()
+        tvs[install_id].update(last_token_ts=int(ts), last_seen_at=now, ip=ip or tv.get("ip"))
+        self._save_tvs(tvs)
+        self.db.log("tvapp.token", "ok", person_id=subject.person_id, device_id=device["id"], target=install_id,
+                    params={"role": subject.role, "room": subject.areas[:1] or None}, source="tv")
+        return subject, device, fingerprint
+
+    def session(self, install_id: str, person_id: str | None, key_fp: str | None) -> tuple[Subject, dict[str, Any]]:
+        """Rebuild the TV's subject from the current record. The token's role is not trusted."""
+        tv = self.tvs().get(install_id or "")
+        if tv is None:
+            raise TvAppError(401, "unknown_tv", "This TV isn't registered. Open the app at home to register it.")
+        if tv.get("status") == "revoked" or (key_fp and key_fp != self.key_fingerprint(tv)):
+            raise TvAppError(401, "revoked", "This TV was removed on the hub")
+        if tv.get("status") != "approved":
+            raise TvAppError(403, "pending", "This TV isn't approved yet")
+        if person_id is not None and not isinstance(person_id, str):
+            person_id = str(person_id)
+        subject = self.subject_for(tv, install_id, person_id or None)
+        device = self._device(tv, install_id)
+        tvs = self.tvs()
+        if install_id in tvs:
+            tvs[install_id]["last_seen_at"] = time.time()
+            self._save_tvs(tvs)
+        return subject, device
+
+    def subject_for(self, tv: dict[str, Any], install_id: str, person_id: str | None) -> Subject:
+        """The TV's rights: its profile and room, optionally narrowed to one person.
+
+        A kids' profile is always a child. An adult profile starts as room-scoped
+        everyday control (the tablet bundle, with whole-house caps removed).
+        Naming a person can only narrow that. Grants on the person are not copied.
+        Denies are. Doors, cameras and every whole-house capability are denied.
+        """
+        person = self._person(person_id) if person_id else None
+        profile = tv.get("profile") or "adult"
+        role = self._tv_role(profile, person)
+        areas, shared = self._tv_areas(person, tv.get("room"), tv.get("media_entity"))
+        denies = list(person.get("denies") or []) if person else []
+        denies += [{"capability": cap} for cap in ALL_CAPABILITIES if cap not in TV_KEEP]
+        return Subject(
+            person_id=person["id"] if person else None,
+            role=role,
+            areas=areas,
+            shared_areas=shared,
+            grants=[{"capability": cap} for cap in ("lights.own_room", "climate.own_room", "media.own_tv")],
+            denies=denies,
+            tv_device=tv.get("media_entity"),
+            at_home=True,
+            device_id=f"tv:{install_id}",
+            name=tv.get("name") or "TV",
+            tv=True,
+            tv_id=install_id,
+        )
+
+    def _person(self, person_id: str) -> dict[str, Any]:
+        person = self.db.person(person_id)
+        if person is None:
+            raise TvAppError(404, "not_found", "No such person")
+        if person.get("expires_at") and person["expires_at"] < time.time():
+            raise TvAppError(403, "forbidden", "That person's access has ended")
+        return person
+
+    @staticmethod
+    def _tv_role(profile: str, person: dict[str, Any] | None) -> str:
+        if profile == "kids":
+            if person is not None and person.get("role") != "child":
+                raise TvAppError(403, "forbidden", "A kids' TV can't act as a grown-up")
+            return "child"
+        if person is None:
+            return "tablet"
+        role = person.get("role")
+        if role == "child":
+            return "child"
+        if role == "guest":
+            return "guest"
+        if role in ("adult", "admin", "tablet"):
+            # An admin or adult is narrowed to room-scoped everyday control.
+            return "tablet"
+        raise TvAppError(403, "forbidden", "That person can't use a TV")
+
+    @staticmethod
+    def _tv_areas(person: dict[str, Any] | None, room: str | None,
+                  media_entity: str | None) -> tuple[list[str], list[str]]:
+        if person is None:
+            return ([room] if room else []), []
+        role = person.get("role")
+        if role in ("admin", "adult", "tablet"):
+            return ([room] if room else []), []
+        own = set(person.get("areas") or [])
+        shared = set(person.get("shared_areas") or [])
+        if room and room in own:
+            return [room], []
+        if room and room in shared:
+            return [], [room]
+        # No overlap with this room. Their own player still matches tv_device
+        # when this TV is that player; otherwise the token can look but not act.
+        if person.get("tv_device") and person.get("tv_device") == media_entity:
+            return ([room] if room and room in own else []), []
+        return [], []
+
+    @staticmethod
+    def _device(tv: dict[str, Any], install_id: str) -> dict[str, Any]:
+        return {
+            "id": f"tv:{install_id}",
+            "name": tv.get("name") or "TV",
+            "status": "active",
+            "kind": "tv",
+            "install_id": install_id,
+        }
+
+    def lineup_version(self) -> int:
+        return int(self._lineup().get("version") or 0)
+
+    def _lineup(self) -> dict[str, Any]:
+        raw = self.db.kv_get(KV_LINEUP) or {}
+        if not isinstance(raw, dict):
+            return {"version": 0, "channels": []}
+        channels = raw.get("channels")
+        return {"version": int(raw.get("version") or 0),
+                "channels": channels if isinstance(channels, list) else []}
+
+    def set_lineup(self, rows: list[dict[str, Any]]) -> dict[str, Any]:
+        if len(rows) > MAX_CHANNELS:
+            raise TvAppError(400, "too_many", "Too many channels")
+        try:
+            channels = [normalize_channel(row) for row in rows]
+        except LineupError as exc:
+            raise TvAppError(400, exc.code, exc.message) from None
+        seen: set[str] = set()
+        for row in channels:
+            if row["key"] in seen:
+                raise TvAppError(400, "bad_channel", f"Channel {row['key']} is listed twice")
+            seen.add(row["key"])
+        version = self.lineup_version() + 1
+        self.db.kv_set(KV_LINEUP, {"version": version, "channels": channels})
+        self.bump_config()
+        shown = self.public_lineup(kids_only=False)
+        shown["hidden"] = sum(1 for row in channels if row.get("hidden"))
+        return shown
+
+    def public_lineup(self, *, kids_only: bool) -> dict[str, Any]:
+        doc = self._lineup()
+        rows = []
+        for row in doc["channels"]:
+            if row.get("hidden"):
+                continue
+            if kids_only and not row.get("kids"):
+                continue
+            rows.append(public_channel(row))
+        rows.sort(key=lambda row: (row["number"] is None, row["number"] or 0, row["name"].casefold()))
+        return {"version": doc["version"], "channels": rows}
+
+    def require_channel(self, key: str) -> dict[str, Any]:
+        if not valid_key(key or ""):
+            raise TvAppError(400, "bad_key", "channel_key must be an iptv-org, Xtream or tvg id")
+        for row in self._lineup()["channels"]:
+            if row.get("key") == key and not row.get("hidden"):
+                return row
+        raise TvAppError(404, "not_found", "That channel isn't in the lineup")
+
+    def resolve(self, target: str) -> tuple[str, dict[str, Any]]:
+        tvs = self.tvs()
+        if target in tvs:
+            return target, tvs[target]
+        matches = [(iid, tv) for iid, tv in tvs.items()
+                   if tv.get("media_entity") == target and tv.get("status") == "approved"]
+        if len(matches) == 1:
+            return matches[0]
+        if len(matches) > 1:
+            raise TvAppError(409, "ambiguous", "That player is linked to more than one TV")
+        raise TvAppError(404, "not_found", "That TV isn't registered")
+
+    def record_state(self, install_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        playing = self._playing(body.get("playing"))
+        health = self._health(body.get("health"))
+        foreground = bool(body.get("foreground", True))
+        now = time.time()
+        tvs = self.tvs()
+        tv = tvs.get(install_id)
+        if tv is None or tv.get("status") != "approved":
+            raise TvAppError(401, "revoked", "This TV was removed on the hub")
+        tv.update(playing=playing, foreground=foreground, health=health, state_at=now, last_seen_at=now)
+        if health.get("app_version"):
+            tv["app_version"] = health["app_version"]
+        command = _command_result(body)
+        if command is not None:
+            tv["last_command"] = command
+        tvs[install_id] = tv
+        self._save_tvs(tvs)
+        self.db.log("tvapp.state", "ok", device_id=f"tv:{install_id}", target=install_id,
+                    params={"playing": (playing or {}).get("channel_key"), "foreground": foreground,
+                            "command": None if command is None else command.get("id")}, source="tv")
+        event = self.watch_event(install_id)
+        if command is not None:
+            event["command"] = command
+        return event
+
+    def watch_event(self, install_id: str) -> dict[str, Any]:
+        tv = self.tvs().get(install_id) or {}
+        return {
+            "id": install_id,
+            "name": tv.get("name"),
+            "room": tv.get("room"),
+            "profile": tv.get("profile"),
+            "media_entity": tv.get("media_entity"),
+            "foreground": bool(tv.get("foreground", True)),
+            "playing": tv.get("playing"),
+            "at": iso(tv.get("state_at")),
+        }
+
+    def _playing(self, raw: object) -> dict[str, Any] | None:
+        if raw is None:
+            return None
+        if not isinstance(raw, dict):
+            raise TvAppError(400, "bad_request", "playing must be an object")
+        key = raw.get("channel_key")
+        if key:
+            if not valid_key(str(key)):
+                raise TvAppError(400, "bad_key", "channel_key must be an iptv-org, Xtream or tvg id")
+            key = str(key)
+        else:
+            key = None
+        number = raw.get("number")
+        if number is not None:
+            try:
+                number = int(number)
+            except (TypeError, ValueError):
+                raise TvAppError(400, "bad_request", "number must be an integer") from None
+            if not 0 <= number <= 99999:
+                raise TvAppError(400, "bad_request", "number is out of range")
+        title = _clip(raw.get("title"), 120)
+        name = _clip(raw.get("name"), 80)
+        if key is None and title is None and name is None and number is None:
+            return None
+        return {"channel_key": key, "title": title, "name": name, "number": number}
+
+    def _health(self, raw: object) -> dict[str, Any]:
+        if raw is None:
+            return {}
+        if not isinstance(raw, dict):
+            raise TvAppError(400, "bad_request", "health must be an object")
+        out: dict[str, Any] = {}
+        version = _clip(raw.get("app_version"), 40)
+        if version:
+            out["app_version"] = version
+        profile = raw.get("profile")
+        if profile in PROFILES:
+            out["profile"] = profile
+        age = raw.get("epg_age_s")
+        if age is not None:
+            try:
+                age_i = int(age)
+            except (TypeError, ValueError):
+                raise TvAppError(400, "bad_request", "epg_age_s must be a number of seconds") from None
+            if age_i >= 0:
+                out["epg_age_s"] = min(age_i, 8640000)
+        error = _redact(raw.get("last_error"))
+        if error:
+            out["last_error"] = error
+        return out
+
+    def enqueue_command(self, install_id: str, command: dict[str, Any]) -> dict[str, Any]:
+        now = time.time()
+        stored = {"id": new_id("tvc"), "install_id": install_id, "action": command["action"], "at": iso(now), "ts": now}
+        for key in _COMMAND_FIELDS:
+            if command.get(key) is not None:
+                stored[key] = command[key]
+        all_commands = self.db.kv_get(KV_COMMANDS) or {}
+        queued = [row for row in all_commands.get(install_id, []) if self._command_fresh(row, now)]
+        queued.append(stored)
+        all_commands[install_id] = queued[-MAX_COMMANDS:]
+        self.db.kv_set(KV_COMMANDS, all_commands)
+        self.kick(install_id)
+        return _public_command(stored)
+
+    def pending_commands(self, install_id: str) -> list[dict[str, Any]]:
+        now = time.time()
+        all_commands = self.db.kv_get(KV_COMMANDS) or {}
+        queued = list(all_commands.get(install_id, []))
+        fresh = [row for row in queued if self._command_fresh(row, now)]
+        if len(fresh) != len(queued):
+            all_commands[install_id] = fresh
+            self.db.kv_set(KV_COMMANDS, all_commands)
+        return [_public_command(row) for row in fresh]
+
+    def ack_commands(self, install_id: str, ids: list[str]) -> int:
+        want = {str(i) for i in ids}
+        all_commands = self.db.kv_get(KV_COMMANDS) or {}
+        queued = list(all_commands.get(install_id, []))
+        kept = [row for row in queued if row.get("id") not in want]
+        all_commands[install_id] = kept
+        self.db.kv_set(KV_COMMANDS, all_commands)
+        return len(queued) - len(kept)
+
+    async def wait_commands(self, install_id: str, timeout: float) -> list[dict[str, Any]]:
+        event = asyncio.Event()
+        self._waiters.setdefault(install_id, []).append(event)
+        try:
+            found = self.pending_commands(install_id)
+            if found or timeout <= 0:
+                return found
+            try:
+                await asyncio.wait_for(event.wait(), timeout)
+            except asyncio.TimeoutError:
+                pass
+        finally:
+            waiters = self._waiters.get(install_id, [])
+            if event in waiters:
+                waiters.remove(event)
+        return self.pending_commands(install_id)
+
+    def kick(self, install_id: str) -> None:
+        for event in self._waiters.get(install_id, []):
+            event.set()
+
+    @staticmethod
+    def _command_fresh(row: dict[str, Any], now: float) -> bool:
+        try:
+            return now - float(row.get("ts") or 0) < COMMAND_TTL_S
+        except (TypeError, ValueError):
+            return False
 
     # -- background ----------------------------------------------------------------------------------------------------
     def start(self) -> None:
@@ -574,6 +1222,9 @@ class TvApp:
                 if self.vault.has(TOKEN_SECRET):
                     await self.check()
                 await self.update_all()
+                from .tvsetup import reconcile
+
+                await reconcile(self)
             except asyncio.CancelledError:
                 raise
             except TvAppError as exc:

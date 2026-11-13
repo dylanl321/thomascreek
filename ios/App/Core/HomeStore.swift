@@ -217,6 +217,13 @@ final class HomeStore {
                                      setUp: st.setUp, job: st.job, color: st.activeTray?.color)
             if let i = h.printers?.firstIndex(where: { $0.id == st.id }) { h.printers?[i] = sum; home = h }
             NotificationCenter.default.post(name: .printerStatus, object: st)
+        case "tv":
+            // A house TV reported how tv.play turned out.
+            guard case .object(let o)? = e.data, let cmd = o["command"]?.object else { return }
+            let name = o["name"]?.string ?? "The TV"
+            let ok = cmd["ok"]?.bool ?? false
+            show(ok ? "Playing on \(name)" : (cmd["error"]?.string ?? "\(name) didn't start it"), isError: !ok)
+            return
         case "watch":
             // "Watch this on that TV" finished in the background (Plex opened, title started, tracks picked).
             guard case .object(let o)? = e.data else { return }

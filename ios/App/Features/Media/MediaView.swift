@@ -18,6 +18,8 @@ struct MediaView: View {
                     SectionTile(symbol: "hifispeaker.2.fill", title: "Music", detail: speakersLine) { router.go(.music) }
                 }
                 .padding(.top, 8)
+                SectionTile(symbol: "list.bullet.rectangle", title: "TV guide",
+                            detail: "What's on, shows and movies, on a house TV") { router.go(.tvGuide) }
                 if !(store.home?.devices(kind: .media) ?? []).isEmpty {
                     SectionTile(symbol: "tv.badge.wifi", title: "Watch on a TV", detail: "YouTube, Netflix, Plex and more, on any TV") {
                         watchAnywhere = true

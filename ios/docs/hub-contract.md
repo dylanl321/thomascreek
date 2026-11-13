@@ -364,3 +364,45 @@ Adults and admins (`remotes.setup`). Pairing runs through Home Assistant's own s
   `PUT /v1/media/hookups/{box}` `{display_entity_id|null, input|null}` says which TV a box is plugged into and on
   which input. When the box is used, the hub turns that TV on and switches its input, sends volume to the TV, and
   turns both on or off together. The box's state carries `plugged_into {entity_id,name,input}`.
+
+## TV guide and play on a house TV (2026-11-13)
+
+The source of truth is `server/docs/API.md` (Thomas Creek TV). Shapes the iOS app now calls:
+
+- `GET /v1/tv/guide` → `{channels:[{key,name,number,logo,now,next,programmes}]}`. Programme: `{start,end,title,subtitle,desc,icon,catchup}`.
+- `GET /v1/tv/series`, `GET /v1/tv/series/<id>`, `GET /v1/tv/movies`, `GET /v1/tv/movies/<id>`, `GET /v1/tv/library/search?q=`.
+- `GET /v1/tv/players` → `{tvs:[{id,name,room,room_name,profile,online,playing,last_command}]}`. `id` is the TV install id, the `target` of `tv.play`.
+- `POST /v1/actions` `{action:"tv.play", target:<install id>, params}`. Params: `{channel_key, title?}` live; `{kind:"catchup", channel_key, start, resume?}`; `{movie_id, resume?}`; `{episode_id, series_id, resume?}`. Response adds `command_id` when the hub actually delivered it (`dry_run` means practice mode, nothing was sent).
+- SSE `tv`: `{id,name,room,playing,command?:{id,ok,error}}`. The app toasts `command`. A failure is `ok: false` and `error`.
+
+Kids only get kids' rows from the hub. The guide screen does not filter a second time.
+
+App: Media and the kids' Watch tab open `TVGuideView` (`Destination.tvGuide`, `thomascreek://guide`). A row opens `PlayOnTVSheet`, which lists `/v1/tv/players` and sends `tv.play`. Series and movie pages are `TVSeriesView` / `TVMovieView`.
+
+Follow-ups, not in this build: resume slider, a full programme grid (the guide shows now and next, not every row in the window), artwork caching, and waking the TV through `media.command` before `tv.play`. The Android TV app still has to enroll, take the token, and apply `tv_command`.
+
+## Universal search (2026-11-13)
+
+`GET /v1/titles/search?q=` is the one title search (Plex, IPTV channels, guide, VOD, series, and TMDB through Jellyseerr). The house search (`GET /v1/search`) is unchanged and still runs beside it.
+
+Each `titles[]` card is one film or show. `offers[].label` is the line to show (`In Plex (4K)`, `IPTV VOD`, `Airs Tue 8pm on ESPN`, `Catch-up until Fri`). `offers[].params` is ready for `tv.play`. `offers[].plex_id` opens the existing Plex play sheet (`PlayOnSheet` / `KidPlaySheet`: play on a TV through `/v1/media/play`, or download to the phone). `offers[].series_id` opens `Destination.tvSeries`.
+
+`request.status` is `waiting`, `requested`, `downloading`, `available`, or null. `can_request` shows Request. `ask_parent` means the button says "Ask a grown-up" and `POST /v1/titles/request {media_id}` waits for `POST /v1/requests/{id}/approve` instead of calling Jellyseerr itself.
+
+The search sheet shows these cards above the other groups (`TitleResultCard`). The TV app uses the same GET.
+
+## TV app setup and the Plex row (2026-11-13)
+
+On TVs and boxes, under Thomas Creek TV: `GET /v1/tvapp/discover`, `POST /v1/tvapp/setup`, `GET /v1/tvapp/setup/{ip}`. Show `you_do` as the instruction, then `steps`. A step `note` is the on-TV instruction when debugging could not grant the overlay or set Home. `needs_allow` means tap Allow on the TV and run setup again. `warning` is the Fire TV note. `POST /v1/tvapp/setup/{ip}/rollback-home` undoes the home screen.
+
+`mode` on the setup status and on each TV from `GET /v1/tvapp` is `adb` or `non-adb`. Show it as With debugging or Without debugging.
+
+Without debugging, `POST /v1/tvapp/setup` `{mode: "non-adb", name?, room?, profile?}` returns `install.url` and `install.code`. Show the URL, a QR of that URL, and the code. `GET /v1/tvapp/setup/code/{code}` refreshes it. A pending TV includes `approve_code`; `POST /v1/tvapp/approve` `{code}` lets it in.
+
+The TV app, with its bearer: `GET /v1/tv/update` then `GET /v1/tv/apk`. Check `sha256` and `signer_sha256` before `PackageInstaller`. The manifest's download path is `apk_path`. The person confirms the install on the TV.
+
+`GET /v1/tv/apps` → `{allowed:[package names]}`. A kids profile gets the kid apps. An adult profile gets the household list. The field is always present.
+
+A TV that is waiting shows a QR of `thomascreek://tv/{code}`. Opening that URL presents Approve TV, which calls `POST /v1/tvapp/approve` `{code}`. The pending enroll body is `{status:"pending", code, approve_url}` and `approve_url` is that same URL.
+
+`GET /v1/tv/plex` → `{continue, on_deck, recent}`. Each item has `poster_url` (fetch with the bearer) and `deep_link` plus `package` (`com.plexapp.android`) so the TV app can open Plex on that title. Kids' tokens only get allowed ratings.

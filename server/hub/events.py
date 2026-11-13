@@ -18,23 +18,35 @@ class Subscriber:
     queue: asyncio.Queue
     accept: Callable[[dict[str, Any]], dict[str, Any] | None]
     person_id: str | None
+    device_id: str | None = None
+    tv: bool = False
 
 
 class EventBus:
     def __init__(self) -> None:
         self._subs: set[Subscriber] = set()  # type: ignore[arg-type]
 
-    def subscribe(self, accept: Callable[[dict[str, Any]], dict[str, Any] | None], person_id: str | None) -> Subscriber:
-        sub = Subscriber(asyncio.Queue(maxsize=500), accept, person_id)
+    def subscribe(self, accept: Callable[[dict[str, Any]], dict[str, Any] | None], person_id: str | None,
+                  device_id: str | None = None, *, tv: bool = False) -> Subscriber:
+        sub = Subscriber(asyncio.Queue(maxsize=500), accept, person_id, device_id, tv)
         self._subs.add(sub)  # type: ignore[arg-type]
         return sub
 
     def unsubscribe(self, sub: Subscriber) -> None:
         self._subs.discard(sub)  # type: ignore[arg-type]
 
-    def publish(self, event: dict[str, Any], person_id: str | None = None) -> None:
-        """Send to every subscriber whose filter accepts it (or only to one person)."""
+    def publish(self, event: dict[str, Any], person_id: str | None = None, *,
+                device_id: str | None = None, tvs: bool = False) -> None:
+        """Send to every subscriber whose filter accepts it.
+
+        `person_id` limits the event to that person's devices. `device_id` limits
+        it to one device (a TV command). `tvs` sends it only to TV subscriptions.
+        """
         for sub in list(self._subs):
+            if tvs and not sub.tv:
+                continue
+            if device_id is not None and sub.device_id != device_id:
+                continue
             if person_id is not None and sub.person_id != person_id:
                 continue
             shaped = sub.accept(event)

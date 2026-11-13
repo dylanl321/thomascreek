@@ -91,6 +91,19 @@ def android_package(a: dict[str, Any]) -> str | None:
     return a.get("android") or LEARNED.get(a["id"])
 
 
+def allowed_packages(*, kids: bool) -> list[str]:
+    """Android packages a TV may show. A kids profile gets the kid apps; an adult profile gets the catalog."""
+    out: list[str] = []
+    for app in APPS:
+        package = android_package(app)
+        if not package:
+            continue
+        if kids and not app.get("kid"):
+            continue
+        out.append(package)
+    return out
+
+
 def learn(app_ids: Any) -> bool:
     """Remember the package of a sideloaded catalog app (TREX) from what the boxes report as open."""
     new = False

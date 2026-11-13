@@ -85,23 +85,25 @@ class TokenIssuer:
         self._iss = issuer
         self._ttl = ttl_s
 
-    def issue(self, device_id: str, person_id: str | None, role: str) -> tuple[str, float]:
+    def issue(self, device_id: str, person_id: str | None, role: str, *,
+              extra: dict[str, Any] | None = None) -> tuple[str, float]:
         now = time.time()
         exp = now + self._ttl
-        token = jwt.encode(
-            {
-                "iss": self._iss,
-                "aud": ACCESS_AUDIENCE,
-                "sub": device_id,
-                "per": person_id,
-                "role": role,
-                "iat": int(now),
-                "exp": int(exp),
-                "jti": secrets.token_hex(8),
-            },
-            self._key,
-            algorithm="HS256",
-        )
+        payload: dict[str, Any] = {
+            "iss": self._iss,
+            "aud": ACCESS_AUDIENCE,
+            "sub": device_id,
+            "per": person_id,
+            "role": role,
+            "iat": int(now),
+            "exp": int(exp),
+            "jti": secrets.token_hex(8),
+        }
+        # Extra claims (a TV token's kind) cannot overwrite the identity fields.
+        for key, value in (extra or {}).items():
+            if key not in payload:
+                payload[key] = value
+        token = jwt.encode(payload, self._key, algorithm="HS256")
         return token, exp
 
     def issue_scoped(self, claims: dict[str, Any], ttl_s: int) -> tuple[str, float]:
