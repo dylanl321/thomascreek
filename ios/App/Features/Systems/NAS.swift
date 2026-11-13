@@ -80,7 +80,7 @@ struct NASLogs: Decodable {
     var containers: [C]
     var lines: [Line]
     struct C: Decodable, Hashable, Identifiable { var id: String; var service: String?; var state: String? }
-    struct Line: Decodable, Hashable { var t: String?; var text: String }
+    struct Line: Decodable, Hashable { var t: String?; var text: String; var level: String? }
 }
 
 struct NASJob: Decodable { var id: Int; var state: String?; var pct: Double?; var description: String?; var error: String? }
@@ -683,10 +683,10 @@ struct NASLogsView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 1) {
                         if let logs {
-                            let lines = errorsOnly ? logs.lines.filter { level($0.text) != nil } : logs.lines
+                            let lines = errorsOnly ? logs.lines.filter { color($0) != nil } : logs.lines
                             if lines.isEmpty { Text(errorsOnly ? "No errors or warnings." : "Nothing logged yet.").foregroundStyle(.gray) }
                             ForEach(Array(lines.enumerated()), id: \.offset) { i, l in
-                                Text(l.text).foregroundStyle(level(l.text) ?? Color(white: 0.82)).id(i)
+                                Text(l.text).foregroundStyle(color(l) ?? Color(white: 0.82)).id(i)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                             }
                             Color.clear.frame(height: 1).id("end")
@@ -724,10 +724,20 @@ struct NASLogsView: View {
         catch { failed = error.localizedDescription }
     }
 
-    private func level(_ s: String) -> Color? {
+    /// The hub strips terminal colour codes and sends the level they meant (or the line's ERROR/WARN words).
+    private func color(_ l: NASLogs.Line) -> Color? {
+        switch l.level ?? level(l.text) {
+        case "error": Color(red: 1, green: 0.54, blue: 0.5)
+        case "warn": Color(red: 0.96, green: 0.76, blue: 0.42)
+        default: nil
+        }
+    }
+
+    /// Older hubs send no level: guess it from the words.
+    private func level(_ s: String) -> String? {
         let u = s.uppercased()
-        if u.contains("ERROR") || u.contains("FATAL") || u.contains("PANIC") || u.contains("TRACEBACK") || u.contains("EXCEPTION") { return Color(red: 1, green: 0.54, blue: 0.5) }
-        if u.contains("WARN") { return Color(red: 0.96, green: 0.76, blue: 0.42) }
+        if u.contains("ERROR") || u.contains("FATAL") || u.contains("PANIC") || u.contains("TRACEBACK") || u.contains("EXCEPTION") { return "error" }
+        if u.contains("WARN") { return "warn" }
         return nil
     }
 }
