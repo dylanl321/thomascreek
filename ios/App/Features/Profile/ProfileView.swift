@@ -57,6 +57,7 @@ struct ProfileView: View {
                 } header: { Text("You") } footer: {
                     Text("These follow you to your other iPhone and iPad.")
                 }
+                FamilySettingsSection()
                 if store.me?.can(.holidayFull) == true || store.me?.can(.holidayLooks) == true {
                     LightsSettingsSection()
                 }

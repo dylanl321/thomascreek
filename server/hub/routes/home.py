@@ -59,6 +59,9 @@ class ActionBody(BaseModel):
     action: str = Field(max_length=60)
     target: str | None = Field(default=None, max_length=200)
     params: dict[str, Any] = Field(default_factory=dict)
+    # Sent by widgets, Control Center, CarPlay and the Watch (all on an unlocked phone or a worn Watch).
+    # Actions listed in hub.quick_actions then skip the Face ID step.
+    quick: bool = False
 
 
 @router.post("/actions")
@@ -67,11 +70,11 @@ async def actions(body: ActionBody, request: Request, c: Caller = Depends(caller
         raise error(400, "bad_params", "Unknown parameter")
     if body.action == "media.play":
         raise error(400, "use_media_play", "Use POST /v1/media/play")
-    return await perform(request, c, h, body.action, body.target, body.params)
+    return await perform(request, c, h, body.action, body.target, body.params, quick=body.quick)
 
 
 async def perform(request: Request, c: Caller, h: Hub, action: str, target: str | None,
-                  params: dict[str, Any]) -> dict[str, Any]:
+                  params: dict[str, Any], *, quick: bool = False) -> dict[str, Any]:
     try:
         plan = h.actions.plan(c.subject, action, target, params)
     except ActionError as exc:
@@ -81,9 +84,12 @@ async def perform(request: Request, c: Caller, h: Hub, action: str, target: str 
         h.db.log(action, "denied", person_id=c.subject.person_id, device_id=c.device["id"], target=target,
                  params={k: v for k, v in params.items() if not k.startswith("_")}, detail=d.reason)
         raise error(403, "forbidden", "Ask a parent" if d.ask_parent else "Not allowed", ask_parent=d.ask_parent)
-    await require_confirm(request, h, c, d.tier)
+    quick_ok = (quick and d.tier == "secure" and action in h.config.hub.quick_actions
+                and c.subject.role in ("admin", "adult"))
+    if not quick_ok:
+        await require_confirm(request, h, c, d.tier)
     try:
-        via = "ask" if request.headers.get("x-tc-via") == "ask" else "app"
+        via = "ask" if request.headers.get("x-tc-via") == "ask" else "quick" if quick_ok else "app"
         return await h.actions.run(c.subject, plan, source=via)
     except ActionError as exc:
         raise error(exc.status, exc.error, exc.message) from None

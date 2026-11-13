@@ -1,0 +1,19 @@
+# Adds the CarPlay scene and the Driving Task entitlement on top of the Watch build.
+# Only usable after Apple approves "CarPlay Driving Task" for the account
+# (developer.apple.com/contact/carplay) and the app's App Store profile includes it.
+include:
+  - project-watch.yml
+targets:
+  ThomasCreek:
+    entitlements:
+      properties:
+        com.apple.developer.carplay-driving-task: true
+    info:
+      properties:
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: true
+          UISceneConfigurations:
+            CPTemplateApplicationSceneSessionRoleApplication:
+              - UISceneClassName: CPTemplateApplicationScene
+                UISceneConfigurationName: CarPlay
+                UISceneDelegateClassName: $(PRODUCT_MODULE_NAME).CarPlaySceneDelegate

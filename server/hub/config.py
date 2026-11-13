@@ -176,8 +176,20 @@ class SmartConfig(BaseModel):
     off_rules: list[str] = Field(default_factory=list)  # rule ids switched off for everyone
 
 
+class GuestLockCode(BaseModel):
+    """Guest passes can put their door code on a lock: Z-Wave JS user codes or Keymaster slots."""
+
+    entity: str | None = None          # e.g. lock.front_door
+    door_name: str = "Front door"
+    service: str = "zwave_js"          # zwave_js | keymaster
+    slots: list[int] = Field(default_factory=lambda: [20, 21, 22, 23])
+
+
 class GuestInfo(BaseModel):
     wifi_ssid: str | None = None
+    address: str | None = None         # shown on a guest pass
+    host_phone: str | None = None      # "Text Dylan" on a guest pass
+    lock_code: GuestLockCode | None = None
     wifi_password_secret: str = "guest_wifi.password"
     host_name: str | None = None
     guidance: list[dict[str, str]] = Field(default_factory=list)  # {icon,title,detail}
@@ -232,6 +244,14 @@ class HubSettings(BaseModel):
     # e.g. [{name: Theo, role: child, ui_style: kid}]. Never edits or removes
     # anyone, so later changes in the app stick. Safe to leave in place.
     seed_people: list[dict[str, Any]] = Field(default_factory=list)
+    # Secure actions a grown-up may run from a widget, Control Center, CarPlay or the Watch without
+    # the Face ID step (the phone must be unlocked, or the Watch on the wrist). Never door unlocks.
+    quick_actions: list[str] = Field(default_factory=lambda: ["garage.set"])  # Dylan chose this, 2026-11-12
+
+    @field_validator("quick_actions")
+    @classmethod
+    def _no_unlock(cls, v: list[str]) -> list[str]:
+        return [a for a in v if a in ("garage.set",)]
 
     @field_validator("home_networks", "trusted_proxies")
     @classmethod

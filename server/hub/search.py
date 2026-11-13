@@ -584,7 +584,7 @@ async def _events(h: "Hub", s: Subject, ws: list[str]) -> list[dict[str, Any]]:
 async def _calendar(h: "Hub", s: Subject, ws: list[str]) -> list[dict[str, Any]]:
     if not h.policy.has(s, "family.view") or not h.family_board.enabled:
         return []
-    data = await _cached("calendar", 300, lambda: h.family_board.calendar(45))
+    data = await _cached("calendar", 300, lambda: h.family_board.calendar(45, h.config.hub.timezone))
     out = []
     from datetime import datetime
 

@@ -8072,6 +8072,1073 @@
      }
     }
    }
+  },
+  "/v1/today": {
+   "get": {
+    "tags": [
+     "household"
+    ],
+    "summary": "Today",
+    "description": "One glance at the day: weather, calendar, dinner, who's home, chores and bedtime.\nChores are the caller's own (children) or every child's progress (grown-ups).",
+    "operationId": "today_v1_today_get",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Today V1 Today Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/family/presence": {
+   "get": {
+    "tags": [
+     "household"
+    ],
+    "summary": "Presence",
+    "operationId": "presence_v1_family_presence_get",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Presence V1 Family Presence Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/presence": {
+   "post": {
+    "tags": [
+     "household"
+    ],
+    "summary": "Report Presence",
+    "description": "The phone crossed the edge of home (its geofence). Leaving may answer with what's still open;\narriving may run the person's welcome mode.",
+    "operationId": "report_presence_v1_presence_post",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/PresenceReport"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Report Presence V1 Presence Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/departure": {
+   "get": {
+    "tags": [
+     "household"
+    ],
+    "summary": "Departure",
+    "description": "\"Last one out?\": who's still home and what's still open, each with its fix.",
+    "operationId": "departure_v1_departure_get",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Departure V1 Departure Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/me/welcome": {
+   "get": {
+    "tags": [
+     "household"
+    ],
+    "summary": "Get Welcome",
+    "operationId": "get_welcome_v1_me_welcome_get",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Get Welcome V1 Me Welcome Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "put": {
+    "tags": [
+     "household"
+    ],
+    "summary": "Set Welcome",
+    "operationId": "set_welcome_v1_me_welcome_put",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/Welcome"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Set Welcome V1 Me Welcome Put"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/intercom": {
+   "get": {
+    "tags": [
+     "household"
+    ],
+    "summary": "Intercom",
+    "description": "Quick phrases and the speakers an announcement can go to (send it with action \"announce\").",
+    "operationId": "intercom_v1_intercom_get",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Intercom V1 Intercom Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/ask-parent": {
+   "post": {
+    "tags": [
+     "household"
+    ],
+    "summary": "Ask Parent",
+    "description": "A child's picture button (\"I'm hungry\", \"Come here please\"): a push to the grown-ups at home first.",
+    "operationId": "ask_parent_v1_ask_parent_post",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/AskParent"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Ask Parent V1 Ask Parent Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/people/{person_id}/bedtime": {
+   "get": {
+    "tags": [
+     "household"
+    ],
+    "summary": "Get Bedtime",
+    "operationId": "get_bedtime_v1_people__person_id__bedtime_get",
+    "parameters": [
+     {
+      "name": "person_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Person Id"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Get Bedtime V1 People  Person Id  Bedtime Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "put": {
+    "tags": [
+     "household"
+    ],
+    "summary": "Put Bedtime",
+    "operationId": "put_bedtime_v1_people__person_id__bedtime_put",
+    "parameters": [
+     {
+      "name": "person_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Person Id"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/Bedtime"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Put Bedtime V1 People  Person Id  Bedtime Put"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/people/{person_id}/bedtime/extend": {
+   "post": {
+    "tags": [
+     "household"
+    ],
+    "summary": "Extend Bedtime",
+    "operationId": "extend_bedtime_v1_people__person_id__bedtime_extend_post",
+    "parameters": [
+     {
+      "name": "person_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Person Id"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/Extend"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Extend Bedtime V1 People  Person Id  Bedtime Extend Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/devices/live-activity": {
+   "post": {
+    "tags": [
+     "household"
+    ],
+    "summary": "Live Token",
+    "description": "The phone's ActivityKit push-to-start token, so the doorbell can open a Live Activity.",
+    "operationId": "live_token_v1_devices_live_activity_post",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/LiveToken"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Live Token V1 Devices Live Activity Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/guest-passes": {
+   "get": {
+    "tags": [
+     "household"
+    ],
+    "summary": "List Passes",
+    "operationId": "list_passes_v1_guest_passes_get",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response List Passes V1 Guest Passes Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "post": {
+    "tags": [
+     "household"
+    ],
+    "summary": "Create Pass",
+    "operationId": "create_pass_v1_guest_passes_post",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/NewPass"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Create Pass V1 Guest Passes Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/guest-passes/{pass_id}": {
+   "delete": {
+    "tags": [
+     "household"
+    ],
+    "summary": "Revoke Pass",
+    "operationId": "revoke_pass_v1_guest_passes__pass_id__delete",
+    "parameters": [
+     {
+      "name": "pass_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Pass Id"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Revoke Pass V1 Guest Passes  Pass Id  Delete"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/feedback": {
+   "post": {
+    "tags": [
+     "household"
+    ],
+    "summary": "Send Feedback",
+    "description": "Anyone in the family: a note (and optional screenshot) for Dylan. Lands in his inbox.",
+    "operationId": "send_feedback_v1_feedback_post",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/Feedback"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Send Feedback V1 Feedback Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "get": {
+    "tags": [
+     "household"
+    ],
+    "summary": "List Feedback",
+    "operationId": "list_feedback_v1_feedback_get",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response List Feedback V1 Feedback Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/feedback/{fid}/shot.jpg": {
+   "get": {
+    "tags": [
+     "household"
+    ],
+    "summary": "Feedback Shot",
+    "operationId": "feedback_shot_v1_feedback__fid__shot_jpg_get",
+    "parameters": [
+     {
+      "name": "fid",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Fid"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/feedback/{fid}/done": {
+   "post": {
+    "tags": [
+     "household"
+    ],
+    "summary": "Feedback Done",
+    "operationId": "feedback_done_v1_feedback__fid__done_post",
+    "parameters": [
+     {
+      "name": "fid",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Fid"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Feedback Done V1 Feedback  Fid  Done Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/g/{token}.json": {
+   "get": {
+    "tags": [
+     "household"
+    ],
+    "summary": "Pass Json",
+    "operationId": "pass_json_g__token__json_get",
+    "parameters": [
+     {
+      "name": "token",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Token"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/g/{token}": {
+   "get": {
+    "tags": [
+     "household"
+    ],
+    "summary": "Pass Page",
+    "description": "The page a guest opens from a text message: Wi-Fi, door code, house notes. No app, no sign-in.",
+    "operationId": "pass_page_g__token__get",
+    "parameters": [
+     {
+      "name": "token",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Token"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "text/html": {
+        "schema": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
   }
  },
  "components": {
@@ -8099,6 +9166,11 @@
       "additionalProperties": true,
       "type": "object",
       "title": "Params"
+     },
+     "quick": {
+      "type": "boolean",
+      "title": "Quick",
+      "default": false
      }
     },
     "type": "object",
@@ -8169,6 +9241,33 @@
     ],
     "title": "AddBody"
    },
+   "AskParent": {
+    "properties": {
+     "text": {
+      "type": "string",
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Text"
+     },
+     "emoji": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 8
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Emoji"
+     }
+    },
+    "type": "object",
+    "required": [
+     "text"
+    ],
+    "title": "AskParent"
+   },
    "AssignBody": {
     "properties": {
      "person_id": {
@@ -8181,6 +9280,47 @@
      "person_id"
     ],
     "title": "AssignBody"
+   },
+   "Bedtime": {
+    "properties": {
+     "time": {
+      "anyOf": [
+       {
+        "type": "string",
+        "pattern": "^\\d{2}:\\d{2}$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Time"
+     },
+     "wake": {
+      "anyOf": [
+       {
+        "type": "string",
+        "pattern": "^\\d{2}:\\d{2}$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Wake"
+     },
+     "enabled": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Enabled"
+     }
+    },
+    "type": "object",
+    "title": "Bedtime"
    },
    "BlockBody": {
     "properties": {
@@ -8426,6 +9566,19 @@
     ],
     "title": "EnrollBody"
    },
+   "Extend": {
+    "properties": {
+     "minutes": {
+      "type": "integer",
+      "maximum": 180.0,
+      "minimum": 5.0,
+      "title": "Minutes",
+      "default": 30
+     }
+    },
+    "type": "object",
+    "title": "Extend"
+   },
    "Extra": {
     "properties": {
      "entity_id": {
@@ -8465,6 +9618,57 @@
      "on"
     ],
     "title": "FavBody"
+   },
+   "Feedback": {
+    "properties": {
+     "text": {
+      "type": "string",
+      "maxLength": 4000,
+      "minLength": 1,
+      "title": "Text"
+     },
+     "screen": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 200
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Screen"
+     },
+     "app_build": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 20
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "App Build"
+     },
+     "screenshot_jpeg_b64": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 4000000
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Screenshot Jpeg B64"
+     }
+    },
+    "type": "object",
+    "required": [
+     "text"
+    ],
+    "title": "Feedback"
    },
    "FillBody": {
     "properties": {
@@ -8637,6 +9841,33 @@
     ],
     "title": "LinkBody"
    },
+   "LiveToken": {
+    "properties": {
+     "push_to_start_token": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 400
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Push To Start Token"
+     },
+     "env": {
+      "type": "string",
+      "enum": [
+       "production",
+       "sandbox"
+      ],
+      "title": "Env",
+      "default": "production"
+     }
+    },
+    "type": "object",
+    "title": "LiveToken"
+   },
    "MigrateBody": {
     "properties": {
      "local": {
@@ -8666,6 +9897,85 @@
      "muted"
     ],
     "title": "MuteBody"
+   },
+   "NewPass": {
+    "properties": {
+     "name": {
+      "type": "string",
+      "maxLength": 60,
+      "minLength": 1,
+      "title": "Name"
+     },
+     "days": {
+      "anyOf": [
+       {
+        "type": "number",
+        "maximum": 60.0,
+        "exclusiveMinimum": 0.0
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Days"
+     },
+     "until": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Until"
+     },
+     "starts": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Starts"
+     },
+     "show_wifi": {
+      "type": "boolean",
+      "title": "Show Wifi",
+      "default": true
+     },
+     "door_code": {
+      "anyOf": [
+       {
+        "type": "string",
+        "pattern": "^\\d{4,8}$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Door Code"
+     },
+     "note": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 500
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Note"
+     }
+    },
+    "type": "object",
+    "required": [
+     "name"
+    ],
+    "title": "NewPass"
    },
    "NotifyBody": {
     "properties": {
@@ -9059,6 +10369,23 @@
      "prefs"
     ],
     "title": "PrefsBody"
+   },
+   "PresenceReport": {
+    "properties": {
+     "event": {
+      "type": "string",
+      "enum": [
+       "arrive",
+       "leave"
+      ],
+      "title": "Event"
+     }
+    },
+    "type": "object",
+    "required": [
+     "event"
+    ],
+    "title": "PresenceReport"
    },
    "ProgressBody": {
     "properties": {
@@ -9591,6 +10918,23 @@
     },
     "type": "object",
     "title": "VpnBody"
+   },
+   "Welcome": {
+    "properties": {
+     "mode": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Mode"
+     }
+    },
+    "type": "object",
+    "title": "Welcome"
    },
    "hub__routes__assistant__AskBody": {
     "properties": {

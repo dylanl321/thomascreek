@@ -39,7 +39,7 @@ struct HomeView: View {
     static func sections(for me: Me?) -> [HomeSection] {
         HomeSection.allCases.filter { s in
             switch s {
-            case .whosHome: false  // arrives with the family-usability work
+            case .whosHome: true
             case .printer: false  // arrives with the printers work (PR #34): then `me?.can(.appliances) == true`
             case .kids: me?.can(.networkManage) == true
             case .cameras: me?.can(.cameras) == true
@@ -55,7 +55,7 @@ struct HomeView: View {
 
     @ViewBuilder private func section(_ s: HomeSection) -> some View {
         switch s {
-        case .whosHome: EmptyView()
+        case .whosHome: WhosHomeRow()
         case .rightNow: RightNowSection()
         case .status:
             if !store.reachable {
@@ -91,11 +91,7 @@ struct HomeView: View {
                 HolidayHomeCard()
             }
         case .trip: NextTripCard()
-        case .today:
-            if let today = home?.today {
-                SectionHeader(title: "Today") { MoreButton("Calendar") { router.show(.family, .calendar) } }
-                TodayCard(today: today)
-            }
+        case .today: TodaySection()
         case .systems:
             if let sys = home?.systems {
                 SectionHeader(title: "Systems") { MoreButton { router.show(.systems) } }

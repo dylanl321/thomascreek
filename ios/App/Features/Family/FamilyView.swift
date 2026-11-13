@@ -9,10 +9,7 @@ struct FamilyView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                if let today = store.home?.today {
-                    SectionHeader(title: "Today") { MoreButton("Calendar") { router.go(.calendar) } }
-                    TodayCard(today: today)
-                }
+                TodaySection().padding(.top, 6)
                 LazyVGrid(columns: grid, spacing: 10) {
                     SectionTile(symbol: "calendar", title: "Calendar", detail: "This week") { router.go(.calendar) }
                     SectionTile(symbol: "star.fill", title: "Chores", detail: chores.map { b in "\(b.reduce(0) { $0 + $1.doneCount })/\(b.reduce(0) { $0 + $1.items.count }) done today" } ?? "Points and rewards") { router.go(.chores) }
@@ -32,6 +29,22 @@ struct FamilyView: View {
                     }
                     SectionTile(symbol: "book.fill", title: "Recipes", detail: recipesLine) { router.go(.recipes) }
                     SectionTile(symbol: "cart.fill", title: "Shopping", detail: "Lists") { router.go(.shopping) }
+                }
+
+                if isParent {
+                    SectionHeader("Together")
+                    LazyVGrid(columns: grid, spacing: 10) {
+                        if store.me?.can(.familyEdit) == true {
+                            SectionTile(symbol: "megaphone.fill", title: "Intercom", detail: "Announce on the speakers") { router.go(.intercom) }
+                        }
+                        SectionTile(symbol: "key.horizontal.fill", title: "Leaving", detail: "Last one out check") { router.go(.leaving) }
+                        if store.me?.can(.guests) == true {
+                            SectionTile(symbol: "ticket.fill", title: "Guest passes", detail: "Wi-Fi and door code") { router.go(.guestPasses) }
+                        }
+                        if store.me?.can(.choresManage) == true {
+                            SectionTile(symbol: "moon.stars.fill", title: "Bedtimes", detail: "Kids' night screen") { router.go(.bedtimes) }
+                        }
+                    }
                 }
 
                 if store.me?.can(.networkManage) == true || isParent {
@@ -77,7 +90,7 @@ struct CalendarView: View {
                 let days = Dictionary(grouping: events) { e in ISO.parse(e.start).map { Calendar.current.startOfDay(for: $0) } ?? .distantPast }
                 ForEach(days.keys.sorted(), id: \.self) { day in
                     Section(day.formatted(.dateTime.weekday(.wide).month().day())) {
-                        ForEach(days[day] ?? [], id: \.stableID) { e in
+                        ForEach((days[day] ?? []).sorted { ($0.isAllDay ? 0 : 1, ISO.parse($0.start) ?? .distantFuture) < ($1.isAllDay ? 0 : 1, ISO.parse($1.start) ?? .distantFuture) }, id: \.stableID) { e in
                             HStack(alignment: .top, spacing: 12) {
                                 Text(e.isAllDay ? "All day" : clock(e.start)).font(.subheadline.monospacedDigit()).foregroundStyle(Theme.dim).lineLimit(1).minimumScaleFactor(0.7).frame(width: timeWidth, alignment: .leading)
                                 VStack(alignment: .leading) {

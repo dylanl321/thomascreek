@@ -68,7 +68,7 @@ struct MainTabs: View {
         TabView(selection: $router.tab) {
             switch store.role {
             case .admin, .adult, .tablet:
-                Tab("Home", image: "tc.home", value: AppTab.home) { stack(.home) { HomeView() } }
+                Tab("Home", image: "tc.home", value: AppTab.home) { stack(.home) { if simple { SimpleHomeView() } else { HomeView() } } }
                 Tab("House", systemImage: "square.grid.2x2.fill", value: AppTab.house) { stack(.house) { HouseView() } }
                 Tab("Media", systemImage: "play.tv.fill", value: AppTab.media) { stack(.media) { MediaView() } }
                 Tab("Family", systemImage: "person.2.fill", value: AppTab.family) { stack(.family) { FamilyView() } }
@@ -90,6 +90,9 @@ struct MainTabs: View {
         }
         .tabViewStyle(.sidebarAdaptable)
         }
+        .familyWelcome()
+        .kidBedtime()
+        .tellDylan()
         .animation(.spring(duration: 0.3), value: store.previewing)
         .tint(store.role == .child ? (store.me?.style == .little ? Theme.little : Theme.kid) : Theme.accent)
         .overlay(alignment: .bottom) { UpdateBanner() }
@@ -114,6 +117,7 @@ struct MainTabs: View {
     }
 
     private var little: Bool { store.me?.style == .little }
+    private var simple: Bool { store.role != .tablet && SettingsStore.shared.bool(SettingKey.simpleMode) }
 
     /// The Control Center button, Action Button and Siri leave this flag: open the panel, listening.
     private func openAskIfFlagged() {
@@ -175,6 +179,12 @@ struct DestinationView: View {
         case .vpnPool: VPNPoolView()
         case .hubWeb: HubWebPageView()
         case .youtube: YouTubeManageView()
+        case .today: TodayView()
+        case .leaving: DepartureView()
+        case .intercom: IntercomView()
+        case .guestPasses: GuestPassesView()
+        case .bedtimes: BedtimesView()
+        case .feedback: FeedbackListView()
         }
     }
 }

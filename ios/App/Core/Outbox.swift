@@ -77,6 +77,8 @@ final class Outbox {
                 items.removeFirst()
             } catch HubClient.HubError.unreachable {
                 break
+            } catch HubClient.HubError.cancelled {
+                break   // try again next time; it wasn't refused
             } catch {
                 // The hub said no (it changed while we were away). Drop it rather than retry forever.
                 items.removeFirst()

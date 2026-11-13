@@ -6,6 +6,11 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         UNUserNotificationCenter.current().delegate = self
         NotificationActions.register()
         Task { @MainActor in LiveActivities.shared.observe() }   // also runs when iOS wakes the app for Live Activity tokens
+        Task { @MainActor in
+            DoorbellLive.shared.sync()
+            PresenceMonitor.shared.start()   // arrive/leave events relaunch the app in the background
+            WatchBridge.shared.activate()
+        }
         application.registerForRemoteNotifications()
         return true
     }

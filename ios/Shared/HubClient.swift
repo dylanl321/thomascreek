@@ -122,6 +122,9 @@ actor HubClient {
     }
 
     /// Like `get`, and says whether the answer is a saved copy (and from when).
+    /// A screen fell back to a saved copy because home didn't answer; the next answer clears the offline strip.
+    private var showedSaved = false
+
     func fetch<T: Decodable>(_ path: String, _ query: [String: String] = [:], keep: Bool = false,
                              as: T.Type = T.self) async throws -> (value: T, savedAt: Date?) {
         // A preview's answers belong to someone else: never save them over this phone's own copies.
@@ -136,7 +139,7 @@ actor HubClient {
             case .unreachable, .server(500..., _):
                 guard cacheable, let saved = OfflineCache.load(path: path, query: query) else { throw e }
                 data = saved.data; savedAt = saved.savedAt
-                if e == .unreachable { NotificationCenter.default.post(name: .hubUnreachable, object: nil) }
+                if e == .unreachable { showedSaved = true; NotificationCenter.default.post(name: .hubUnreachable, object: nil) }
             default: throw e
             }
         }
@@ -160,8 +163,10 @@ actor HubClient {
 
     /// Run an action through the hub's policy check.
     @discardableResult
-    func action(_ name: String, target: String? = nil, params: [String: Any] = [:], confirm: String? = nil) async throws -> ActionReply {
+    func action(_ name: String, target: String? = nil, params: [String: Any] = [:], confirm: String? = nil,
+                quick: Bool = false) async throws -> ActionReply {
         var body: [String: Any] = ["action": name, "params": params]
+        if quick { body["quick"] = true }   // widget, Control Center, CarPlay or Watch on an unlocked device
         if let target { body["target"] = target }
         return try await call("POST", "/v1/actions", body: body, confirm: confirm)
     }
@@ -180,8 +185,17 @@ actor HubClient {
             // Slow calls (the assistant thinks for a while) use the long-lived session: the regular one
             // gives up after 10 s of silence whatever the request's own timeout says.
             do { (data, resp) = try await (timeout == nil ? session : Self.streamSession).data(for: req) }
-            catch { lastError = HubError.unreachable; continue }
+            catch {
+                // A screen that went away cancels its request. That's not home being down, so it must not
+                // turn on the offline strip or fall back to a saved copy.
+                if Task.isCancelled || (error as? URLError)?.code == .cancelled { throw HubError.cancelled }
+                lastError = HubError.unreachable; continue
+            }
             lastGood = base
+            if showedSaved {
+                showedSaved = false
+                NotificationCenter.default.post(name: .hubReachable, object: nil)
+            }
             let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
             switch code {
             case 200..<300:
@@ -278,6 +292,8 @@ actor HubClient {
 extension Notification.Name {
     /// A screen fell back to a saved copy because home didn't answer.
     static let hubUnreachable = Notification.Name("hubUnreachable")
+    /// Home answered again after a screen had fallen back to a saved copy.
+    static let hubReachable = Notification.Name("hubReachable")
 }
 
 /// For calls whose reply body doesn't matter.

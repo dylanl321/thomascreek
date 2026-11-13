@@ -7,6 +7,7 @@ import ActivityKit
 struct HomeWidgetBundle: WidgetBundle {
     var body: some Widget {
         HouseWidget()
+        FamilyWidgets().body
         FavoritesWidget()
         FavoriteControl()
         AskControl()

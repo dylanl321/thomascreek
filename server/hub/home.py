@@ -308,7 +308,7 @@ class HomeModel:
                 log.info("meal read failed: %s", exc)
         if self.hub.family_board.enabled:
             try:
-                self.calendar = (await self.hub.family_board.calendar(1))["events"]
+                self.calendar = (await self.hub.family_board.calendar(1, self.hub.config.hub.timezone))["events"]
             except Exception as exc:  # noqa: BLE001
                 log.info("calendar read failed: %s", exc)
 
@@ -466,9 +466,9 @@ class HomeModel:
             if s.role == "guest" and p["id"] != s.person_id:
                 continue
             row: dict[str, Any] = {"id": p["id"], "name": p["name"], "role": p["role"], "avatar": p.get("avatar")}
-            if p.get("presence_entity"):  # presence is opt-in per person
-                st = self.states.get(p["presence_entity"])
-                row["home"] = (st or {}).get("state") == "home" if st else None
+            home = self.hub.household.presence(p)["home"]
+            if home is not None:
+                row["home"] = home
             out.append(row)
         return out
 
