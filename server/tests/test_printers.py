@@ -305,3 +305,27 @@ def test_admin_page_shows_bambu_account(hub):
 
     html_out = admin_web._bambu_html(hub, "x")
     assert "Bambu account" in html_out and "/admin/bambu/sign-in" in html_out
+
+
+async def test_bambu_google_account_signs_in_with_emailed_code_only(hub):
+    import time
+
+    import httpx
+    import respx
+
+    from hub import bambu_cloud as bc
+
+    c = hub.bambu_cloud
+    token = _jwt(time.time() + 90 * 86400)
+    with respx.mock(assert_all_called=False) as m:
+        login = m.post(f"{bc.API}/v1/user-service/user/login").mock(
+            return_value=httpx.Response(200, json={"accessToken": token, "refreshToken": "r2"}))
+        sent = m.post(f"{bc.API}/v1/user-service/user/sendemail/code").mock(return_value=httpx.Response(200, json={}))
+        m.get(f"{bc.API}/v1/design-user-service/my/preference").mock(return_value=httpx.Response(200, json={"uid": 77}))
+        m.get(f"{bc.API}/v1/iot-service/api/user/bind").mock(return_value=httpx.Response(200, json={"devices": []}))
+        # No password (Google sign-up): goes straight to the emailed code, never posts a password.
+        assert await c.start("dylan@example.com", "") == "code"
+        assert sent.called and not login.called
+        await c.finish("654321")
+        assert json.loads(login.calls[0].request.content) == {"account": "dylan@example.com", "code": "654321"}
+    assert c.signed_in and c.mqtt_user == "u_77"

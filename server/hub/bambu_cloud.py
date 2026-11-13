@@ -117,8 +117,11 @@ class BambuCloud:
     async def start(self, email: str, password: str) -> str:
         """Returns "done", or "code" (Bambu emailed a code) or "tfa" (authenticator code needed)."""
         email = email.strip()
-        if not email or not password:
-            raise CloudError("Enter the Bambu account email and password")
+        if not email:
+            raise CloudError("Enter the Bambu account email")
+        if not password:
+            # Accounts made with Google or Apple have no Bambu password: Bambu emails a login code instead.
+            return await self._email_code(email)
         r = await self._post(f"{API}/v1/user-service/user/login", {"account": email, "password": password, "apiError": ""})
         data = _json(r)
         if r.status_code >= 400 and not data.get("loginType"):
@@ -128,15 +131,21 @@ class BambuCloud:
             return "done"
         kind = data.get("loginType")
         if kind == "verifyCode":
-            r2 = await self._post(f"{API}/v1/user-service/user/sendemail/code", {"email": email, "type": "codeLogin"})
-            if r2.status_code >= 400:
-                raise CloudError("Bambu didn't send the sign-in code. Try again in a minute.", 502)
-            self._pending = {"email": email, "kind": "code", "at": time.time()}
-            return "code"
+            return await self._email_code(email)
         if kind == "tfa":
             self._pending = {"email": email, "kind": "tfa", "tfa_key": data.get("tfaKey"), "at": time.time()}
             return "tfa"
         raise CloudError(_message(data) or "Bambu didn't accept that email and password", 401)
+
+    async def _email_code(self, email: str) -> str:
+        r = await self._post(f"{API}/v1/user-service/user/sendemail/code", {"email": email, "type": "codeLogin"})
+        if r.status_code >= 400:
+            raise CloudError(_message(_json(r)) or "Bambu didn't send the sign-in code. Try again in a minute.", 502)
+        self._pending = {"email": email, "kind": "code", "at": time.time()}
+        return "code"
+
+    def cancel(self) -> None:
+        self._pending = None
 
     async def finish(self, code: str) -> None:
         code = "".join(ch for ch in code if ch.isdigit())
