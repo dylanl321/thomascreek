@@ -2099,6 +2099,52 @@
     }
    }
   },
+  "/v1/vpn/exits": {
+   "get": {
+    "tags": [
+     "people"
+    ],
+    "summary": "Vpn Exits",
+    "description": "The VPN buttons this person gets, and for Private the regions the app times to find the nearest.",
+    "operationId": "vpn_exits_v1_vpn_exits_get",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Vpn Exits V1 Vpn Exits Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/v1/vpn/config": {
    "post": {
     "tags": [
@@ -7876,7 +7922,7 @@
      "meta"
     ],
     "summary": "App Update",
-    "description": "The newest build TestFlight has, and the oldest build still allowed.\n\nNo sign-in needed (a phone that is still pending, or was just reset, must still hear\nabout a required update). When a signed-in phone sends its own `build`, the hub\nremembers it so the web page can show who hasn't updated.",
+    "description": "The newest build TestFlight has, and the oldest build still allowed.\n\nNo sign-in needed (a phone that is still pending, or was just reset, must still hear\nabout a required update). When a signed-in phone sends its own `build`, the hub\nremembers it so the web page can show who hasn't updated. A real phone on a TestFlight\ninstall that is newer than anything known also tells the hub that build is out, so the\nothers hear about it even without the App Store Connect key. `channel` is how the app was\ninstalled (testflight, appstore, xcode, simulator); builds older than 25 don't send it.",
     "operationId": "app_update_v1_app_update_get",
     "parameters": [
      {
@@ -7912,6 +7958,23 @@
         }
        ],
        "title": "Version"
+      }
+     },
+     {
+      "name": "channel",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "maxLength": 20
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Channel"
       }
      }
     ],
@@ -13719,6 +13782,25 @@
        }
       ],
       "title": "Wg Public Key"
+     },
+     "exit": {
+      "type": "string",
+      "pattern": "^(home|private)$",
+      "title": "Exit",
+      "default": "home"
+     },
+     "region": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 64,
+        "pattern": "^[A-Za-z0-9_.-]+$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Region"
      }
     },
     "type": "object",

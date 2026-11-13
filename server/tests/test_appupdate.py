@@ -103,7 +103,8 @@ def test_admin_page_app_updates(hub, people, home_client, tmp_path):
     url = dylan.secure_post("/v1/admin/web-link", {}).json()["url"]
     home_client.get(url, follow_redirects=False)
     page = home_client.get("/admin").text
-    assert "App updates · latest not known yet" in page and "App Store Connect key" in page
+    # Dylan's phone is the first one seen, so its build is the latest known until told otherwise.
+    assert "App updates · latest 2.0 (15) seen on a phone" in page and "App Store Connect key" in page
     import re as _re
     csrf = _re.search(r"name=csrf value=(\w+)", page).group(1)
     r = home_client.post("/admin/app-update", data={"csrf": csrf, "min_build": "16", "latest_build": "17"})
@@ -117,3 +118,35 @@ def test_admin_page_app_updates(hub, people, home_client, tmp_path):
                          files=[("files", ("AuthKey_ASC0000001.p8", _p8().encode()))])
     assert "App Store Connect key" in r.text and str(hub.vault.get("appstore.key_id")) == "ASC0000001"
     assert str(hub.vault.get("apns.key_id")) == "PUSH000001"
+
+
+def test_phones_teach_the_hub_new_builds(hub, people, home_client, tmp_path):
+    """No App Store Connect key: the first TestFlight phone on a new build tells everyone else."""
+    hub.app_update.path = tmp_path / "app_update.json"
+    hub.config.app_update.latest_build = 17
+    seen = []
+    hub.app_update.on_change = seen.append
+    dylan = people["phones"]["Dylan"]
+    # Not signed in: ignored, so nobody can fake a build.
+    home_client.get("/v1/app/update", params={"build": 99})
+    assert home_client.get("/v1/app/update", params={"build": 17}).json()["latest_build"] == 17
+    # An Xcode or Simulator build doesn't count.
+    home_client.get("/v1/app/update", params={"build": 30, "channel": "xcode"}, headers=dylan.h)
+    hub.db.update("devices", "id", dylan.device_id, {"model": "arm64"})
+    home_client.get("/v1/app/update", params={"build": 30}, headers=dylan.h)
+    assert home_client.get("/v1/app/update", params={"build": 17}).json()["latest_build"] == 17 and not seen
+    # A real phone on TestFlight build 23.
+    hub.db.update("devices", "id", dylan.device_id, {"model": "iPhone17,2"})
+    j = home_client.get("/v1/app/update", params={"build": 23, "version": "2.0", "channel": "testflight"}, headers=dylan.h).json()
+    assert j["latest_build"] == 23 and j["update_available"] is False
+    assert len(seen) == 1 and seen[0]["latest_build"] == 23
+    j = home_client.get("/v1/app/update", params={"build": 21}).json()
+    assert j["latest_build"] == 23 and j["source"] == "phone" and j["update_available"] is True
+    # An older phone checking in doesn't lower it; an old build without a channel still teaches it.
+    home_client.get("/v1/app/update", params={"build": 20}, headers=dylan.h)
+    home_client.get("/v1/app/update", params={"build": 24}, headers=dylan.h)
+    assert home_client.get("/v1/app/update", params={"build": 21}).json()["latest_build"] == 24 and len(seen) == 2
+    # Sandbox push means an Xcode install.
+    hub.db.update("devices", "id", dylan.device_id, {"apns_env": "sandbox"})
+    home_client.get("/v1/app/update", params={"build": 40}, headers=dylan.h)
+    assert home_client.get("/v1/app/update", params={"build": 21}).json()["latest_build"] == 24
