@@ -694,7 +694,7 @@ struct Pipeline: Codable, Hashable {
     }
 }
 
-struct ActionReply: Codable { var ok: Bool?; var message: String?; var dryRun: Bool? }
+struct ActionReply: Codable { var ok: Bool?; var message: String?; var dryRun: Bool?; var job: Int? }
 
 /// One SSE message from /v1/events.
 struct HubEvent: Decodable {

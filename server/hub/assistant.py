@@ -241,6 +241,9 @@ class Assistant:
                 "printer.print {model_id, plate, ams_mapping[]} (target = printer id from GET /v1/printers, e.g. h2s; "
                 "models from GET /v1/printers/library); network.pause / network.grant {minutes} (target = child's person id); "
                 "system.app_restart (target = NAS app name from GET /v1/systems); "
+                "nas.app {op start|stop|restart|update} (target = app name from GET /v1/nas/apps; "
+                "GET /v1/nas/apps/{name}/logs shows why one crashed); nas.alert (target = alert id from GET /v1/nas); "
+                "nas.scrub {op start|pause|stop} (target = pool name); nas.snapshot (target = dataset); "
                 "steps.run {label, steps:[{action, target, params}]} to do several light/switch/fan/lock/garage/TV "
                 "changes as one (one confirmation). To play a Plex/library title on a TV use POST /v1/media/play "
                 "(find it with GET /v1/media/search). Use ids from `house`."),

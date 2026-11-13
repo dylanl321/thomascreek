@@ -263,6 +263,24 @@ class HomeModel:
         if was_ok != now_ok:
             self.hub.bus.publish({"type": "status", "data": {}})
 
+    def mark_nas_dirty(self) -> None:
+        """Re-read the NAS on the next loop, after an app was started, stopped or updated."""
+        self.slow_at = 0.0
+
+    async def _nas_crash_notice(self, before: dict[str, Any] | None, now: dict[str, Any]) -> None:
+        """Tell the admins when an app newly crashes (not on the first read after the hub starts)."""
+        if before is None:
+            return
+        was = set((before.get("apps") or {}).get("crashed_names") or [])
+        for name in (now.get("apps") or {}).get("crashed_names") or []:
+            if name in was:
+                continue
+            await self.hub.notify.send(
+                title=f"{name} crashed on the NAS", body="Open it to see the logs or restart it.",
+                cat="systems", level="maintenance", roles=["admin"], ref=f"thomascreek://nas/app/{name}",
+                group_key=f"nas.crash.{name}",
+            )
+
     async def _refresh_areas(self) -> None:
         areas = await self.hub.ha.areas()
         floors = await self.hub.ha.floors()
@@ -295,7 +313,9 @@ class HomeModel:
     async def _refresh_slow(self) -> None:
         if self.hub.truenas.enabled:
             try:
+                before = self.systems
                 self.systems = await self.hub.truenas.summary()
+                await self._nas_crash_notice(before, self.systems)
             except Exception as exc:  # noqa: BLE001
                 log.info("NAS summary failed: %s", exc)
         if self.hub.mealie.enabled:
