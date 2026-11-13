@@ -41,6 +41,7 @@ from .bambu import Workshop
 from .timers import Timers
 from .vault import Vault
 from .vpn import Vpn
+from .vpn_pia import Pia
 
 log = logging.getLogger("hub")
 
@@ -75,6 +76,7 @@ class Hub:
         self.apns = APNs(config.apns, vault)
         self.onepassword = OnePasswordSync(config.onepassword, vault)
         self.vpn = Vpn(config.vpn, vault, db)
+        self.pia = Pia(config.vpn.pia, vault)
         self.home = HomeModel(self)
         self.app_update = AppUpdates(config.app_update, vault,
                                      Path(db._path).parent / "app_update.json" if db._path != ":memory:" else None)

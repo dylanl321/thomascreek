@@ -32,6 +32,13 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         adapter.stop { _ in completionHandler() }
     }
 
+    /// The app asks for counters (bytes, last handshake) to show on its VPN screen.
+    override func handleAppMessage(_ messageData: Data, completionHandler: ((Data?) -> Void)?) {
+        adapter.getRuntimeConfiguration { settings in
+            completionHandler?(settings?.data(using: .utf8))
+        }
+    }
+
     private func makeConfiguration() throws -> TunnelConfiguration {
         guard let proto = protocolConfiguration as? NETunnelProviderProtocol,
               let wg = proto.providerConfiguration?["wg"] as? [String: Any] else { throw TunnelError.badConfig("missing") }
@@ -48,6 +55,6 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         if let k = wg["keepalive"] as? Int, k > 0 { peer.persistentKeepAlive = UInt16(k) }
         if let psk = (wg["preshared_key"] as? String).flatMap(PreSharedKey.init(base64Key:)) { peer.preSharedKey = psk }
 
-        return TunnelConfiguration(name: "Thomas Creek", interface: iface, peers: [peer])
+        return TunnelConfiguration(name: (proto.providerConfiguration?["exit"] as? String) == "private" ? "Private" : "Thomas Creek", interface: iface, peers: [peer])
     }
 }

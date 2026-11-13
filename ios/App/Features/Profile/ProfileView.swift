@@ -91,7 +91,7 @@ struct ProfileView: View {
                         TextField("http://hub.local:8443", text: $hubLAN).keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
                             .onSubmit { AppSettings.hubLAN = hubLAN; Task { await store.refreshAll() } }
                         if VPN.shared.isAvailable {
-                            Button("Reinstall the home tunnel") { Task { do { try await VPN.shared.reinstall(); store.show("Tunnel updated") } catch { store.show(error.localizedDescription, isError: true) } } }
+                            Button("Get fresh VPN settings") { Task { do { try await VPN.shared.reinstall(); store.show("Tunnel updated") } catch { store.show(error.localizedDescription, isError: true) } } }
                         }
                     } header: { Text("Hub") } footer: {
                         Text("Found automatically on home Wi-Fi. Only change this if the hub moved.")
@@ -143,38 +143,16 @@ struct ProfileView: View {
 }
 
 
-/// Turn the away-from-home VPN off, on when away, or always on. Nothing is installed while it's Off.
+/// The VPN row: where it goes and whether it's on; the full screen has the buttons.
 struct VPNSection: View {
-    @Environment(HomeStore.self) private var store
-    @State private var mode = VPN.shared.mode
-    @State private var busy = false
     var body: some View {
         let vpn = VPN.shared
         Section {
-            Picker("Away-from-home VPN", selection: $mode) {
-                ForEach(VPN.Mode.allCases) { Text($0.title).tag($0) }
+            NavigationLink { VPNView(pushed: true) } label: {
+                LabeledContent("VPN", value: "\(vpn.exit.title) · \(statusLine)")
             }
-            .disabled(busy)
-            .onChange(of: mode) { _, m in
-                busy = true
-                Task {
-                    defer { busy = false }
-                    do { try await vpn.setMode(m); store.show(m == .off ? "VPN turned off" : "VPN set to \(m.title.lowercased())") }
-                    catch { store.show(error.localizedDescription, isError: true); mode = vpn.mode }
-                }
-            }
-            if mode != .off {
-                LabeledContent("Status", value: statusLine)
-                if vpn.status == .connected || vpn.status == .connecting {
-                    Button("Disconnect for now") { Task { await vpn.disconnectNow() } }
-                }
-                Button("Get a fresh setup from the hub") {
-                    Task { do { try await vpn.reinstall(); store.show("VPN updated") } catch { store.show(error.localizedDescription, isError: true) } } }
-            }
-        } header: { Text("Away from home") } footer: {
-            Text(mode == .away ? "Connects by itself when you leave home Wi-Fi and only carries home traffic. You can also switch it in Settings → VPN."
-                 : mode == .always ? "Stays connected everywhere, even at home. Only home traffic goes through it."
-                 : "Off: it never connects by itself. Use Connect on Home when you need it.")
+        } footer: {
+            Text("Home reaches the house from anywhere. Private sends everything through PIA, for hotel and public Wi-Fi.")
         }
     }
     private var statusLine: String {
@@ -183,8 +161,7 @@ struct VPNSection: View {
         case .connected: "Connected"
         case .connecting, .reasserting: "Connecting"
         case .disconnecting: "Disconnecting"
-        case .invalid: "Not set up"
-        default: mode == .away ? "Waiting until you leave home" : "Not connected"
+        default: VPN.shared.mode == .off ? "Off" : "Connects away from home"
         }
     }
 }

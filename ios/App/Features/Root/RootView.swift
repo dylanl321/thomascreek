@@ -106,6 +106,7 @@ struct MainTabs: View {
         .sheet(isPresented: $router.showInbox) { InboxView().personalStyle() }
         .sheet(isPresented: $router.showSearch) { SearchView().personalStyle() }
         .sheet(isPresented: $router.showProfile) { ProfileView().personalStyle() }
+        .sheet(isPresented: $router.showVPN) { NavigationStack { VPNView() }.personalStyle() }
         .sheet(isPresented: $router.showEditHome) { EditHomeSheet().personalStyle() }
         .sheet(isPresented: $router.showViewAs) { ViewAsSheet().personalStyle() }
         .sheet(isPresented: $router.showOffline) {
