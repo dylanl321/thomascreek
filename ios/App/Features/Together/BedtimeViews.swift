@@ -74,6 +74,16 @@ struct NightScreen: View {
             }
             .padding(24)
         }
+        .overlay(alignment: .topTrailing) {
+            // View as covers the preview banner with this screen, so give Dylan his own way out.
+            if let who = store.previewing {
+                Button { Task { await store.stopPreview() } } label: {
+                    Label("Stop viewing as \(who.name.split(separator: " ").first.map(String.init) ?? who.name)", systemImage: "eye.slash")
+                        .font(.footnote.weight(.semibold))
+                }
+                .buttonStyle(.borderedProminent).tint(.white.opacity(0.25)).padding(16)
+            }
+        }
         .onAppear { glow = true; UIApplication.shared.isIdleTimerDisabled = false }
         .interactiveDismissDisabled()
     }

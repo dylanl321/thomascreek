@@ -113,3 +113,14 @@ def test_activity_category_filter(people, home_client):
                      headers=avery.h)
     items = home_client.get("/v1/activity?category=doors", headers=people["phones"]["Dylan"].h).json()["items"]
     assert items and all(i["action"].startswith(("garage.", "lock.")) for i in items)
+
+
+def test_ics_sorts_by_real_start_time():
+    ics = ("BEGIN:VCALENDAR\r\n"
+           "BEGIN:VEVENT\r\nUID:swim\r\nSUMMARY:Swim\r\nDTSTART:20261113T230000Z\r\nEND:VEVENT\r\n"     # 6 PM New York
+           "BEGIN:VEVENT\r\nUID:dinner\r\nSUMMARY:Dinner\r\nDTSTART;TZID=America/New_York:20261113T173000\r\nEND:VEVENT\r\n"
+           "BEGIN:VEVENT\r\nUID:wake\r\nSUMMARY:Wake up\r\nDTSTART:20261113T060000\r\nEND:VEVENT\r\n"  # floating 6 AM
+           "BEGIN:VEVENT\r\nUID:day\r\nSUMMARY:Pizza night\r\nDTSTART;VALUE=DATE:20261113\r\nEND:VEVENT\r\n"
+           "END:VCALENDAR\r\n")
+    assert [e["id"] for e in parse_ics(ics, "America/New_York")] == ["day", "wake", "dinner", "swim"]
+    assert all("_tzid" not in e for e in parse_ics(ics))

@@ -141,13 +141,25 @@ struct EditHomeSheet: View {
             List {
                 Section {
                     ForEach(order) { s in
-                        Toggle(isOn: Binding(get: { !hidden.contains(s) }, set: { on in if on { hidden.remove(s) } else { hidden.insert(s) } })) {
-                            Label(s.title, systemImage: s.symbol)
+                        let shown = !hidden.contains(s)
+                        HStack {
+                            Label(s.title, systemImage: s.symbol).foregroundStyle(shown ? Theme.fg : Theme.dim)
+                            Spacer()
+                            Button {
+                                if shown { hidden.insert(s) } else { hidden.remove(s) }
+                            } label: {
+                                Image(systemName: shown ? "eye.fill" : "eye.slash")
+                                    .foregroundStyle(shown ? Theme.accent : Theme.dim)
+                                    .frame(width: 44, height: 36)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.borderless)
+                            .accessibilityLabel(shown ? "Hide \(s.title)" : "Show \(s.title)")
                         }
                     }
                     .onMove { order.move(fromOffsets: $0, toOffset: $1) }
                 } header: { Text("Sections") } footer: {
-                    Text("Drag to reorder. Your other iPhone and iPad match within a second.")
+                    Text("Drag to reorder, tap the eye to show or hide. Your other iPhone and iPad match within a second.")
                 }
                 ForEach(kinds, id: \.self) { kind in
                     let list = favs[kind] ?? []

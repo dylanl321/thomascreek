@@ -308,7 +308,7 @@ class HomeModel:
                 log.info("meal read failed: %s", exc)
         if self.hub.family_board.enabled:
             try:
-                self.calendar = (await self.hub.family_board.calendar(1))["events"]
+                self.calendar = (await self.hub.family_board.calendar(1, self.hub.config.hub.timezone))["events"]
             except Exception as exc:  # noqa: BLE001
                 log.info("calendar read failed: %s", exc)
 

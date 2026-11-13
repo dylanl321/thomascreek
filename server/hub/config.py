@@ -228,6 +228,9 @@ class HubSettings(BaseModel):
     home_networks: list[str] = Field(default_factory=lambda: ["192.168.0.0/16", "10.0.0.0/8", "172.16.0.0/12"])
     # Reverse proxies whose X-Forwarded-For is believed. Empty: trust nobody.
     trusted_proxies: list[str] = Field(default_factory=list)
+    # Sign-in steps that need no token (enroll, challenge, token, hello, the web page),
+    # per caller address per minute, for callers away from home. 0 turns it off.
+    away_auth_per_minute: int = 30
     access_token_ttl_s: int = 900
     poll_interval_s: float = 15.0
     timezone: str = "America/New_York"

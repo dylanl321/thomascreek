@@ -170,7 +170,6 @@ kids' player), `request` posts `/v1/requests`, `chore` posts `/v1/chores/{id}/do
 New deep links: search?q=, remote/<entity>, climate, music, calendar, shopping, inventory, pipeline, hubweb,
 vpnpool, downloads. Spotlight indexes rooms, devices, cameras and screens (identifier = deep link). Siri:
 "Search Thomas Creek". The "Ask Thomas Creek" row calls `Router.ask`, which opens the assistant with the words.
-<<<<<<< HEAD
 
 ## Media requests and tracking (2026-11-12)
 
@@ -185,7 +184,7 @@ Jellyseerr is the source of truth, so requests made on its website or from a Ple
 - `GET /v1/media/title/{media_id}` -> `{media_id, kind, title, year, poster_url, summary, rating, runtime_min, genres, seasons:[{n,name,episodes,status}], availability, request_id, plex_id}`.
 - `GET /v1/media/search` `requestable` now uses the discover item shape above (it used `MediaItem` with a string year, which the app couldn't decode).
 - "Ready to watch" push (`thomascreek://media/requests/{id}`) goes once per request to the person who asked, matched by the app's own record or by Jellyseerr display name = hub first name. Requests already ready when the hub first looks aren't announced.
-=======
+
 ## Smart "Right now" cards
 
 `GET /v1/home` now carries `weather` ({temp, condition, symbol, high, low, sunrise, sunset}) and `smart`, a list of
@@ -214,7 +213,6 @@ the card until 4 am (30 min for safety cards). Three "Not now" in a row on one r
 Hub config `smart:` dinner_time, dinner_lead_min, lockup_time, trash_night, bedtimes {name: "HH:MM"}, wake_time,
 latitude/longitude (default: Home Assistant's), goodnight_mode, off_rules. Weather is Open-Meteo, falling back
 to the first `weather.*` entity.
->>>>>>> origin/main
 
 ## Settings and favorites that follow a person, View as (2026-11-12)
 

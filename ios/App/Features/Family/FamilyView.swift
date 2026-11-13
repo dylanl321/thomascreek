@@ -80,6 +80,7 @@ struct FamilyView: View {
 }
 
 struct CalendarView: View {
+    @ScaledMetric(relativeTo: .subheadline) private var timeWidth: CGFloat = 72
     @State private var events: [CalendarEvent]?
     private struct Reply: Decodable { var events: [CalendarEvent] }
 
@@ -89,9 +90,9 @@ struct CalendarView: View {
                 let days = Dictionary(grouping: events) { e in ISO.parse(e.start).map { Calendar.current.startOfDay(for: $0) } ?? .distantPast }
                 ForEach(days.keys.sorted(), id: \.self) { day in
                     Section(day.formatted(.dateTime.weekday(.wide).month().day())) {
-                        ForEach(days[day] ?? [], id: \.stableID) { e in
+                        ForEach((days[day] ?? []).sorted { ($0.isAllDay ? 0 : 1, ISO.parse($0.start) ?? .distantFuture) < ($1.isAllDay ? 0 : 1, ISO.parse($1.start) ?? .distantFuture) }, id: \.stableID) { e in
                             HStack(alignment: .top, spacing: 12) {
-                                Text(e.isAllDay ? "All day" : clock(e.start)).font(.subheadline.monospacedDigit()).foregroundStyle(Theme.dim).frame(width: 72, alignment: .leading)
+                                Text(e.isAllDay ? "All day" : clock(e.start)).font(.subheadline.monospacedDigit()).foregroundStyle(Theme.dim).lineLimit(1).minimumScaleFactor(0.7).frame(width: timeWidth, alignment: .leading)
                                 VStack(alignment: .leading) {
                                     Text(e.title).font(.subheadline.weight(.medium))
                                     if let w = e.who { Text(w).font(.caption).foregroundStyle(Theme.dim) }

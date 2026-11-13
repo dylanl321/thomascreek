@@ -40,6 +40,7 @@ struct HomeView: View {
         HomeSection.allCases.filter { s in
             switch s {
             case .whosHome: true
+            case .printer: false  // arrives with the printers work (PR #34): then `me?.can(.appliances) == true`
             case .kids: me?.can(.networkManage) == true
             case .cameras: me?.can(.cameras) == true
             case .holiday: me?.can(.holidayLooks) == true || me?.can(.holidayFull) == true
@@ -77,6 +78,8 @@ struct HomeView: View {
                 SectionHeader("Now playing", live: true)
                 HouseNowPlayingCard(item: np)
             }
+        // Printers (PR #34): `ForEach(home?.activePrinters ?? []) { PrinterNowCard(printer: $0) }`
+        case .printer: EmptyView()
         case .cameras:
             if !(home?.cameras?.isEmpty ?? true) {
                 SectionHeader(title: "Recent at the cameras") { MoreButton { router.show(.house, .cameras) } }
@@ -405,6 +408,8 @@ struct CameraThumb: View {
 }
 
 struct TodayCard: View {
+    /// Room for "10:30 AM" at the person's text size, so times never wrap.
+    @ScaledMetric(relativeTo: .subheadline) private var timeWidth: CGFloat = 70
     @Environment(Router.self) private var router
     let today: Today
     var body: some View {
@@ -412,7 +417,7 @@ struct TodayCard: View {
             ForEach((today.events ?? []).sorted { ($0.isAllDay ? 0 : 1, ISO.parse($0.start) ?? .distantFuture) < ($1.isAllDay ? 0 : 1, ISO.parse($1.start) ?? .distantFuture) }, id: \.stableID) { e in
                 HStack(alignment: .top, spacing: 12) {
                     Text(e.isAllDay ? "All day" : clock(e.start)).font(.subheadline.monospacedDigit()).foregroundStyle(Theme.dim)
-                        .frame(width: 70, alignment: .leading)
+                        .lineLimit(1).minimumScaleFactor(0.7).frame(width: timeWidth, alignment: .leading)
                     VStack(alignment: .leading, spacing: 1) {
                         Text(e.title).font(.subheadline.weight(.medium))
                         if let w = e.who { Text(w).font(.caption).foregroundStyle(Theme.dim) }

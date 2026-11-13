@@ -110,13 +110,23 @@ class Hub:
             ip = ipaddress.ip_address(peer)
         except ValueError:
             return None
-        if forwarded_for and any(ip in n for n in self._proxies):
-            first = forwarded_for.split(",")[0].strip()
-            try:
-                return str(ipaddress.ip_address(first))
-            except ValueError:
-                return None
+        if forwarded_for and self._trusted_proxy(ip):
+            # Walk from the right: each trusted proxy appends the address it saw, so the
+            # first untrusted entry from the right is the real caller. Entries further left
+            # came from the caller itself and can say anything (a stranger could claim
+            # 10.0.0.5 and look like they're at home).
+            for part in reversed([p.strip() for p in forwarded_for.split(",")]):
+                try:
+                    hop = ipaddress.ip_address(part)
+                except ValueError:
+                    return None
+                if not self._trusted_proxy(hop):
+                    return str(hop)
+            return None
         return str(ip)
+
+    def _trusted_proxy(self, ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+        return any(ip in n for n in self._proxies)
 
     def is_home(self, ip: str | None) -> bool:
         if not ip:

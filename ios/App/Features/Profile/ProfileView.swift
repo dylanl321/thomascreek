@@ -99,7 +99,7 @@ struct ProfileView: View {
                 }
             }
             .navigationTitle("Profile")
-            .sheet(isPresented: $editHome) { EditHomeSheet() }
+            .sheet(isPresented: $editHome) { EditHomeSheet().personalStyle() }
             .toolbar { Button("Done") { dismiss() } }
             .onDisappear { if hubLAN != AppSettings.hubLAN { AppSettings.hubLAN = hubLAN } }
             .task {

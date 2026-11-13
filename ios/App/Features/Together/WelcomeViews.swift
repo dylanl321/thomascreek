@@ -13,10 +13,12 @@ struct FirstRunWelcome: ViewModifier {
     func body(content: Content) -> some View {
         content
             .onChange(of: token, initial: true) { _, t in
-                guard store.me != nil, store.role != .pending, store.role != .tablet else { return }
+                // View as: never show someone else's welcome, or finishing it would mark theirs as seen.
+                guard store.previewing == nil, store.me != nil, store.role != .pending, store.role != .tablet else { return }
                 let seen = SettingsStore.shared.optionalString(key) ?? UserDefaults.standard.string(forKey: key)
                 if seen != t { show = true }
             }
+            .onChange(of: store.previewing?.id) { _, p in if p != nil { show = false } }
             .fullScreenCover(isPresented: $show) {
                 WelcomePages(role: store.role, little: store.me?.style == .little, name: store.me?.firstName ?? "") {
                     SettingsStore.shared.set(key, token)
