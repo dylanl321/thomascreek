@@ -562,6 +562,39 @@ def test_activity_doors_shows_today_even_if_older_days_are_slow(hub, people, hom
     assert [i["detail"] for i in b["items"]] == ["Front door was locked"]
 
 
+def test_activity_doors_one_row_per_physical_sensor(hub, people, home_client):
+    """A door sensor with two entities ("Open Sensor" and "Window/door is open") is one row, named for the door."""
+    import datetime as dt
+
+    hub.vault.set("home_assistant.token", "t")
+    for eid, name in (("binary_sensor.cat_door_open_sensor", "Interior Cat Door Open Sensor"),
+                      ("binary_sensor.cat_door_window_door_is_open", "Interior Cat Door Window/door is open"),
+                      ("binary_sensor.side_door", "Side Door Contact")):
+        hub.home.states[eid] = {"entity_id": eid, "state": "off",
+                                "attributes": {"device_class": "door", "friendly_name": name}}
+    hub.home.entity_device.update({"binary_sensor.cat_door_open_sensor": "dev-cat",
+                                   "binary_sensor.cat_door_window_door_is_open": "dev-cat"})
+    hub.home.ha_devices["dev-cat"] = {"id": "dev-cat", "name": "Interior Cat Door"}
+    now = dt.datetime.now(dt.timezone.utc)
+    at = lambda m, s=0: (now - dt.timedelta(minutes=m, seconds=s)).isoformat()  # noqa: E731
+    with respx.mock(assert_all_called=False) as mock:
+        mock.get(url__startswith="http://ha.test/api/logbook/").mock(return_value=httpx.Response(200, json=[
+            {"when": at(9), "name": "Interior Cat Door Open Sensor", "state": "on",
+             "entity_id": "binary_sensor.cat_door_open_sensor"},
+            {"when": at(9, 1), "name": "Interior Cat Door Window/door is open", "state": "on",
+             "entity_id": "binary_sensor.cat_door_window_door_is_open"},
+            {"when": at(8), "name": "Interior Cat Door Open Sensor", "state": "off",
+             "entity_id": "binary_sensor.cat_door_open_sensor"},
+            {"when": at(8, 2), "name": "Interior Cat Door Window/door is open", "state": "off",
+             "entity_id": "binary_sensor.cat_door_window_door_is_open"},
+            {"when": at(7), "name": "Side Door Contact", "state": "on", "entity_id": "binary_sensor.side_door"},
+        ]))
+        b = home_client.get("/v1/activity?category=doors", headers=people["phones"]["Dylan"].h).json()
+    assert [i["detail"] for i in b["items"]] == [
+        "Side Door opened", "Interior Cat Door closed", "Interior Cat Door opened"]
+    assert all(i["ref"] == "thomascreek://doors" for i in b["items"])
+
+
 def test_view_as_rows_read_as_words_and_open_the_person(hub, people, home_client):
     theo = people["theo"]["id"] if isinstance(people.get("theo"), dict) else None
     pid = theo or next(p["id"] for p in hub.db.people() if p["role"] == "child")

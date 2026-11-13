@@ -340,6 +340,21 @@ def _home_category(h: Hub, e: dict[str, Any]) -> str | None:
     return None
 
 
+def _sensor_name(h: Hub, eid: str, dev: str | None) -> str | None:
+    """The door a sensor is on ("Interior Cat Door"), not the sensor's own entity name."""
+    d = h.home.ha_devices.get(dev or "") or {}
+    if d.get("name"):
+        return str(d["name"])
+    friendly = ((h.home.states.get(eid) or {}).get("attributes") or {}).get("friendly_name")
+    if not friendly:
+        return None
+    # No device registry: trim the sensor words HA adds to the door's name.
+    import re
+    trimmed = re.sub(r"\s*(window/door is open|open(ing)?( sensor)?|contact( sensor)?|sensor)$", "",
+                     str(friendly), flags=re.I).strip()
+    return trimmed or str(friendly)
+
+
 async def _logbook_newest_first(h: Hub, entities: list[str], since: float, until: float,
                                 limit: int) -> list[dict[str, Any]]:
     """Home Assistant's logbook from `until` back to `since`, one day per request, newest day first.
@@ -405,6 +420,7 @@ async def _home_events(h: Hub, category: str | None, since: float, limit: int,
         eid = p.get("presence_entity") or f"person.{str(p['name']).split(' ')[0].lower()}"
         people.setdefault(eid, p["id"])
     out = []
+    kept: dict[tuple[str, str], list[float]] = {}
     for e in rows:
         cat = _home_category(h, e)
         if cat is None or (category and cat != category):
@@ -416,12 +432,24 @@ async def _home_events(h: Hub, category: str | None, since: float, limit: int,
         by_automation = str(e.get("context_entity_id") or "").startswith(("automation.", "script."))
         name = e.get("name") or e.get("entity_id")
         eid = str(e.get("entity_id") or "")
+        what = e.get("message") or e.get("state") or ""
+        if eid.startswith("binary_sensor.") and cat == "doors":
+            # One physical sensor often shows up as several entities ("Open Sensor", "Window/door is open").
+            # Name the row after the device, say opened/closed, and keep one row per change.
+            dev = h.home.entity_device.get(eid)
+            name = _sensor_name(h, eid, dev) or name
+            state = e.get("state")
+            what = {"on": "opened", "off": "closed"}.get(state, what)
+            key = (dev or str(name), state or what)
+            if any(abs(ts - t) < 10 for t in kept.setdefault(key, [])):
+                continue
+            kept[key].append(ts)
         pid = people.get(eid) if cat == "people" else None
         out.append({
             "id": f"ha:{int(ts * 1000)}:{e.get('entity_id')}", "t": ts, "at": iso(ts), "who": None, "person_id": pid,
             "ref": _activity_ref(eid, cat, pid),
             "device_id": None, "action": e.get("entity_id", "").split(".", 1)[0] + ".changed", "target": e.get("entity_id"),
-            "params": {}, "outcome": "ok", "detail": f"{name} {e.get('message') or e.get('state') or ''}".strip(),
+            "params": {}, "outcome": "ok", "detail": f"{name} {what}".strip(),
             "source": "automation" if by_automation or cat == "automation" else "home",
         })
     out.sort(key=lambda r: r["t"], reverse=True)
