@@ -11,7 +11,7 @@ import UIKit
 /// Scrolling never moves a cat or sends it away: while the page moves, every cat holds its spot on
 /// screen and the scene picks up again once the page settles. The one exception is a cat standing on
 /// the Home header art, which travels with the header (if the header has moved by the time scrolling
-/// stops, that cat slips away).
+/// stops, that cat slips away while any other cat carries on).
 @MainActor
 final class CatDirector {
     static let shared = CatDirector()
@@ -50,7 +50,6 @@ final class CatDirector {
     private let scrollWatch = CatScrollWatch()
     private var scrolling = false
     private var lastScroll = Date.distantPast
-    private var nearTouch: Task<Void, Never>?
 
     var frequency: Frequency {
         if let s = SettingsStore.shared.optionalString(SettingKey.cats), let f = Frequency(rawValue: s) { return f }
@@ -91,6 +90,7 @@ final class CatDirector {
             },
         ]
         scrollWatch.onChange = { [weak self] on in self?.scrollChanged(on) }
+        scrollWatch.onTap = { [weak self] p in self?.tappedApp(at: p) }
         watchScrolls()
         lastScene = Date().addingTimeInterval(-min(frequency.gap, 15 * 60) + Double.random(in: 25...70))  // the first visit comes fairly soon
         loop = Task { [weak self] in
@@ -115,10 +115,17 @@ final class CatDirector {
     private func scrollChanged(_ on: Bool) {
         scrolling = on
         lastScroll = Date()
-        if on { nearTouch?.cancel(); nearTouch = nil }
         stage.hold(on)
-        // A cat standing on the header went off with it: its ground has moved, so it leaves.
-        if !on, scene != nil, stage.carriedOff { stop() }
+        // A cat standing on the header went off with it: its ground has moved, so that cat leaves.
+        // The scene only ends if no other cat is still out.
+        if !on, scene != nil, !stage.dropCarried() { stop() }
+    }
+
+    /// A tap on the app (not on a cat, which the cat window takes). One right next to a cat sends the
+    /// scene away. Only a finished tap counts, so a scroll that starts near a cat never does this.
+    private func tappedApp(at p: CGPoint) {
+        guard scene != nil, stage.cat(at: p) == nil, stage.near(p, within: 44) else { return }
+        stop()
     }
 
     // MARK: staying out of the way
@@ -141,16 +148,6 @@ final class CatDirector {
         lastTouch = Date()
         guard scene != nil else { return false }
         if stage.cat(at: point) != nil { return true }
-        // A finger landing near a cat sends it away, unless it turns out to be a scroll (then the cat
-        // just holds still until the page settles).
-        if stage.near(point, within: 44) {
-            nearTouch?.cancel()
-            nearTouch = Task { [weak self] in
-                try? await Task.sleep(for: .seconds(0.3))
-                guard let self, !Task.isCancelled, !self.scrolling else { return }
-                self.stop()
-            }
-        }
         return false
     }
 
@@ -314,8 +311,11 @@ extension View {
 @MainActor
 final class CatScrollWatch: NSObject, UIGestureRecognizerDelegate {
     var onChange: ((Bool) -> Void)?
+    /// A finished tap anywhere in the app, in window points.
+    var onTap: ((CGPoint) -> Void)?
     private(set) var scrolling = false
     private let pan = UIPanGestureRecognizer()
+    private let tap = UITapGestureRecognizer()
     private weak var window: UIWindow?
     private var offset: NSKeyValueObservation?
     private var settle: Task<Void, Never>?
@@ -325,6 +325,14 @@ final class CatScrollWatch: NSObject, UIGestureRecognizerDelegate {
         guard window !== w else { return }
         pan.view?.removeGestureRecognizer(pan)
         pan.removeTarget(nil, action: nil)
+        tap.view?.removeGestureRecognizer(tap)
+        tap.removeTarget(nil, action: nil)
+        tap.addTarget(self, action: #selector(tapped(_:)))
+        tap.cancelsTouchesInView = false
+        tap.delaysTouchesBegan = false
+        tap.delaysTouchesEnded = false
+        tap.delegate = self
+        w.addGestureRecognizer(tap)
         pan.addTarget(self, action: #selector(panned(_:)))
         pan.cancelsTouchesInView = false
         pan.delaysTouchesBegan = false
@@ -337,6 +345,10 @@ final class CatScrollWatch: NSObject, UIGestureRecognizerDelegate {
     func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
     func gestureRecognizer(_ g: UIGestureRecognizer, shouldRequireFailureOf other: UIGestureRecognizer) -> Bool { false }
     func gestureRecognizer(_ g: UIGestureRecognizer, shouldBeRequiredToFailBy other: UIGestureRecognizer) -> Bool { false }
+
+    @objc private func tapped(_ g: UITapGestureRecognizer) {
+        if g.state == .ended { onTap?(g.location(in: g.view)) }
+    }
 
     @objc private func panned(_ g: UIPanGestureRecognizer) {
         switch g.state {
