@@ -27,6 +27,7 @@ final class FamilyStore {
             people = t.family ?? people
             loadedAt = .now
             error = nil
+        } catch HubClient.HubError.cancelled {
         } catch {
             self.error = Self.message(error)
         }

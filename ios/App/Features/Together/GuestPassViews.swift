@@ -60,6 +60,7 @@ struct GuestPassesView: View {
 
     private func load() async {
         do { list = try await HubClient.shared.get("/v1/guest-passes"); error = nil }
+        catch HubClient.HubError.cancelled {}
         catch { self.error = FamilyStore.message(error) }
     }
 

@@ -79,6 +79,7 @@ struct IntercomView: View {
 
     private func load() async {
         do { info = try await HubClient.shared.get("/v1/intercom"); loadError = nil }
+        catch HubClient.HubError.cancelled {}
         catch { loadError = FamilyStore.message(error) }
     }
 

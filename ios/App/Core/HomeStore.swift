@@ -59,6 +59,12 @@ final class HomeStore {
             NotificationCenter.default.addObserver(forName: .hubUnreachable, object: nil, queue: .main) { _ in
                 Task { @MainActor in HomeStore.shared.markUnreachable() }
             }
+            NotificationCenter.default.addObserver(forName: .hubReachable, object: nil, queue: .main) { _ in
+                Task { @MainActor in
+                    let s = HomeStore.shared
+                    if !s.reachable { await s.loadHome() }   // fresh Home, and the strip goes with it
+                }
+            }
             Downloads.shared.resume()
             Task.detached(priority: .background) { OfflineCache.trim() }
         }
@@ -138,6 +144,7 @@ final class HomeStore {
                 SpotlightIndex.clear()
                 phase = .findingHome
             }
+        } catch HubClient.HubError.cancelled {
         } catch {
             markUnreachable()
         }
@@ -148,6 +155,7 @@ final class HomeStore {
             let (h, savedAt) = try await HubClient.shared.fetch("/v1/home", as: HomeSnapshot.self)
             home = h; cacheHome()
             if savedAt == nil { markReachable(); if previewing == nil { SpotlightIndex.update(h, me: me) } } else { markUnreachable() }
+        } catch HubClient.HubError.cancelled {
         } catch { markUnreachable() }
     }
 
