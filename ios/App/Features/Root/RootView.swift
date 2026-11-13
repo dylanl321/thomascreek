@@ -194,7 +194,8 @@ struct ToastView: View {
             }
             .padding(.horizontal, 16).padding(.vertical, 10)
             .background(.ultraThinMaterial, in: Capsule())
-            .padding(.top, 6)
+            // Below the View as banner, so its Exit button stays reachable.
+            .padding(.top, store.previewing == nil ? 6 : 52)
             .transition(.move(edge: .top).combined(with: .opacity))
             .onTapGesture { store.toast = nil }
         }
