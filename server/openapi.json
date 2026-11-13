@@ -8454,6 +8454,68 @@
     }
    }
   },
+  "/v1/app/release": {
+   "post": {
+    "tags": [
+     "meta"
+    ],
+    "summary": "App Release",
+    "description": "The Mac's upload script: TestFlight has finished processing `build`, tell the phones.\n\nSigned with the Mac's test key (~/.thomascreek/test-key, made on the hub web page), which\nmust belong to an admin. Only ever raises the latest build, never lowers it.",
+    "operationId": "app_release_v1_app_release_post",
+    "parameters": [
+     {
+      "name": "x-test-key",
+      "in": "header",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "X-Test-Key"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/Release"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response App Release V1 App Release Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/v1/admin/web-approve": {
    "post": {
     "tags": [
@@ -13840,6 +13902,33 @@
     },
     "type": "object",
     "title": "RecipeBody"
+   },
+   "Release": {
+    "properties": {
+     "build": {
+      "type": "integer",
+      "maximum": 10000000.0,
+      "minimum": 1.0,
+      "title": "Build"
+     },
+     "version": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 20
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Version"
+     }
+    },
+    "type": "object",
+    "required": [
+     "build"
+    ],
+    "title": "Release"
    },
    "Rename": {
     "properties": {

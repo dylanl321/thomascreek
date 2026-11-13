@@ -478,7 +478,7 @@ def _app_update_html(h: Hub, csrf: str) -> str:
     s = au.settings()
     latest = info["latest_build"]
     if latest:
-        where = {"testflight": "from TestFlight", "phone": "seen on a phone"}.get(info["source"], "set by hand")
+        where = {"testflight": "from TestFlight", "phone": "seen on a phone", "upload": "from the Mac's upload"}.get(info["source"], "set by hand")
         head = (f"{e(info['latest_version'])} ({latest})" if info["latest_version"] else f"build {latest}") + f" {where}"
     else:
         head = "not known yet"

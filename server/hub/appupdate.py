@@ -11,6 +11,10 @@ Without a key, the hub also learns new builds from the phones: a signed-in phone
 TestFlight install that reports a build newer than anything known proves that build is out,
 so every other phone is told about it. Simulators and Xcode installs don't count.
 
+The Mac's ios/scripts/upload.sh also tells the hub (POST /v1/app/release, signed with the
+Mac's test key) once TestFlight has finished processing a new upload, so phones hear about
+it before anyone has installed it.
+
 Dylan can also type the latest build on the hub web page. He can also set a
 minimum build: phones older than that see a full-screen "Update required" until they update.
 Those two settings live in data/app_update.json.
@@ -81,14 +85,15 @@ class AppUpdates:
         tmp.write_text(json.dumps(s))
         tmp.replace(self.path)
 
-    def learn(self, build: int, version: str | None = None) -> bool:
-        """A TestFlight phone is running `build`. If that's newer than anything known, it's the latest now."""
+    def learn(self, build: int, version: str | None = None, source: str = "phone") -> bool:
+        """`build` is out: a TestFlight phone is running it, or the Mac's upload script says TestFlight
+        finished processing it. If that's newer than anything known, it's the latest now."""
         latest = self.info()["latest_build"]
         if latest is not None and build <= latest:
             return False
-        self.save_settings(seen_build=build, seen_version=version or None,
+        self.save_settings(seen_build=build, seen_version=version or None, seen_source=source,
                            seen_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
-        log.info("app update: a phone is on build %s, newer than %s", build, latest)
+        log.info("app update: build %s is out (%s), newer than %s", build, source, latest)
         if self.on_change:
             self.on_change(self.info())
         return True
@@ -109,7 +114,7 @@ class AppUpdates:
             latest, version, released, source = found["build"], found.get("version"), found.get("uploaded"), "testflight"
         seen = _int(s.get("seen_build"))
         if seen is not None and (latest is None or seen > latest):
-            latest, version, released, source = seen, s.get("seen_version"), s.get("seen_at"), "phone"
+            latest, version, released, source = seen, s.get("seen_version"), s.get("seen_at"), s.get("seen_source") or "phone"
         if manual is not None and (latest is None or manual > latest):
             latest, version, released, source = manual, s.get("latest_version"), s.get("set_at"), "manual"
         minimum = max(_int(s.get("min_build")) or 0, self.cfg.min_build)
