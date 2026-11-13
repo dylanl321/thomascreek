@@ -112,7 +112,10 @@ struct MainTabs: View {
             NavigationStack { OfflineStorageView().toolbar { Button("Done") { router.showOffline = false } } }.personalStyle()
         }
         .sheet(item: Binding(get: { router.vpnImport.map(IdentifiedURL.init) }, set: { router.vpnImport = $0?.url })) { f in VPNImportSheet(file: f.url).personalStyle() }
-        .sheet(item: Binding(get: { router.youtubeAdd.map(YouTubeLink.init) }, set: { router.youtubeAdd = $0?.text })) { YouTubeAddSheet(link: $0.text).personalStyle() }
+        .sheet(item: Binding(get: { router.youtubeAdd.map(YouTubeLink.init) }, set: { router.youtubeAdd = $0?.text })) { l in
+            // A shared-in link goes straight to its preview; the + button opens the search wizard.
+            Group { if l.text.isEmpty { YouTubeWizard() } else { YouTubeAddSheet(link: l.text) } }.personalStyle()
+        }
         .sheet(item: Binding(get: { store.askParent }, set: { store.askParent = $0 })) { a in AskParentSheet(ask: a).personalStyle() }
     }
 

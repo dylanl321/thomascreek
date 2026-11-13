@@ -65,6 +65,7 @@ DESCRIPTIONS = {
     "trek.mcp_client_id": "TREK machine client ID (for changing trips)",
     "trek.mcp_client_secret": "TREK machine client secret (for changing trips)",
     "anthropic.api_key": "Claude API key for the Ask Thomas Creek assistant",
+    "youtube.api_key": "YouTube Data API key (optional: channel video counts in the add wizard)",
     "appstore.auth_key_p8": "App Store Connect API key (.p8 file), for spotting new app builds",
     "appstore.key_id": "App Store Connect API key ID",
     "appstore.issuer_id": "App Store Connect issuer ID",
@@ -282,6 +283,12 @@ SECTIONS: list[dict[str, Any]] = [
         ("anthropic.api_key", "Claude API key", "text",
          "Powers Ask Thomas Creek (chat and voice). console.anthropic.com: Settings, API keys, Create key. "
          "It starts with sk-ant-. Setting a monthly spend limit there (Settings, Limits) is a good idea."),
+    ]},
+    {"title": "YouTube (optional key)", "always": True, "optional": True, "fields": [
+        ("youtube.api_key", "YouTube Data API key", "text",
+         "Optional. Search works without it; with it, the add wizard also shows how many videos a channel has. "
+         "console.cloud.google.com: a project, APIs and Services, Library, YouTube Data API v3, Enable; then "
+         "Credentials, Create credentials, API key (restrict it to the YouTube Data API v3). It starts with AIza."),
     ]},
     {"title": "3D printer (Bambu H2S)", "service": "printers", "fields": [
         ("printer.h2s.access_code", "Access code", "text",
