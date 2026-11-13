@@ -40,7 +40,7 @@ struct DeviceTile: View {
                       on: d.isOn, tint: Theme.accent, big: big) { toggle("switch.set") }
         case .climate:
             StateTile(symbol: "thermometer.medium", title: d.name, detail: ClimateText.summary(d), on: ClimateText.active(d),
-                      tint: ClimateText.color(d), big: big) { router.go(.climate) }
+                      tint: ClimateText.color(d), big: big) { router.go(.climateHistory(d.id)) }
         case .media:
             StateTile(symbol: "tv.fill", title: d.name, detail: d.isOn ? (d["source"]?.string ?? "On") : "Off",
                       on: d.isOn, tint: Theme.accent, big: big) { router.go(.remote(d.id)) }
@@ -246,7 +246,10 @@ struct DeviceDetailSheet: View {
 /// Thermostat card with − / + that sends one change after the taps settle.
 struct ClimateCard: View {
     @Environment(HomeStore.self) private var store
+    @Environment(Router.self) private var router
     let device: DeviceItem
+    /// The history screen shows the card itself, so it hides the row that opens it.
+    var showsHistory = true
     @State private var pending: Double?
     @State private var send: Task<Void, Never>?
 
@@ -279,6 +282,19 @@ struct ClimateCard: View {
                             .font(.subheadline.weight(.semibold))
                     }
                 }
+            }
+            if showsHistory {
+                Divider().overlay(Theme.line)
+                Button { router.go(.climateHistory(device.id)) } label: {
+                    HStack {
+                        Label("History", systemImage: "chart.xyaxis.line").font(.subheadline.weight(.semibold))
+                        Spacer()
+                        Text("Temperature, set points, when it ran").font(.caption).foregroundStyle(Theme.dim).lineLimit(1)
+                        Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(Theme.dim)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
             }
         }
         .card()

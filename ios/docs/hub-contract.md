@@ -303,6 +303,13 @@ Hub: `hub/forecast.py`, `routes/weather.py`. Free sources only, fetched and cach
 - Smart card rule `wx_alert` (grown-ups): a warning (priority 95) or watch (70) for the house, `ref` to the alert.
 - Deep links: `thomascreek://weather`, `/weather/alert/<id>`, `/weather/radar`, `/weather/outlook`.
 
+## Thermostat history (2026-11-13)
+
+- `GET /v1/climate/{entity_id}/history?range=6h|24h|3d|7d` (default 24h). 404 when the person can't see that thermostat on Home.
+- Reply: `{entity_id, name, unit ("°F"|"°C"), range, start, end, points [{t, temp?, humidity?}], setpoints [{t, heat?, cool?, target?}], runs [{start, end, action: heating|cooling|fan|drying|…}], modes [{start, end, mode}], outdoor [{t, temp}], reports_action, summary {heating_s, cooling_s, fan_s, heating_cycles, cooling_cycles, temp_min?, temp_max?, temp_avg?, humidity_now?, humidity_min?, humidity_max?}}`.
+- Times are Unix seconds. `temp: null` is a gap (thermostat unavailable). Set points are steps: each holds until the next. Auto holds `heat` (low) and `cool` (high); Heat/Cool hold one; `target` only for an Auto thermostat with a single set point. `reports_action: false` means the thermostat never says when it runs, so there are no run bands. The line and set points run on to `end`.
+- App: `Destination.climateHistory(id)` (`ClimateHistoryView`), embeddable `ClimateHistorySection(deviceID:)`; deep link `thomascreek://climate/<entity_id>`.
+
 ## TVs and boxes: find and add for the remote (2026-11-13)
 
 Adults and admins (`remotes.setup`). Pairing runs through Home Assistant's own setup flows (`androidtv_remote`, `apple_tv`), so a TV added from one phone is on everyone's remote; nobody pairs on their own device. The hub's Home Assistant token must belong to an HA admin (else `409 ha_admin_needed`).
