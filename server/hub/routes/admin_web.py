@@ -315,9 +315,10 @@ SECTIONS: list[dict[str, Any]] = [
         ("trek.mcp_client_secret", "TREK machine client secret", "text",
          "The client secret TREK shows once after Register."),
     ]},
-    {"title": "Family board", "service": "family_board", "optional": True, "fields": [
+    {"title": "Family board", "service": "family_board", "fields": [
         ("family_board.admin_token", "Family Command Center admin token", "text",
-         "Optional: only if chores or rewards fail. On the home network the board accepts the hub without it."),
+         "The board's 6-digit parent PIN (its ADMIN_TOKEN). Needed to add or change chores and calendar events "
+         "from the app or the assistant; marking chores done works without it on the home network."),
     ]},
     {"title": "Homebox", "always": True, "optional": True, "fields": [
         ("homebox.password", "Homebox password", "text", "Optional: the password of the Homebox account the hub signs in as."),

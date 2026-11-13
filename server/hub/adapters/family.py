@@ -395,6 +395,9 @@ class FamilyBoard(Adapter):
         except httpx.HTTPError as exc:
             self._fail(f"cannot reach {self.title}: {type(exc).__name__}")
             raise AdapterError(self.last_error) from exc
+        if resp.status_code in (401, 403):
+            raise BoardRefused(503, "The family board turned the hub away. To add or change chores and calendar "
+                                    "events, save the board's parent PIN on the hub's admin page (Family board).")
         if resp.status_code in (400, 404):
             try:
                 msg = str(resp.json().get("error") or "")

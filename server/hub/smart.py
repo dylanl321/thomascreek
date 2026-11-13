@@ -95,9 +95,22 @@ class Ctx:
 
     @property
     def away(self) -> bool:
+        """Everyone is out. Conservative: phone presence must say so, and nobody may be showing
+        signs of being home (this person on the home network, a child's device online)."""
         if self._away is None:
-            self._away = self.hub.alerts.nobody_home() or self.hub.kitchen._everyone_away()
+            if self.s.at_home or self.smart.kids_online:
+                self._away = False
+            else:
+                self._away = self.hub.alerts.nobody_home() or self.hub.kitchen._everyone_away()
         return self._away
+
+    def unlocked(self) -> list[tuple[str, list[str]]]:
+        """Unlocked doors, one row per door: Home Assistant can list one lock under two entities."""
+        by_name: dict[str, list[str]] = {}
+        for e in self.of_kind("lock"):
+            if self.states[e].get("state") == "unlocked":
+                by_name.setdefault(self.name(e).strip().lower(), []).append(e)
+        return [(self.name(eids[0]), eids) for eids in by_name.values()]
 
     def name(self, eid: str) -> str:
         return (self.states.get(eid, {}).get("attributes") or {}).get("friendly_name", eid)
@@ -121,6 +134,7 @@ class Smart:
         self.dinner_oven: dict[str, Any] = {}             # {"slug": ..., "oven": plan|None}
         self.dinner_ideas: dict[str, Any] = {}            # {"day": iso, "items": [{title, slug}]}
         self.internet: dict[str, dict[str, Any]] = {}     # child person id -> {managed, paused}
+        self.kids_online = False                          # a child's device is on the home network now
         self.habits: dict[str, list[dict[str, Any]]] = {}  # person id -> habits
         self._task: asyncio.Task | None = None
         self._habits_at = 0.0
@@ -214,6 +228,12 @@ class Smart:
             except Exception as exc:  # noqa: BLE001
                 log.info("internet state for %s: %s", p["name"], exc)
         self.internet = out
+        # The kids' tablets and phones are Wi-Fi only, so one online on the Firewalla means someone is home.
+        try:
+            devs = await self.hub.firewalla.devices()
+            self.kids_online = any(d.get("online") and self.hub.alerts.kid_for_device(d) for d in devs)
+        except Exception as exc:  # noqa: BLE001
+            log.info("kids' devices: %s", exc)
 
     # -- learned habits -------------------------------------------------------
     def learn_habits(self, now: float | None = None) -> None:
@@ -427,17 +447,19 @@ def r_oven_on(sm: Smart, c: Ctx):
 def r_away_unlocked(sm: Smart, c: Ctx):
     if not c.has("doors") or not c.away:
         return None
-    locks = [e for e in c.of_kind("lock") if c.states[e].get("state") == "unlocked"]
-    if not locks:
+    doors = c.unlocked()
+    if not doors:
         return None
-    if len(locks) == 1:
-        return card(f"away_unlocked:{locks[0]}:{c.today}", 98, "bad", "lock.open.fill", "Nobody's home",
-                    f"{c.name(locks[0])} is unlocked",
-                    buttons=[sm.button(c, "Lock it", "lock.set", locks[0], {"locked": True}, done="Locked")],
+    steps = [{"action": "lock.set", "target": e, "params": {"locked": True}} for _, eids in doors for e in eids]
+    if len(doors) == 1:
+        name, eids = doors[0]
+        btn = (sm.button(c, "Lock it", "lock.set", eids[0], {"locked": True}, done="Locked") if len(eids) == 1 else
+               sm.button(c, "Lock it", "steps.run", None, {"steps": steps, "label": "Lock"}, done="Locked"))
+        return card(f"away_unlocked:{eids[0]}:{c.today}", 98, "bad", "lock.open.fill", "Nobody's home",
+                    f"{name} is unlocked", buttons=[btn],
                     why="Everyone is away and a lock reports unlocked")
-    steps = [{"action": "lock.set", "target": e, "params": {"locked": True}} for e in locks]
     return card(f"away_unlocked:{c.today}", 98, "bad", "lock.open.fill", "Nobody's home",
-                f"{len(locks)} doors are unlocked", items=[{"title": c.name(e), "value": "unlocked"} for e in locks],
+                f"{len(doors)} doors are unlocked", items=[{"title": n, "value": "unlocked"} for n, _ in doors],
                 buttons=[sm.button(c, "Lock all", "steps.run", None, {"steps": steps, "label": "Lock all"}, done="Locked")],
                 why="Everyone is away and locks report unlocked")
 
@@ -776,10 +798,9 @@ def r_lockup(sm: Smart, c: Ctx):
         return None
     items, steps = [], []
     if c.has("doors"):
-        for e in c.of_kind("lock"):
-            if c.states[e].get("state") == "unlocked":
-                items.append({"title": c.name(e), "value": "unlocked"})
-                steps.append({"action": "lock.set", "target": e, "params": {"locked": True}})
+        for name, eids in c.unlocked():
+            items.append({"title": name, "value": "unlocked"})
+            steps += [{"action": "lock.set", "target": e, "params": {"locked": True}} for e in eids]
         for e in c.of_kind("garage"):
             if c.states[e].get("state") == "open":
                 items.append({"title": c.name(e), "value": "open"})
