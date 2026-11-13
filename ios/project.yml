@@ -14,7 +14,7 @@ settings:
   base:
     SWIFT_VERSION: "5.0"
     MARKETING_VERSION: "2.0"
-    CURRENT_PROJECT_VERSION: "22"
+    CURRENT_PROJECT_VERSION: "23"
     CODE_SIGN_STYLE: Automatic
     DEVELOPMENT_TEAM: $(TEAM_ID)
     TARGETED_DEVICE_FAMILY: "1,2"
@@ -51,9 +51,13 @@ targets:
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
         UIRequiresFullScreen: true
-        UIBackgroundModes: [remote-notification]
+        UIBackgroundModes: [remote-notification, fetch]
+        # Background refresh: picks up films and shows a grown-up sent to this device (SendsSync).
+        BGTaskSchedulerPermittedIdentifiers: [me.dlewis.thomascreek.sends]
         NSSupportsLiveActivities: true
         NSSupportsLiveActivitiesFrequentUpdates: true
+        NSLocationWhenInUseUsageDescription: Thomas Creek notices when you get home or leave, to check the doors and garage.
+        NSLocationAlwaysAndWhenInUseUsageDescription: Lets Thomas Creek notice when you leave or get home, even when the app is closed, so the last one out gets a check of the doors and garage. Your location stays on this iPhone; only "arrived" or "left" is sent home.
         NSFaceIDUsageDescription: Face ID confirms it's you before a door, lock, camera or oven changes.
         NSMicrophoneUsageDescription: Lets you talk to Thomas Creek. Your voice is turned into text on this iPhone.
         NSSpeechRecognitionUsageDescription: Turns what you say to Thomas Creek into text, on this iPhone when it can.

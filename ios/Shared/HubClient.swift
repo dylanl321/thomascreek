@@ -28,6 +28,11 @@ actor HubClient {
         }
     }
 
+    /// Set while Dylan previews the app as someone else ("View as"): every request carries it and the hub
+    /// answers as that person, refusing anything that would change the house. Memory only, so it never
+    /// survives the app closing.
+    nonisolated(unsafe) static var viewAs: String?
+
     private var lastGood: URL?
     private var token: String? = SharedKeychain.get("access")
     private var tokenExpiry: Date = {
@@ -117,9 +122,13 @@ actor HubClient {
     }
 
     /// Like `get`, and says whether the answer is a saved copy (and from when).
+    /// A screen fell back to a saved copy because home didn't answer; the next answer clears the offline strip.
+    private var showedSaved = false
+
     func fetch<T: Decodable>(_ path: String, _ query: [String: String] = [:], keep: Bool = false,
                              as: T.Type = T.self) async throws -> (value: T, savedAt: Date?) {
-        let cacheable = OfflineCache.cacheable(path)
+        // A preview's answers belong to someone else: never save them over this phone's own copies.
+        let cacheable = OfflineCache.cacheable(path) && Self.viewAs == nil
         let data: Data
         var savedAt: Date?
         do {
@@ -130,7 +139,7 @@ actor HubClient {
             case .unreachable, .server(500..., _):
                 guard cacheable, let saved = OfflineCache.load(path: path, query: query) else { throw e }
                 data = saved.data; savedAt = saved.savedAt
-                if e == .unreachable { NotificationCenter.default.post(name: .hubUnreachable, object: nil) }
+                if e == .unreachable { showedSaved = true; NotificationCenter.default.post(name: .hubUnreachable, object: nil) }
             default: throw e
             }
         }
@@ -154,8 +163,10 @@ actor HubClient {
 
     /// Run an action through the hub's policy check.
     @discardableResult
-    func action(_ name: String, target: String? = nil, params: [String: Any] = [:], confirm: String? = nil) async throws -> ActionReply {
+    func action(_ name: String, target: String? = nil, params: [String: Any] = [:], confirm: String? = nil,
+                quick: Bool = false) async throws -> ActionReply {
         var body: [String: Any] = ["action": name, "params": params]
+        if quick { body["quick"] = true }   // widget, Control Center, CarPlay or Watch on an unlocked device
         if let target { body["target"] = target }
         return try await call("POST", "/v1/actions", body: body, confirm: confirm)
     }
@@ -174,8 +185,17 @@ actor HubClient {
             // Slow calls (the assistant thinks for a while) use the long-lived session: the regular one
             // gives up after 10 s of silence whatever the request's own timeout says.
             do { (data, resp) = try await (timeout == nil ? session : Self.streamSession).data(for: req) }
-            catch { lastError = HubError.unreachable; continue }
+            catch {
+                // A screen that went away cancels its request. That's not home being down, so it must not
+                // turn on the offline strip or fall back to a saved copy.
+                if Task.isCancelled || (error as? URLError)?.code == .cancelled { throw HubError.cancelled }
+                lastError = HubError.unreachable; continue
+            }
             lastGood = base
+            if showedSaved {
+                showedSaved = false
+                NotificationCenter.default.post(name: .hubReachable, object: nil)
+            }
             let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
             switch code {
             case 200..<300:
@@ -236,6 +256,7 @@ actor HubClient {
         if body != nil { r.setValue("application/json", forHTTPHeaderField: "Content-Type") }
         if let bearer { r.setValue("Bearer \(bearer)", forHTTPHeaderField: "Authorization") }
         if let confirmHeader { r.setValue(confirmHeader, forHTTPHeaderField: "X-TC-Confirm") }
+        if let v = Self.viewAs { r.setValue(v, forHTTPHeaderField: "X-TC-View-As") }
         r.setValue(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String, forHTTPHeaderField: "X-TC-App")
         return r
     }
@@ -271,6 +292,8 @@ actor HubClient {
 extension Notification.Name {
     /// A screen fell back to a saved copy because home didn't answer.
     static let hubUnreachable = Notification.Name("hubUnreachable")
+    /// Home answered again after a screen had fallen back to a saved copy.
+    static let hubReachable = Notification.Name("hubReachable")
 }
 
 /// For calls whose reply body doesn't matter.
@@ -305,9 +328,35 @@ final class HubPinning: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
             // Typed-in address on home Wi-Fi: pin the first certificate it shows.
             AppSettings.hubPin = fp; AppSettings.trustFirstCertFrom = ""; pin = fp
         }
+        if isPublished(host) { return evaluatePublished(trust) }
         guard !pin.isEmpty, isHub(host) else { return (.performDefaultHandling, nil) }
         guard let chain = SecTrustCopyCertificateChain(trust) as? [SecCertificate], let leaf = chain.first,
               let fp = spkiSHA256(leaf), fp == pin.lowercased() else {
+            return (.cancelAuthenticationChallenge, nil)
+        }
+        return (.useCredential, URLCredential(trust: trust))
+    }
+
+    /// The published address (through the reverse proxy) shows a public Let's Encrypt certificate, not the
+    /// hub's own key. Accept it only if iOS trusts it for this host AND the chain runs through one of
+    /// Let's Encrypt's roots, so a certificate from any other authority is refused. The host itself came
+    /// from the hub over the pinned home connection (`/v1/me` remote_url).
+    static let publishedRootPins: Set<String> = [
+        "0b9fa5a59eed715c26c1020c711b4f6ec42d58b0015e14337a39dad301c5afc3", // ISRG Root X1 (RSA 4096)
+        "762195c225586ee6c0237456e2107dc54f1efc21f61a792ebd515913cce68332", // ISRG Root X2 (P-384)
+        "b0292ae545978e0fbb98abbd94c861605e5b18bb32ed523f50d5b7b5c71d47bc", // ISRG Root YE (P-384)
+    ]
+
+    private static func isPublished(_ host: String) -> Bool {
+        guard let remote = URL(string: AppSettings.hubRemote)?.host, remote == host else { return false }
+        // If the same name were also the home address, keep the hub's own pin.
+        return URL(string: AppSettings.hubLAN)?.host != host
+    }
+
+    private static func evaluatePublished(_ trust: SecTrust) -> (URLSession.AuthChallengeDisposition, URLCredential?) {
+        guard SecTrustEvaluateWithError(trust, nil),
+              let chain = SecTrustCopyCertificateChain(trust) as? [SecCertificate],
+              chain.contains(where: { spkiSHA256($0).map(publishedRootPins.contains) ?? false }) else {
             return (.cancelAuthenticationChallenge, nil)
         }
         return (.useCredential, URLCredential(trust: trust))

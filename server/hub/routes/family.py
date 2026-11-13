@@ -150,7 +150,7 @@ async def calendar(days: int = 7, c: Caller = Depends(caller), h: Hub = Depends(
     if not h.family_board.enabled and trip_days:
         return {"events": trip_days}
     try:
-        cal = await h.family_board.calendar(days)
+        cal = await h.family_board.calendar(days, h.config.hub.timezone)
     except AdapterError as exc:
         if trip_days:
             return {"events": trip_days}

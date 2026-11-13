@@ -138,13 +138,16 @@ class YouTube:
             raise YouTubeError(_plain_error(err.decode(errors="ignore")))
         return out.decode(errors="ignore")
 
-    async def lookup(self, link: dict[str, str]) -> dict[str, Any]:
-        """Title, channel, picture and the videos a source would bring, without fetching anything."""
+    async def lookup(self, link: dict[str, str], latest: int | None = None) -> dict[str, Any]:
+        """Title, channel, picture and the videos a source would bring, without fetching anything.
+        ``latest`` asks a channel for more (or fewer) of its newest uploads than the usual number."""
         if link["kind"] == "video":
             info = json.loads(await self._run(["-J", "--no-playlist", link["url"]]))
             entries = [info]
         else:
             n = self.cfg.channel_latest if link["kind"] == "channel" else self.cfg.playlist_max
+            if latest:
+                n = max(n, min(int(latest), 100)) if link["kind"] == "channel" else n
             info = json.loads(await self._run(["-J", "--flat-playlist", "--playlist-end", str(n), link["url"]], 180))
             entries = [e for e in info.get("entries") or [] if e]
         videos = [v for v in (self._entry(e) for e in entries) if v]
@@ -177,9 +180,9 @@ class YouTube:
     def blocked(self, channel_id: str | None) -> bool:
         return bool(channel_id) and self.db.one("SELECT 1 AS x FROM yt_blocked WHERE channel_id=?", [channel_id]) is not None
 
-    async def add(self, text: str, follow: bool, person_id: str) -> dict[str, Any]:
+    async def add(self, text: str, follow: bool, person_id: str, latest: int | None = None) -> dict[str, Any]:
         link = parse_link(text)
-        info = await self.lookup(link)
+        info = await self.lookup(link, latest)
         if self.blocked(info["channel_id"]) or any(self.blocked(v.get("channel_id")) for v in info["videos"][:1]):
             raise YouTubeError("A grown-up turned that channel off.")
         if not info["videos"]:
@@ -188,6 +191,8 @@ class YouTube:
         if same:
             if follow and not same["follow"] and info["kind"] != "video":
                 self.db.update("yt_sources", "id", same["id"], {"follow": 1})
+            if latest and latest > (same.get("latest") or 0):
+                self.db.update("yt_sources", "id", same["id"], {"latest": int(latest)})
             self._queue(same["id"], info["videos"])
             return self.source_out(self.db.one("SELECT * FROM yt_sources WHERE id=?", [same["id"]]))  # type: ignore[arg-type]
         sid = new_id("yts")
@@ -195,7 +200,7 @@ class YouTube:
             "id": sid, "kind": info["kind"], "url": info["url"], "yt_id": info["yt_id"], "title": info["title"],
             "channel": info["channel"], "channel_id": info["channel_id"], "thumb_url": info["thumb"],
             "added_by": person_id, "created_at": time.time(), "follow": int(follow and info["kind"] != "video"),
-            "last_checked_at": time.time()})
+            "last_checked_at": time.time(), "latest": int(latest) if latest else None})
         self._queue(sid, info["videos"])
         asyncio.create_task(self._save_picture(f"src-{sid}", info["thumb"]))
         self._wake.set()
@@ -228,7 +233,7 @@ class YouTube:
             if not force and (s.get("last_checked_at") or 0) > due:
                 continue
             try:
-                info = await self.lookup({"kind": s["kind"], "id": s["yt_id"], "url": s["url"]})
+                info = await self.lookup({"kind": s["kind"], "id": s["yt_id"], "url": s["url"]}, s.get("latest"))
                 found += self._queue(s["id"], info["videos"])
                 self.db.update("yt_sources", "id", s["id"], {"last_checked_at": time.time(), "last_error": None})
             except YouTubeError as exc:
@@ -396,7 +401,9 @@ class YouTube:
         cap = int(self.cfg.cap_gb * 1_000_000_000)
         rows = self.db.all("SELECT id, bytes, watched_at, ready_at FROM yt_videos WHERE status='ready'")
         used = sum(r["bytes"] or 0 for r in rows)
-        rows.sort(key=lambda r: (r["watched_at"] is None, r["watched_at"] or 0, r["ready_at"] or 0))
+        # Videos waiting to go to a kid's iPad (hub/sends.py) go last.
+        sending = self.hub.sends.protected() if getattr(self.hub, "sends", None) else set()
+        rows.sort(key=lambda r: (f"yt-{r['id']}" in sending, r["watched_at"] is None, r["watched_at"] or 0, r["ready_at"] or 0))
         gone = 0
         for r in rows:
             if used <= cap:

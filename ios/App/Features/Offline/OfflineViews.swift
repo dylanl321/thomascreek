@@ -206,6 +206,11 @@ struct DownloadsView: View {
     @State private var playing: Downloads.Title?
     private let downloads = Downloads.shared
 
+    /// Kids can't delete what a grown-up sent; it leaves by itself (or when a grown-up takes it off).
+    private func canRemove(_ t: Downloads.Title) -> Bool {
+        !(t.sent && HomeStore.shared.me?.role.isGrownUp != true)
+    }
+
     var body: some View {
         List {
             let all = downloads.mine
@@ -226,19 +231,19 @@ struct DownloadsView: View {
             if !ready.isEmpty {
                 Section("Ready to watch") {
                     ForEach(ready) { t in Button { playing = t } label: { DownloadRow(title: t) }.buttonStyle(.plain) }
-                        .onDelete { ix in ix.map { ready[$0] }.forEach(downloads.remove) }
+                        .onDelete { ix in ix.map { ready[$0] }.filter(canRemove).forEach(downloads.remove) }
                 }
             }
             if !busy.isEmpty {
                 Section("In progress") {
                     ForEach(busy) { t in DownloadRow(title: t) }
-                        .onDelete { ix in ix.map { busy[$0] }.forEach(downloads.remove) }
+                        .onDelete { ix in ix.map { busy[$0] }.filter(canRemove).forEach(downloads.remove) }
                 }
             }
             if !failed.isEmpty {
                 Section("Didn't finish") {
                     ForEach(failed) { t in DownloadRow(title: t) }
-                        .onDelete { ix in ix.map { failed[$0] }.forEach(downloads.remove) }
+                        .onDelete { ix in ix.map { failed[$0] }.filter(canRemove).forEach(downloads.remove) }
                 }
             }
         }
@@ -443,14 +448,14 @@ struct OfflineStorageView: View {
                         Text(cellular ? "Films download on any connection" : "Films wait for Wi-Fi").font(.caption).foregroundStyle(Theme.dim)
                     }
                 }
-                .onChange(of: cellular) { _, v in AppSettings.downloadOnCellular = v }
+                .onChange(of: cellular) { _, v in AppSettings.downloadOnCellular = v; SettingsStore.shared.set(SettingKey.downloadCellular, v) }
                 Toggle(isOn: $removeWatched) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Remove watched downloads")
                         Text("A week after finishing").font(.caption).foregroundStyle(Theme.dim)
                     }
                 }
-                .onChange(of: removeWatched) { _, v in AppSettings.removeWatchedDownloads = v }
+                .onChange(of: removeWatched) { _, v in AppSettings.removeWatchedDownloads = v; SettingsStore.shared.set(SettingKey.removeWatched, v) }
                 Button("Clear saved copies", role: .destructive) { confirmClear = true }
             } header: { Text("Settings") } footer: {
                 Text("Clearing keeps downloads and trips. Saved copies are only for this person and are wiped if the phone is given to someone else.")

@@ -170,7 +170,6 @@ kids' player), `request` posts `/v1/requests`, `chore` posts `/v1/chores/{id}/do
 New deep links: search?q=, remote/<entity>, climate, music, calendar, shopping, inventory, pipeline, hubweb,
 vpnpool, downloads. Spotlight indexes rooms, devices, cameras and screens (identifier = deep link). Siri:
 "Search Thomas Creek". The "Ask Thomas Creek" row calls `Router.ask`, which opens the assistant with the words.
-<<<<<<< HEAD
 
 ## Media requests and tracking (2026-11-12)
 
@@ -185,7 +184,25 @@ Jellyseerr is the source of truth, so requests made on its website or from a Ple
 - `GET /v1/media/title/{media_id}` -> `{media_id, kind, title, year, poster_url, summary, rating, runtime_min, genres, seasons:[{n,name,episodes,status}], availability, request_id, plex_id}`.
 - `GET /v1/media/search` `requestable` now uses the discover item shape above (it used `MediaItem` with a string year, which the app couldn't decode).
 - "Ready to watch" push (`thomascreek://media/requests/{id}`) goes once per request to the person who asked, matched by the app's own record or by Jellyseerr display name = hub first name. Requests already ready when the hub first looks aren't announced.
-=======
+
+## Sending to the kids' iPads (`/v1/sends`)
+
+Grown-ups (admin, adult) pick a film, a show or YouTube and send it to someone's devices. The hub works
+out a *lineup* per person, prepares the files ahead (kept 7 days), and wakes the devices with a silent
+push (`{"aps":{"content-available":1},"cat":"sends"}`, push type `background`, priority 5).
+
+- `GET /v1/sends` (grown-ups): `{people:[{person, devices:[{id,name,model,reported_at,free_bytes,total_bytes,used_bytes,sent_bytes,holdings,can_wake}], sends:[{id,kind,ref,title,poster_url,scope,count,season,quality,from,state,detail,error,items:[{item_id,title,season,episode,ready,on:{device_id: state}}]}]}]}`. `state`: ready, preparing, waiting (request not on Plex yet), done (all watched), gone, empty, error.
+- `GET /v1/sends/choices?kind=show|title|youtube&ref=` (grown-ups): seasons, episode count, `bytes_per_episode` per quality.
+- `POST /v1/sends` `{person_ids, kind: title|show|youtube|request, ref, title?, poster_url?, scope?, count?, season?, quality: high|small|original}`.
+  - `title`: a Plex film/episode id or `yt-<video id>` (a Plex show id becomes a `show`).
+  - `show`: scope `next` (next `count` after the last one this person watched, topped up), `last` (newest `count`), `season` (`season`, or the newest), `all`.
+  - `youtube`: a channel/playlist link or a `yts_…` source id; newest `count` videos. The hub follows it and looks back at least `count`.
+  - `request`: `movie:<tmdb>` or `tv:<tmdb>`; waits until Plex has it, then becomes `title`/`show`.
+  Sending the same thing to the same person again updates it.
+- `PATCH /v1/sends/{id}` `{scope?, count?, season?, quality?}`, `DELETE /v1/sends/{id}`, `POST /v1/sends/sync {person_id?}` (top up now: recompute, prepare, wake).
+- `GET /v1/sends/mine` (any device): `{items:[{item_id,title,kind,poster_url,rating,summary,year,show,season,episode,duration_s,ready,send_id,quality,from,sent_at,watched}], active}`. Download each `ready` item with `POST /v1/media/{item_id}/download {quality}` (allowed even past a child's ratings); delete sent items not listed. A 503 means "couldn't check": keep everything.
+- `POST /v1/sends/inventory` `{items:[{item_id,title,quality,state,progress,bytes,watched,sent,error}], free_bytes, total_bytes}`: what this device holds. `watched` moves `next` shows along.
+
 ## Smart "Right now" cards
 
 `GET /v1/home` now carries `weather` ({temp, condition, symbol, high, low, sunrise, sunset}) and `smart`, a list of
@@ -214,4 +231,40 @@ the card until 4 am (30 min for safety cards). Three "Not now" in a row on one r
 Hub config `smart:` dinner_time, dinner_lead_min, lockup_time, trash_night, bedtimes {name: "HH:MM"}, wake_time,
 latitude/longitude (default: Home Assistant's), goodnight_mode, off_rules. Weather is Open-Meteo, falling back
 to the first `weather.*` entity.
->>>>>>> origin/main
+
+## Settings and favorites that follow a person, View as (2026-11-12)
+
+- `GET /v1/me/settings` → `{version, settings:{key:value}, favorites:{room|device|camera|mode|media|recipe|youtube:[{id,title?,subtitle?,image?}]}}`. Settings keys: `home.order`, `home.hidden` (section ids: whos_home, rightnow, status, favorites, modes, kids, playing, cameras, holiday, trip, today, systems), `appearance` (system/light/dark), `simple_mode`, `text_size` (standard/large/larger), `defaults.play_on|speaker|oven` (entity id or null), `cameras.layout` (grid/list), `cameras.home` (all/starred), `downloads.quality` (original/high/medium/small), `downloads.cellular`, `downloads.remove_watched`, `live_activity.auto`, plus free-form `app.*` (≤ 2 KB each).
+- `PATCH /v1/me/settings {changes:{key:value|null}}` (null = default) → same shape. 400 `bad_setting` / `unknown_setting`.
+- `PUT /v1/me/favorites/{kind}/{id}` with optional `{title, subtitle, image}`; `DELETE` the same path; `POST /v1/me/favorites/{kind}/order {ids}` (ids the list didn't know about stay, at the end). 403 `not_allowed` when the person can't use it (a child starring a lock), 404 `unknown_kind`.
+- `POST /v1/me/settings/migrate {local:{...}}` once per device after updating: keys the hub doesn't have yet are taken; existing ones win.
+- Live sync: event `settings {version, device_id}` goes to that person's devices; ignore your own `device_id`, otherwise re-read. `/v1/me` has `settings_version`; re-read when it's ahead of the cached copy.
+- Parents: `GET/PATCH /v1/people/{id}/settings`, `PUT/DELETE /v1/people/{id}/favorites/{kind}/{item}`, `POST /v1/people/{id}/favorites/{kind}/order`. Adults may edit children's; Dylan anyone's.
+- Rooms in `/v1/home` now carry the caller's own `favorite` (seeded from the config list until the person stars a room).
+- View as (admin only): send `X-TC-View-As: <person_id>` on every request, the event stream too. The hub answers as that person; `/v1/me` adds `preview {person_id, by}`. Any non-GET except `/v1/me/settings*` and `/v1/me/favorites*` → 403 `preview_only`. `GET /v1/me/view-as` lists who can be previewed; `POST /v1/me/view-as {person_id|null}` (sent WITHOUT the header) logs start/stop.
+
+## Family life (hub/household.py, routes/household.py)
+
+- `GET /v1/today` → `{date, part_of_day, headline, weather{temp,condition,symbol,high,low,rain_chance,rain_at,sunset,line}, events[], dinner{title,image_url,slug,time}, family[], chores{mine{done,total,points,next}|kids[{id,name,done,total,points}]}, bedtime, kids_bedtimes[] (grown-ups), trip}`.
+- Who's home: `GET /v1/family/presence` → `{people:[{id,name,first,role,home(true/false/null),since,where,me}]}`. Presence = the person's `presence_entity`, else HA `person.<first name>`, else the phone's last `POST /v1/presence {event: arrive|leave}` (18 h). `/v1/home` people use the same.
+- Leaving: `POST /v1/presence` answers `{departure{last_one_out,others_home,open[],all_clear}}` on leave (the hub also pushes "You're the last one out", ref `thomascreek://leaving`) or `{welcome{mode,name,message}}` on arrive. `GET /v1/departure` (grown-ups) → open items `{id,kind,title,fix,action,target,params,secure}` to run through `/v1/actions`. `GET/PUT /v1/me/welcome {mode}`; GET also gives `modes[]` and the house `location{lat,lon}` for the geofence. Welcome modes run only everyday steps.
+- Quick actions: `/v1/actions` body may carry `quick: true` (widgets, Control Center, CarPlay, Watch). Grown-ups' secure actions listed in `hub.quick_actions` (default `["garage.set"]`) then skip Face ID; logged with source `quick`. Door unlocks are never quick.
+- Intercom: `GET /v1/intercom` → `{phrases[{id,emoji,text}], rooms[{id,name,speakers}]}`; send with action `announce {text, rooms[]}`.
+- `POST /v1/ask-parent {text, emoji}` (children): pushes grown-ups at home first → `{sent_to[]}`.
+- Bedtime: `GET/PUT /v1/people/{id}/bedtime {time,wake,enabled}`, `POST .../bedtime/extend {minutes}` → `{enabled,time,wake,label,wake_label,active,minutes_left,extended_until}`.
+- Doorbell Live Activity: `POST /v1/devices/live-activity {push_to_start_token, env}`; the hub starts `DoorbellAttributes {camera,cameraName,door}` / state `{status, atUnix, answeredBy}` when the doorbell rings.
+- Guest passes (capability `guests`): `GET/POST /v1/guest-passes {name, days|until, starts, show_wifi, door_code, note}` (door code = Face ID), `DELETE /v1/guest-passes/{id}`. Public page `/g/{token}` (+ `.json`), no sign-in, ends by itself. Optional `guest.lock_code {entity, service: zwave_js|keymaster, slots}` puts the code on the lock and clears it at the end.
+- Tell Dylan: `POST /v1/feedback {text, screen, app_build, screenshot_jpeg_b64}` → inbox item (cat `feedback`) for admins; `GET /v1/feedback`, `/v1/feedback/{id}/shot.jpg`, `POST /v1/feedback/{id}/done` (admin).
+
+
+## Workshop: Bambu printers (2026-11-12)
+
+The hub talks to the H2S directly on the LAN (MQTT 8883, FTPS 990, RTSPS 322). The printer must be in **LAN Only + Developer Mode**; otherwise status still arrives but commands are ignored. Vault keys (admin page, "3D printer" section): `printer.h2s.access_code`, `printer.h2s.serial`, `printer.h2s.host`. Config `printers.printers[]` (`id`, `name`, `model`, optional `host`, `serial`, `file_url_prefix`) defaults to one printer `h2s`.
+
+- `GET /v1/home` → `printers[]` summaries `{id, name, model, state, online, set_up, job, color}` for people with `appliances` and for children.
+- `GET /v1/printers` → `{printers: [status]}`; `GET /v1/printers/{id}`. Status: `state` idle|preparing|printing|paused|done|failed|offline, `online`, `set_up`, `missing[]`, `problem`, `job {name, progress, minutes_left, finish_at (epoch s), layer, layers, stage}`, `temps {nozzle, bed, chamber: {current, target}}`, `speed` silent|standard|sport|ludicrous, `light`, `ams [{id, humidity, temp, drying, trays [{slot, index, empty, color, material, name, remain}]}]`, `active_slot`, `error`, `actions[]` (empty for children, who also get no temps).
+- `GET /v1/printers/{id}/snapshot.jpg` (chamber camera, first frame takes a few seconds), `/mjpeg` (multipart, ~2 fps).
+- Library: `GET /v1/printers/library` → `{models: [{id, title, bytes, added_at, plates [{index, seconds, grams, filaments [{id, type, color, grams}]}], thumbnail_url, prints}]}`; `POST` multipart `file` (sliced `.gcode.3mf` only; 400 `not_sliced` otherwise), `title`; `PATCH /library/{id}` `{title}`; `DELETE /library/{id}`; `GET /library/{id}/thumb.png`; `POST /library/{id}/ask` (a child asks the grown-ups).
+- Actions (`POST /v1/actions`, target = printer id, cap `appliances`): `printer.control {command pause|resume|stop}` (stop is secure), `printer.light {on}`, `printer.speed {speed}`, `printer.temp {heater nozzle|bed|chamber, temp °C}` (max 350/120/65), `printer.print {model_id, plate, ams_mapping[], bed_leveling, timelapse}` (secure). Errors: 409 `printer_offline`, 409 `printer_busy`, 502 `upload_failed`.
+- SSE `printer` event: the full status (no per-person trimming) whenever state, job, light or active spool changes. Push (cat `printer`) to whoever started the print when it finishes, fails or pauses with an error.
+- App: `WorkshopView` (Destination `.workshop`), `PrintLibraryView` (`.printLibrary`), deep links `thomascreek://workshop`, `thomascreek://workshop/library`; `PrinterNowCard` on Home while a print is active.

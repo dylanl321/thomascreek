@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -14,9 +15,10 @@ from fastapi.responses import JSONResponse
 from . import __version__
 from .config import Config, data_dir, load_config, master_key_path
 from .db import DB
-from .routes import admin_web, alerts, appupdate, assistant, auth, cameras, family, home, kitchen, lights, media, media_requests, network, people, recipes, search, smart, trips, youtube
+from .routes import admin_web, alerts, appupdate, assistant, auth, cameras, family, home, household, kitchen, lights, me, media, media_requests, network, people, printers, recipes, search, smart, trips, youtube
 from .routes.deps import http_error_handler
 from .state import Hub
+from .routes import sends as sends_routes
 from .vault import Vault, load_master_key
 
 log = logging.getLogger("hub")
@@ -75,6 +77,32 @@ def build_app(hub: Hub | None = None, *, start_background: bool = True) -> FastA
         return {"name": hub.config.hub.name, "id": hub.config.hub.id, "api": "v1",
                 "version": __version__, "pin": app.state.pin}
 
+    # Unauthenticated sign-in steps, rate-limited for callers away from home (the hub is
+    # published through a reverse proxy). Home callers are never limited.
+    limited = ("/v1/enroll", "/v1/auth/challenge", "/v1/auth/token", "/v1/hello", "/v1/ping", "/admin")
+    hits: dict[str, list[float]] = {}
+
+    @app.middleware("http")
+    async def away_rate_limit(request, call_next):
+        per_min = hub.config.hub.away_auth_per_minute
+        path = request.url.path
+        if per_min > 0 and path.startswith(limited):
+            peer = request.client.host if request.client else None
+            ip = hub.client_ip(peer, request.headers.get("x-forwarded-for")) or "unknown"
+            if not hub.is_home(ip if ip != "unknown" else None):
+                now = time.monotonic()
+                recent = [t for t in hits.get(ip, []) if now - t < 60]
+                if len(recent) >= per_min:
+                    hits[ip] = recent
+                    return JSONResponse({"error": "rate_limited", "message": "Too many tries. Wait a minute."},
+                                        status_code=429, headers={"Retry-After": "60"})
+                recent.append(now)
+                hits[ip] = recent
+                if len(hits) > 5000:  # forget idle callers
+                    for k in [k for k, v in hits.items() if not v or now - v[-1] > 60]:
+                        hits.pop(k, None)
+        return await call_next(request)
+
     @app.middleware("http")
     async def security_headers(request, call_next):
         resp = await call_next(request)
@@ -83,9 +111,10 @@ def build_app(hub: Hub | None = None, *, start_background: bool = True) -> FastA
         resp.headers.setdefault("Cache-Control", "no-store")
         return resp
 
+    app.include_router(sends_routes.router)  # films and shows sent to the kids' iPads
     for r in (auth.router, alerts.router, home.router, people.router, media_requests.router, media.router, family.router, trips.router, network.router,
-              cameras.router, kitchen.router, recipes.router, search.router, lights.router, appupdate.router, lights.pages, admin_web.api, admin_web.pages,
-              assistant.router, youtube.router, smart.router):
+              cameras.router, kitchen.router, printers.router, recipes.router, search.router, lights.router, appupdate.router, lights.pages, admin_web.api, admin_web.pages,
+              assistant.router, youtube.router, smart.router, me.router, household.router, household.pages):
         app.include_router(r)
     return app
 

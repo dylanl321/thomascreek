@@ -191,7 +191,9 @@ async def _downloadable(h: Hub, c: Caller, item_id: str) -> tuple[dict[str, Any]
         media = await h.plex.media_info(item_id) if item else None
     except AdapterError as exc:
         raise error(503, "unavailable", str(exc)) from None
-    if item is None or media is None or not _rating_ok(h, c, item):
+    # A grown-up sent it to this person's iPad (hub/sends.py): that's the permission, whatever its rating.
+    sent = item is not None and not _rating_ok(h, c, item) and await h.sends.allowed(c.subject.person_id, item_id)
+    if item is None or media is None or not (_rating_ok(h, c, item) or sent):
         raise error(404, "not_found", "That isn't in the library")
     if item["kind"] not in ("movie", "episode"):
         raise error(400, "bad_request", "Pick a film or an episode to download")
@@ -239,10 +241,16 @@ class DownloadBody(BaseModel):
 @router.post("/media/{item_id}/download")
 async def start_download(item_id: str, body: DownloadBody, c: Caller = Depends(caller),
                          h: Hub = Depends(hub)) -> dict[str, Any]:
+    from ..downloads import original_mode
+
     item, media = await _downloadable(h, c, item_id)
-    job = await h.downloads.start(item_id, body.quality, media, item, c.device["id"], c.subject.person_id)
+    quality = body.quality
+    if (quality == "original" and not media.get("local_path") and original_mode(media) is None
+            and item_id in h.sends.cached_ids(c.subject.person_id)):
+        quality = "high"  # a send asked for the original, which an iPad can't play as it is
+    job = await h.downloads.start(item_id, quality, media, item, c.device["id"], c.subject.person_id)
     h.db.log("media.download", "ok" if job.status != "failed" else "error", person_id=c.subject.person_id,
-             device_id=c.device["id"], target=item_id, params={"title": item["title"], "quality": body.quality})
+             device_id=c.device["id"], target=item_id, params={"title": item["title"], "quality": quality})
     return _job_out(h, job)
 
 
@@ -304,6 +312,8 @@ async def report_progress(item_id: str, body: ProgressBody, c: Caller = Depends(
                           h: Hub = Depends(hub)) -> dict[str, Any]:
     """Where a downloaded title was stopped (sent when the phone is back online)."""
     _watch_cap(h, c)
+    if body.watched and c.subject.person_id and h.sends.all(c.subject.person_id):
+        h.sends.watched(c.subject.person_id, item_id)  # moves "next episodes" sends along
     if item_id.startswith("yt-"):
         if h.youtube.video(item_id[3:]):
             h.youtube.played(item_id[3:], body.offset_s, body.watched)

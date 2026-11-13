@@ -308,3 +308,15 @@ def test_drop_folder_moves_secrets_into_vault(tmp_path):
     assert v.get("plex.token") == "abc"
     assert v.get("apns.auth_key_p8").endswith("-----END PRIVATE KEY-----\n")
     assert list(d.iterdir()) == []
+
+
+def test_switch_wired_to_a_garage_door_is_secure():
+    p = Policy(timezone="UTC", bedtime="20:30", climate_min=66, climate_max=74)
+    adult = Subject(person_id="a", role="adult", at_home=True)
+    door = Target(entity_id="switch.small_garage_door_toggle_only", kind="switch")
+    d = p.decide(adult, "switch.set", door, {"on": True})
+    assert d.allowed and d.tier == "secure"
+    # Ordinary switches stay everyday, including ones in the garage.
+    assert p.decide(adult, "switch.set", Target(entity_id="switch.garage_fan", kind="switch"), {"on": True}).tier == "everyday"
+    kid = Subject(person_id="k", role="child", areas=["garage"], grants=[{"action": "switch.set"}])
+    assert not p.decide(kid, "switch.set", door, {"on": True}).allowed

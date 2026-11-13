@@ -18,7 +18,43 @@ struct RootView: View {
         }
         .overlay(alignment: .top) { ToastView() }
         .animation(.spring(duration: 0.35), value: store.toast)
+        .personalStyle()
+        .onAppear { Appearance.apply() }
+        .onChange(of: SettingsStore.shared.string(SettingKey.appearance, "system")) { Appearance.apply() }
     }
+
+}
+
+/// The person's appearance choice, set on the app's windows so sheets follow it too and
+/// "Match iPhone" really goes back to the system setting (preferredColorScheme(nil) leaves sheets stuck).
+@MainActor
+enum Appearance {
+    static func apply() {
+        let style: UIUserInterfaceStyle = switch SettingsStore.shared.string(SettingKey.appearance, "system") {
+        case "light": .light
+        case "dark": .dark
+        default: .unspecified
+        }
+        for scene in UIApplication.shared.connectedScenes {
+            for w in (scene as? UIWindowScene)?.windows ?? [] { w.overrideUserInterfaceStyle = style }
+        }
+    }
+}
+
+/// The person's text size. Sheets don't inherit it from the screen behind them, so each sheet applies it too.
+struct PersonalStyle: ViewModifier {
+    func body(content: Content) -> some View { content.dynamicTypeSize(range) }
+    private var range: ClosedRange<DynamicTypeSize> {
+        switch SettingsStore.shared.string(SettingKey.textSize, "standard") {
+        case "large": .xLarge ... .accessibility3
+        case "larger": .xxxLarge ... .accessibility5
+        default: .xSmall ... .accessibility5
+        }
+    }
+}
+
+extension View {
+    func personalStyle() -> some View { modifier(PersonalStyle()) }
 }
 
 struct MainTabs: View {
@@ -27,10 +63,12 @@ struct MainTabs: View {
 
     var body: some View {
         @Bindable var router = router
+        VStack(spacing: 0) {
+        PreviewBanner()
         TabView(selection: $router.tab) {
             switch store.role {
             case .admin, .adult, .tablet:
-                Tab("Home", image: "tc.home", value: AppTab.home) { stack(.home) { HomeView() } }
+                Tab("Home", image: "tc.home", value: AppTab.home) { stack(.home) { if simple { SimpleHomeView() } else { HomeView() } } }
                 Tab("House", systemImage: "square.grid.2x2.fill", value: AppTab.house) { stack(.house) { HouseView() } }
                 Tab("Media", systemImage: "play.tv.fill", value: AppTab.media) { stack(.media) { MediaView() } }
                 Tab("Family", systemImage: "person.2.fill", value: AppTab.family) { stack(.family) { FamilyView() } }
@@ -50,27 +88,36 @@ struct MainTabs: View {
                 Tab("Home", image: "tc.home", value: AppTab.home) { PendingView() }
             }
         }
+        .tabViewStyle(.sidebarAdaptable)
+        }
+        .familyWelcome()
+        .kidBedtime()
+        .tellDylan()
+        .animation(.spring(duration: 0.3), value: store.previewing)
         .tint(store.role == .child ? (store.me?.style == .little ? Theme.little : Theme.kid) : Theme.accent)
         .overlay(alignment: .bottom) { UpdateBanner() }
         .overlay(alignment: .bottomTrailing) { AskButton() }
         .animation(.spring(duration: 0.35), value: AppUpdate.shared.showBanner)
         .animation(.spring(duration: 0.3), value: router.showAssistant)
-        .sheet(isPresented: $router.showAssistant) { AssistantSheet() }
+        .sheet(isPresented: $router.showAssistant) { AssistantSheet().personalStyle() }
         .task { await AssistantModel.shared.checkReady(); openAskIfFlagged() }
         .onReceive(NotificationCenter.default.publisher(for: .openAssistant)) { _ in openAskIfFlagged() }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in openAskIfFlagged() }
-        .sheet(isPresented: $router.showInbox) { InboxView() }
-        .sheet(isPresented: $router.showSearch) { SearchView() }
-        .sheet(isPresented: $router.showProfile) { ProfileView() }
+        .sheet(isPresented: $router.showInbox) { InboxView().personalStyle() }
+        .sheet(isPresented: $router.showSearch) { SearchView().personalStyle() }
+        .sheet(isPresented: $router.showProfile) { ProfileView().personalStyle() }
+        .sheet(isPresented: $router.showEditHome) { EditHomeSheet().personalStyle() }
+        .sheet(isPresented: $router.showViewAs) { ViewAsSheet().personalStyle() }
         .sheet(isPresented: $router.showOffline) {
-            NavigationStack { OfflineStorageView().toolbar { Button("Done") { router.showOffline = false } } }
+            NavigationStack { OfflineStorageView().toolbar { Button("Done") { router.showOffline = false } } }.personalStyle()
         }
-        .sheet(item: Binding(get: { router.vpnImport.map(IdentifiedURL.init) }, set: { router.vpnImport = $0?.url })) { f in VPNImportSheet(file: f.url) }
-        .sheet(item: Binding(get: { router.youtubeAdd.map(YouTubeLink.init) }, set: { router.youtubeAdd = $0?.text })) { YouTubeAddSheet(link: $0.text) }
-        .sheet(item: Binding(get: { store.askParent }, set: { store.askParent = $0 })) { a in AskParentSheet(ask: a) }
+        .sheet(item: Binding(get: { router.vpnImport.map(IdentifiedURL.init) }, set: { router.vpnImport = $0?.url })) { f in VPNImportSheet(file: f.url).personalStyle() }
+        .sheet(item: Binding(get: { router.youtubeAdd.map(YouTubeLink.init) }, set: { router.youtubeAdd = $0?.text })) { YouTubeAddSheet(link: $0.text).personalStyle() }
+        .sheet(item: Binding(get: { store.askParent }, set: { store.askParent = $0 })) { a in AskParentSheet(ask: a).personalStyle() }
     }
 
     private var little: Bool { store.me?.style == .little }
+    private var simple: Bool { store.role != .tablet && SettingsStore.shared.bool(SettingKey.simpleMode) }
 
     /// The Control Center button, Action Button and Siri leave this flag: open the panel, listening.
     private func openAskIfFlagged() {
@@ -101,7 +148,8 @@ struct DestinationView: View {
         case .cameraEvent(let id): CameraEventView(eventID: id)
         case .appliances: DeviceListView(title: "Appliances", kinds: [.oven, .vacuum, .sensor, .shower])
         case .outdoor: DeviceListView(title: "Outdoor", kinds: [.valve])
-        case .workshop: DeviceListView(title: "Workshop", kinds: [.printer])
+        case .workshop: WorkshopView()
+        case .printLibrary: PrintLibraryView()
         case .holiday: HolidayView()
         case .holidayControllers: ControllersView()
         case .house3D: House3DScreen()
@@ -110,6 +158,7 @@ struct DestinationView: View {
         case .watch: WatchView()
         case .requests: RequestsView()
         case .pipeline: PipelineView()
+        case .kidsIPads: KidsIPadsView()
         case .askMedia: AskMediaView()
         case .mediaTitle(let id): MediaTitleView(mediaId: id)
         case .mediaRequest(let id): MediaRequestView(requestID: id)
@@ -132,6 +181,12 @@ struct DestinationView: View {
         case .vpnPool: VPNPoolView()
         case .hubWeb: HubWebPageView()
         case .youtube: YouTubeManageView()
+        case .today: TodayView()
+        case .leaving: DepartureView()
+        case .intercom: IntercomView()
+        case .guestPasses: GuestPassesView()
+        case .bedtimes: BedtimesView()
+        case .feedback: FeedbackListView()
         }
     }
 }
@@ -151,7 +206,8 @@ struct ToastView: View {
             }
             .padding(.horizontal, 16).padding(.vertical, 10)
             .background(.ultraThinMaterial, in: Capsule())
-            .padding(.top, 6)
+            // Below the View as banner, so its Exit button stays reachable.
+            .padding(.top, store.previewing == nil ? 6 : 52)
             .transition(.move(edge: .top).combined(with: .opacity))
             .onTapGesture { store.toast = nil }
         }

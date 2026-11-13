@@ -56,6 +56,7 @@ class Job:
     path: Path | None = None
     passthrough: str | None = None  # Plex part key streamed as is
     keep_file: bool = False  # path is the hub's own copy (a YouTube video): never deleted here
+    keep_s: float = KEEP_S  # how long the prepared file is kept (longer for titles sent to the kids' iPads)
     created_at: float = field(default_factory=time.time)
     task: asyncio.Task | None = None
 
@@ -133,6 +134,16 @@ class Downloads:
         job = Job(id=secrets.token_hex(8), item_id=item_id, quality=quality, device_id=device_id,
                   person_id=person_id, item=item)
         self.jobs[job.id] = job
+        # Another device (or the hub getting a send ready ahead of time) already made this file: share it.
+        sib = self._sibling(item_id, quality, job.id)
+        if sib is not None and not media.get("local_path"):
+            job.keep_s = max(job.keep_s, sib.keep_s)
+            if sib.status == "ready":
+                job.path, job.passthrough, job.bytes = sib.path, sib.passthrough, sib.bytes
+                job.status, job.progress = "ready", 1.0
+                return job
+            job.task = asyncio.create_task(self._follow(job, sib))
+            return job
         if media.get("local_path"):
             if quality == "original":
                 job.path, job.keep_file = Path(media["local_path"]), True
@@ -155,6 +166,35 @@ class Downloads:
 
     def get(self, job_id: str) -> Job | None:
         return self.jobs.get(job_id)
+
+    def _sibling(self, item_id: str, quality: str, not_id: str) -> Job | None:
+        """A job for the same title and quality that is ready or being prepared (and has a file to share)."""
+        best = None
+        for j in self.jobs.values():
+            if j.id == not_id or j.item_id != item_id or j.quality != quality or j.status == "failed":
+                continue
+            if j.status == "ready" and (j.passthrough or (j.path and j.path.exists())):
+                return j
+            if j.status == "preparing" and j.task is not None and not j.task.done():
+                best = best or j
+        return best
+
+    async def _follow(self, job: Job, sib: Job) -> None:
+        """Wait for the sibling's file instead of preparing the same title twice."""
+        while sib.status == "preparing":
+            job.progress = sib.progress
+            await asyncio.sleep(1)
+        if sib.status == "ready":
+            job.path, job.passthrough, job.bytes = sib.path, sib.passthrough, sib.bytes
+            job.status, job.progress = "ready", 1.0
+        else:
+            job.status, job.error = "failed", sib.error
+
+    def wanted(self, job_id: str, keep_s: float) -> None:
+        """Keep this job's file at least keep_s from now (a send that hasn't reached every iPad yet)."""
+        j = self.jobs.get(job_id)
+        if j:
+            j.keep_s = max(j.keep_s, time.time() - j.created_at + keep_s)
 
     async def _prepare(self, job: Job, media: dict[str, Any], mode: str) -> None:
         async with self._slots:
@@ -248,10 +288,11 @@ class Downloads:
         now = now or time.time()
         gone = 0
         for jid, j in list(self.jobs.items()):
-            if now - j.created_at > KEEP_S and j.status != "preparing":
-                if j.path and not j.keep_file:
-                    j.path.unlink(missing_ok=True)
+            if now - j.created_at > j.keep_s and j.status != "preparing":
                 del self.jobs[jid]
+                # A file shared with another device's job stays until the last one goes.
+                if j.path and not j.keep_file and not any(o.path == j.path for o in self.jobs.values()):
+                    j.path.unlink(missing_ok=True)
                 gone += 1
         if self.root.exists():
             known = {j.path for j in self.jobs.values() if j.path}

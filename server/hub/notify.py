@@ -30,6 +30,7 @@ CATEGORIES = [
     {"id": "house", "title": "House alerts", "detail": "Freezer, leaks, things left on", "default": True},
     {"id": "systems", "title": "Servers and network", "detail": "NAS, apps, internet (admin)", "default": True},
     {"id": "devices", "title": "New devices", "detail": "A phone or tablet joined (admin)", "default": True},
+    {"id": "feedback", "title": "Family feedback", "detail": "Notes sent with Tell Dylan (admin)", "default": True},
 ]
 DEFAULT_PREFS = {c["id"]: c["default"] for c in CATEGORIES}
 LEVELS = ("act_now", "decision", "maintenance", "fyi")

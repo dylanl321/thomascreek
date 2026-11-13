@@ -41,7 +41,7 @@ RATE_MAX = 40
 # Never reachable from the assistant: sign-in, keys, raw media/camera bytes, device plumbing.
 DENY = re.compile(
     r"^/v1/(admin|auth|enroll|hello|ping|events|assistant|vpn|push|devices/(push|prefs|activity)|app/)"
-    r"|/(stream|hls|file|mjpeg|webrtc|player|pass)(/|$)|\.(jpg|mp4)$|/(art|image|assets|player-art|picture)(/|$)"
+    r"|/(stream|hls|file|mjpeg|webrtc|player|pass)(/|$)|\.(jpg|png|mp4)$|/(art|image|assets|player-art|picture)(/|$)"
 )
 # Changes to shared family records wait for a tap on Confirm, like deletes: chores and calendar
 # events, trip plans (reads of TREK's tools excepted), people and phones.
@@ -236,7 +236,10 @@ class Assistant:
                 "media.volume {volume}; speaker.group {members[]}; announce {text, rooms[]} (no target); "
                 "vacuum.start; valve.run {minutes 1-180 (default 10; it always stops itself), on:false to stop}; "
                 "oven.set {mode, temp, minutes}; oven.timer {minutes}; "
-                "shower.preheat; network.pause / network.grant {minutes} (target = child's person id); "
+                "shower.preheat; printer.control {command pause|resume|stop}; printer.light {on}; "
+                "printer.speed {speed silent|standard|sport|ludicrous}; printer.temp {heater nozzle|bed|chamber, temp °C}; "
+                "printer.print {model_id, plate, ams_mapping[]} (target = printer id from GET /v1/printers, e.g. h2s; "
+                "models from GET /v1/printers/library); network.pause / network.grant {minutes} (target = child's person id); "
                 "system.app_restart (target = NAS app name from GET /v1/systems); "
                 "steps.run {label, steps:[{action, target, params}]} to do several light/switch/fan/lock/garage/TV "
                 "changes as one (one confirmation). To play a Plex/library title on a TV use POST /v1/media/play "

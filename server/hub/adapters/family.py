@@ -419,9 +419,9 @@ class FamilyBoard(Adapter):
     async def archive_item(self, item_id: str) -> dict[str, Any]:
         return await self._write("POST", f"/api/items/{item_id}/archive", {})
 
-    async def calendar(self, days: int) -> dict[str, Any]:
+    async def calendar(self, days: int, tz: str = "America/New_York") -> dict[str, Any]:
         resp = await self.request("GET", "/api/export/calendar.ics", params={"days": days})
-        return {"events": parse_ics(resp.text)}
+        return {"events": parse_ics(resp.text, tz)}
 
 
 class BoardRefused(Exception):
@@ -443,7 +443,27 @@ def _ics_time(value: str) -> tuple[str | None, bool]:
         return None, False
 
 
-def parse_ics(text: str) -> list[dict[str, Any]]:
+def _sort_key(e: dict[str, Any], tz: str) -> tuple[str, int]:
+    """When an event starts, in home time, so "6:00 AM Wake up" sorts before a 6 PM swim. The export
+    mixes floating local times, TZID times and UTC ("Z") times, which don't sort as strings."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    start = e.get("start") or ""
+    if e.get("all_day") or len(start) == 10:
+        return (start[:10], 0)   # all-day events lead their day
+    try:
+        home = ZoneInfo(tz)
+        d = datetime.fromisoformat(start.replace("Z", "+00:00"))
+        if d.tzinfo is None:
+            d = d.replace(tzinfo=ZoneInfo(e.get("_tzid") or tz))
+        local = d.astimezone(home)
+        return (local.strftime("%Y-%m-%d"), 1 + local.hour * 60 + local.minute)
+    except (ValueError, KeyError):
+        return (start[:10], 1)
+
+
+def parse_ics(text: str, tz: str = "America/New_York") -> list[dict[str, Any]]:
     # Unfold continuation lines first (RFC 5545 3.1).
     lines: list[str] = []
     for raw in text.replace("\r\n", "\n").split("\n"):
@@ -467,6 +487,9 @@ def parse_ics(text: str) -> list[dict[str, Any]]:
                 cur["start" if name == "DTSTART" else "end"] = iso
                 if name == "DTSTART":
                     cur["all_day"] = all_day
+                    tzid = next((p[5:] for p in key.split(";")[1:] if p.upper().startswith("TZID=")), None)
+                    if tzid:
+                        cur["_tzid"] = tzid
             elif name == "SUMMARY":
                 cur["title"] = val
             elif name == "UID":
@@ -476,7 +499,7 @@ def parse_ics(text: str) -> list[dict[str, Any]]:
             elif name == "X-FCC-WHO" or name == "ATTENDEE":
                 cur["who"] = val
     out = []
-    for e in events:
+    for e in sorted(events, key=lambda e: _sort_key(e, tz)):
         title, who = e.get("title") or "", e.get("who")
         # The board's export appends assignees to the title: "Swim (Theo, Juni)".
         if not who and title.endswith(")") and " (" in title:

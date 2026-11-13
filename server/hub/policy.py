@@ -17,6 +17,7 @@ Tiers (from the plan):
 from __future__ import annotations
 
 import fnmatch
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, time as dtime
 from typing import Any, Callable
@@ -30,7 +31,7 @@ ALL_CAPABILITIES = (
     "holiday.full", "holiday.looks", "holiday.pick", "family.edit", "family.view",
     "shopping.add", "chores.manage", "chores.do", "inventory.edit", "inventory.search",
     "appliances", "network.manage", "network.ask", "systems", "people", "activity",
-    "trips.view", "trips.plan",
+    "trips.view", "trips.plan", "guests",
 )
 
 ROLE_CAPABILITIES: dict[str, frozenset[str]] = {
@@ -39,7 +40,7 @@ ROLE_CAPABILITIES: dict[str, frozenset[str]] = {
         "lights.all", "climate.all", "doors", "cameras", "media.all", "media.request",
         "media.approve", "holiday.looks", "family.edit", "family.view", "shopping.add",
         "chores.manage", "inventory.edit", "inventory.search", "appliances", "network.manage",
-        "trips.view", "trips.plan",
+        "trips.view", "trips.plan", "guests",
     }),
     "child": frozenset({
         "lights.own_room", "climate.own_room", "media.own_tv", "media.request", "holiday.pick",
@@ -110,6 +111,13 @@ class ActionSpec:
     askable: bool = False
 
 
+DOOR_OPENER = re.compile(r"garage_?door|gate|door_?opener", re.I)
+
+
+def is_door_opener(entity_id: str | None) -> bool:
+    return bool(entity_id) and entity_id.startswith("switch.") and bool(DOOR_OPENER.search(entity_id))
+
+
 def _lock_tier(params: dict[str, Any], _s: Subject) -> str:
     return "everyday" if params.get("locked", True) else "secure"
 
@@ -117,6 +125,11 @@ def _lock_tier(params: dict[str, Any], _s: Subject) -> str:
 def _oven_tier(params: dict[str, Any], _s: Subject) -> str:
     # Starting heat needs Face ID; turning an oven off never should.
     return "everyday" if params.get("on") is False else "secure"
+
+
+def _printer_tier(params: dict[str, Any], _s: Subject) -> str:
+    # Stopping throws the print away, so it needs Face ID like starting one.
+    return "secure" if params.get("command") == "stop" else "everyday"
 
 
 def _garage_tier(params: dict[str, Any], _s: Subject) -> str:
@@ -144,6 +157,11 @@ ACTIONS: dict[str, ActionSpec] = {
         ActionSpec("oven.set", "secure", ("appliances",), tier_fn=_oven_tier),
         ActionSpec("oven.timer", "everyday", ("appliances",)),
         ActionSpec("shower.preheat", "secure", ("appliances",)),
+        ActionSpec("printer.control", "everyday", ("appliances",), tier_fn=_printer_tier),
+        ActionSpec("printer.light", "everyday", ("appliances",)),
+        ActionSpec("printer.speed", "everyday", ("appliances",)),
+        ActionSpec("printer.temp", "everyday", ("appliances",)),
+        ActionSpec("printer.print", "secure", ("appliances",)),
         ActionSpec("camera.view", "look", ("cameras",)),
         ActionSpec("network.pause", "secure", ("network.manage",)),
         ActionSpec("network.grant", "secure", ("network.manage",)),
@@ -220,6 +238,12 @@ class Policy:
             return Decision(False, reason="unknown action")
         tier = spec.tier_fn(params, s) if spec.tier_fn else spec.tier
         if action == "camera.view" and not s.at_home:
+            tier = "secure"
+        # A plain switch wired to a garage door or gate (e.g. "Small Garage Door Toggle Only") moves the
+        # door, so it gets the same rules as the garage itself: Face ID, and only people with doors.
+        if action == "switch.set" and is_door_opener(target.entity_id):
+            if "doors" not in self.capabilities_for(s):
+                return Decision(False, "secure", "doors are not allowed for this person")
             tier = "secure"
 
         # Explicit denies win over everything.

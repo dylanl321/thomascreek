@@ -341,6 +341,7 @@ struct MediaTitleView: View {
     @State private var picked: Set<Int> = []
     @State private var sending = false
     @State private var playing = false
+    @State private var sendTo: SendTarget?
 
     var body: some View {
         ScrollView {
@@ -356,6 +357,13 @@ struct MediaTitleView: View {
                     }
                     if let s = t.summary, !s.isEmpty { Text(s).font(.subheadline) }
                     actions(t)
+                    if store.me?.role == .admin || store.me?.role == .adult {
+                        Button { sendTo = sendTarget(t) } label: {
+                            Label(t.plexId != nil && (t.availability == "ready" || t.availability == "partial") ? "Send to kids' iPads" : "Send to kids' iPads when it arrives",
+                                  systemImage: "ipad.and.arrow.forward").font(.headline).frame(maxWidth: .infinity, minHeight: 46)
+                        }
+                        .buttonStyle(.bordered)
+                    }
                 } else if let failed {
                     EmptyCard(symbol: "film", title: "Couldn't open this", detail: failed)
                 } else { LoadingCard() }
@@ -364,10 +372,26 @@ struct MediaTitleView: View {
         }
         .background(Backdrop())
         .navigationTitle(info?.title ?? "").navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if let t = info {
+                ToolbarItem(placement: .primaryAction) {
+                    StarButton(kind: .media, id: t.mediaId, name: t.title ?? "this",
+                               label: FavoriteRef(id: t.mediaId, title: t.title, subtitle: t.kind == "tv" ? "Show" : "Movie", image: t.posterUrl))
+                }
+            }
+        }
         .task { await load() }
         .sheet(isPresented: $playing) {
             if let t = info, let item = plexItem(t) { PlayOnSheet(item: item) }
         }
+        .sheet(item: $sendTo) { AddToIPadView(target: $0) }
+    }
+
+    private func sendTarget(_ t: TitleInfo) -> SendTarget {
+        if let pid = t.plexId, t.availability == "ready" || t.availability == "partial" {
+            return SendTarget(kind: t.kind == "tv" ? .show : .movie, ref: pid, title: t.title ?? "", posterUrl: t.posterUrl)
+        }
+        return SendTarget(kind: .request, ref: t.mediaId, title: t.title ?? "", posterUrl: t.posterUrl, isShowRequest: t.kind == "tv")
     }
 
     private func facts(_ t: TitleInfo) -> String {

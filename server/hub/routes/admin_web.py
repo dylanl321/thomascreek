@@ -68,6 +68,9 @@ DESCRIPTIONS = {
     "appstore.auth_key_p8": "App Store Connect API key (.p8 file), for spotting new app builds",
     "appstore.key_id": "App Store Connect API key ID",
     "appstore.issuer_id": "App Store Connect issuer ID",
+    "printer.h2s.access_code": "Bambu H2S access code (LAN mode)",
+    "printer.h2s.serial": "Bambu H2S serial number",
+    "printer.h2s.host": "Bambu H2S IP address",
 }
 APPSTORE_KEYS = ("appstore.auth_key_p8", "appstore.key_id", "appstore.issuer_id")
 NEVER_EDIT = {"wireguard.server_private_key"}
@@ -279,6 +282,15 @@ SECTIONS: list[dict[str, Any]] = [
         ("anthropic.api_key", "Claude API key", "text",
          "Powers Ask Thomas Creek (chat and voice). console.anthropic.com: Settings, API keys, Create key. "
          "It starts with sk-ant-. Setting a monthly spend limit there (Settings, Limits) is a good idea."),
+    ]},
+    {"title": "3D printer (Bambu H2S)", "service": "printers", "fields": [
+        ("printer.h2s.access_code", "Access code", "text",
+         "On the printer: Settings, Network (the gear, then the Wi-Fi page). Turn on LAN Only and Developer Mode first; "
+         "the 8-character Access Code is shown there."),
+        ("printer.h2s.serial", "Serial number", "text",
+         "On the printer: Settings, Device (or the sticker on the back). It starts with 09."),
+        ("printer.h2s.host", "IP address", "text",
+         "On the printer: Settings, Network, IP. Best reserved in the Firewalla so it doesn't change."),
     ]},
     {"title": "Home Assistant", "service": "home_assistant", "fields": [
         ("home_assistant.token", "Long-lived access token", "text",

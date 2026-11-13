@@ -47,7 +47,6 @@ struct HouseView: View {
                 SectionTile(symbol: "video.fill", title: "Cameras", detail: "\(h?.cameras?.count ?? 0) live") { router.go(.cameras) }
             }
             if me?.can(.appliances) == true {
-                SectionTile(symbol: "oven.fill", title: "Kitchen", detail: ovenLine) { router.go(.kitchen(nil)) }
                 SectionTile(symbol: "washer.fill", title: "Appliances", detail: appliancesLine) { router.go(.appliances) }
             }
             if me?.can(.holidayLooks) == true || me?.can(.holidayFull) == true {
@@ -56,7 +55,7 @@ struct HouseView: View {
             if !(h?.devices(kind: .valve).isEmpty ?? true) {
                 SectionTile(symbol: "drop.fill", title: "Outdoor", detail: "Irrigation") { router.go(.outdoor) }
             }
-            if !(h?.devices(kind: .printer).isEmpty ?? true) {
+            if !(h?.printers?.isEmpty ?? true) {
                 SectionTile(symbol: "printer.fill", title: "Workshop", detail: printersLine) { router.go(.workshop) }
             }
         }
@@ -72,19 +71,16 @@ struct HouseView: View {
             + (store.home?.devices(kind: .lock) ?? []).filter { $0["locked"]?.bool == false }.count
     }
     private var doorsLine: String { doorsOpen == 0 ? "All closed" : "\(doorsOpen) open" }
-    private var ovenLine: String {
-        let ovens = (store.home?.devices ?? []).filter { $0.kind == .oven }
-        if let on = ovens.first(where: { $0.isOn }) { return DeviceSymbols.value(on) }
-        return store.home?.today?.dinner.map { "Tonight: \($0.title)" } ?? "Ovens and quick start"
-    }
-
     private var appliancesLine: String {
         let on = (store.home?.devices ?? []).filter { [.oven, .vacuum, .shower].contains($0.kind) && $0.isOn }.count
         return on == 0 ? "All off" : "\(on) on"
     }
     private var printersLine: String {
-        let p = (store.home?.devices(kind: .printer) ?? []).filter { $0["state"]?.string == "printing" }.count
-        return p == 0 ? "Idle" : "\(p) printing"
+        let list = store.home?.printers ?? []
+        if let p = list.first(where: { $0.state == "printing" }), let pct = p.job?.progress { return "\(p.job?.name ?? p.name) · \(pct)%" }
+        if list.contains(where: { $0.state == "done" }) { return "Print done" }
+        if list.contains(where: { $0.state == "paused" }) { return "Paused" }
+        return list.allSatisfy { $0.online == false } ? "Offline" : "Ready"
     }
 }
 
@@ -167,6 +163,11 @@ struct RoomDetailView: View {
         }
         .background(Backdrop())
         .navigationTitle(room?.name ?? "Room")
+        .toolbar {
+            if let room {
+                ToolbarItem(placement: .primaryAction) { StarButton(kind: .room, id: room.id, name: room.name) }
+            }
+        }
     }
 }
 

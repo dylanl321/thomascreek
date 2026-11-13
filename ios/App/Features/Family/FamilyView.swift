@@ -9,22 +9,47 @@ struct FamilyView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                if let today = store.home?.today {
-                    SectionHeader(title: "Today") { MoreButton("Calendar") { router.go(.calendar) } }
-                    TodayCard(today: today)
-                }
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 10)], spacing: 10) {
+                TodaySection().padding(.top, 6)
+                LazyVGrid(columns: grid, spacing: 10) {
                     SectionTile(symbol: "calendar", title: "Calendar", detail: "This week") { router.go(.calendar) }
-                    SectionTile(symbol: "fork.knife", title: "Dinners", detail: store.home?.today?.dinner?.title ?? "Plan the week") { router.go(.meals) }
-                    SectionTile(symbol: "book.fill", title: "Recipes", detail: "Add, edit, find") { router.go(.recipes) }
-                    SectionTile(symbol: "cart.fill", title: "Shopping", detail: "Lists") { router.go(.shopping) }
                     SectionTile(symbol: "star.fill", title: "Chores", detail: chores.map { b in "\(b.reduce(0) { $0 + $1.doneCount })/\(b.reduce(0) { $0 + $1.items.count }) done today" } ?? "Points and rewards") { router.go(.chores) }
-                    SectionTile(symbol: "shippingbox.fill", title: "Inventory", detail: "Where is it?") { router.go(.inventory) }
                     if store.me?.can(.tripsView) == true {
                         SectionTile(symbol: "suitcase.rolling.fill", title: "Trips", detail: tripDetail) { router.go(.trips) }
                     }
+                    SectionTile(symbol: "shippingbox.fill", title: "Inventory", detail: "Where is it?") { router.go(.inventory) }
                 }
                 .padding(.top, 8)
+
+                // Everything about food in one place: tonight, the ovens, recipes and the list.
+                SectionHeader("Kitchen")
+                LazyVGrid(columns: grid, spacing: 10) {
+                    SectionTile(symbol: "fork.knife", title: "Dinners", detail: store.home?.today?.dinner?.title ?? "Plan the week") { router.go(.meals) }
+                    if store.me?.can(.appliances) == true {
+                        SectionTile(symbol: "oven.fill", title: "Ovens", detail: ovenLine) { router.go(.kitchen(nil)) }
+                    }
+                    SectionTile(symbol: "book.fill", title: "Recipes", detail: recipesLine) { router.go(.recipes) }
+                    SectionTile(symbol: "cart.fill", title: "Shopping", detail: "Lists") { router.go(.shopping) }
+                }
+
+                if isParent {
+                    SectionHeader("Together")
+                    LazyVGrid(columns: grid, spacing: 10) {
+                        if store.me?.can(.familyEdit) == true {
+                            SectionTile(symbol: "megaphone.fill", title: "Intercom", detail: "Announce on the speakers") { router.go(.intercom) }
+                        }
+                        SectionTile(symbol: "key.horizontal.fill", title: "Leaving", detail: "Last one out check") { router.go(.leaving) }
+                        if store.me?.can(.guests) == true {
+                            SectionTile(symbol: "ticket.fill", title: "Guest passes", detail: "Wi-Fi and door code") { router.go(.guestPasses) }
+                        }
+                        if store.me?.can(.choresManage) == true {
+                            SectionTile(symbol: "moon.stars.fill", title: "Bedtimes", detail: "Kids' night screen") { router.go(.bedtimes) }
+                        }
+                    }
+                }
+
+                if store.me?.can(.networkManage) == true || isParent {
+                    ParentsSection()
+                }
             }
             .screen()
         }
@@ -35,6 +60,19 @@ struct FamilyView: View {
         .task { if store.me?.can(.tripsView) == true { await TripStore.shared.load() } }
     }
 
+    private let grid = [GridItem(.adaptive(minimum: 150), spacing: 10)]
+    private var isParent: Bool { store.role == .admin || store.role == .adult }
+
+    private var ovenLine: String {
+        let ovens = (store.home?.devices ?? []).filter { $0.kind == .oven }
+        if let on = ovens.first(where: { $0.isOn }) { return DeviceSymbols.value(on) }
+        return "Preheat and timers"
+    }
+    private var recipesLine: String {
+        let n = SettingsStore.shared.favorites(.recipe).count
+        return n > 0 ? "\(n) starred" : "Add, edit, find"
+    }
+
     private var tripDetail: String {
         guard let t = TripStore.shared.list?.next else { return "Plan in TREK" }
         return t.isOn ? "On the trip now" : "\(t.title) · \(t.countdown)"
@@ -42,6 +80,7 @@ struct FamilyView: View {
 }
 
 struct CalendarView: View {
+    @ScaledMetric(relativeTo: .subheadline) private var timeWidth: CGFloat = 72
     @State private var events: [CalendarEvent]?
     private struct Reply: Decodable { var events: [CalendarEvent] }
 
@@ -51,9 +90,9 @@ struct CalendarView: View {
                 let days = Dictionary(grouping: events) { e in ISO.parse(e.start).map { Calendar.current.startOfDay(for: $0) } ?? .distantPast }
                 ForEach(days.keys.sorted(), id: \.self) { day in
                     Section(day.formatted(.dateTime.weekday(.wide).month().day())) {
-                        ForEach(days[day] ?? [], id: \.stableID) { e in
+                        ForEach((days[day] ?? []).sorted { ($0.isAllDay ? 0 : 1, ISO.parse($0.start) ?? .distantFuture) < ($1.isAllDay ? 0 : 1, ISO.parse($1.start) ?? .distantFuture) }, id: \.stableID) { e in
                             HStack(alignment: .top, spacing: 12) {
-                                Text(e.isAllDay ? "All day" : clock(e.start)).font(.subheadline.monospacedDigit()).foregroundStyle(Theme.dim).frame(width: 72, alignment: .leading)
+                                Text(e.isAllDay ? "All day" : clock(e.start)).font(.subheadline.monospacedDigit()).foregroundStyle(Theme.dim).lineLimit(1).minimumScaleFactor(0.7).frame(width: timeWidth, alignment: .leading)
                                 VStack(alignment: .leading) {
                                     Text(e.title).font(.subheadline.weight(.medium))
                                     if let w = e.who { Text(w).font(.caption).foregroundStyle(Theme.dim) }

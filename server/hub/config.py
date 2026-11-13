@@ -150,6 +150,25 @@ class AppUpdateConfig(BaseModel):
     check_minutes: int = 15
 
 
+class PrinterEntry(BaseModel):
+    """One Bambu printer. Host, serial and access code can live in the vault as
+    printer.<id>.host / .serial / .access_code so they're added on the admin page."""
+    id: str = "h2s"
+    name: str = "H2S"
+    model: str = "H2S"
+    host: str | None = None
+    serial: str | None = None
+    # Where project_file finds a file uploaded over FTPS.
+    file_url_prefix: str = "file:///sdcard/"
+
+
+class PrintersConfig(BaseModel):
+    enabled: bool = True
+    printers: list[PrinterEntry] = Field(default_factory=lambda: [PrinterEntry()])
+    # Push "done" / "stopped" / "needs you" to whoever started the print (admins otherwise).
+    notify: bool = True
+
+
 class ChildPolicy(BaseModel):
     climate_min: float = 66
     climate_max: float = 74
@@ -176,8 +195,20 @@ class SmartConfig(BaseModel):
     off_rules: list[str] = Field(default_factory=list)  # rule ids switched off for everyone
 
 
+class GuestLockCode(BaseModel):
+    """Guest passes can put their door code on a lock: Z-Wave JS user codes or Keymaster slots."""
+
+    entity: str | None = None          # e.g. lock.front_door
+    door_name: str = "Front door"
+    service: str = "zwave_js"          # zwave_js | keymaster
+    slots: list[int] = Field(default_factory=lambda: [20, 21, 22, 23])
+
+
 class GuestInfo(BaseModel):
     wifi_ssid: str | None = None
+    address: str | None = None         # shown on a guest pass
+    host_phone: str | None = None      # "Text Dylan" on a guest pass
+    lock_code: GuestLockCode | None = None
     wifi_password_secret: str = "guest_wifi.password"
     host_name: str | None = None
     guidance: list[dict[str, str]] = Field(default_factory=list)  # {icon,title,detail}
@@ -216,6 +247,9 @@ class HubSettings(BaseModel):
     home_networks: list[str] = Field(default_factory=lambda: ["192.168.0.0/16", "10.0.0.0/8", "172.16.0.0/12"])
     # Reverse proxies whose X-Forwarded-For is believed. Empty: trust nobody.
     trusted_proxies: list[str] = Field(default_factory=list)
+    # Sign-in steps that need no token (enroll, challenge, token, hello, the web page),
+    # per caller address per minute, for callers away from home. 0 turns it off.
+    away_auth_per_minute: int = 30
     access_token_ttl_s: int = 900
     poll_interval_s: float = 15.0
     timezone: str = "America/New_York"
@@ -229,6 +263,14 @@ class HubSettings(BaseModel):
     # e.g. [{name: Theo, role: child, ui_style: kid}]. Never edits or removes
     # anyone, so later changes in the app stick. Safe to leave in place.
     seed_people: list[dict[str, Any]] = Field(default_factory=list)
+    # Secure actions a grown-up may run from a widget, Control Center, CarPlay or the Watch without
+    # the Face ID step (the phone must be unlocked, or the Watch on the wrist). Never door unlocks.
+    quick_actions: list[str] = Field(default_factory=lambda: ["garage.set"])  # Dylan chose this, 2026-11-12
+
+    @field_validator("quick_actions")
+    @classmethod
+    def _no_unlock(cls, v: list[str]) -> list[str]:
+        return [a for a in v if a in ("garage.set",)]
 
     @field_validator("home_networks", "trusted_proxies")
     @classmethod
@@ -259,6 +301,7 @@ class Config(BaseModel):
     youtube: YouTubeConfig = Field(default_factory=YouTubeConfig)
     app_update: AppUpdateConfig = Field(default_factory=AppUpdateConfig)
     assistant: AssistantConfig = Field(default_factory=AssistantConfig)
+    printers: PrintersConfig = Field(default_factory=PrintersConfig)
     child_policy: ChildPolicy = Field(default_factory=ChildPolicy)
     smart: SmartConfig = Field(default_factory=SmartConfig)
     guest: GuestInfo = Field(default_factory=GuestInfo)

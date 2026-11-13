@@ -522,7 +522,7 @@ struct RecipeRow: View {
                 .frame(width: 44, height: 44).clipShape(RoundedRectangle(cornerRadius: 9))
             VStack(alignment: .leading, spacing: 2) {
                 Text(r.title ?? r.slug).foregroundStyle(Theme.fg)
-                Text([r.totalTime, r.oven == true ? "oven" : nil, r.favorite == true ? "★" : nil].compactMap { $0 }.joined(separator: " · "))
+                Text([r.totalTime, r.oven == true ? "oven" : nil, r.favorite == true ? "♥" : nil, SettingsStore.shared.isStarred(.recipe, r.slug) ? "★" : nil].compactMap { $0 }.joined(separator: " · "))
                     .font(.caption).foregroundStyle(Theme.dim)
             }
         }
@@ -542,6 +542,8 @@ struct RecipesView: View {
     @State private var adding = false
 
     private var canEdit: Bool { store.me?.capabilities.contains("family.edit") ?? false }
+    /// Not a Mealie tag: the person's own starred recipes, kept on the hub.
+    static let mine = "__mine"
 
     var body: some View {
         ScrollView {
@@ -549,7 +551,10 @@ struct RecipesView: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         ChipButton(title: "All", active: tag == nil) { tag = nil }
-                        ChipButton(title: "Favorites", symbol: "star.fill", active: tag == "favorite") { tag = "favorite" }
+                        if SettingsStore.shared.anyFavorites(.recipe) {
+                            ChipButton(title: "My favorites", symbol: "star.fill", active: tag == Self.mine) { tag = Self.mine }
+                        }
+                        ChipButton(title: "Family favorites", symbol: "heart.fill", active: tag == "favorite") { tag = "favorite" }
                         ChipButton(title: "Uses the oven", symbol: "oven", active: tag == "oven") { tag = "oven" }
                         ForEach(tags.filter { !["favorite", "oven"].contains($0.slug) }) { t in
                             ChipButton(title: t.name, active: tag == t.slug) { tag = t.slug }
@@ -589,6 +594,11 @@ struct RecipesView: View {
         .searchable(text: $search, prompt: total > 0 ? "Search \(total) recipes" : "Search recipes")
         .toolbar { if canEdit { ToolbarItem(placement: .topBarTrailing) { Button { adding = true } label: { Image(systemName: "plus") } } } }
         .task(id: "\(search)|\(tag ?? "")") {
+            if tag == Self.mine {
+                let mine = SettingsStore.shared.favorites(.recipe).map { RecipeSummary(slug: $0.id, title: $0.title, imageUrl: $0.image) }
+                items = search.isEmpty ? mine : mine.filter { ($0.title ?? $0.slug).localizedCaseInsensitiveContains(search) }
+                return
+            }
             try? await Task.sleep(for: .milliseconds(250))
             var q: [String: String] = [:]
             if !search.isEmpty { q["search"] = search }
@@ -626,7 +636,7 @@ struct RecipeView: View {
                     HStack {
                         if let t = r.totalTime { Pill(text: t) }
                         if let s = r.servings { Pill(text: "Serves \(s)") }
-                        if r.favorite == true { Pill(text: "★ Favorite", color: Theme.star) }
+                        if r.favorite == true { Pill(text: "♥ Family favorite", color: Theme.star) }
                     }
                     if let p = r.oven {
                         VStack(alignment: .leading, spacing: 8) {
@@ -663,10 +673,16 @@ struct RecipeView: View {
         .background(Backdrop())
         .navigationTitle(recipe?.title ?? "Recipe")
         .toolbar {
-            if canEdit, let r = recipe {
+            if let r = recipe {
                 ToolbarItemGroup(placement: .topBarTrailing) {
-                    Button { favorite(r) } label: { Image(systemName: r.favorite == true ? "star.fill" : "star") }
-                    Button("Edit") { editing = true }
+                    // Your own star follows you; the heart is the family's shared pick (a Mealie tag).
+                    StarButton(kind: .recipe, id: r.slug ?? recipeID, name: r.title,
+                               label: FavoriteRef(id: r.slug ?? recipeID, title: r.title, image: r.imageUrl))
+                    if canEdit {
+                        Button { favorite(r) } label: { Image(systemName: r.favorite == true ? "heart.fill" : "heart") }
+                            .accessibilityLabel(r.favorite == true ? "Remove family favorite" : "Mark as a family favorite")
+                        Button("Edit") { editing = true }
+                    }
                 }
             }
         }

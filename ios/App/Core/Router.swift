@@ -10,13 +10,15 @@ enum AppTab: String, Hashable {
 /// Every screen a deep link, notification or card can open.
 enum Destination: Hashable {
     case room(String)
-    case climate, doors, cameras, camera(String), cameraEvent(String), appliances, outdoor, workshop
+    case climate, doors, cameras, camera(String), cameraEvent(String), appliances, outdoor, workshop, printLibrary
     case holiday, holidayControllers, house3D
     case remote(String), music, watch, requests, pipeline, askMedia, mediaTitle(String), mediaRequest(String)
+    case kidsIPads                      // what's on the kids' iPads; send them shows
     case calendar, meals, recipe(String), shopping, chores, inventory
     case kitchen(String?), dinners, recipes
     case trips, trip(Int), tripDay(Int, String)
     case systems, storage, activity, people, kidNet, vpnPool, hubWeb, youtube
+    case today, leaving, intercom, guestPasses, bedtimes, feedback
 }
 
 @MainActor
@@ -40,6 +42,10 @@ final class Router {
 
     /// Ask Thomas Creek, the quick chat and voice panel.
     var showAssistant = false
+    /// Reorder and hide Home sections, and arrange favorites.
+    var showEditHome = false
+    /// Dylan's "View as" picker.
+    var showViewAs = false
 
     /// Open search, optionally with words already typed.
     func startSearch(_ q: String? = nil) {
@@ -78,6 +84,13 @@ final class Router {
 
     func popToRoot() { paths[tab] = [] }
 
+    /// Back to Home with nothing open (starting or ending "View as": the tabs change underneath).
+    func reset() {
+        paths = [:]; tab = .home
+        showInbox = false; showProfile = false; showOffline = false; showSearch = false; showAssistant = false
+        showEditHome = false; showViewAs = false; youtubeAdd = nil
+    }
+
     /// thomascreek://room/kitchen, thomascreek://inbox, christmaslights://show ...
     func open(_ url: URL) {
         if url.isFileURL { if url.pathExtension.lowercased() == "conf" { vpnImport = url }; return }
@@ -96,11 +109,14 @@ final class Router {
         case "room": if parts.count > 1 { kid ? show(.myRoom) : show(.house, .room(parts[1])) }
         case "camera": if parts.count > 1 { show(.house, .camera(parts[1])) } else { show(.house, .cameras) }
         case "doors", "garage": show(.house, .doors)
-        case "kitchen", "oven": kid ? show(.home) : show(.house, .kitchen(parts.count > 1 ? parts[1] : nil))
+        case "kitchen", "oven": kid ? show(.home) : show(.family, .kitchen(parts.count > 1 ? parts[1] : nil))
         case "dinners", "meals": kid ? show(.home) : show(.family, .meals)
         case "recipes": kid ? show(.home) : show(.family, .recipes)
         case "recipe": if parts.count > 1 { show(kid ? .home : .family, .recipe(parts[1])) }
-        case "kids": if !kid { show(.home, .kidNet) }
+        case "kids": if !kid { show(.family, .kidNet) }
+        case "workshop", "printer", "printers":
+            let lib = parts.count > 1 && parts[1] == "library"
+            kid ? show(.home, lib ? .printLibrary : .workshop) : show(.house, lib ? .printLibrary : .workshop)
         case "event": if parts.count > 1, !kid { show(.house, .cameraEvent(parts[1])) }
         case "chores": kid ? show(.chores) : show(.family, .chores)
         case "trips", "trip":
@@ -120,11 +136,13 @@ final class Router {
             let link = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "url" }?.value
             if parts.count > 1 && parts[1] == "add" || link != nil {
                 show(kid ? .watch : .media); youtubeAdd = link ?? ""
-            } else if role == .admin || role == .adult { show(.systems, .youtube) } else { show(.watch) }
+            } else if role == .admin || role == .adult { show(.family, .youtube) } else { show(.watch) }
         case "systems", "storage": show(.systems, parts.first == "storage" ? .storage : nil)
         case "people", "devices": show(role == .admin ? .systems : .home, role == .admin ? .people : nil); if role != .admin { showProfile = true }
         case "activity": show(.systems, .activity)
         case "settings", "profile": showProfile = true
+        case "favorites", "edit-home": if !kid { show(.home) }; showEditHome = true
+        case "view-as": if role == .admin { showProfile = true }
         case "search": startSearch(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "q" }?.value)
         case "remote": if parts.count > 1, !kid { show(.media, .remote(parts[1])) } else if kid { show(.myRoom) }
         case "climate": kid ? show(.myRoom) : show(.house, .climate)
@@ -133,9 +151,17 @@ final class Router {
         case "shopping": if !kid { show(.family, .shopping) }
         case "inventory": if !kid { show(.family, .inventory) }
         case "pipeline": if !kid { show(.media, .pipeline) }
+        case "kidsipads", "sends": kid ? show(.watch) : show(.media, .kidsIPads)
         case "hubweb": show(.systems, .hubWeb)
         case "vpnpool": show(.systems, .vpnPool)
         case "downloads": showOffline = true
+        case "today": show(.home, .today)
+        case "leaving", "lastout": if !kid { show(.home, .leaving) }
+        case "intercom", "announce": if !kid { show(.family, .intercom) }
+        case "guests", "guestpass": if !kid { show(.family, .guestPasses) }
+        case "bedtime", "bedtimes": if !kid { show(.family, .bedtimes) }
+        case "feedback": if role == .admin { show(.systems, .feedback) }
+        case "tell": TellDylan.shared.open()
         default: show(.home)
         }
     }

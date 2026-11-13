@@ -25,9 +25,7 @@ struct MediaView: View {
                         SectionTile(symbol: "plus.circle.fill", title: "Ask for something", detail: "Movies and shows") { router.go(.askMedia) }
                     }
                 }
-                if store.me?.can(.pipeline) == true {
-                    SectionTile(symbol: "server.rack", title: "Pipeline", detail: "Server downloads") { router.go(.pipeline) }
-                }
+                MyShowsRow()
                 let moving = requests.filter { ["downloading", "searching"].contains($0.status) }.prefix(4)
                 if !moving.isEmpty {
                     SectionHeader("On the way", live: true)
@@ -40,6 +38,9 @@ struct MediaView: View {
                     }
                     .padding(.horizontal, 14)
                     .background(Theme.card, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                }
+                if store.me?.role == .admin || store.me?.role == .adult {
+                    SectionTile(symbol: "ipad.and.arrow.forward", title: "Kids' iPads", detail: "Send shows and YouTube, see what's on them") { router.go(.kidsIPads) }
                 }
                 DownloadsEntry()
                 YouTubeShelf()
@@ -391,22 +392,31 @@ struct PlayOnSheet: View {
     @Environment(HomeStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     let item: MediaItem
+    @State private var sending: SendTarget?
     var body: some View {
         NavigationStack {
             List {
                 Section {
                     if let s = item.summary { Text(s).font(.subheadline).foregroundStyle(Theme.dim) }
+                    if store.me?.role == .admin || store.me?.role == .adult {
+                        Button { sending = SendTarget.from(item) } label: { Label("Send to kids' iPads", systemImage: "ipad.and.arrow.forward") }
+                            .sheet(item: $sending) { AddToIPadView(target: $0) }
+                    }
                 }
                 Section {
                     DownloadButton(item: item)
                 } footer: { Text("Downloads play here, with no connection.") }
                 Section("Play on") {
-                    ForEach(store.home?.devices(kind: .media) ?? []) { tv in
+                    ForEach(tvs) { tv in
                         Button {
                             store.play(item, on: tv)
+                            // The TV someone picks becomes their usual one, on every device they use.
+                            if tv.id != usual { SettingsStore.shared.set(SettingKey.playOn, tv.id) }
                             dismiss()
                         } label: {
-                            Label(tv.name, systemImage: "tv")
+                            LabeledContent {
+                                if tv.id == usual { Text("Your usual").font(.caption) }
+                            } label: { Label(tv.name, systemImage: "tv") }
                         }
                     }
                 }
@@ -415,6 +425,39 @@ struct PlayOnSheet: View {
             .toolbar { Button("Done") { dismiss() } }
         }
         .presentationDetents([.medium, .large])
+    }
+
+    private var usual: String? { SettingsStore.shared.optionalString(SettingKey.playOn) }
+    private var tvs: [DeviceItem] {
+        let all = store.home?.devices(kind: .media) ?? []
+        return all.filter { $0.id == usual } + all.filter { $0.id != usual }
+    }
+}
+
+/// Shows and movies this person starred, on every device they use. Long-press to remove.
+struct MyShowsRow: View {
+    @Environment(Router.self) private var router
+    var body: some View {
+        let mine = SettingsStore.shared.favorites(.media)
+        if !mine.isEmpty {
+            SectionHeader("My shows")
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    ForEach(mine) { f in
+                        Button { router.go(.mediaTitle(f.id)) } label: {
+                            VStack(alignment: .leading, spacing: 4) {
+                                PosterArt(url: f.image, title: f.title).frame(width: 96)
+                                Text(f.title ?? "").font(.caption.weight(.semibold)).foregroundStyle(Theme.fg).lineLimit(1)
+                            }
+                            .frame(width: 96)
+                        }
+                        .buttonStyle(.plain)
+                        .favoriteMenu(.media, f.id, name: f.title ?? "this", label: f)
+                    }
+                }
+            }
+            .scrollClipDisabled()
+        }
     }
 }
 

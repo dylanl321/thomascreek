@@ -30,6 +30,8 @@ final class HomeStore {
     var streamConnected = false
     var toast: Toast?
     var askParent: AskParent?
+    /// Who Dylan is looking at the app as ("View as"), nil normally.
+    private(set) var previewing: Person?
 
     struct Toast: Equatable, Identifiable { let id = UUID(); var title: String; var detail: String? = nil; var isError = false }
     struct AskParent: Identifiable { let id = UUID(); var what: String; var kind: String = "other" }
@@ -57,6 +59,12 @@ final class HomeStore {
             NotificationCenter.default.addObserver(forName: .hubUnreachable, object: nil, queue: .main) { _ in
                 Task { @MainActor in HomeStore.shared.markUnreachable() }
             }
+            NotificationCenter.default.addObserver(forName: .hubReachable, object: nil, queue: .main) { _ in
+                Task { @MainActor in
+                    let s = HomeStore.shared
+                    if !s.reachable { await s.loadHome() }   // fresh Home, and the strip goes with it
+                }
+            }
             Downloads.shared.resume()
             Task.detached(priority: .background) { OfflineCache.trim() }
         }
@@ -76,18 +84,22 @@ final class HomeStore {
     }
 
     func becameActive() {
-        Task { await start() }
+        Task { await start(); await SendsSync.shared.sync() }
         PushRegistration.shared.refresh()
         LiveActivities.shared.sync()
     }
 
     func wentToBackground() {
+        SendsSync.scheduleRefresh()
         stream?.stop(); stream = nil; streamConnected = false
         poller?.cancel(); poller = nil
+        // A preview ends when the app is put away, so it can never be left on by accident.
+        if previewing != nil { Task { await stopPreview() } }
     }
 
     func refreshAll() async {
         await loadMe()
+        await SettingsStore.shared.load()
         await loadHome()
         await loadInbox()
         await loadRecentEvents()
@@ -108,6 +120,10 @@ final class HomeStore {
         do {
             let (m, savedAt) = try await HubClient.shared.fetch("/v1/me", as: Me.self)
             if savedAt != nil { markUnreachable(); return }
+            if HubClient.viewAs != nil {
+                // Previewing someone else: show their answer, but keep this phone's own copies and downloads.
+                me = m; markReachable(); return
+            }
             if !m.person.id.isEmpty, m.person.id != OfflineCache.owner, OfflineCache.owner != "device" {
                 // This phone now belongs to someone else: their downloads and saved copies go.
                 Downloads.shared.forgetAll()
@@ -129,6 +145,7 @@ final class HomeStore {
                 SpotlightIndex.clear()
                 phase = .findingHome
             }
+        } catch HubClient.HubError.cancelled {
         } catch {
             markUnreachable()
         }
@@ -137,8 +154,9 @@ final class HomeStore {
     func loadHome() async {
         do {
             let (h, savedAt) = try await HubClient.shared.fetch("/v1/home", as: HomeSnapshot.self)
-            home = h; AppSettings.cachedHome = h
-            if savedAt == nil { markReachable(); SpotlightIndex.update(h, me: me) } else { markUnreachable() }
+            home = h; cacheHome()
+            if savedAt == nil { markReachable(); if previewing == nil { SpotlightIndex.update(h, me: me) } } else { markUnreachable() }
+        } catch HubClient.HubError.cancelled {
         } catch { markUnreachable() }
     }
 
@@ -151,7 +169,7 @@ final class HomeStore {
         reachable = true; unreachableSince = nil; lastUpdate = .now
         // Back home: send what was done offline and carry on with downloads.
         if wasOffline || Outbox.shared.pending > 0 { Task { await Outbox.shared.flush() } }
-        if wasOffline { Downloads.shared.resume() }
+        if wasOffline { Downloads.shared.resume(); Task { await SendsSync.shared.sync() } }
     }
     func markUnreachable() {
         if reachable { unreachableSince = .now }
@@ -192,6 +210,13 @@ final class HomeStore {
         case "now_playing":
             guard let n = e.data.flatMap({ Self.decode([NowPlaying].self, $0) }), var h = home else { return }
             h.nowPlaying = n; home = h
+        case "printer":
+            // Live printer status: refresh the Home summary and hand the full status to an open Workshop.
+            guard let st = e.data.flatMap({ Self.decode(PrinterStatus.self, $0) }), var h = home else { return }
+            let sum = PrinterSummary(id: st.id, name: st.name, model: st.model, state: st.state, online: st.online,
+                                     setUp: st.setUp, job: st.job, color: st.activeTray?.color)
+            if let i = h.printers?.firstIndex(where: { $0.id == st.id }) { h.printers?[i] = sum; home = h }
+            NotificationCenter.default.post(name: .printerStatus, object: st)
         case "hello":
             return
         case "camera_event":
@@ -216,10 +241,49 @@ final class HomeStore {
         case "smart":
             refreshSmart(after: 0.5)
             return
+        case "settings":
+            if case .object(let o)? = e.data, let v = o["version"]?.double {
+                SettingsStore.shared.hubVersion(Int(v), from: o["device_id"]?.string)
+            }
+            return
         default:
             Task { await loadHome() }
         }
-        AppSettings.cachedHome = home
+        cacheHome()
+    }
+
+    /// The saved copy the app and widgets open with. Never written while previewing someone else.
+    private func cacheHome() {
+        if previewing == nil { AppSettings.cachedHome = home }
+    }
+
+    // MARK: View as
+
+    /// Dylan sees the app exactly as this person does. The hub answers as them and refuses anything that
+    /// would change the house; their favorites and Home layout can be set up.
+    func startPreview(_ person: Person) async {
+        guard me?.role == .admin, previewing == nil else { return }
+        try? await HubClient.shared.send("/v1/me/view-as", ["person_id": person.id])
+        stream?.stop(); stream = nil
+        HubClient.viewAs = person.id
+        previewing = person
+        Router.shared.reset()
+        await refreshAll()
+        openStream()
+    }
+
+    func stopPreview() async {
+        guard let who = previewing else { return }
+        stream?.stop(); stream = nil
+        HubClient.viewAs = nil
+        previewing = nil
+        me = AppSettings.cachedMe; home = AppSettings.cachedHome
+        SettingsStore.shared.reset()
+        Router.shared.reset()
+        try? await HubClient.shared.send("/v1/me/view-as", ["person_id": NSNull()])
+        _ = who
+        await refreshAll()
+        openStream()
     }
 
     // MARK: smart cards
@@ -237,7 +301,7 @@ final class HomeStore {
             h.smart = list.cards
             if let w = list.weather { h.weather = w }
             self.home = h
-            AppSettings.cachedHome = h
+            self.cacheHome()
         }
     }
 
@@ -345,7 +409,12 @@ final class HomeStore {
     // MARK: convenience for screens
 
     func rooms(on floor: Floor) -> [Room] { floor.roomIds.compactMap { home?.room($0) } }
-    var favoriteRooms: [Room] { (home?.rooms ?? []).filter { $0.favorite == true } }
+    /// Starred rooms in this person's order (the hub seeds them from the house list until they pick).
+    var favoriteRooms: [Room] {
+        let stars = SettingsStore.shared.favorites(.room)
+        if stars.isEmpty && SettingsStore.shared.current.version == 0 { return (home?.rooms ?? []).filter { $0.favorite == true } }
+        return stars.compactMap { home?.room($0.id) }
+    }
     func lightsOn(in room: Room) -> Int { home?.devices(in: room).filter { $0.kind == .light && $0.isOn }.count ?? 0 }
     var myRoom: Room? { home?.room(me?.child?.roomId) ?? home?.rooms?.first { $0.id == me?.person.area } }
     var holidaySeason: Bool {

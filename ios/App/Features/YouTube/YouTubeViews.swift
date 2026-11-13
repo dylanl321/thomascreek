@@ -152,12 +152,15 @@ struct YouTubeShelf: View {
                     }
                     .scrollClipDisabled()
                 }
-                let followed = (yt.data?.sources ?? []).filter { $0.kind != "video" }
+                // Starred channels first, for whoever is holding the device.
+                let all = (yt.data?.sources ?? []).filter { $0.kind != "video" }
+                let followed = all.filter { SettingsStore.shared.isStarred(.youtube, $0.id) } + all.filter { !SettingsStore.shared.isStarred(.youtube, $0.id) }
                 if !followed.isEmpty {
                     RowsCard {
                         ForEach(followed) { s in
                             NavigationLink { YouTubeSourceView(source: s, tint: tint) } label: { SourceRow(source: s, tint: tint) }
                                 .buttonStyle(.plain)
+                                .favoriteMenu(.youtube, s.id, name: s.title, label: FavoriteRef(id: s.id, title: s.title, image: s.pictureUrl))
                         }
                     }
                 }
@@ -185,6 +188,7 @@ struct SourceRow: View {
                 }
             }
             Spacer()
+            if SettingsStore.shared.isStarred(.youtube, source.id) { Image(systemName: "star.fill").font(.caption).foregroundStyle(Theme.star) }
             Image(systemName: "chevron.right").foregroundStyle(Theme.dim)
         }
         .padding(.vertical, 10).padding(.horizontal, 14)
@@ -392,6 +396,14 @@ struct YouTubeSourceView: View {
         .background(Backdrop())
         .navigationTitle(source.title)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if source.kind != "video" {
+                ToolbarItem(placement: .primaryAction) {
+                    StarButton(kind: .youtube, id: source.id, name: source.title,
+                               label: FavoriteRef(id: source.id, title: source.title, image: source.pictureUrl))
+                }
+            }
+        }
         .refreshable { await yt.load() }
         .sheet(item: $picked) { YouTubeVideoSheet(video: $0, tint: tint) }
     }
@@ -507,6 +519,7 @@ struct YouTubeAddSheet: View {
 struct YouTubeManageView: View {
     @Environment(HomeStore.self) private var store
     @State private var refreshing = false
+    @State private var sendTo: SendTarget?
     private let yt = YouTubeStore.shared
 
     var body: some View {
@@ -532,6 +545,13 @@ struct YouTubeManageView: View {
                                 .font(.caption).foregroundStyle(Theme.dim)
                             if let e = s.lastError { Text(e).font(.caption).foregroundStyle(Theme.warn) }
                         }
+                    }
+                    .swipeActions(edge: .leading) {
+                        Button { sendTo = SendTarget(kind: .youtube, ref: s.kind == "video" ? "yt-\(yt.videos(of: s).first?.videoId ?? "")" : s.id,
+                                                    title: s.title, posterUrl: s.pictureUrl) } label: {
+                            Label("Send to iPads", systemImage: "ipad.and.arrow.forward")
+                        }
+                        .tint(Theme.kid)
                     }
                     .swipeActions {
                         Button("Remove", role: .destructive) { Task { _ = await yt.delete("/v1/youtube/sources/\(s.id)") } }
@@ -564,6 +584,7 @@ struct YouTubeManageView: View {
             }
         }
         .navigationTitle("Kids' YouTube")
+        .sheet(item: $sendTo) { AddToIPadView(target: $0) }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button { Task { refreshing = true; _ = try? await HubClient.shared.send("/v1/youtube/refresh"); await yt.load(); refreshing = false } } label: {

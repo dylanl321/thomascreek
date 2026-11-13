@@ -136,7 +136,12 @@ struct Me: Codable, Hashable {
     var dryRun: Bool?
     var child: ChildInfo?
     var guest: GuestInfo?
+    /// Bumped by the hub whenever this person's settings or favorites change (on any of their devices).
+    var settingsVersion: Int?
+    /// Set while Dylan is looking at the app as someone else ("View as").
+    var preview: PreviewInfo?
 
+    struct PreviewInfo: Codable, Hashable { var personId: String?; var by: String? }
     struct DeviceInfo: Codable, Hashable { var id: String; var name: String?; var status: String? }
     struct ChildInfo: Codable, Hashable {
         var roomId: String?
@@ -171,6 +176,7 @@ enum Capability: String {
     case networkManage = "network.manage", networkAsk = "network.ask"
     case systems, people, activity
     case tripsView = "trips.view", tripsPlan = "trips.plan"
+    case guests
 }
 
 // MARK: - The house snapshot (GET /v1/home)
@@ -190,6 +196,8 @@ struct HomeSnapshot: Codable, Hashable {
     var seasonal: Seasonal?
     var weather: Weather?
     var smart: [SmartCard]?
+    /// 3D printers (the workshop), when this person may see them.
+    var printers: [PrinterSummary]?
 
     struct HouseStatus: Codable, Hashable {
         var level: String
@@ -737,6 +745,8 @@ extension Me {
         dryRun = try c.decodeIfPresent(Bool.self, forKey: .dryRun)
         child = try c.decodeIfPresent(ChildInfo.self, forKey: .child)
         guest = try c.decodeIfPresent(GuestInfo.self, forKey: .guest)
+        settingsVersion = try c.decodeIfPresent(Int.self, forKey: .settingsVersion)
+        preview = try c.decodeIfPresent(PreviewInfo.self, forKey: .preview)
     }
 }
 
@@ -863,3 +873,28 @@ extension JSONValue {
         }
     }
 }
+
+// MARK: - Workshop (3D printers)
+
+struct PrinterJob: Codable, Hashable {
+    var name: String
+    var progress: Int?
+    var minutesLeft: Int?
+    var finishAt: Double?
+    var layer: Int?
+    var layers: Int?
+    var stage: String?
+}
+
+/// The short version in /v1/home, for the House tile and the Home card.
+struct PrinterSummary: Codable, Hashable, Identifiable {
+    var id: String
+    var name: String
+    var model: String?
+    var state: String
+    var online: Bool?
+    var setUp: Bool?
+    var job: PrinterJob?
+    var color: String?
+}
+

@@ -14,6 +14,7 @@ from .actions import ActionRunner
 from .assistant import Assistant
 from .alerts import Alerts
 from .adapters.cameras import Frigate
+from .settings import PersonSettings
 from .smart import Smart
 from .adapters.family import FamilyBoard, Homebox, Mealie, ShowPlayer
 from .adapters.firewalla import Firewalla
@@ -26,14 +27,17 @@ from .config import Config
 from .crypto import TokenIssuer
 from .db import DB
 from .downloads import Downloads
+from .sends import Sends
 from .youtube import YouTube
 from .events import EventBus
 from .home import HomeModel
+from .household import Household
 from .notify import Notifier
 from .policy import Policy, Subject
 from .push import APNs
 from .onepassword import OnePasswordSync
 from .kitchen import Kitchen
+from .bambu import Workshop
 from .timers import Timers
 from .vault import Vault
 from .vpn import Vpn
@@ -78,13 +82,17 @@ class Hub:
         self.downloads = Downloads(self, (Path(db._path).parent if db._path != ":memory:" else Path("/tmp")) / "downloads")
         data = Path(db._path).parent if db._path != ":memory:" else Path("/tmp")
         self.youtube = YouTube(self, data / "youtube")
+        self.sends = Sends(self)
         self.notify = Notifier(self)
         self.alerts = Alerts(self)
         self.actions = ActionRunner(self)
         self.timers = Timers(self)
         self.kitchen = Kitchen(self)
+        self.workshop = Workshop(self, config.printers, data / "printers")
         self.smart = Smart(self)
+        self.settings = PersonSettings(self)
         self.assistant = Assistant(self)
+        self.household = Household(self)
         self._home_nets = [ipaddress.ip_network(n, strict=False) for n in config.hub.home_networks]
         self._proxies = [ipaddress.ip_network(n, strict=False) for n in config.hub.trusted_proxies]
         self.started_at = time.time()
@@ -95,7 +103,7 @@ class Hub:
                 self.homebox, self.family_board, self.trek, self.show_player, self.firewalla]
 
     def health(self) -> list[dict[str, Any]]:
-        return [a.health() for a in self.adapters]
+        return [a.health() for a in self.adapters] + self.workshop.health()
 
     # -- network position -------------------------------------------------
     def client_ip(self, peer: str | None, forwarded_for: str | None) -> str | None:
@@ -106,13 +114,23 @@ class Hub:
             ip = ipaddress.ip_address(peer)
         except ValueError:
             return None
-        if forwarded_for and any(ip in n for n in self._proxies):
-            first = forwarded_for.split(",")[0].strip()
-            try:
-                return str(ipaddress.ip_address(first))
-            except ValueError:
-                return None
+        if forwarded_for and self._trusted_proxy(ip):
+            # Walk from the right: each trusted proxy appends the address it saw, so the
+            # first untrusted entry from the right is the real caller. Entries further left
+            # came from the caller itself and can say anything (a stranger could claim
+            # 10.0.0.5 and look like they're at home).
+            for part in reversed([p.strip() for p in forwarded_for.split(",")]):
+                try:
+                    hop = ipaddress.ip_address(part)
+                except ValueError:
+                    return None
+                if not self._trusted_proxy(hop):
+                    return str(hop)
+            return None
         return str(ip)
+
+    def _trusted_proxy(self, ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+        return any(ip in n for n in self._proxies)
 
     def is_home(self, ip: str | None) -> bool:
         if not ip:
@@ -137,6 +155,15 @@ class Hub:
             shared_areas=person.get("shared_areas") or [], grants=person.get("grants") or [],
             denies=person.get("denies") or [], tv_device=person.get("tv_device"), at_home=at_home,
             device_id=device["id"], name=f"{person['name']}'s {device.get('model') or 'device'}",
+        )
+
+    def subject_for_person(self, person: dict[str, Any], at_home: bool = True, device_id: str | None = None) -> Subject:
+        """What a person may do, without a device: "View as", and a parent editing a child's favorites."""
+        return Subject(
+            person_id=person["id"], role=person["role"], areas=person.get("areas") or [],
+            shared_areas=person.get("shared_areas") or [], grants=person.get("grants") or [],
+            denies=person.get("denies") or [], tv_device=person.get("tv_device"), at_home=at_home,
+            device_id=device_id, name=person["name"],
         )
 
     def revoke_device(self, device: dict[str, Any], reason: str = "revoked") -> None:
@@ -202,9 +229,12 @@ class Hub:
         self.home.start()
         self.timers.start()
         self.youtube.start()
+        self.sends.start()
         self.kitchen.start()
+        self.workshop.start()
         self.smart.start()
         self.alerts.start()
+        self.household.start()
         from .dropbox import watch
 
         self._dropbox = asyncio.create_task(watch(self.vault))
@@ -277,9 +307,12 @@ class Hub:
         await self.home.stop()
         await self.timers.stop()
         await self.youtube.stop()
+        await self.sends.stop()
         await self.kitchen.stop()
+        await self.workshop.stop()
         await self.smart.stop()
         await self.alerts.stop()
+        await self.household.stop()
         await self.onepassword.stop()
         if getattr(self, "_dropbox", None):
             self._dropbox.cancel()

@@ -6,8 +6,20 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         UNUserNotificationCenter.current().delegate = self
         NotificationActions.register()
         Task { @MainActor in LiveActivities.shared.observe() }   // also runs when iOS wakes the app for Live Activity tokens
+        Task { @MainActor in
+            DoorbellLive.shared.sync()
+            PresenceMonitor.shared.start()   // arrive/leave events relaunch the app in the background
+            WatchBridge.shared.activate()
+        }
         application.registerForRemoteNotifications()
+        SendsSync.registerBackgroundRefresh()
         return true
+    }
+
+    /// The hub's silent push: something was sent to this device (or taken off it).
+    func application(_ application: UIApplication, didReceiveRemoteNotification userInfo: [AnyHashable: Any]) async -> UIBackgroundFetchResult {
+        guard userInfo["cat"] as? String == "sends" else { return .noData }
+        return await SendsSync.shared.handlePush()
     }
 
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {

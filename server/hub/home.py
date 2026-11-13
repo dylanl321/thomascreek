@@ -308,7 +308,7 @@ class HomeModel:
                 log.info("meal read failed: %s", exc)
         if self.hub.family_board.enabled:
             try:
-                self.calendar = (await self.hub.family_board.calendar(1))["events"]
+                self.calendar = (await self.hub.family_board.calendar(1, self.hub.config.hub.timezone))["events"]
             except Exception as exc:  # noqa: BLE001
                 log.info("calendar read failed: %s", exc)
 
@@ -370,6 +370,7 @@ class HomeModel:
     def snapshot(self, s: Subject) -> dict[str, Any]:
         cfg = self.hub.config
         policy = self.hub.policy
+        starred = set(self.hub.settings.favorite_ids(s, "room"))
         devices = [d for eid in self.states if (d := self.device(eid, s)) is not None and d["room_id"]]
         vis = self.visible_areas(s)
         rooms = []
@@ -381,7 +382,7 @@ class HomeModel:
                 continue
             rooms.append({
                 "id": a["id"], "name": a["name"], "floor_id": a["floor_id"], "symbol": a["symbol"],
-                "summary": self._summary(in_room), "favorite": a["id"] in cfg.favorites,
+                "summary": self._summary(in_room), "favorite": a["id"] in starred,
                 "device_ids": [d["id"] for d in in_room],
             })
         room_ids = {r["id"] for r in rooms}
@@ -432,6 +433,8 @@ class HomeModel:
             "weather": self.hub.smart.weather.now(),
             "smart": self._smart_cards(s),
         }
+        if self.hub.workshop.enabled and (policy.has(s, "appliances") or s.role == "child"):
+            snap["printers"] = self.hub.workshop.summaries()
         if policy.has(s, "systems"):
             snap["systems"] = self.systems_card()
         return snap
@@ -465,9 +468,9 @@ class HomeModel:
             if s.role == "guest" and p["id"] != s.person_id:
                 continue
             row: dict[str, Any] = {"id": p["id"], "name": p["name"], "role": p["role"], "avatar": p.get("avatar")}
-            if p.get("presence_entity"):  # presence is opt-in per person
-                st = self.states.get(p["presence_entity"])
-                row["home"] = (st or {}).get("state") == "home" if st else None
+            home = self.hub.household.presence(p)["home"]
+            if home is not None:
+                row["home"] = home
             out.append(row)
         return out
 
