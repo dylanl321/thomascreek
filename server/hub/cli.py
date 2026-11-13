@@ -167,7 +167,7 @@ def cmd_check(_args: argparse.Namespace) -> int:
             ("Homebox", h.homebox, lambda: h.homebox.search("")),
             ("Family board", h.family_board, lambda: h.family_board.calendar(1)),
             ("Show player", h.show_player, lambda: h.show_player.get_json("/status")),
-            ("Firewalla", h.firewalla, lambda: h.firewalla.rules()),
+            ("Firewalla", h.firewalla, lambda: h.firewalla.box()),
         ]
         bad = 0
         for title, adapter, fn in checks:

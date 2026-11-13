@@ -14,6 +14,11 @@ The hub only creates these per-device internet rules and pauses or resumes
 them. The MSP API has no delete, so unlinking pauses the rule and leaves it
 for removal in the Firewalla app. Rule ids listed by hand under
 firewalla.person_rules in config work the same way.
+
+The MSP account can hold more than one box. Everything here is limited to the
+Thomas Creek box (firewalla.box: its gid or name). Devices, rules and alarms
+are asked for by box and filtered again by gid, so another box's devices,
+alarms or rules never reach the app or push alerts.
 """
 
 from __future__ import annotations
@@ -39,6 +44,8 @@ class Firewalla:
         self.last_error: str | None = None
         self.last_ok: float | None = None
         self._client: httpx.AsyncClient | None = None
+        self._box: dict[str, Any] | None = None
+        self._box_at = 0.0
 
     @property
     def enabled(self) -> bool:
@@ -72,9 +79,47 @@ class Firewalla:
         self.last_ok, self.last_error = time.time(), None
         return resp.json() if resp.content else None
 
+    @staticmethod
+    def _rows(data: Any) -> list[dict[str, Any]]:
+        rows = data.get("results", data) if isinstance(data, dict) else data
+        return [r for r in rows or [] if isinstance(r, dict)]
+
+    # -- which box ----------------------------------------------------------
+    @staticmethod
+    def _key(v: Any) -> str:
+        return "".join(str(v or "").lower().split())
+
+    async def box(self) -> dict[str, Any]:
+        """The Thomas Creek box: {gid, name, online, ...}. Cached for 10 minutes."""
+        import time
+
+        if self._box and time.time() - self._box_at < 600:
+            return self._box
+        boxes = await self.boxes()
+        want = self._key(self.cfg.box)
+        pick = None
+        if want:
+            pick = next((b for b in boxes if self._key(b.get("gid")) == want), None) \
+                or next((b for b in boxes if self._key(b.get("name")) == want), None)
+        if pick is None and len(boxes) == 1:
+            pick = boxes[0]
+        if pick is None or not pick.get("gid"):
+            names = ", ".join(str(b.get("name") or b.get("gid")) for b in boxes) or "none"
+            self.last_error = f"no Firewalla box called {self.cfg.box!r} (boxes: {names})"
+            raise AdapterError(self.last_error)
+        self._box, self._box_at = pick, time.time()
+        return pick
+
+    async def gid(self) -> str:
+        return str((await self.box())["gid"])
+
+    def _mine(self, rows: list[dict[str, Any]], gid: str) -> list[dict[str, Any]]:
+        # Rows without a gid are kept: the request already asked for this box only.
+        return [r for r in rows if not r.get("gid") or str(r.get("gid")) == gid]
+
     async def rules(self) -> list[dict[str, Any]]:
-        data = await self._req("GET", "/rules")
-        return data.get("results", data) if isinstance(data, dict) else data
+        gid = await self.gid()
+        return self._mine(self._rows(await self._req("GET", "/rules", params={"query": f"box.id:{gid}"})), gid)
 
     async def pause_rule(self, rule_id: str) -> None:
         await self._req("POST", f"/rules/{quote(rule_id)}/pause")
@@ -83,24 +128,23 @@ class Firewalla:
         await self._req("POST", f"/rules/{quote(rule_id)}/resume")
 
     async def alarms(self, limit: int = 50) -> list[dict[str, Any]]:
-        data = await self._req("GET", "/alarms", params={"limit": limit, "sortBy": "ts:desc"})
-        return data.get("results", data) if isinstance(data, dict) else (data or [])
+        gid = await self.gid()
+        data = await self._req("GET", "/alarms", params={"query": f"box.id:{gid}", "limit": limit, "sortBy": "ts:desc"})
+        return self._mine(self._rows(data), gid)
 
     async def ping(self) -> None:
-        await self.boxes()
+        await self.box()
 
     async def boxes(self) -> list[dict[str, Any]]:
-        data = await self._req("GET", "/boxes")
-        return data.get("results", data) if isinstance(data, dict) else data
+        return self._rows(await self._req("GET", "/boxes"))
 
     async def devices(self) -> list[dict[str, Any]]:
-        data = await self._req("GET", "/devices")
-        rows = data.get("results", data) if isinstance(data, dict) else data
+        gid = await self.gid()
         out = []
-        for d in rows or []:
+        for d in self._mine(self._rows(await self._req("GET", "/devices", params={"box": gid})), gid):
             mac = (d.get("mac") or d.get("id") or "").upper()
             out.append({"mac": mac, "name": d.get("name") or d.get("macVendor") or mac, "ip": d.get("ip"),
-                        "online": d.get("online"), "gid": d.get("gid"),
+                        "online": d.get("online"), "gid": d.get("gid") or gid,
                         "group": (d.get("group") or {}).get("name") if isinstance(d.get("group"), dict) else None})
         return out
 
@@ -133,7 +177,8 @@ class Firewalla:
 
     def health(self) -> dict[str, Any]:
         return {"id": self.name, "title": self.title, "enabled": self.enabled,
-                "ok": self.enabled and self.last_error is None, "last_ok": self.last_ok, "error": self.last_error}
+                "ok": self.enabled and self.last_error is None, "last_ok": self.last_ok, "error": self.last_error,
+                "box": (self._box or {}).get("name")}
 
     async def close(self) -> None:
         if self._client:
