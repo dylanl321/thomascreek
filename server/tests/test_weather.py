@@ -87,6 +87,7 @@ def test_forecast_shape_now_hours_days_and_next_hour():
     assert f["now"]["wind_dir"] == "S" and f["now"]["pressure"] == 29.68 and f["now"]["pressure_trend"] == "falling"
     assert f["now"]["visibility"] == 4.0 and f["now"]["uv_words"] == "Low"
     assert f["hourly"][0]["t"] == "2026-11-12T15:00" and len(f["hourly"]) == 9
+    assert f["hourly"][0]["temp"] == f["now"]["temp"] == 64 and f["hourly"][1]["temp"] == 66  # "Now" is the current reading
     assert f["daily"][0]["high"] == 68 and f["daily"][1]["wind_dir"] == "NW"
     assert f["next_hour"] == "Heavy rain starting in about 30 min."
 
