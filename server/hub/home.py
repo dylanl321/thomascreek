@@ -520,6 +520,9 @@ class HomeModel:
     def _weather_now(self, s) -> dict[str, Any] | None:
         """The date-line weather, plus the most serious official alert for the house (warnings only for kids)."""
         w = self.hub.smart.weather.now()
+        fresh = self.hub.forecasts.cached_home_now()
+        if fresh:  # the same forecast as the Weather page, so the two always agree
+            w = {**(w or {}), **fresh, "source": "open-meteo"}
         alerts = self.hub.forecasts.cached_home_alerts()
         if s.role == "child":
             alerts = [a for a in alerts if a["level"] == "warning"]
