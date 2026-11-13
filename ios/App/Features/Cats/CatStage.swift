@@ -79,14 +79,88 @@ final class CatStage {
     var hasCover = true
     var screen = CGSize(width: 393, height: 852)
     var safeTop: CGFloat = 59
-    /// Where cats walk: the bottom of the Home header art when it's on screen, else under the title.
+    /// The bottom of the Home header art, live, in screen points (it moves as Home scrolls).
     var registeredLedge: CGFloat?
-    var ledge: CGFloat {
+    /// The ledge a scene started with. A scene keeps it to the end, so a cat never jumps to a new
+    /// ground halfway through because the page scrolled.
+    @ObservationIgnored private var sceneLedge: CGFloat?
+    /// Set when that ledge was the header art: cats standing on it ride along with the header.
+    @ObservationIgnored private var anchorLedge: CGFloat?
+
+    /// Where cats walk: the bottom of the Home header art when it's on screen, else under the title.
+    var ledge: CGFloat { sceneLedge ?? liveLedge }
+
+    private var headerLedge: CGFloat? {
         if let l = registeredLedge, l > safeTop + 60, l < screen.height * 0.5 { return l }
-        return safeTop + 96
+        return nil
+    }
+    private var liveLedge: CGFloat { headerLedge ?? safeTop + 96 }
+
+    /// Fixes the ledge for the scene about to play.
+    func freezeLedge() {
+        anchorLedge = headerLedge
+        sceneLedge = liveLedge
     }
 
-    static var now: Double { Date().timeIntervalSinceReferenceDate }
+    /// How far the header art has scrolled since the scene started.
+    var ride: CGFloat {
+        guard let a = anchorLedge, let r = registeredLedge else { return 0 }
+        return r - a
+    }
+
+    /// True for a whole cat standing on the header art (not one behind the island or mid-jump).
+    func onLedge(_ a: CatActor, _ p: CGPoint) -> Bool {
+        guard anchorLedge != nil, let l = sceneLedge, case .cat = a.art else { return false }
+        return abs(p.y + a.size.height * 76 / 80 - l) < 4
+    }
+
+    /// Where an actor shows on screen now: its spot in the scene, plus the header's scroll if it's
+    /// standing on the header.
+    func shown(_ a: CatActor, at now: Double) -> CGPoint {
+        let p = a.position(at: now)
+        guard onLedge(a, p) else { return p }
+        return CGPoint(x: p.x, y: p.y + ride)
+    }
+
+    /// A cat on the header was carried away with it by a scroll; its scene can't carry on from there.
+    var carriedOff: Bool {
+        abs(ride) > 8 && actors.contains { onLedge($0, $0.position(at: clock)) }
+    }
+
+    // MARK: clock
+
+    // Scenes run on their own clock, which stops while the person scrolls. Everything (walks, hops,
+    // tail swishes, Zzz) freezes in place on screen and picks up where it left off once the page
+    // settles.
+
+    /// When the clock stopped, if it's stopped.
+    private(set) var heldSince: Double?
+    @ObservationIgnored private var heldTotal: Double = 0
+
+    var held: Bool { heldSince != nil }
+
+    var clock: Double {
+        let real = Date().timeIntervalSinceReferenceDate
+        return real - heldTotal - (heldSince.map { real - $0 } ?? 0)
+    }
+
+    static var now: Double { shared.clock }
+
+    func hold(_ on: Bool) {
+        let real = Date().timeIntervalSinceReferenceDate
+        if on, heldSince == nil { heldSince = real }
+        if !on, let h = heldSince { heldTotal += real - h; heldSince = nil }
+    }
+
+    /// Like Task.sleep, but counted on the scene clock: time spent scrolling doesn't count.
+    func wait(_ seconds: Double) async throws {
+        let end = clock + seconds
+        while true {
+            let left = end - clock
+            if left <= 0.001 && !held { return }
+            try await Task.sleep(for: .seconds(held ? 0.05 : max(left, 0.01)))
+        }
+    }
 
     func measure(_ window: UIWindow) {
         screen = window.bounds.size
@@ -111,7 +185,7 @@ final class CatStage {
 
     func remove(_ a: CatActor) { actors.removeAll { $0 === a } }
 
-    func clear() { actors = []; effects = []; sunbeam = false }
+    func clear() { actors = []; effects = []; sunbeam = false; sceneLedge = nil; anchorLedge = nil }
 
     func effect(_ k: CatEffect.Kind, at p: CGPoint) {
         let now = Self.now
@@ -124,7 +198,7 @@ final class CatStage {
         let now = Self.now
         a.path = Glide(from: a.position(at: now), to: p, start: now, duration: seconds, arc: arc, ease: ease)
         a.origin = p
-        try await Task.sleep(for: .seconds(seconds))
+        try await wait(seconds)
         a.path = nil
     }
 
@@ -142,14 +216,14 @@ final class CatStage {
         let now = Self.now
         return actors.reversed().first { a in
             guard a.tappable, a.opacity > 0.3, a.art.cat != nil else { return false }
-            return CGRect(origin: a.position(at: now), size: a.size).insetBy(dx: -6, dy: -6).contains(point)
+            return CGRect(origin: shown(a, at: now), size: a.size).insetBy(dx: -6, dy: -6).contains(point)
         }
     }
 
     func near(_ point: CGPoint, within d: CGFloat) -> Bool {
         let now = Self.now
         return actors.contains { a in
-            a.art.cat != nil && CGRect(origin: a.position(at: now), size: a.size).insetBy(dx: -d, dy: -d).contains(point)
+            a.art.cat != nil && CGRect(origin: shown(a, at: now), size: a.size).insetBy(dx: -d, dy: -d).contains(point)
         }
     }
 }
@@ -160,8 +234,10 @@ struct CatStageView: View {
     @State private var stage = CatStage.shared
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 30, paused: !stage.playing)) { tl in
-            let now = tl.date.timeIntervalSinceReferenceDate
+        // Paused while scrolling too: the cats hold still, and a cat riding the header is redrawn by
+        // the header's own moves.
+        TimelineView(.animation(minimumInterval: 1 / 30, paused: !stage.playing || stage.held)) { _ in
+            let now = stage.clock
             ZStack(alignment: .topLeading) {
                 if stage.sunbeam {
                     LinearGradient(colors: [Color(red: 1, green: 0.8, blue: 0.47).opacity(0),
@@ -170,11 +246,11 @@ struct CatStageView: View {
                                    startPoint: .top, endPoint: .bottom)
                         .frame(width: stage.screen.width * 1.4, height: 150)
                         .rotationEffect(.degrees(-12))
-                        .position(x: stage.screen.width / 2, y: stage.ledge - 40)
+                        .position(x: stage.screen.width / 2, y: stage.ledge + stage.ride - 40)
                         .transition(.opacity)
                 }
                 ForEach(stage.actors) { a in
-                    let p = a.position(at: now)
+                    let p = stage.shown(a, at: now)
                     Canvas { g, size in a.art.draw(g, size: size, t: now) }
                         .frame(width: a.size.width, height: a.size.height)
                         .scaleEffect(x: a.facing, y: 1)
