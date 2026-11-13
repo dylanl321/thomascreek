@@ -179,7 +179,7 @@ struct TVGuideView: View {
                 TVArt(url: item.posterUrl ?? item.backdropUrl ?? item.icon, symbol: "film").frame(width: 36, height: 36)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(item.title).font(.subheadline.weight(.semibold)).foregroundStyle(Theme.fg).lineLimit(1)
-                    Text(live ? "On now" : (item.catchup == true ? "Start over · \(clock(item.start))" : clock(item.start)))
+                    Text(live ? "On now" : (item.catchup == true ? "Start over · \(tvClock(item.start))" : tvClock(item.start)))
                         .font(.caption).foregroundStyle(Theme.dim)
                 }
                 Spacer()
@@ -236,7 +236,7 @@ struct TVGuideView: View {
                             TVArt(url: item.posterUrl ?? item.backdropUrl ?? item.icon, symbol: "film").frame(width: 36, height: 36)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(item.title).font(.subheadline.weight(.semibold)).foregroundStyle(Theme.fg)
-                                Text([item.channelName, clock(item.start)].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "))
+                                Text([item.channelName, tvClock(item.start)].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "))
                                     .font(.caption).foregroundStyle(Theme.dim)
                             }
                         }
@@ -457,7 +457,7 @@ private func header(_ title: String, _ plot: String?, _ art: String?) -> some Vi
     }
 }
 
-private func clock(_ iso: String?) -> String {
+private func tvClock(_ iso: String?) -> String {
     guard let iso, let date = ISO.parse(iso) else { return "" }
     return date.formatted(date: .omitted, time: .shortened)
 }
