@@ -190,6 +190,14 @@ class AppUpdateConfig(BaseModel):
     check_minutes: int = 15
 
 
+class ArtworkConfig(BaseModel):
+    """Posters and logos for the TV app. The image databases are public; the two keys are optional."""
+
+    enabled: bool = True
+    tmdb_key_secret: str = "tmdb.api_key"
+    fanart_key_secret: str = "fanart.api_key"
+
+
 class TvAppConfig(BaseModel):
     """Thomas Creek TV, the household IPTV app, kept installed on the Android TV boxes (see hub/tvapp.py)."""
 
@@ -354,6 +362,7 @@ class Config(BaseModel):
     youtube: YouTubeConfig = Field(default_factory=YouTubeConfig)
     app_update: AppUpdateConfig = Field(default_factory=AppUpdateConfig)
     tv_app: TvAppConfig = Field(default_factory=TvAppConfig)
+    artwork: ArtworkConfig = Field(default_factory=ArtworkConfig)
     assistant: AssistantConfig = Field(default_factory=AssistantConfig)
     printers: PrintersConfig = Field(default_factory=PrintersConfig)
     child_policy: ChildPolicy = Field(default_factory=ChildPolicy)
