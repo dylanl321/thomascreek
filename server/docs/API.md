@@ -261,8 +261,9 @@ A phone connecting through the tunnel counts as "away" (so cameras still ask for
 
 ### Private (PIA)
 
-The app's second VPN button. The PIA login lives only in the vault (`vpn.pia.username`,
-`vpn.pia.password`, from 1Password); phones never see it or the PIA token.
+The app's second VPN button. The PIA login lives only in the vault: the pair typed on the admin page
+(`vpn.pia.admin_username`, `vpn.pia.admin_password`) is used first, else `vpn.pia.username` /
+`vpn.pia.password` copied from the 1Password item PIA. Phones never see it or the PIA token.
 
 `GET /v1/vpn/exits` -> `{exits:[{id:"home", available}, {id:"private", available, provider:"pia", problem?}],
 regions?:[{id, name, country, auto, probe:"ip:1337"}]}`. `regions` only when Private is available to this
