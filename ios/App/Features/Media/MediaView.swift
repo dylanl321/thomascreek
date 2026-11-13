@@ -25,14 +25,7 @@ struct MediaView: View {
                         SectionTile(symbol: "plus.circle.fill", title: "Ask for something", detail: "Movies and shows") { router.go(.askMedia) }
                     }
                 }
-                if store.me?.role == .admin || store.me?.role == .adult {
-                    HStack(spacing: 10) {
-                        SectionTile(symbol: "ipad.and.arrow.forward", title: "Kids' iPads", detail: "Send shows and YouTube") { router.go(.kidsIPads) }
-                        if store.me?.can(.pipeline) == true {
-                            SectionTile(symbol: "server.rack", title: "Pipeline", detail: "Server downloads") { router.go(.pipeline) }
-                        }
-                    }
-                } else if store.me?.can(.pipeline) == true {
+                if store.me?.can(.pipeline) == true {
                     SectionTile(symbol: "server.rack", title: "Pipeline", detail: "Server downloads") { router.go(.pipeline) }
                 }
                 let moving = requests.filter { ["downloading", "searching"].contains($0.status) }.prefix(4)
@@ -47,6 +40,9 @@ struct MediaView: View {
                     }
                     .padding(.horizontal, 14)
                     .background(Theme.card, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                }
+                if store.me?.role == .admin || store.me?.role == .adult {
+                    SectionTile(symbol: "ipad.and.arrow.forward", title: "Kids' iPads", detail: "Send shows and YouTube, see what's on them") { router.go(.kidsIPads) }
                 }
                 DownloadsEntry()
                 YouTubeShelf()
@@ -404,15 +400,14 @@ struct PlayOnSheet: View {
             List {
                 Section {
                     if let s = item.summary { Text(s).font(.subheadline).foregroundStyle(Theme.dim) }
+                    if store.me?.role == .admin || store.me?.role == .adult {
+                        Button { sending = SendTarget.from(item) } label: { Label("Send to kids' iPads", systemImage: "ipad.and.arrow.forward") }
+                            .sheet(item: $sending) { AddToIPadView(target: $0) }
+                    }
                 }
                 Section {
                     DownloadButton(item: item)
                 } footer: { Text("Downloads play here, with no connection.") }
-                if store.me?.role == .admin || store.me?.role == .adult {
-                    Section {
-                        Button { sending = SendTarget.from(item) } label: { Label("Send to kids' iPads", systemImage: "ipad.and.arrow.forward") }
-                    }
-                }
                 Section("Play on") {
                     ForEach(store.home?.devices(kind: .media) ?? []) { tv in
                         Button {
@@ -428,7 +423,6 @@ struct PlayOnSheet: View {
             .toolbar { Button("Done") { dismiss() } }
         }
         .presentationDetents([.medium, .large])
-        .sheet(item: $sending) { AddToIPadView(target: $0) }
     }
 }
 
