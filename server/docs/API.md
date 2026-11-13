@@ -362,3 +362,13 @@ Reads Home Assistant's `/api/history/period/{start}?filter_entity_id=…&end_tim
 for that one entity (cached 60 s per entity and range) and Open-Meteo's past hours at the house for the
 outdoor line (cached 30 min). HA's recorder keeps 10 days by default, so 7 days is the longest range.
 All times are Unix seconds. 503 `unavailable` when HA can't answer.
+## House layout (admin, `home.layout`)
+
+| Method | Path | Body | Notes |
+|---|---|---|---|
+| GET | /v1/home/layout | | `{hidden, rooms, cleanup}`; cleanup = listed devices unavailable for 3+ days |
+| POST | /v1/home/hidden | `{ids: [...], hidden: true}` | hide or show for everyone; `device:<id>` hides an appliance card |
+| GET | /v1/rooms/{id}/layout | | name, symbol, hidden, ha_name, devices (hidden too), scenes |
+| PUT | /v1/rooms/{id}/layout | `{name?, symbol?, hidden?, order?, add?, remove?}` | add/remove move devices into/out of the room |
+
+`GET /v1/home` also gains `appliances` (one card per appliance) and `rooms[].scenes`. Stored in `hub_kv` key `home.layout`.

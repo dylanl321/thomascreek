@@ -15,6 +15,7 @@ enum Destination: Hashable {
     case remote(String), music, watch, requests, pipeline, askMedia, mediaTitle(String), mediaRequest(String)
     case kidsIPads                      // what's on the kids' iPads; send them shows
     case tvSetup                        // find and add TVs and boxes for everyone's remote
+    case roomEdit(String), hiddenDevices  // admin: set up a room; devices hidden for everyone and clean-up
     case calendar, meals, recipe(String), shopping, chores, inventory
     case kitchen(String?), dinners, recipes
     case trips, trip(Int), tripDay(Int, String)

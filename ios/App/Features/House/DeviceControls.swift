@@ -93,6 +93,7 @@ struct DeviceTile: View {
                 store.perform("light.set", target: device.id, params: ["on": true, "brightness": 25]) { $0.state["on"] = .bool(true); $0.state["brightness"] = .number(25) }
             }
         }
+        HideForEveryoneButton(deviceID: device.id, name: device.name)
     }
 
     /// Start a zone for a set time (the hub turns it off), or stop it with nil.

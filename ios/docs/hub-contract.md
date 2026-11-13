@@ -328,3 +328,20 @@ Adults and admins (`remotes.setup`). Pairing runs through Home Assistant's own s
 - Smart cards: every card carries `ref`, its subject. The hub fills it from the one device a card names (garage, lock, habit), else the card's first `open` button, else a per-rule screen (`smart.RULE_REFS`). The app opens `ref` when the card itself is tapped; its buttons still act.
 - Activity rows open their `target` (a device, camera or room the app knows); `person_id` opens the person.
 - Ask Thomas Creek writes Markdown links with these URLs for the things it names; the app routes them through `Router.follow` and closes the panel.
+## House layout, TVs and appliances (2026-11-13)
+
+- `GET /v1/home` lists one media player per real TV or box (the hub drops Cast/DLNA/AirPlay copies,
+  wall tablets, voice assistants, laptops, Plex sessions and players dead for 3+ days, and keeps the
+  remote-capable copy, borrowing a room from another copy). A child's own TV always stays.
+- `appliances` (people with `appliances`): one card per real appliance: `{id, type (oven|fridge|dishwasher|
+  washer|dryer|microwave|vacuum|water_heater|appliance), name, symbol, room_id, status, running, available,
+  door_open, parts:[{id,name,value}], oven_id?, maker, model}`. Temperature sensors are not appliances; GE
+  fridge/freezer water heaters are no longer "shower" devices. Tap an oven card to open `.kitchen(oven_id)`.
+- Rooms carry `scenes: [{id, name, icon}]` (run with `scene.run`) and `device_ids` in the room's saved order.
+- Admin only (`home.layout`): `GET /v1/home/layout` (hidden, rooms, cleanup = dead 3+ days),
+  `POST /v1/home/hidden {ids, hidden}` (entity ids, or `device:<id>` for appliances),
+  `GET|PUT /v1/rooms/{id}/layout` (`{name?, symbol?, hidden?, order?, add?, remove?}`; add/remove move
+  devices between rooms). Each change sends a `snapshot` event so every phone reloads. Hidden devices still
+  work for actions, modes and Ask; they're only left out of lists and search.
+- App: `HideForEveryoneButton(deviceID:)` (drop into any menu or device page), `RoomEditView`, `HiddenDevicesView`
+  (House › Hidden devices), `AppliancesView`.

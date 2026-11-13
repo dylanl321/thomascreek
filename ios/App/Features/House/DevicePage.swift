@@ -49,6 +49,13 @@ struct DevicePage: View {
         } header: {
             Text("Connected")
         }
+        if store.me?.can(.homeLayout) == true {
+            Section {
+                HideForEveryoneButton(deviceID: d.id, name: d.name)
+            } footer: {
+                Text("Hidden devices still work for modes, automations and Ask. Unhide from House › Hidden devices.")
+            }
+        }
     }
 
     /// Outside right now, for the things the weather changes (thermostats, sprinklers).

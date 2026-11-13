@@ -28,6 +28,30 @@ MEDIA_LINKS_TEMPLATE = """
 {{ ns.out | tojson }}
 """
 
+# Every Home Assistant device with its maker, model and integration, plus the integration behind each
+# media player. The hub uses it to keep one entry per real TV and to group appliance entities.
+MEDIA_INTEGRATIONS = (
+    "androidtv_remote", "apple_tv", "cast", "roku", "webostv", "samsungtv", "vizio", "braviatv", "androidtv",
+    "firetv", "xbox", "ps4", "playstation_network", "dlna_dmr", "plex", "sonos", "music_assistant", "esphome",
+    "wyoming", "fully_kiosk", "browser_mod", "spotify", "squeezebox", "heos", "denonavr", "linkplay",
+    "mobile_app", "jellyfin", "emby", "kodi", "bluesound", "yamaha_musiccast", "airplay", "upnp",
+)
+DEVICES_TEMPLATE = """
+{%- set ns = namespace(dev=[], plat=[]) -%}
+{%- for dom in %(doms)s -%}
+  {%- for e in integration_entities(dom) | select('match', 'media_player\\.') -%}
+    {%- set ns.plat = ns.plat + [[e, dom]] -%}
+  {%- endfor -%}
+{%- endfor -%}
+{%- for d in states | map(attribute='entity_id') | map('device_id') | reject('none') | unique -%}
+  {%- set ids = device_attr(d, 'identifiers') | list -%}
+  {%- set ns.dev = ns.dev + [{'id': d, 'name': device_attr(d, 'name_by_user') or device_attr(d, 'name'),
+      'manufacturer': device_attr(d, 'manufacturer'), 'model': device_attr(d, 'model'),
+      'integration': (ids[0][0] if ids else none), 'entities': device_entities(d)}] -%}
+{%- endfor -%}
+{{ {'devices': ns.dev, 'platforms': ns.plat} | tojson }}
+""".replace("%(doms)s", "[" + ", ".join(f"'{d}'" for d in MEDIA_INTEGRATIONS) + "]")
+
 AREAS_TEMPLATE = """
 {%- set ns = namespace(out=[]) -%}
 {%- for a in areas() -%}
@@ -71,6 +95,14 @@ class HomeAssistant(Adapter):
             return json.loads(await self.render(MEDIA_LINKS_TEMPLATE))
         except Exception:  # noqa: BLE001
             return []
+
+    async def devices(self) -> dict[str, Any]:
+        """Device registry facts ({devices, platforms}); empty if the template engine can't give them."""
+        try:
+            out = json.loads(await self.render(DEVICES_TEMPLATE))
+            return out if isinstance(out, dict) else {}
+        except Exception:  # noqa: BLE001
+            return {}
 
     async def floors(self) -> list[dict[str, Any]]:
         try:

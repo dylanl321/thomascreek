@@ -247,6 +247,8 @@ def _device_hits(h: "Hub", s: Subject, ws: list[str]) -> list[dict[str, Any]]:
         typ = DEVICE_TYPE.get(kind or "")
         if not typ:
             continue
+        if not home.listed(eid, s):
+            continue  # hidden by the admin, or a duplicate copy of a TV
         name = (st.get("attributes", {}).get("friendly_name") or "").strip()
         if not name or JUNK_NAME.match(name) or name.startswith("Plex ("):
             continue
@@ -328,7 +330,7 @@ def _room_hits(h: "Hub", s: Subject, ws: list[str]) -> list[dict[str, Any]]:
     vis = home.visible_areas(s)
     out = []
     for a in home.areas.values():
-        if vis is not None and a["id"] not in vis:
+        if (vis is not None and a["id"] not in vis) or a.get("hidden"):
             continue
         sc = score(ws, a["name"], f"{a['id'].replace('_', ' ')} room")
         if sc <= 0:
