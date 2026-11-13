@@ -197,3 +197,28 @@ def test_using_the_box_wakes_its_tv_and_switches_the_input(hub, people, home_cli
     devs = home_client.get("/v1/home", headers=dylan.h).json()["devices"]
     box = next(d for d in devs if d["id"] == "media_player.theo_tv")
     assert box["state"]["plugged_into"]["name"] == "Samsung TV"
+
+
+def test_live_tv_is_trex_on_android_boxes_and_uhf_on_apple_tvs(hub, people, home_client):
+    from hub import tvremote
+
+    tvremote.LEARNED.clear()
+    st = _tv(hub, source=None, source_list=None, app_id="com.google.android.apps.tv.launcherx")
+    # not known until TREX has been seen open on a box
+    assert "live_tv" not in [a["id"] for a in remote_info(st, ANDROID)["apps"]]
+    assert tvremote.learn(["com.trex.iptv.player"]) and not tvremote.learn(["com.trex.iptv.player"])
+    try:
+        assert app_label("com.trex.iptv.player") == "TREX"
+        assert {"id": "live_tv", "name": "TREX", "kid": False} in remote_info(st, ANDROID)["apps"]
+        dylan = people["phones"]["Dylan"]
+        assert _press(home_client, dylan, command="app", app="live_tv").status_code == 200
+        assert ("media_player", "play_media", {"entity_id": "media_player.theo_tv", "media_content_type": "app",
+                                               "media_content_id": "com.trex.iptv.player"}) in hub.calls
+        apple = remote_info({"state": "on", "attributes": {"source_list": ["UHF", "Netflix"]}},
+                            {"remote": "remote.living", "platform": "apple_tv"})
+        assert apple["apps"][0] == {"id": "live_tv", "name": "UHF", "kid": False}
+        apps = {a["id"]: a for a in home_client.get("/v1/media/watch", headers=dylan.h).json()["apps"]}
+        assert apps["live_tv"]["name"] == "TREX / UHF" and apps["live_tv"]["screens"][0]["app_name"] == "TREX"
+        assert _press(home_client, people["phones"]["Theo"], command="app", app="live_tv").status_code == 403
+    finally:
+        tvremote.LEARNED.clear()

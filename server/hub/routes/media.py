@@ -563,7 +563,7 @@ async def watch_anywhere(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> 
     """Every app, and the TVs this person can open it on: "Watch YouTube on the basement TV" is the same
     tap whatever the TV is. A child sees only the kids' apps and the TVs they're allowed to use."""
     _watch_cap(h, c)
-    from ..tvremote import APPS
+    from ..tvremote import APPS, catalog_app
 
     home = h.home
     order = {a["id"]: i for i, a in enumerate(APPS)}
@@ -581,9 +581,10 @@ async def watch_anywhere(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> 
         for a in rc.get("apps") or []:
             if c.subject.is_child_like and not a.get("kid"):
                 continue
-            entry = apps.setdefault(a["id"], {"id": a["id"], "name": a["name"], "kid": a.get("kid", False),
-                                              "screens": []})
-            entry["screens"].append(screen)
+            cat = catalog_app(a["id"])  # one tile per app; "TREX / UHF" opens whichever that TV has
+            entry = apps.setdefault(a["id"], {"id": a["id"], "name": cat["name"] if cat else a["name"],
+                                              "kid": a.get("kid", False), "screens": []})
+            entry["screens"].append({**screen, "app_name": a["name"]})
     out = sorted(apps.values(), key=lambda a: (order.get(a["id"], 999), a["name"].lower()))
     return {"apps": out}
 
