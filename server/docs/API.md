@@ -213,9 +213,12 @@ The kitchen tablet gets only `next`. Children don't get trips in `trek.hidden_fr
 
 `GET /v1/network/kids` (adults) -> `{kids:[{id,name,managed,paused,until,devices:[{mac,name,rule_id,paused}]}]}`.
 Pause or grant with `POST /v1/actions {action:"network.pause"|"network.grant", target:<child person id>, params:{minutes?}}` (secure tier).
-Admin: `GET /v1/network/devices` (everything Firewalla sees, with `linked_to`),
+Admin: `GET /v1/network/devices` (every device on the Thomas Creek box, with `linked_to`),
 `POST /v1/network/kids/{person_id}/devices {macs:[..]}` (admin tier; the hub creates one paused
 "block internet" rule per device), `DELETE /v1/network/kids/{person_id}/devices/{mac}`.
+Devices, rules and alarms (push alerts) come only from the box named by `firewalla.box`
+(its gid or name, default "140Thomas", the Gold Pro at the house; with one box in the account that box is used).
+If no box matches, Firewalla shows as down on Systems with the box names it found.
 
 ## People, devices, systems (admin unless noted)
 
