@@ -213,6 +213,12 @@ def test_assistant_cannot_fetch_camera_or_pictures():
     assert not DENY.search("/v1/printers")
 
 
+def test_printer_without_keys_stays_off_house_status(hub):
+    h = next(x for x in hub.workshop.health() if x["id"] == "printer_h2s")
+    assert h["enabled"] is False and h["error"]
+    assert not any(x["enabled"] and x["error"] == "Not set up yet" for x in hub.health())
+
+
 # -- watch only (no LAN Only / Developer Mode) and the Bambu account ---------------------
 def test_secured_printer_is_watch_only_until_developer_mode(ws, people, home_client):
     dylan = people["phones"]["Dylan"]

@@ -18,6 +18,7 @@ enum Destination: Hashable {
     case kitchen(String?), dinners, recipes
     case trips, trip(Int), tripDay(Int, String)
     case systems, storage, activity, people, kidNet, vpnPool, hubWeb, youtube
+    case nasApps(String?), nasApp(String), nasLogs(String, String?), nasUpdates, nasSettings
     case today, leaving, intercom, guestPasses, bedtimes, feedback
 }
 
@@ -138,6 +139,14 @@ final class Router {
                 show(kid ? .watch : .media); youtubeAdd = link ?? ""
             } else if role == .admin || role == .adult { show(.family, .youtube) } else { show(.watch) }
         case "systems", "storage": show(.systems, parts.first == "storage" ? .storage : nil)
+        case "nas":
+            guard role == .admin else { show(.home); break }
+            switch parts.count > 1 ? parts[1] : "" {
+            case "app" where parts.count > 2: paths[.systems] = [.storage, .nasApp(parts[2])]; tab = .systems
+            case "updates": paths[.systems] = [.storage, .nasUpdates]; tab = .systems
+            case "apps": paths[.systems] = [.storage, .nasApps(nil)]; tab = .systems
+            default: show(.systems, .storage)
+            }
         case "people", "devices": show(role == .admin ? .systems : .home, role == .admin ? .people : nil); if role != .admin { showProfile = true }
         case "activity": show(.systems, .activity)
         case "settings", "profile": showProfile = true

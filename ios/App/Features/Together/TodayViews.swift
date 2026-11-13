@@ -30,6 +30,9 @@ struct WhosHomeRow: View {
             }
             .accessibilityElement(children: .contain)
             .accessibilityLabel("Who's home")
+        } else {
+            // An empty Group never appears, so `.task` would never run and the row would stay empty.
+            Color.clear.frame(height: 0)
         }
         }
         .task { await family.load() }

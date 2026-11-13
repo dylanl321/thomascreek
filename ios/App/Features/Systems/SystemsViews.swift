@@ -33,7 +33,7 @@ struct SystemsView: View {
                 } else { LoadingCard() }
                 SectionHeader("Manage")
                 RowsCard {
-                    NavigationLink(value: Destination.storage) { InfoRow("internaldrive.fill", "Storage and apps", nil, chevron: true) }
+                    NavigationLink(value: Destination.storage) { InfoRow("server.rack", "NAS and apps", "Pools, apps, updates, logs", chevron: true) }
                     NavigationLink(value: Destination.pipeline) { InfoRow("arrow.down.circle.fill", "Media pipeline", nil, chevron: true) }
                     NavigationLink(value: Destination.vpnPool) { InfoRow("lock.shield", "Away-from-home VPN", nil, chevron: true) }
                     NavigationLink(value: Destination.activity) { InfoRow("clock.arrow.circlepath", "Activity log", nil, chevron: true) }
@@ -50,56 +50,6 @@ struct SystemsView: View {
         .navigationTitle("Systems")
         .topBar()
         .refreshable { await store.loadHome() }
-    }
-}
-
-struct StorageView: View {
-    @State private var detail: Detail?
-    struct Detail: Decodable {
-        var pools: [Systems.Pool]
-        var apps: [AppRow]
-        struct AppRow: Decodable, Identifiable, Hashable {
-            var name: String; var state: String; var update: Bool?
-            var id: String { name }
-            var running: Bool { state.uppercased() == "RUNNING" }
-        }
-    }
-
-    var body: some View {
-        List {
-            if let d = detail {
-                Section("Pools") {
-                    ForEach(d.pools) { p in
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack {
-                                Text(p.name).font(.headline)
-                                Spacer()
-                                Text("\(Int(p.used))% of \(p.sizeTb.map { "\(Int($0)) TB" } ?? "")").font(.caption).foregroundStyle(Theme.dim)
-                            }
-                            ProgressBar(value: p.used / 100, color: p.used > 85 ? Theme.warn : Theme.accent)
-                            if let s = p.scrubPct { Text("Scrub \(Int(s))% done").font(.caption).foregroundStyle(Theme.dim) }
-                        }
-                    }
-                }
-                Section("Apps") {
-                    ForEach(d.apps.sorted { ($0.running ? 1 : 0, $0.name) < ($1.running ? 1 : 0, $1.name) }) { a in
-                        HStack {
-                            Circle().fill(a.running ? .green : a.state.uppercased() == "STOPPED" ? Theme.dim : Theme.crit).frame(width: 9, height: 9)
-                            Text(a.name)
-                            Spacer()
-                            if a.update == true { Pill(text: "Update", color: Theme.warn) }
-                            Text(a.state.capitalized).font(.caption).foregroundStyle(Theme.dim)
-                        }
-                    }
-                }
-                Section {
-                    Text("Restarting apps and changing storage stay in TrueNAS on purpose.").font(.footnote).foregroundStyle(Theme.dim)
-                }
-            } else { ProgressView() }
-        }
-        .scrollContentBackground(.hidden).background(Backdrop())
-        .navigationTitle("Storage and apps")
-        .task { detail = try? await HubClient.shared.get("/v1/systems") }
     }
 }
 

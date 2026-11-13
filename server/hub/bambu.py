@@ -745,7 +745,8 @@ class Workshop:
         out = []
         for p in self.printers.values():
             s = p.status()
-            out.append({"id": f"printer_{p.id}", "title": f"{p.entry.name} printer", "enabled": True,
+            # A printer with no access code yet is "not set up", not broken: keep it off the house status.
+            out.append({"id": f"printer_{p.id}", "title": f"{p.entry.name} printer", "enabled": not p.missing(),
                         "ok": s["online"], "last_ok": p.last_report or None,
                         "error": None if s["online"] else (p.last_error or "Not connected")})
         return out
