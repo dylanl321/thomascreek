@@ -121,7 +121,7 @@ def test_cpc_outlooks_read_both_attribute_styles():
     ids = [r["id"] for r in rows]
     assert ids == ["6_10", "month", "season"]
     six = rows[0]
-    assert six["dates"] == "Nov 18–Nov 22"
+    assert six["dates"] == "Nov 18–22" and F.span("11/28/2026", "12/02/2026") == "Nov 28–Dec 2"
     assert six["temp"]["words"] == "70% chance warmer than normal" and six["temp"]["tone"] == "warm"
     assert six["precip"]["words"] == "33% chance drier than normal"
     month = rows[1]

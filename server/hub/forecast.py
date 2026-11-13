@@ -329,6 +329,16 @@ def _md(s: str | None) -> str | None:
         return s
 
 
+def span(a: str | None, b: str | None) -> str | None:
+    """'11/18/2026', '11/22/2026' -> 'Nov 18–22' (or 'Nov 28–Dec 2')."""
+    x, y = _md(a), _md(b)
+    if not x or not y:
+        return x or y
+    if x.split()[0] == y.split()[0]:
+        return f"{x}–{y.split()[1]}"
+    return f"{x}–{y}"
+
+
 SEASONS = {"DJF": "Dec–Feb", "JFM": "Jan–Mar", "FMA": "Feb–Apr", "MAM": "Mar–May", "AMJ": "Apr–Jun", "MJJ": "May–Jul",
            "JJA": "Jun–Aug", "JAS": "Jul–Sep", "ASO": "Aug–Oct", "SON": "Sep–Nov", "OND": "Oct–Dec", "NDJ": "Nov–Jan"}
 
@@ -347,7 +357,7 @@ def shape_cpc(parts: dict[str, list[dict[str, Any]]]) -> list[dict[str, Any]]:
         if res is None:
             continue
         t, p = cpc_value(res, "temp", 0), cpc_value(res, "precip", 1)
-        dates = f"{_md(t.get('start'))}–{_md(t.get('end'))}" if t and t.get("start") else None
+        dates = span(t.get("start"), t.get("end")) if t and t.get("start") else None
         out.append({"id": key, "title": title, "dates": dates, "temp": t, "precip": p})
     if parts.get("month_temp") is not None or parts.get("month_precip") is not None:
         t = cpc_value(parts.get("month_temp") or [], "temp")
