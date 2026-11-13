@@ -95,6 +95,10 @@ class TrueNAS(Adapter):
                 # login_ex needs the key owner's user name (often truenas_admin, not root);
                 # login_with_api_key does not, so it is the fallback when no name is set.
                 users = [self.cfg.username] if self.cfg.username else ["truenas_admin", "root", "admin"]
+                # Each refused login costs TrueNAS a delay, so start with the name that worked last time.
+                good = getattr(self, "_login_user", None)
+                if good in users:
+                    users = [good] + [u for u in users if u != good]
                 logged_in = False
                 for user in users:
                     try:
@@ -103,6 +107,7 @@ class TrueNAS(Adapter):
                         ok = None
                     if ok and ok.get("response_type") == "SUCCESS":
                         logged_in = True
+                        self._login_user = user
                         break
                 if not logged_in:
                     try:
