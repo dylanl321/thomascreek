@@ -9,12 +9,14 @@ Every action passes through four gates, in order:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from .adapters.base import AdapterError
 from .home import kind_for
 from .policy import TIERS, Decision, Subject, Target
 
@@ -68,6 +70,7 @@ def hex_to_rgb(v: str) -> list[int]:
 
 VALVE_DEFAULT_MIN = 10
 SELF_APP = "thomascreek-hub"  # restarting it would cut off the request asking for it
+NAS_APP_OPS = {"start": "Start", "stop": "Stop", "restart": "Restart", "update": "Update"}
 
 
 class ActionRunner:
@@ -119,6 +122,8 @@ class ActionRunner:
             d = self.hub.policy.decide(s, action, Target(entity_id=app, kind="system"), params)
             return Plan(action, Target(entity_id=app, kind="system"), params, d, custom={"app_restart": app},
                         label=f"Restart {app}")
+        if action.startswith("nas."):
+            return self._plan_nas(s, action, target_id, params)
 
         kinds = ACTION_KINDS.get(action)
         if kinds is None:
@@ -272,6 +277,100 @@ class ActionRunner:
         return Plan("steps.run", Target(), {"label": label, "steps": steps}, Decision(True, tier, "steps"), calls,
                     label=label)
 
+    def _plan_nas(self, s: Subject, action: str, target_id: str | None, params: dict[str, Any]) -> Plan:
+        """NAS changes: app start/stop/restart/update, alert dismiss, scrub, snapshot, sharing services."""
+        nas = self.hub.truenas
+        tgt = str(target_id or "")
+        name_ok = re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,199}", tgt) is not None
+        d = self.hub.policy.decide(s, action, Target(entity_id=tgt or None, kind="system"), params)
+        if not d.allowed:
+            return Plan(action, Target(entity_id=tgt or None, kind="system"), {}, d, label=action)
+        work: dict[str, Any] = {"nas": action}
+        if action == "nas.app":
+            op = str(params.get("op") or "")
+            if op not in NAS_APP_OPS or not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,62}", tgt):
+                raise ActionError(400, "bad_params", "Name the app and one of start, stop, restart, update")
+            guard = nas.protection(tgt)
+            if guard == "hub" and op == "stop":
+                raise ActionError(400, "not_allowed", "The hub can't stop itself. Restart it instead.")
+            if guard == "remote" and op in ("stop", "restart", "update") and not s.at_home and not params.get("away_ok"):
+                raise ActionError(409, "away_warning",
+                                  f"You're away from home. {tgt} carries your connection, so this may cut you off.",
+                                  confirm_param="away_ok")
+            work.update(app=tgt, op=op, self=guard == "hub")
+            label = f"{NAS_APP_OPS[op]} {tgt}"
+        elif action == "nas.alert":
+            if not re.fullmatch(r"[A-Za-z0-9-]{1,64}", tgt):
+                raise ActionError(400, "bad_target", "Which alert?")
+            work["alert"] = tgt
+            label = "Dismiss a NAS alert"
+        elif action == "nas.scrub":
+            op = str(params.get("op") or "")
+            if op not in ("start", "pause", "stop") or not name_ok:
+                raise ActionError(400, "bad_params", "Name the pool and start, pause or stop")
+            work.update(pool=tgt, op=op)
+            label = f"{op.capitalize()} the {tgt} scrub"
+        elif action == "nas.snapshot":
+            if not name_ok or ".." in tgt:
+                raise ActionError(400, "bad_target", "Name the dataset to snapshot")
+            work["dataset"] = tgt
+            label = f"Snapshot {tgt}"
+        elif action == "nas.service":
+            from .adapters.truenas import SERVICES
+            if tgt not in SERVICES or not isinstance(params.get("on"), bool):
+                raise ActionError(400, "bad_params", "Name a sharing service and on true/false")
+            work.update(service=tgt, on=params["on"])
+            label = f"Turn {tgt} {'on' if params['on'] else 'off'}"
+        else:
+            raise ActionError(400, "unknown_action", f"Unknown action {action}")
+        clean = {k: v for k, v in params.items() if k in ("op", "on", "away_ok")}
+        return Plan(action, Target(entity_id=tgt or None, kind="system"), clean, d, custom=work, label=label)
+
+    async def _run_nas(self, plan: Plan) -> str:
+        nas = self.hub.truenas
+        w = plan.custom
+        a = w["nas"]
+        if a == "nas.app":
+            app, op = w["app"], w["op"]
+            if op == "update":
+                info = await nas.app(app)
+                if info is None:
+                    raise ActionError(404, "not_found", f"{app} isn't on the NAS")
+                kind = "restart" if w["self"] else ("upgrade" if info["update"] == "upgrade" else "pull")
+                if not info["update"] and not w["self"]:
+                    raise ActionError(409, "up_to_date", f"{app} is already up to date")
+            else:
+                kind = op
+            if w["self"]:
+                # Answer first: the hub goes down with its own container. TrueNAS runs the job on its own.
+                async def later() -> None:
+                    await asyncio.sleep(1.5)
+                    try:
+                        await nas.app_op(app, kind)
+                    except Exception as exc:  # noqa: BLE001
+                        log.warning("hub self-%s failed: %s", kind, exc)
+                asyncio.get_running_loop().create_task(later())
+                return "The hub is restarting. Thomas Creek reconnects in about a minute."
+            job = await nas.app_op(app, kind)
+            w["job"] = job if isinstance(job, int) else None
+            self.hub.home.mark_nas_dirty()
+            return {"start": f"Starting {app}", "stop": f"Stopping {app}", "restart": f"Restarting {app}",
+                    "upgrade": f"Updating {app}", "pull": f"Pulling new images for {app}"}[kind]
+        if a == "nas.alert":
+            await nas.dismiss_alert(w["alert"])
+            return "Alert dismissed"
+        if a == "nas.scrub":
+            await nas.scrub(w["pool"], {"start": "START", "pause": "PAUSE", "stop": "STOP"}[w["op"]])
+            return {"start": f"Scrubbing {w['pool']}", "pause": f"{w['pool']} scrub paused",
+                    "stop": f"{w['pool']} scrub stopped"}[w["op"]]
+        if a == "nas.snapshot":
+            name = "thomascreek-" + time.strftime("%Y-%m-%d-%H%M", time.localtime())
+            await nas.snapshot(w["dataset"], name)
+            return f"Snapshot {w['dataset']}@{name} taken"
+        job = await nas.service(w["service"], w["on"])
+        w["job"] = job if isinstance(job, int) else None
+        return f"{w['service'].upper()} {'starting' if w['on'] else 'stopping'}"
+
     def _plan_network(self, s: Subject, action: str, person_id: str | None, params: dict[str, Any]) -> Plan:
         person = self.hub.db.person(person_id)
         if person is None or person["role"] != "child":
@@ -408,7 +507,10 @@ class ActionRunner:
         if live and plan.target.entity_id and not plan.action.startswith("printer."):
             self.hub.bus.publish({"type": "device", "entity_id": plan.target.entity_id})
         await self._notice(s, plan, outcome)
-        return {"ok": True, "message": msg, "dry_run": not live}
+        out: dict[str, Any] = {"ok": True, "message": msg, "dry_run": not live}
+        if isinstance(plan.custom, dict) and plan.custom.get("job"):
+            out["job"] = plan.custom["job"]
+        return out
 
     def _oven_message(self, plan: Plan) -> str:
         p = plan.params
@@ -421,6 +523,11 @@ class ActionRunner:
     async def _run_custom(self, s: Subject, plan: Plan) -> str:
         if plan.action.startswith("printer."):
             return await self._run_printer(s, plan)
+        if isinstance(plan.custom, dict) and "nas" in plan.custom:
+            try:
+                return await self._run_nas(plan)
+            except AdapterError as exc:
+                raise ActionError(502, "nas_error", str(exc)) from None
         if "app_restart" in plan.custom:
             app = plan.custom["app_restart"]
             await self.hub.truenas.restart_app(app)
