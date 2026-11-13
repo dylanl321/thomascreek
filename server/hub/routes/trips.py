@@ -48,7 +48,7 @@ async def _visible(h: Hub, c: Caller) -> list[dict[str, Any]]:
 
 async def _travellers(h: Hub, trip_id: int) -> list[dict[str, Any]]:
     try:
-        return (await h.trek.trip(trip_id)).get("travellers") or []
+        return shape.travellers((await h.trek.trip(trip_id)).get("travellers"))
     except AdapterError:
         return []
 

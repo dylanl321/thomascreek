@@ -38,14 +38,14 @@ NWS_ALERTS = {"features": [
     {"id": "a2", "geometry": None, "properties": {
         "id": "urn:wind", "status": "Actual", "messageType": "Alert", "event": "Wind Advisory", "severity": "Moderate",
         "headline": "Wind Advisory issued", "areaDesc": "Fairfax", "senderName": "NWS Sterling VA",
-        "onset": "2026-11-12T13:00:00-05:00", "ends": "2026-11-12T19:00:00-05:00", "description": "Gusts to 50.",
+        "onset": "2026-11-12T13:00:00-05:00", "ends": "2099-11-12T19:00:00-05:00", "description": "Gusts to 50.",
         "instruction": "Secure objects.", "parameters": {}, "references": []}},
     {"id": "a1", "geometry": {"type": "Polygon", "coordinates": [[[-77.1, 38.8], [-76.9, 38.8], [-77.0, 39.0], [-77.1, 38.8]]]},
      "properties": {
         "id": "urn:svr", "status": "Actual", "messageType": "Alert", "event": "Severe Thunderstorm Warning",
         "severity": "Severe", "certainty": "Observed", "urgency": "Immediate", "headline": "SVR issued",
         "areaDesc": "Fairfax", "senderName": "NWS Sterling VA", "onset": "2026-11-12T13:52:00-05:00",
-        "ends": "2026-11-12T14:45:00-05:00", "description": "60 mph wind gusts.", "instruction": "Move inside.",
+        "ends": "2099-11-12T14:45:00-05:00", "description": "60 mph wind gusts.", "instruction": "Move inside.",
         "parameters": {"NWSheadline": ["A SEVERE THUNDERSTORM WARNING REMAINS IN EFFECT"]}, "references": []}},
     {"id": "a3", "geometry": None, "properties": {
         "id": "urn:cancel", "status": "Actual", "messageType": "Cancel", "event": "Flood Watch", "references": []}},
@@ -76,7 +76,7 @@ BRIGHT_SKY = {"location": {"name": "Berl. - Mitte"}, "alerts": [{
     "alert_id": 3053026, "status": "actual", "severity": "moderate", "certainty": "likely", "urgency": "immediate",
     "event_en": "gale-force gusts", "event_de": "STURMBÖEN", "headline_en": "Official WARNING of GALE-FORCE GUSTS",
     "headline_de": "Amtliche WARNUNG vor STURMBÖEN", "description_en": "Gusts up to 80 km/h.",
-    "instruction_en": "Secure objects.", "onset": "2026-11-13T02:00:00+00:00", "expires": "2026-11-13T23:00:00+00:00"}]}
+    "instruction_en": "Secure objects.", "onset": "2026-11-13T02:00:00+00:00", "expires": "2099-11-13T23:00:00+00:00"}]}
 
 
 # -- shaping ---------------------------------------------------------------------------
@@ -103,7 +103,7 @@ def test_nws_alerts_sorted_warning_first_cancel_dropped():
     assert [x["event"] for x in a] == ["Severe Thunderstorm Warning", "Wind Advisory"]
     svr = a[0]
     assert svr["level"] == "warning" and not svr["urgent"]
-    assert svr["headline"] == "A SEVERE THUNDERSTORM WARNING REMAINS IN EFFECT"
+    assert svr["headline"] == "A severe thunderstorm warning remains in effect"
     assert svr["polygon"][0] == [-77.1, 38.8]
     assert a[1]["level"] == "advisory"
     tor = F.shape_nws_alerts({"features": [{"properties": {"id": "t", "event": "Tornado Warning", "severity": "Extreme"}}]})
@@ -385,3 +385,30 @@ async def test_home_line_uses_the_weather_pages_forecast(hub, people):
     w = hub.home._weather_now(dylan)
     assert w["temp"] == 64 and w["condition"] == "Thunderstorms" and w["symbol"] == "cloud.bolt.rain.fill"
     assert w["high"] == 68 and w["low"] == 44  # evening: tonight's low, the NWS number like the page
+
+
+# -- alert wording and expiry (QA, Nov 13) ----------------------------------------------
+
+def test_nws_capitals_become_sentences_and_keep_place_names():
+    names = "Fairfax; Northern Virginia NWS Sterling VA"
+    assert F.sentence_case("...FREEZE WATCH IN EFFECT FROM LATE FRIDAY NIGHT THROUGH SATURDAY MORNING...", names) == \
+        "...Freeze watch in effect from late Friday night through Saturday morning..."
+    body = F.sentence_case("* WHAT...LOWS AS LOW AS 28.\n\n* WHERE...NORTHERN VIRGINIA. THE NATIONAL WEATHER SERVICE "
+                           "IN STERLING VA SAYS UNTIL 9 AM EST.", names)
+    assert body == ("* What...Lows as low as 28.\n\n* Where...Northern Virginia. The National Weather Service "
+                    "in Sterling VA says until 9 AM EST.")
+    assert F.sentence_case("Already normal. Leave me.") == "Already normal. Leave me."
+
+
+def test_expired_alerts_are_dropped():
+    now = datetime(2026, 11, 13, 12, 0, tzinfo=timezone.utc)
+    frost = {"id": "dwd-1", "ends": "2026-11-13T08:00:00+00:00"}
+    later = {"id": "dwd-2", "ends": "2026-11-13T23:00:00+00:00"}
+    open_ended = {"id": "x", "ends": None}
+    assert [a["id"] for a in F.live([frost, later, open_ended], now)] == ["dwd-2", "x"]
+
+
+def test_trip_names_are_capitalized():
+    from hub.adapters import trips as T
+    got = T.travellers([{"name": "lauren"}, {"name": "Dylan", "owner": True}, {"name": "mary ann"}, {"name": "McKay"}])
+    assert [t["name"] for t in got] == ["Lauren", "Dylan", "Mary Ann", "McKay"]
