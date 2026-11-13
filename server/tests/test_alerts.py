@@ -224,6 +224,8 @@ async def test_not_a_person_teaches_frigate_and_mutes_that_spot(hub, people, sen
 
 
 async def test_firewalla_alarms_new_device_and_kids(hub, people, sent):
+    for p in ("dylan", "avery"):
+        hub.alerts.set_prefs(people[p]["id"], {"network": {"new_device": True}, "kids": {"adult": True, "bedtime": True}})
     hub.db.insert("network_rules", {"rule_id": "r1", "person_id": people["theo"]["id"], "mac": "AA:BB:CC:00:11:22",
                                     "device_name": "Theo's iPad", "created_at": time.time()})
     noon = datetime(2026, 11, 12, 12, 0, tzinfo=__import__("zoneinfo").ZoneInfo("America/New_York")).timestamp()
@@ -255,6 +257,7 @@ async def test_firewalla_poll_starts_from_now(hub, people, sent):
     hub.config.firewalla.enabled = True
     hub.config.firewalla.msp_domain = "x.firewalla.net"
     hub.firewalla.alarms = alarms  # type: ignore[method-assign]
+    hub.alerts.set_prefs(people["dylan"]["id"], {"network": {"new_device": True}})
     assert await hub.alerts.poll_firewalla() == 0          # first look: no backlog
     rows.append({"aid": 10, "type": 5, "ts": 200.0, "device": {"name": "New"}})
     assert await hub.alerts.poll_firewalla() == 1
@@ -299,3 +302,20 @@ async def test_history_keeps_alerts_whether_pushed_or_not(hub, people, home_clie
     assert home_client.get("/v1/alerts/history?kind=network", headers=avery).json()["items"] == []
     assert home_client.get("/v1/alerts/history", headers=theo).json()["items"] == []  # no cameras for kids
     assert [i["kind"] for i in home_client.get("/v1/alerts/history?kind=camera", headers=dylan).json()["items"]] == ["camera"]
+
+
+async def test_firewalla_push_is_off_by_default_and_for_existing_prefs(hub, people, sent):
+    dylan = people["dylan"]["id"]
+    assert not any(hub.alerts.prefs(dylan)["network"].values()) and not any(hub.alerts.prefs(dylan)["kids"].values())
+    # Someone saved under the old defaults (everything on): one migration turns it off, once.
+    hub.db.execute("UPDATE alert_prefs SET prefs=? WHERE person_id=?", [__import__("json").dumps(
+        {"on": True, "network": {"new_device": True, "security": True}, "kids": {"adult": True}}), dylan])
+    assert hub.alerts.firewalla_push_off_once() == 1
+    assert hub.alerts.prefs(dylan)["network"]["new_device"] is False and hub.alerts.prefs(dylan)["on"] is True
+    hub.alerts.set_prefs(dylan, {"network": {"security": True}})
+    assert hub.alerts.firewalla_push_off_once() == 0 and hub.alerts.prefs(dylan)["network"]["security"] is True
+    # Nothing pushed for a new device, but History still has it.
+    t = time.time()
+    hub.alerts.set_prefs(dylan, {"network": {"security": False}})
+    assert await hub.alerts.on_firewalla({"aid": 1, "type": 5, "ts": t, "device": {"name": "Pixel", "mac": "1"}}, now=t) == 0
+    assert hub.alerts.history(dylan, "network")
