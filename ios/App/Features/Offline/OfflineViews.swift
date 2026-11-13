@@ -206,6 +206,11 @@ struct DownloadsView: View {
     @State private var playing: Downloads.Title?
     private let downloads = Downloads.shared
 
+    /// Kids can't delete what a grown-up sent; it leaves by itself (or when a grown-up takes it off).
+    private func canRemove(_ t: Downloads.Title) -> Bool {
+        !(t.sent && HomeStore.shared.me?.role.isGrownUp != true)
+    }
+
     var body: some View {
         List {
             let all = downloads.mine
@@ -226,19 +231,19 @@ struct DownloadsView: View {
             if !ready.isEmpty {
                 Section("Ready to watch") {
                     ForEach(ready) { t in Button { playing = t } label: { DownloadRow(title: t) }.buttonStyle(.plain) }
-                        .onDelete { ix in ix.map { ready[$0] }.forEach(downloads.remove) }
+                        .onDelete { ix in ix.map { ready[$0] }.filter(canRemove).forEach(downloads.remove) }
                 }
             }
             if !busy.isEmpty {
                 Section("In progress") {
                     ForEach(busy) { t in DownloadRow(title: t) }
-                        .onDelete { ix in ix.map { busy[$0] }.forEach(downloads.remove) }
+                        .onDelete { ix in ix.map { busy[$0] }.filter(canRemove).forEach(downloads.remove) }
                 }
             }
             if !failed.isEmpty {
                 Section("Didn't finish") {
                     ForEach(failed) { t in DownloadRow(title: t) }
-                        .onDelete { ix in ix.map { failed[$0] }.forEach(downloads.remove) }
+                        .onDelete { ix in ix.map { failed[$0] }.filter(canRemove).forEach(downloads.remove) }
                 }
             }
         }

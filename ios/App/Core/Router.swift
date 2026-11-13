@@ -16,7 +16,7 @@ enum Destination: Hashable {
     case calendar, meals, recipe(String), shopping, chores, inventory
     case kitchen(String?), dinners, recipes
     case trips, trip(Int), tripDay(Int, String)
-    case systems, storage, activity, people, kidNet, vpnPool, hubWeb, youtube
+    case systems, storage, activity, people, kidNet, vpnPool, hubWeb, youtube, kidsIPads
 }
 
 @MainActor
@@ -133,6 +133,7 @@ final class Router {
         case "shopping": if !kid { show(.family, .shopping) }
         case "inventory": if !kid { show(.family, .inventory) }
         case "pipeline": if !kid { show(.media, .pipeline) }
+        case "kidsipads", "sends": kid ? show(.watch) : show(.media, .kidsIPads)
         case "hubweb": show(.systems, .hubWeb)
         case "vpnpool": show(.systems, .vpnPool)
         case "downloads": showOffline = true

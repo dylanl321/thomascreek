@@ -76,12 +76,13 @@ final class HomeStore {
     }
 
     func becameActive() {
-        Task { await start() }
+        Task { await start(); await SendsSync.shared.sync() }
         PushRegistration.shared.refresh()
         LiveActivities.shared.sync()
     }
 
     func wentToBackground() {
+        SendsSync.scheduleRefresh()
         stream?.stop(); stream = nil; streamConnected = false
         poller?.cancel(); poller = nil
     }
@@ -151,7 +152,7 @@ final class HomeStore {
         reachable = true; unreachableSince = nil; lastUpdate = .now
         // Back home: send what was done offline and carry on with downloads.
         if wasOffline || Outbox.shared.pending > 0 { Task { await Outbox.shared.flush() } }
-        if wasOffline { Downloads.shared.resume() }
+        if wasOffline { Downloads.shared.resume(); Task { await SendsSync.shared.sync() } }
     }
     func markUnreachable() {
         if reachable { unreachableSince = .now }

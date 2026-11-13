@@ -132,6 +132,7 @@ struct DestinationView: View {
         case .vpnPool: VPNPoolView()
         case .hubWeb: HubWebPageView()
         case .youtube: YouTubeManageView()
+        case .kidsIPads: KidsIPadsView()
         }
     }
 }

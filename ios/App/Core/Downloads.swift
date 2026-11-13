@@ -63,6 +63,14 @@ final class Downloads {
         var durationS: Double?
         var positionS: Double = 0
         var watchedAt: Date?
+        /// A grown-up sent it from the hub (`SendsSync`): it arrives and leaves by itself, and kids can't delete it.
+        var sendId: String?
+        var sentBy: String?
+        var season: Int?
+        var episode: Int?
+        var show: String?
+
+        var sent: Bool { sendId != nil }
 
         var fileName: String { "\(itemId)-\(quality).mp4" }
         var posterName: String { "\(itemId).poster" }
@@ -198,6 +206,26 @@ final class Downloads {
         }
     }
 
+    /// A title a grown-up sent to this person's devices. Same flow as `start`, without asking or limits.
+    func startSent(_ s: SendsSync.Item) async throws {
+        var t = Title(itemId: s.itemId, quality: s.quality, title: s.title ?? "Untitled", kind: s.kind, rating: s.rating,
+                      summary: s.summary, year: s.year, posterPath: s.posterUrl, personId: HomeStore.shared.me?.person.id)
+        t.sendId = s.sendId; t.sentBy = s.from; t.season = s.season; t.episode = s.episode; t.show = s.show
+        t.durationS = s.durationS.map(Double.init)
+        let job: Job = try await HubClient.shared.post("/v1/media/\(s.itemId)/download", ["quality": s.quality])
+        t.jobId = job.id
+        upsert(t)
+        savePoster(t)
+        apply(job, to: t.id)
+    }
+
+    /// Mark a title this person downloaded themselves as also sent (so it stays while the send wants it).
+    func adopt(_ t: Title, send: SendsSync.Item) {
+        guard var n = titles.first(where: { $0.id == t.id }), n.sendId != send.sendId else { return }
+        n.sendId = send.sendId; n.sentBy = send.from
+        upsert(n)
+    }
+
     // MARK: background session callbacks (from DownloadDelegate)
 
     func progressed(_ id: String, _ fraction: Double) {
@@ -217,7 +245,7 @@ final class Downloads {
                 t.state = .ready; t.progress = 1; t.finishedAt = .now; t.error = nil
                 t.bytes = fileSize(t)
                 upsert(t)
-                HomeStore.shared.show("Downloaded", t.title)
+                if t.sent { SendsSync.shared.arrived(t) } else { HomeStore.shared.show("Downloaded", t.title) }
             } catch {
                 t.state = .failed; t.error = "There wasn't room to save it."; upsert(t)
             }
@@ -273,7 +301,8 @@ final class Downloads {
 
     private func removeOldWatched() {
         guard AppSettings.removeWatchedDownloads else { return }
-        for t in titles where t.watchedAt.map({ Date.now.timeIntervalSince($0) > 7 * 86400 }) == true { remove(t) }
+        // Sent titles come and go with the hub's lineup instead.
+        for t in titles where !t.sent && t.watchedAt.map({ Date.now.timeIntervalSince($0) > 7 * 86400 }) == true { remove(t) }
     }
 
     // MARK: playing
@@ -297,7 +326,7 @@ final class Downloads {
 
     private func upsert(_ t: Title, persist: Bool = true) {
         if let i = titles.firstIndex(where: { $0.id == t.id }) { titles[i] = t } else { titles.append(t) }
-        if persist { save() }
+        if persist { save(); SendsSync.shared.reportSoon() }
     }
 
     private func load() {

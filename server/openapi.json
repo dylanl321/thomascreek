@@ -1764,6 +1764,395 @@
     }
    }
   },
+  "/v1/media/requests": {
+   "get": {
+    "tags": [
+     "media requests"
+    ],
+    "summary": "List Media Requests",
+    "operationId": "list_media_requests_v1_media_requests_get",
+    "parameters": [
+     {
+      "name": "scope",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "default": "mine",
+       "title": "Scope"
+      }
+     },
+     {
+      "name": "filter",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "default": "all",
+       "title": "Filter"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response List Media Requests V1 Media Requests Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "post": {
+    "tags": [
+     "media requests"
+    ],
+    "summary": "Ask",
+    "description": "Ask for a title. It goes straight to Jellyseerr; nobody needs to approve it.",
+    "operationId": "ask_v1_media_requests_post",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/hub__routes__media_requests__AskBody"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Ask V1 Media Requests Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/media/requests/{req_id}": {
+   "get": {
+    "tags": [
+     "media requests"
+    ],
+    "summary": "Get Media Request",
+    "operationId": "get_media_request_v1_media_requests__req_id__get",
+    "parameters": [
+     {
+      "name": "req_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "Req Id"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Get Media Request V1 Media Requests  Req Id  Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "delete": {
+    "tags": [
+     "media requests"
+    ],
+    "summary": "Cancel",
+    "operationId": "cancel_v1_media_requests__req_id__delete",
+    "parameters": [
+     {
+      "name": "req_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "Req Id"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Cancel V1 Media Requests  Req Id  Delete"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/media/discover": {
+   "get": {
+    "tags": [
+     "media requests"
+    ],
+    "summary": "Discover",
+    "description": "Search for anything to ask for (blank: what's popular), marked with what's already on Plex or asked for.",
+    "operationId": "discover_v1_media_discover_get",
+    "parameters": [
+     {
+      "name": "q",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "default": "",
+       "title": "Q"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Discover V1 Media Discover Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/media/title/{media_id}": {
+   "get": {
+    "tags": [
+     "media requests"
+    ],
+    "summary": "Title",
+    "operationId": "title_v1_media_title__media_id__get",
+    "parameters": [
+     {
+      "name": "media_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Media Id"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Title V1 Media Title  Media Id  Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/media/requests/{req_id}/retry": {
+   "post": {
+    "tags": [
+     "media requests"
+    ],
+    "summary": "Retry",
+    "operationId": "retry_v1_media_requests__req_id__retry_post",
+    "parameters": [
+     {
+      "name": "req_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "Req Id"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Retry V1 Media Requests  Req Id  Retry Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/v1/media/continue": {
    "get": {
     "tags": [
@@ -3701,6 +4090,240 @@
     }
    }
   },
+  "/v1/family/items": {
+   "get": {
+    "tags": [
+     "family"
+    ],
+    "summary": "Board Items",
+    "description": "Every chore, routine and calendar entry on the family board (ids for changing them).",
+    "operationId": "board_items_v1_family_items_get",
+    "parameters": [
+     {
+      "name": "kind",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Kind"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Board Items V1 Family Items Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "post": {
+    "tags": [
+     "family"
+    ],
+    "summary": "Board Item Add",
+    "description": "Add a chore for someone, or an event to the family calendar.",
+    "operationId": "board_item_add_v1_family_items_post",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/BoardItemBody"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Board Item Add V1 Family Items Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/family/items/{item_id}": {
+   "patch": {
+    "tags": [
+     "family"
+    ],
+    "summary": "Board Item Change",
+    "description": "Change a chore or event: who it's for, when, how often, points, notes.",
+    "operationId": "board_item_change_v1_family_items__item_id__patch",
+    "parameters": [
+     {
+      "name": "item_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Item Id"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/BoardItemBody"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Board Item Change V1 Family Items  Item Id  Patch"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "delete": {
+    "tags": [
+     "family"
+    ],
+    "summary": "Board Item Remove",
+    "description": "Take a chore or event off the board (archived there, so it can be restored).",
+    "operationId": "board_item_remove_v1_family_items__item_id__delete",
+    "parameters": [
+     {
+      "name": "item_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Item Id"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Board Item Remove V1 Family Items  Item Id  Delete"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/v1/trips": {
    "get": {
     "tags": [
@@ -3783,6 +4406,187 @@
          "type": "object",
          "additionalProperties": true,
          "title": "Response Trip V1 Trips  Trip Id  Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/trip-tools": {
+   "get": {
+    "tags": [
+     "trips"
+    ],
+    "summary": "Trip Tools",
+    "description": "TREK's trip-planning tools with their inputs: add a trip, places, day plans, notes, bookings, packing.",
+    "operationId": "trip_tools_v1_trip_tools_get",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Trip Tools V1 Trip Tools Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/trip-tools/{name}": {
+   "post": {
+    "tags": [
+     "trips"
+    ],
+    "summary": "Trip Tool",
+    "description": "Run one TREK tool (see GET /v1/trip-tools). Removing things uses DELETE instead.",
+    "operationId": "trip_tool_v1_trip_tools__name__post",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ToolCall"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Trip Tool V1 Trip Tools  Name  Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "delete": {
+    "tags": [
+     "trips"
+    ],
+    "summary": "Trip Tool Remove",
+    "description": "Run a TREK tool that removes something (delete_place, unassign_place, delete_trip ...).",
+    "operationId": "trip_tool_remove_v1_trip_tools__name__delete",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "anyOf": [
+         {
+          "$ref": "#/components/schemas/ToolCall"
+         },
+         {
+          "type": "null"
+         }
+        ],
+        "title": "Body"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Trip Tool Remove V1 Trip Tools  Name  Delete"
         }
        }
       }
@@ -6065,7 +6869,7 @@
      "content": {
       "application/json": {
        "schema": {
-        "$ref": "#/components/schemas/AskBody"
+        "$ref": "#/components/schemas/hub__routes__assistant__AskBody"
        }
       }
      }
@@ -6678,6 +7482,640 @@
      }
     }
    }
+  },
+  "/v1/smart": {
+   "get": {
+    "tags": [
+     "smart"
+    ],
+    "summary": "Smart",
+    "operationId": "smart_v1_smart_get",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Smart V1 Smart Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/smart/dismiss": {
+   "post": {
+    "tags": [
+     "smart"
+    ],
+    "summary": "Dismiss",
+    "operationId": "dismiss_v1_smart_dismiss_post",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/DismissBody"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Dismiss V1 Smart Dismiss Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/smart/settings": {
+   "get": {
+    "tags": [
+     "smart"
+    ],
+    "summary": "Settings",
+    "operationId": "settings_v1_smart_settings_get",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Settings V1 Smart Settings Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "post": {
+    "tags": [
+     "smart"
+    ],
+    "summary": "Set Settings",
+    "operationId": "set_settings_v1_smart_settings_post",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/MuteBody"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Set Settings V1 Smart Settings Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/sends": {
+   "get": {
+    "tags": [
+     "sends"
+    ],
+    "summary": "Overview",
+    "operationId": "overview_v1_sends_get",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Overview V1 Sends Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "post": {
+    "tags": [
+     "sends"
+    ],
+    "summary": "Create",
+    "operationId": "create_v1_sends_post",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/SendBody"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Create V1 Sends Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/sends/choices": {
+   "get": {
+    "tags": [
+     "sends"
+    ],
+    "summary": "Choices",
+    "description": "What can be picked for one title: for a show, its seasons and an episode size; for YouTube, the channel.",
+    "operationId": "choices_v1_sends_choices_get",
+    "parameters": [
+     {
+      "name": "kind",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Kind"
+      }
+     },
+     {
+      "name": "ref",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Ref"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Choices V1 Sends Choices Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/sends/{send_id}": {
+   "patch": {
+    "tags": [
+     "sends"
+    ],
+    "summary": "Update",
+    "operationId": "update_v1_sends__send_id__patch",
+    "parameters": [
+     {
+      "name": "send_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Send Id"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/UpdateBody"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Update V1 Sends  Send Id  Patch"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "delete": {
+    "tags": [
+     "sends"
+    ],
+    "summary": "Remove",
+    "description": "Stop sending it; the iPads delete what it brought the next time they check.",
+    "operationId": "remove_v1_sends__send_id__delete",
+    "parameters": [
+     {
+      "name": "send_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Send Id"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Remove V1 Sends  Send Id  Delete"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/sends/sync": {
+   "post": {
+    "tags": [
+     "sends"
+    ],
+    "summary": "Sync",
+    "description": "Top up now: work everything out again, get files ready and wake the iPads.",
+    "operationId": "sync_v1_sends_sync_post",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/SyncBody"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Sync V1 Sends Sync Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/sends/mine": {
+   "get": {
+    "tags": [
+     "sends"
+    ],
+    "summary": "Mine",
+    "description": "What this person's devices should hold. Sent titles not listed here can be deleted.",
+    "operationId": "mine_v1_sends_mine_get",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Mine V1 Sends Mine Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/sends/inventory": {
+   "post": {
+    "tags": [
+     "sends"
+    ],
+    "summary": "Inventory",
+    "operationId": "inventory_v1_sends_inventory_post",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/InventoryBody"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Inventory V1 Sends Inventory Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
   }
  },
  "components": {
@@ -6775,53 +8213,6 @@
     ],
     "title": "AddBody"
    },
-   "AskBody": {
-    "properties": {
-     "text": {
-      "type": "string",
-      "maxLength": 2000,
-      "minLength": 1,
-      "title": "Text"
-     },
-     "conversation_id": {
-      "anyOf": [
-       {
-        "type": "string",
-        "maxLength": 40
-       },
-       {
-        "type": "null"
-       }
-      ],
-      "title": "Conversation Id"
-     },
-     "screen": {
-      "anyOf": [
-       {
-        "type": "string",
-        "maxLength": 200
-       },
-       {
-        "type": "null"
-       }
-      ],
-      "title": "Screen"
-     },
-     "confirmed": {
-      "items": {
-       "$ref": "#/components/schemas/Confirmed"
-      },
-      "type": "array",
-      "maxItems": 10,
-      "title": "Confirmed"
-     }
-    },
-    "type": "object",
-    "required": [
-     "text"
-    ],
-    "title": "AskBody"
-   },
    "AssignBody": {
     "properties": {
      "person_id": {
@@ -6861,6 +8252,173 @@
      "channel_id"
     ],
     "title": "BlockBody"
+   },
+   "BoardItemBody": {
+    "properties": {
+     "title": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 120
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Title"
+     },
+     "kind": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Kind",
+      "description": "chore, task or routine (jobs); schedule, activity or alert (calendar events)"
+     },
+     "people": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "People",
+      "description": "Hub person ids or names, or ['all'] for the family"
+     },
+     "date": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Date",
+      "description": "YYYY-MM-DD; the first day for repeating items"
+     },
+     "end_date": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "End Date"
+     },
+     "time": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Time",
+      "description": "HH:MM, 24-hour; empty for any time / all day"
+     },
+     "repeat": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Repeat",
+      "description": "once, daily, weekdays, weekends, weekly or custom"
+     },
+     "weekdays": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Weekdays",
+      "description": "For weekly/custom: monday ... sunday"
+     },
+     "interval": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Interval"
+     },
+     "points": {
+      "anyOf": [
+       {
+        "type": "integer",
+        "maximum": 1000.0,
+        "minimum": 0.0
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Points"
+     },
+     "notes": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 500
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Notes"
+     },
+     "priority": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Priority"
+     },
+     "word": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 24
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Word",
+      "description": "One-word label for little kids"
+     }
+    },
+    "type": "object",
+    "title": "BoardItemBody"
    },
    "ChallengeBody": {
     "properties": {
@@ -6919,6 +8477,31 @@
      "ok"
     ],
     "title": "Confirmed"
+   },
+   "DismissBody": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "maxLength": 200,
+      "title": "Id"
+     },
+     "rule": {
+      "type": "string",
+      "maxLength": 40,
+      "title": "Rule"
+     },
+     "handled": {
+      "type": "boolean",
+      "title": "Handled",
+      "default": false
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "rule"
+    ],
+    "title": "DismissBody"
    },
    "DoneBody": {
     "properties": {
@@ -7172,6 +8755,94 @@
     "type": "object",
     "title": "HTTPValidationError"
    },
+   "Holding": {
+    "properties": {
+     "item_id": {
+      "type": "string",
+      "maxLength": 80,
+      "title": "Item Id"
+     },
+     "title": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 200
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Title"
+     },
+     "quality": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 20
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Quality"
+     },
+     "state": {
+      "type": "string",
+      "maxLength": 20,
+      "title": "State"
+     },
+     "progress": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Progress"
+     },
+     "bytes": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Bytes"
+     },
+     "watched": {
+      "type": "boolean",
+      "title": "Watched",
+      "default": false
+     },
+     "sent": {
+      "type": "boolean",
+      "title": "Sent",
+      "default": false
+     },
+     "error": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 200
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Error"
+     }
+    },
+    "type": "object",
+    "required": [
+     "item_id",
+     "state"
+    ],
+    "title": "Holding"
+   },
    "InboxAct": {
     "properties": {
      "action": {
@@ -7189,6 +8860,42 @@
      "action"
     ],
     "title": "InboxAct"
+   },
+   "InventoryBody": {
+    "properties": {
+     "items": {
+      "items": {
+       "$ref": "#/components/schemas/Holding"
+      },
+      "type": "array",
+      "maxItems": 1000,
+      "title": "Items"
+     },
+     "free_bytes": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Free Bytes"
+     },
+     "total_bytes": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Total Bytes"
+     }
+    },
+    "type": "object",
+    "title": "InventoryBody"
    },
    "ItemBody": {
     "properties": {
@@ -7222,6 +8929,25 @@
      "macs"
     ],
     "title": "LinkBody"
+   },
+   "MuteBody": {
+    "properties": {
+     "rule": {
+      "type": "string",
+      "maxLength": 40,
+      "title": "Rule"
+     },
+     "muted": {
+      "type": "boolean",
+      "title": "Muted"
+     }
+    },
+    "type": "object",
+    "required": [
+     "rule",
+     "muted"
+    ],
+    "title": "MuteBody"
    },
    "NotifyBody": {
     "properties": {
@@ -7933,6 +9659,105 @@
     "type": "object",
     "title": "RequestBody"
    },
+   "SendBody": {
+    "properties": {
+     "person_ids": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "maxItems": 8,
+      "minItems": 1,
+      "title": "Person Ids"
+     },
+     "kind": {
+      "type": "string",
+      "pattern": "^(title|show|youtube|request)$",
+      "title": "Kind"
+     },
+     "ref": {
+      "type": "string",
+      "maxLength": 400,
+      "minLength": 1,
+      "title": "Ref"
+     },
+     "title": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 200
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Title"
+     },
+     "poster_url": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 400
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Poster Url"
+     },
+     "scope": {
+      "anyOf": [
+       {
+        "type": "string",
+        "pattern": "^(one|next|last|season|all|newest)$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Scope"
+     },
+     "count": {
+      "anyOf": [
+       {
+        "type": "integer",
+        "maximum": 100.0,
+        "minimum": 1.0
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Count"
+     },
+     "season": {
+      "anyOf": [
+       {
+        "type": "integer",
+        "maximum": 200.0,
+        "minimum": 0.0
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Season"
+     },
+     "quality": {
+      "type": "string",
+      "pattern": "^(original|high|small)$",
+      "title": "Quality",
+      "default": "high"
+     }
+    },
+    "type": "object",
+    "required": [
+     "person_ids",
+     "kind",
+     "ref"
+    ],
+    "title": "SendBody"
+   },
    "ShopBody": {
     "properties": {
      "list_id": {
@@ -8022,6 +9847,23 @@
     "type": "object",
     "title": "SourcesBody"
    },
+   "SyncBody": {
+    "properties": {
+     "person_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Person Id"
+     }
+    },
+    "type": "object",
+    "title": "SyncBody"
+   },
    "TokenBody": {
     "properties": {
      "device_id": {
@@ -8044,6 +9886,73 @@
      "signature"
     ],
     "title": "TokenBody"
+   },
+   "ToolCall": {
+    "properties": {
+     "arguments": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Arguments"
+     }
+    },
+    "type": "object",
+    "title": "ToolCall"
+   },
+   "UpdateBody": {
+    "properties": {
+     "scope": {
+      "anyOf": [
+       {
+        "type": "string",
+        "pattern": "^(one|next|last|season|all|newest)$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Scope"
+     },
+     "count": {
+      "anyOf": [
+       {
+        "type": "integer",
+        "maximum": 100.0,
+        "minimum": 1.0
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Count"
+     },
+     "season": {
+      "anyOf": [
+       {
+        "type": "integer",
+        "maximum": 200.0,
+        "minimum": 0.0
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Season"
+     },
+     "quality": {
+      "anyOf": [
+       {
+        "type": "string",
+        "pattern": "^(original|high|small)$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Quality"
+     }
+    },
+    "type": "object",
+    "title": "UpdateBody"
    },
    "ValidationError": {
     "properties": {
@@ -8102,6 +10011,82 @@
     },
     "type": "object",
     "title": "VpnBody"
+   },
+   "hub__routes__assistant__AskBody": {
+    "properties": {
+     "text": {
+      "type": "string",
+      "maxLength": 2000,
+      "minLength": 1,
+      "title": "Text"
+     },
+     "conversation_id": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 40
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Conversation Id"
+     },
+     "screen": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 200
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Screen"
+     },
+     "confirmed": {
+      "items": {
+       "$ref": "#/components/schemas/Confirmed"
+      },
+      "type": "array",
+      "maxItems": 10,
+      "title": "Confirmed"
+     }
+    },
+    "type": "object",
+    "required": [
+     "text"
+    ],
+    "title": "AskBody"
+   },
+   "hub__routes__media_requests__AskBody": {
+    "properties": {
+     "media_id": {
+      "type": "string",
+      "maxLength": 40,
+      "title": "Media Id"
+     },
+     "seasons": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "integer"
+        },
+        "type": "array",
+        "maxItems": 60
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Seasons"
+     }
+    },
+    "type": "object",
+    "required": [
+     "media_id"
+    ],
+    "title": "AskBody"
    }
   }
  }

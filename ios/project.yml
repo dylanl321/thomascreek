@@ -51,7 +51,9 @@ targets:
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
         UIRequiresFullScreen: true
-        UIBackgroundModes: [remote-notification]
+        UIBackgroundModes: [remote-notification, fetch]
+        # Background refresh: picks up films and shows a grown-up sent to this device (SendsSync).
+        BGTaskSchedulerPermittedIdentifiers: [me.dlewis.thomascreek.sends]
         NSSupportsLiveActivities: true
         NSSupportsLiveActivitiesFrequentUpdates: true
         NSFaceIDUsageDescription: Face ID confirms it's you before a door, lock, camera or oven changes.
