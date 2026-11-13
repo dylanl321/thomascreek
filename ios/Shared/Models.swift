@@ -41,6 +41,7 @@ enum JSONValue: Codable, Hashable {
         }
     }
     var array: [JSONValue]? { if case .array(let a) = self { a } else { nil } }
+    var object: [String: JSONValue]? { if case .object(let o) = self { o } else { nil } }
 
     /// Plain Foundation value for a request body. The decoder camel-cased every key on the way in
     /// (`timer_min` became `timerMin`), so keys go back to snake_case for the hub.

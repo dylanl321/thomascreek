@@ -61,7 +61,7 @@ struct RemoteView: View {
     /// "Plugged into Samsung TV · HDMI 2": a box doesn't know which TV it's on, so a grown-up says it once and
     /// the hub then wakes that TV and switches it to the box's input whenever the box is used.
     private func pluggedInto(_ d: DeviceItem?) -> some View {
-        let on = d?["plugged_into"]?.object
+        let on = d?["pluggedInto"]?.object
         let line = on.map { o in [o["name"]?.string, o["input"]?.string].compactMap { $0 }.joined(separator: " · ") }
         return Button { hookup = true } label: {
             HStack(spacing: 10) {
