@@ -345,3 +345,22 @@ Adults and admins (`remotes.setup`). Pairing runs through Home Assistant's own s
   work for actions, modes and Ask; they're only left out of lists and search.
 - App: `HideForEveryoneButton(deviceID:)` (drop into any menu or device page), `RoomEditView`, `HiddenDevicesView`
   (House › Hidden devices), `AppliancesView`.
+
+## Full TV remote, watch anywhere, and boxes on TVs (2026-11-13)
+
+- `state.remote` on media devices: `{platform, keys[], apps[{id,name,kid}], inputs[], text, app}`. Keys are only the
+  ones that TV's integration supports. `apps` uses shared ids (youtube, netflix, plex, disney_plus, ...) on every
+  kind of TV, and unknown apps come through as `src:<name>`.
+- `media.command` params: `command` is one of the remote keys (up/down/left/right/select/back/home/menu/play_pause/
+  ch_up/ch_down/input/guide/...), `app` + `app: <id>`, `text` + `text: <string>` (Google TV), `source` + `source`.
+  Children can only open kids' apps (403 with ask_parent). The hub wakes the TV first, reconnects a TV that dropped
+  off, retries once, and returns a plain-language 502 when it still can't reach it.
+- `GET /v1/media/watch`: `{apps:[{id,name,kid,screens:[{entity_id,name,room,on}]}]}`, for "watch X on Y".
+- `POST /v1/media/play` on a TV with a Plex app returns `{pending:true, message}`. The hub opens Plex, finds the TV's
+  Plex player, picks followable tracks and starts the title. The outcome arrives as event `watch`
+  `{ok, message, tracks?}`.
+- `POST /v1/media/{id}/language` `{target_device_id?}` → `{ok, message, audio, subtitles, switched_now}`.
+- `GET /v1/media/hookups` (adults) → `{screens:[{entity_id,name,platform,inputs,plugged_into,boxes}]}`.
+  `PUT /v1/media/hookups/{box}` `{display_entity_id|null, input|null}` says which TV a box is plugged into and on
+  which input. When the box is used, the hub turns that TV on and switches its input, sends volume to the TV, and
+  turns both on or off together. The box's state carries `plugged_into {entity_id,name,input}`.

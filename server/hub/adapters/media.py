@@ -123,6 +123,74 @@ class Plex(Adapter):
         data = await self.get_json("/status/sessions")
         return data.get("MediaContainer", {}).get("Metadata", [])
 
+    # -- playing on a TV's Plex app (Plex's own remote-control API, relayed by the server) ---------------
+    async def identity(self) -> str:
+        data = await self.get_json("/identity")
+        return str(data.get("MediaContainer", {}).get("machineIdentifier") or "")
+
+    async def clients(self) -> list[dict[str, Any]]:
+        """Plex players on the network right now (the TV's Plex app shows up once it's open)."""
+        data = await self.get_json("/clients")
+        return list(data.get("MediaContainer", {}).get("Server") or [])
+
+    async def streams(self, item_id: str) -> dict[str, Any] | None:
+        """The audio and subtitle tracks of a title's first file: {part_id, audio: [...], subtitles: [...]}."""
+        data = await self.get_json(f"/library/metadata/{quote(item_id)}")
+        items = data.get("MediaContainer", {}).get("Metadata", [])
+        if not items:
+            return None
+        part = ((items[0].get("Media") or [{}])[0].get("Part") or [{}])[0]
+        if not part.get("id"):
+            return None
+        tracks = part.get("Stream") or []
+        pick = lambda kind: [{"id": t.get("id"), "language": t.get("languageCode") or t.get("languageTag"),  # noqa: E731
+                              "title": t.get("displayTitle") or t.get("extendedDisplayTitle") or "",
+                              "forced": bool(t.get("forced")), "hearing_impaired": bool(t.get("hearingImpaired")),
+                              "default": bool(t.get("default")), "selected": bool(t.get("selected"))}
+                             for t in tracks if t.get("streamType") == kind]
+        return {"part_id": part["id"], "audio": pick(2), "subtitles": pick(3),
+                "view_offset": items[0].get("viewOffset") or 0}
+
+    async def set_streams(self, part_id: int | str, audio_id: int | None, subtitle_id: int | None) -> None:
+        """Remember the tracks for this title (0 = subtitles off); Plex apps start with them."""
+        params: dict[str, Any] = {"allParts": 1}
+        if audio_id is not None:
+            params["audioStreamID"] = audio_id
+        if subtitle_id is not None:
+            params["subtitleStreamID"] = subtitle_id
+        await self.request("PUT", f"/library/parts/{quote(str(part_id))}", params=params)
+
+    def _server_params(self) -> dict[str, Any]:
+        from urllib.parse import urlparse
+
+        u = urlparse(self.cfg.url or "")
+        return {"address": u.hostname or "", "port": u.port or (443 if u.scheme == "https" else 32400),
+                "protocol": u.scheme or "http"}
+
+    async def play_on_client(self, client_id: str, item_id: str, offset_ms: int = 0) -> None:
+        """Start a title on a Plex player, through the server (so the hub never talks to the TV itself)."""
+        mid = await self.identity()
+        uri = f"server://{mid}/com.plexapp.plugins.library/library/metadata/{item_id}"
+        pq = await self.request("POST", "/playQueues", params={"type": "video", "uri": uri, "shuffle": 0,
+                                                               "continuous": 0, "repeat": 0, "own": 1})
+        q = pq.json().get("MediaContainer", {}).get("playQueueID")
+        params = {"key": f"/library/metadata/{item_id}", "offset": int(offset_ms or 0), "machineIdentifier": mid,
+                  "type": "video", "commandID": 1, **self._server_params()}
+        if q:
+            params["containerKey"] = f"/playQueues/{q}?own=1&window=200"
+        await self.request("GET", "/player/playback/playMedia", params=params,
+                           headers={"X-Plex-Target-Client-Identifier": client_id})
+
+    async def client_streams(self, client_id: str, audio_id: int | None, subtitle_id: int | None) -> None:
+        """Switch tracks on what a Plex player is playing now."""
+        params: dict[str, Any] = {"type": "video", "commandID": 2}
+        if audio_id is not None:
+            params["audioStreamID"] = audio_id
+        if subtitle_id is not None:
+            params["subtitleStreamID"] = subtitle_id
+        await self.request("GET", "/player/playback/setStreams", params=params,
+                           headers={"X-Plex-Target-Client-Identifier": client_id})
+
     @staticmethod
     def ha_play_payload(item: dict[str, Any]) -> tuple[str, str]:
         """media_content_type and media_content_id for HA's Plex play_media."""

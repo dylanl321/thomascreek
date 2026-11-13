@@ -142,7 +142,112 @@ class ActionRunner:
         plan = Plan(action, target, p, d, label=st.get("attributes", {}).get("friendly_name", target_id))
         if d.allowed:
             plan.calls = self._calls(action, target_id, kind, p)  # type: ignore[arg-type]
+            if action in ("media.command", "media.play", "media.volume"):
+                plan.calls = self._with_tv(action, target_id, p, plan.calls)  # type: ignore[arg-type]
         return plan
+
+    pause = staticmethod(asyncio.sleep)  # tests make TV recovery waits instant
+
+    async def _run_tv_calls(self, plan: Plan) -> None:
+        """Send a TV's calls, fixing the usual problems on the way so nobody has to.
+
+        - A TV that dropped its connection to Home Assistant (its remote shows "unavailable") is reconnected
+          by reloading its integration, then the press is sent again.
+        - A call that fails once is retried after a short pause (Wi-Fi TVs miss the odd packet).
+        - A TV told to turn on that stays off gets the wake-up key from its remote too.
+        """
+        home = self.hub.home
+
+        def remote_of(x: str) -> str | None:
+            if x.startswith("remote."):
+                return x
+            return (home.media_links.get(x) or {}).get("remote") or \
+                self.hub.config.home_assistant.extra.get("remotes", {}).get(x)
+
+        checked: set[str] = set()
+        for dom, svc, data in plan.calls:
+            x = str(data.get("entity_id") or plan.target.entity_id or "")
+            remote = remote_of(x)
+            if remote and remote not in checked:
+                checked.add(remote)
+                if home.states.get(remote, {}).get("state") == "unavailable":
+                    await self._reconnect_tv(remote)
+            try:
+                await self.hub.ha.call_service(dom, svc, data)
+            except Exception as exc:  # noqa: BLE001
+                log.info("TV call %s.%s failed (%s); reconnecting and retrying", dom, svc, exc)
+                if remote:
+                    await self._reconnect_tv(remote)
+                else:
+                    await self.pause(1.0)
+                await self.hub.ha.call_service(dom, svc, data)
+            if (dom, svc) == ("media_player", "turn_on"):
+                if remote:
+                    await self.pause(1.5)
+                    if await self._fresh_state(x) in ("off", "standby"):
+                        try:
+                            await self.hub.ha.call_service("remote", "turn_on", {"entity_id": remote})
+                        except Exception as exc:  # noqa: BLE001
+                            log.info("wake-up through the remote failed: %s", exc)
+                elif x != plan.target.entity_id:
+                    await self.pause(2.0)  # a TV that just woke ignores an input switch for a moment
+
+    async def _fresh_state(self, eid: str) -> str | None:
+        try:
+            st = await self.hub.ha.get_json(f"/api/states/{eid}")
+            return (st or {}).get("state")
+        except Exception:  # noqa: BLE001
+            return self.hub.home.states.get(eid, {}).get("state")
+
+    async def _reconnect_tv(self, remote: str) -> None:
+        try:
+            await self.hub.ha.call_service("homeassistant", "reload_config_entry", {"entity_id": remote})
+        except Exception as exc:  # noqa: BLE001
+            log.info("reconnecting %s failed: %s", remote, exc)
+        await self.pause(3.0)
+
+    def _with_tv(self, action: str, box: str, p: dict[str, Any],
+                 calls: list[tuple[str, str, dict[str, Any]]]) -> list[tuple[str, str, dict[str, Any]]]:
+        """A streaming box plugged into a TV: wake the TV and switch it to the box's input, send volume to the
+        TV, and turn both on or off together (see hookups.py)."""
+        from .hookups import ASLEEP, VOLUME
+
+        hk = self.hub.hookups
+        link = hk.get(box)
+        if not link:
+            return calls
+        tv = link["display"]
+        cmd = p.get("command") if action == "media.command" else None
+        if (action == "media.volume" or cmd in VOLUME) and tv in self.hub.home.states:
+            return self._calls(action, tv, "media", p)
+        if cmd == "power":
+            # What the family sees is the TV, so its state decides: TV off means "turn it all on".
+            b = {"entity_id": box}
+            if self.hub.home.states.get(tv, {}).get("state") in ASLEEP:
+                wake = [] if self.hub.home.states.get(box, {}).get("state") not in ASLEEP else \
+                    [("media_player", "turn_on", b)]
+                return wake + hk.prepare(box)
+            return [("media_player", "turn_off", b), ("media_player", "turn_off", {"entity_id": tv})]
+        return hk.prepare(box) + calls
+
+    def _app_call(self, eid: str, plat: str | None, app: str) -> list[tuple[str, str, dict[str, Any]]]:
+        """Open an app the same way on any TV: "youtube" becomes a package launch on a Google TV and the
+        TV's own "YouTube" source on an Apple TV, Roku, LG or Samsung."""
+        from .tvremote import device_apps, find_app
+
+        t = {"entity_id": eid}
+        sources = [str(x) for x in self.hub.home.states.get(eid, {}).get("attributes", {}).get("source_list") or []]
+        hit = find_app(device_apps(plat, sources), app)
+        if hit is None and plat == "androidtv_remote" and re.fullmatch(r"[a-z][\w]*(\.[\w]+){2,}", app):
+            hit = {"target": app}  # any installed package, by name
+        if hit is None:
+            raise ActionError(400, "bad_params", "that app isn't on this TV")
+        st = self.hub.home.states.get(eid, {})
+        wake = [("media_player", "turn_on", t)] if st.get("state") in ("off", "standby") else []
+        if plat == "androidtv_remote":
+            return wake + [("media_player", "play_media", {**t, "media_content_type": "app",
+                                                           "media_content_id": hit["target"]})]
+        return wake + [("media_player", "select_source", {**t, "source": hit["target"]})]
 
     def _calls(self, action: str, eid: str, kind: str, p: dict[str, Any]) -> list[tuple[str, str, dict[str, Any]]]:
         t = {"entity_id": eid}
@@ -186,7 +291,7 @@ class ActionRunner:
         if action == "garage.set":
             return [("cover", "open_cover" if p.get("open") else "close_cover", t)]
         if action == "media.command":
-            from .home import DPAD, PLAYER_KEY_SERVICES, REMOTE_KEYS
+            from .tvremote import ALL_KEYS, DPAD, PLAYER_KEY_SERVICES, REMOTE_KEYS, text_keys
 
             cmd = p.get("command")
             if cmd in MEDIA_COMMANDS:
@@ -205,17 +310,32 @@ class ActionRunner:
                 if src not in options:
                     raise ActionError(400, "bad_params", "source must be one of the TV's inputs")
                 return [("media_player", "select_source", {**t, "source": src})]
-            if cmd in DPAD:
-                link = self.hub.home.media_links.get(eid) or {}
-                plat = link.get("platform")
-                remote = link.get("remote") or self.hub.config.home_assistant.extra.get("remotes", {}).get(eid)
+            link = self.hub.home.media_links.get(eid) or {}
+            plat = link.get("platform")
+            remote = link.get("remote") or self.hub.config.home_assistant.extra.get("remotes", {}).get(eid)
+            if cmd == "app":
+                return self._app_call(eid, plat, str(p.get("app") or ""))
+            if cmd == "text":
+                keys = text_keys(str(p.get("text") or "")[:120])
+                if plat != "androidtv_remote" or not remote:
+                    raise ActionError(400, "bad_params", "this TV can't take typing from the remote")
+                if not keys:
+                    raise ActionError(400, "bad_params", "nothing to type")
+                return [("remote", "send_command", {"entity_id": remote, "command": keys, "delay_secs": 0.05})]
+            if cmd in DPAD or cmd in ALL_KEYS:
                 key = REMOTE_KEYS.get(plat or "", {}).get(cmd)
+                asleep = self.hub.home.states.get(eid, {}).get("state") in ("off", "standby")
+                wake = [("media_player", "turn_on", t)] if asleep and cmd in ("select", "home") else []
+                if key is None and cmd not in DPAD:
+                    raise ActionError(400, "bad_params", "this TV's remote doesn't have that button")
                 if plat in PLAYER_KEY_SERVICES and key:
                     dom, svc, field = PLAYER_KEY_SERVICES[plat]
-                    return [(dom, svc, {**t, field: key})]
+                    return wake + [(dom, svc, {**t, field: key})]
                 if remote:
-                    return [("remote", "send_command", {"entity_id": remote, "command": key or REMOTE_COMMANDS[cmd]})]
-                raise ActionError(400, "bad_params", "this TV has no remote control in Home Assistant")
+                    return wake + [("remote", "send_command",
+                                    {"entity_id": remote, "command": key or REMOTE_COMMANDS[cmd]})]
+                raise ActionError(400, "bad_params", "This TV hasn't been added for the remote yet. A grown-up can "
+                                  "add it from Media → Add a TV or box.")
             raise ActionError(400, "bad_params", "unknown media command")
         if action == "media.volume":
             return [("media_player", "volume_set", {**t, "volume_level": max(0, min(100, int(p["volume"]))) / 100})]
@@ -526,8 +646,11 @@ class ActionRunner:
                 msg = await self._run_custom(s, plan)
                 outcome = "ok"
             else:
-                for dom, svc, data in plan.calls:
-                    await self.hub.ha.call_service(dom, svc, data)
+                if plan.action in ("media.command", "media.play", "media.volume"):
+                    await self._run_tv_calls(plan)
+                else:
+                    for dom, svc, data in plan.calls:
+                        await self.hub.ha.call_service(dom, svc, data)
                 msg = "Done"
                 outcome = "ok"
                 if plan.action == "oven.set":
@@ -556,6 +679,9 @@ class ActionRunner:
         except Exception as exc:  # noqa: BLE001
             db.log(plan.action, "error", person_id=s.person_id, device_id=s.device_id,
                    target=plan.target.entity_id, params=_safe(plan.params), detail=str(exc)[:300], source=source)
+            if plan.action.startswith("media."):
+                raise ActionError(502, "failed", f"{plan.label or 'The TV'} didn't answer, even after the hub tried to "
+                                  "reconnect. Check it's plugged in and on Wi-Fi, then try again.") from exc
             raise ActionError(502, "failed", f"The house didn't respond: {exc}") from exc
         db.log(plan.action, outcome, person_id=s.person_id, device_id=s.device_id,
                target=plan.target.entity_id, params=_safe(plan.params), detail=detail, source=source)

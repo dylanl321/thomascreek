@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import itertools
 import json
+import re
 import ssl
 import time
 from contextlib import asynccontextmanager
@@ -32,6 +33,32 @@ SERVICES = ("cifs", "nfs", "ssh", "ftp", "iscsitarget", "ups", "snmp")
 SERVICE_TITLES = {"cifs": "SMB", "nfs": "NFS", "ssh": "SSH", "ftp": "FTP", "iscsitarget": "iSCSI", "ups": "UPS",
                   "snmp": "SNMP"}
 Call = Callable[[str, list[Any]], Awaitable[Any]]
+
+
+ANSI = re.compile(r"\x1b\[([0-9;?]*)([A-Za-z])|\x1b[()][A-Za-z0-9]|\x1b[=>]")
+LEVEL_WORDS = re.compile(r"\b(ERROR|ERR|FATAL|CRITICAL|PANIC|TRACEBACK|EXCEPTION)\b|\b(WARN|WARNING)\b", re.I)
+
+
+def clean_log_line(raw: str) -> tuple[str, str | None]:
+    """Strip terminal escape codes from a container log line; keep its colour as a level.
+
+    Red (31/91) means error and yellow (33/93) means warning; failing that, words like ERROR or WARN decide.
+    """
+    level: str | None = None
+    for m in ANSI.finditer(raw):
+        if m.group(2) == "m":
+            codes = {c for c in (m.group(1) or "").split(";") if c}
+            if codes & {"31", "91"}:
+                level = "error"
+            elif codes & {"33", "93"} and level is None:
+                level = "warn"
+    text = ANSI.sub("", raw).replace("\r", "").rstrip("\n")
+    text = "".join(ch for ch in text if ch == "\t" or ch >= " ")
+    if level is None:
+        w = LEVEL_WORDS.search(text)
+        if w:
+            level = "error" if w.group(1) else "warn"
+    return text, level
 
 
 def _date(v: Any) -> float | None:
@@ -358,7 +385,8 @@ class TrueNAS(Adapter):
             def take(msg: dict[str, Any]) -> None:
                 f = ((msg.get("params") or {}).get("fields")) or {}
                 if "data" in f:
-                    lines.append({"t": f.get("timestamp"), "text": str(f["data"]).rstrip("\n")[:2000]})
+                    text, level = clean_log_line(str(f["data"]))
+                    lines.append({"t": f.get("timestamp"), "text": text[:2000], "level": level})
 
             for m in ws.events:
                 take(m)

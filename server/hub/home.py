@@ -96,27 +96,7 @@ def kind_for(state: dict[str, Any]) -> str | None:
 # media_player supported_features bits (MediaPlayerEntityFeature)
 MP_PAUSE, MP_VOLUME_SET, MP_VOLUME_MUTE, MP_PREV, MP_NEXT = 1, 4, 8, 16, 32
 MP_TURN_ON, MP_TURN_OFF, MP_VOLUME_STEP, MP_SELECT_SOURCE, MP_STOP, MP_PLAY = 128, 256, 1024, 2048, 4096, 16384
-# Remote buttons per integration: hub name -> (how, command). "remote" = remote.send_command
-# on the linked remote entity; anything else is "<domain>.<service>:<field>" on the media player.
-REMOTE_KEYS: dict[str, dict[str, str]] = {
-    "apple_tv": {"up": "up", "down": "down", "left": "left", "right": "right", "select": "select",
-                 "back": "menu", "home": "home"},
-    "androidtv_remote": {"up": "DPAD_UP", "down": "DPAD_DOWN", "left": "DPAD_LEFT", "right": "DPAD_RIGHT",
-                         "select": "DPAD_CENTER", "back": "BACK", "home": "HOME"},
-    "roku": {"up": "up", "down": "down", "left": "left", "right": "right", "select": "select", "back": "back",
-             "home": "home"},
-    "samsungtv": {"up": "KEY_UP", "down": "KEY_DOWN", "left": "KEY_LEFT", "right": "KEY_RIGHT",
-                  "select": "KEY_ENTER", "back": "KEY_RETURN", "home": "KEY_HOME"},
-    "braviatv": {"up": "Up", "down": "Down", "left": "Left", "right": "Right", "select": "Confirm",
-                 "back": "Return", "home": "Home"},
-    "webostv": {"up": "UP", "down": "DOWN", "left": "LEFT", "right": "RIGHT", "select": "ENTER",
-                "back": "BACK", "home": "HOME"},
-    "androidtv": {"up": "UP", "down": "DOWN", "left": "LEFT", "right": "RIGHT", "select": "CENTER",
-                  "back": "BACK", "home": "HOME"},
-}
-# Integrations whose buttons go to a service on the media player itself, not a remote entity.
-PLAYER_KEY_SERVICES = {"webostv": ("webostv", "button", "button"), "androidtv": ("androidtv", "adb_command", "command")}
-DPAD = ("up", "down", "left", "right", "select", "back", "home")
+from .tvremote import DPAD, PLAYER_KEY_SERVICES, REMOTE_KEYS, app_label, remote_info  # noqa: E402,F401
 
 
 def media_commands(st: dict[str, Any], link: dict[str, Any] | None) -> list[str]:
@@ -146,7 +126,11 @@ def media_commands(st: dict[str, Any], link: dict[str, Any] | None) -> list[str]
     link = link or {}
     plat = link.get("platform")
     if plat in REMOTE_KEYS and (link.get("remote") or plat in PLAYER_KEY_SERVICES):
-        cmds += list(DPAD)
+        cmds += list(REMOTE_KEYS[plat])
+    if plat == "androidtv_remote" or (f & MP_SELECT_SOURCE and st.get("attributes", {}).get("source_list")):
+        cmds.append("app")
+    if plat == "androidtv_remote" and link.get("remote"):
+        cmds.append("text")
     return cmds
 
 
@@ -192,9 +176,11 @@ def device_state(kind: str, st: dict[str, Any], link: dict[str, Any] | None = No
         out.update(on=s not in ("off", "standby", "unavailable"), playing=s == "playing",
                    volume=round(a["volume_level"] * 100) if a.get("volume_level") is not None else None,
                    muted=bool(a.get("is_volume_muted")) if "is_volume_muted" in a else None,
-                   source=a.get("source") or a.get("app_name"),
+                   source=app_label(a.get("source") or a.get("app_name") or a.get("app_id")),
                    sources=list(a.get("source_list") or []),
                    commands=media_commands(st, link))
+        if kind == "media" and (rc := remote_info(st, link)):
+            out["remote"] = rc
     elif kind == "vacuum":
         out["value"] = s
     elif kind == "sensor":
@@ -307,8 +293,11 @@ class HomeModel:
             self.entity_device = {e: d["id"] for d in reg["devices"] for e in d.get("entities") or []}
             self.platforms = {p[0]: p[1] for p in reg.get("platforms") or [] if isinstance(p, list) and len(p) == 2}
         extra = self.hub.config.home_assistant.extra.get("remotes", {})
+        # The media player's own integration wins over the device's first identifier: a Google TV that
+        # Home Assistant also found over Cast lists "cast" first, which hid its whole remote.
         self.media_links = {m["entity_id"]: {"remote": extra.get(m["entity_id"]) or m.get("remote"),
-                                             "platform": m.get("platform")} for m in links if m.get("entity_id")}
+                                             "platform": self.platforms.get(m["entity_id"]) or m.get("platform")}
+                            for m in links if m.get("entity_id")}
         overrides = self.hub.config.areas
         self.areas = {}
         self.entity_area = {}
@@ -442,6 +431,8 @@ class HomeModel:
         if kind == "lock" and not policy.has(s, "doors"):
             return None
         state = device_state(kind, st, self.media_links.get(eid))
+        if kind == "media" and (tv := self.hub.hookups.summary(eid)):
+            state["plugged_into"] = tv  # this box sits on that TV's input; the hub wakes and switches it
         if kind == "valve" and state.get("on"):
             left = self.hub.actions.valve_remaining(eid)
             if left is not None:
@@ -657,10 +648,18 @@ class HomeModel:
             alerts = [a for a in alerts if a["level"] == "warning"]
         alerts = [a for a in alerts if a["level"] != "statement"]
         if alerts:
+            from .smart import alert_when
+
             w = dict(w or {})
-            w["alert"] = {"id": alerts[0]["id"], "event": alerts[0]["event"], "level": alerts[0]["level"]}
+            a = alerts[0]
+            w["alert"] = {"id": a["id"], "event": a["event"], "level": a["level"],
+                          "when": alert_when(a, self.hub.policy.now(), self.hub.policy.tz)}
             if len(alerts) > 1:
                 w["alert_count"] = len(alerts)
+        if (not w or w.get("temp") is None) and time.time() - self.hub.started_at < 180:
+            # Just after a restart nothing has been fetched yet: say so, so the app shows "loading" not nothing.
+            # (After a few minutes with nothing, the weather is really unavailable and the card stays hidden.)
+            w = {**(w or {}), "pending": True}
         return w
 
     def systems_card(self) -> dict[str, Any]:
