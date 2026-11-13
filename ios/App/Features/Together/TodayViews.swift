@@ -5,6 +5,7 @@ import SwiftUI
 /// Faces in a row: lit with a green ring when home, faded when out, plain when the house can't tell.
 struct WhosHomeRow: View {
     @Environment(HomeStore.self) private var store
+    @Environment(Router.self) private var router
     @State private var family = FamilyStore.shared
     @State private var picked: FamilyMember?
 
@@ -15,7 +16,10 @@ struct WhosHomeRow: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 14) {
                     ForEach(people) { p in
-                        Button { picked = p } label: { face(p) }.buttonStyle(.plain)
+                        // Grown-ups open the person's page; kids get the quick where-are-they bubble.
+                        Button {
+                            if router.allows(.person(p.id)) { router.follow(.person(p.id)) } else { picked = p }
+                        } label: { face(p) }.buttonStyle(.plain)
                     }
                 }
                 .padding(.horizontal, 4).padding(.vertical, 6)
@@ -100,16 +104,19 @@ struct TodaySection: View {
                         WxIcon(name: w.symbol ?? "cloud.sun.fill", onDark: true).font(.title)
                         if let temp = w.temp { Text("\(Int(temp.rounded()))°").font(.title3.weight(.semibold)).foregroundStyle(.white) }
                     }
+                    .linksToWeather()
                 }
             }
             if let line = t?.weather?.line, !line.isEmpty {
                 Text(line).font(.subheadline).foregroundStyle(.white.opacity(0.9))
+                    .multilineTextAlignment(.leading)
+                    .linksToWeather()
             }
             HStack(spacing: 8) {
-                if let e = nextEvent { chip("calendar", "\(e.isAllDay ? "Today" : clock(e.start)) · \(e.title)") }
-                if let d = t?.dinner { chip("fork.knife", d.title) }
+                if let e = nextEvent { chip("calendar", "\(e.isAllDay ? "Today" : clock(e.start)) · \(e.title)").links(to: .calendar, "Calendar") }
+                if let d = t?.dinner { chip("fork.knife", d.title).links(to: d.slug.map { .recipe($0) } ?? .dinners, d.title) }
                 if let k = t?.chores?.kids, !k.isEmpty {
-                    chip("star.fill", k.map { "\($0.name) \($0.done)/\($0.total)" }.joined(separator: " · "))
+                    chip("star.fill", k.map { "\($0.name) \($0.done)/\($0.total)" }.joined(separator: " · ")).links(to: .chores, "Chores")
                 }
             }
             .lineLimit(1)
@@ -188,10 +195,12 @@ struct TodayView: View {
                     WxIcon(name: w.symbol ?? "cloud.sun.fill", onDark: true).font(.system(size: 38))
                     VStack(alignment: .leading, spacing: 0) {
                         if let temp = w.temp { Text("\(Int(temp.rounded()))°  \(w.condition ?? "")").font(.title3.weight(.semibold)) }
-                        if let line = w.line { Text(line).font(.subheadline).opacity(0.9) }
+                        if let line = w.line { Text(line).font(.subheadline).opacity(0.9).multilineTextAlignment(.leading) }
                     }
+                    Image(systemName: "chevron.right").font(.footnote.weight(.bold)).opacity(0.7)
                 }
                 .foregroundStyle(.white).padding(.top, 6)
+                .linksToWeather()
             }
         }
         .padding(20).padding(.top, 30)
@@ -216,7 +225,7 @@ struct TodayView: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(e.isAllDay ? "All day" : clock(e.start)).font(.caption.monospacedDigit()).foregroundStyle(Theme.dim)
                             Text(e.title).font(.body.weight(.medium)).foregroundStyle(past ? Theme.dim : Theme.fg)
-                            if let w = e.who { Text(w).font(.caption).foregroundStyle(Theme.dim) }
+                            if let w = e.who { Text(w).font(.caption).foregroundStyle(Theme.dim).links(to: Destination.forPerson(named: w), w) }
                             if let l = e.location { Label(l, systemImage: "mappin").font(.caption).foregroundStyle(Theme.dim) }
                         }
                         .padding(.bottom, 12)
@@ -229,7 +238,7 @@ struct TodayView: View {
     }
 
     private func dinner(_ d: TodayInfo.TodayDinner) -> some View {
-        Button { router.show(.family, d.slug.map { .recipe($0) } ?? .meals) } label: {
+        Button { router.follow(d.slug.map { .recipe($0) } ?? .meals) } label: {
             ZStack(alignment: .bottomLeading) {
                 HubImage(path: d.imageUrl) { LinearGradient(colors: [.orange.opacity(0.7), .red.opacity(0.6)], startPoint: .topLeading, endPoint: .bottomTrailing) }
                     .frame(height: 150).frame(maxWidth: .infinity).clipped()
@@ -260,6 +269,7 @@ struct TodayView: View {
                         Text("\(k.points) pts").font(.caption).foregroundStyle(Theme.dim)
                     }
                     .frame(maxWidth: .infinity)
+                    .links(to: Destination.forPerson(named: k.name), k.name)
                 }
             }
             .card()
@@ -291,6 +301,7 @@ struct TodayView: View {
                     HStack {
                         Image(systemName: b.active == true ? "moon.zzz.fill" : "moon.stars").foregroundStyle(.indigo)
                         Text(b.name).font(.subheadline.weight(.semibold))
+                            .links(to: Destination.forPerson(named: b.name), b.name)
                         Spacer()
                         Text(b.enabled == false ? "Off" : b.active == true ? "Asleep until \(b.wakeLabel ?? "morning")" : b.label ?? "")
                             .font(.subheadline).foregroundStyle(Theme.dim)
@@ -302,7 +313,7 @@ struct TodayView: View {
     }
 
     private func tripCard(_ trip: TodayInfo.TodayTrip) -> some View {
-        Button { if let id = trip.id { router.show(.family, .trip(id)) } } label: {
+        Button { if let id = trip.id { router.follow(.trip(id)) } } label: {
             HStack(spacing: 12) {
                 Text("🧳").font(.system(size: 34))
                 VStack(alignment: .leading, spacing: 2) {

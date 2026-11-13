@@ -79,13 +79,13 @@ struct SmartCardView: View {
                     .frame(height: 130).frame(maxWidth: .infinity).clipped()
                     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                     .padding(.leading, 52)
-                    .onTapGesture { if let r = card.ref, let u = URL(string: r) { router.open(u) } }
+                    .onTapGesture { if let r = card.ref, let u = URL(string: r) { router.follow(u) } }
             }
             if let items = card.items, !items.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
                     ForEach(items, id: \.self) { it in
                         Button {
-                            if let u = it.url.flatMap(URL.init(string:)) { router.open(u) }
+                            if let u = it.url.flatMap(URL.init(string:)) { router.follow(u) }
                         } label: {
                             HStack(spacing: 8) {
                                 Circle().fill(color).frame(width: 6, height: 6)
@@ -109,6 +109,8 @@ struct SmartCardView: View {
             }
         }
         .card(padding: 14)
+        // The whole card opens what it's about (the oven, the door, the forecast…); its buttons still act.
+        .links(ref: card.ref, card.eyebrow.capitalized, container: true)
         .overlay {
             if lead { RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(color.opacity(0.6), lineWidth: 1.5) }
         }

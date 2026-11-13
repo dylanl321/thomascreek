@@ -312,3 +312,11 @@ Adults and admins (`remotes.setup`). Pairing runs through Home Assistant's own s
 - `POST /v1/remotes/pair/{flow_id} {pin?}` answers a step; `DELETE /v1/remotes/pair/{flow_id}` stops.
 - Step: `{flow_id, kind, name, state: form|done|failed, step?, needs_pin?, show_code?, message, error?, entry_id?, reason?}`. `message` is ready to show. `needs_pin`: Android TV shows 6 letters and numbers, Apple TV 4 digits (sometimes once per feature, so expect more than one PIN step). `show_code`: a code to type on the Apple TV, then Continue. `done` refreshes the home model and sends SSE `{type: "remotes"}`; the new TV then appears in `/v1/home` with its remote buttons.
 - Deep link `thomascreek://tvs`. Activity: `remotes.pair_start`, `remotes.add`.
+
+## Links between things (every reference opens its object)
+
+- Anything the app mentions opens when tapped: temperatures and weather lines open Weather (a trip's forecast with `thomascreek://weather/place/trip:<id>`), indoor temperatures open Climate, devices open their own page, names open the person. A tapped reference opens on top of the current screen (`Router.follow`), so Back returns to it; deep links from pushes still switch tabs (`Router.open`).
+- New deep links: `thomascreek://device/<entity id>` (device page; kids get My Room), `thomascreek://person/<person id>` (grown-ups), `thomascreek://weather/place/<home|here|trip:<id>>`.
+- Smart cards: every card carries `ref`, its subject. The hub fills it from the one device a card names (garage, lock, habit), else the card's first `open` button, else a per-rule screen (`smart.RULE_REFS`). The app opens `ref` when the card itself is tapped; its buttons still act.
+- Activity rows open their `target` (a device, camera or room the app knows); `person_id` opens the person.
+- Ask Thomas Creek writes Markdown links with these URLs for the things it names; the app routes them through `Router.follow` and closes the panel.

@@ -70,14 +70,14 @@ struct DeviceTile: View {
                       tint: Theme.warn, big: big) { router.go(.kitchen(d.id)) }
         default:
             StateTile(symbol: DeviceSymbols.symbol(d), title: d.name, detail: DeviceSymbols.value(d), on: d.isOn,
-                      tint: Theme.accent, big: big) { detail = true }
+                      tint: Theme.accent, big: big) { router.follow(.device(d.id)) }
         }
     }
 
     @ViewBuilder private var menu: some View {
         FavoriteMenuItem(kind: .device, id: device.id, name: device.name)
         if device.kind == .light || store.role == .admin {
-            Button("Details", systemImage: "slider.horizontal.3") { detail = true }
+            Button("Details", systemImage: "slider.horizontal.3") { router.follow(.device(device.id)) }
         }
         if device.kind == .valve {
             ForEach([5, 15, 30], id: \.self) { m in
@@ -177,13 +177,30 @@ struct DeviceDetailSheet: View {
     @Environment(HomeStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     let deviceID: String
+
+    var body: some View {
+        NavigationStack {
+            DeviceDetailForm(deviceID: deviceID)
+                .navigationTitle(store.home?.device(deviceID)?.name ?? "Device").navigationBarTitleDisplayMode(.inline)
+                .toolbar { Button("Done") { dismiss() } }
+        }
+        .presentationDetents([.medium, .large])
+    }
+}
+
+/// The controls and internals for one device, shared by the sheet and the device's own page.
+/// `extra` adds sections in between (where it is, related screens).
+struct DeviceDetailForm<Extra: View>: View {
+    @Environment(HomeStore.self) private var store
+    let deviceID: String
+    @ViewBuilder var extra: (DeviceItem) -> Extra
     @State private var level: Double = 0
     @State private var editing = false
 
     private let swatches = ["#FFB46B", "#FFD9A8", "#FFFFFF", "#9FD3FF", "#FF5E5E", "#5EE07A", "#7D6BFF", "#FF7FD0"]
 
     var body: some View {
-        NavigationStack {
+        Group {
             if let d = store.home?.device(deviceID) {
                 Form {
                     Section {
@@ -221,6 +238,7 @@ struct DeviceDetailSheet: View {
                     } footer: {
                         if let u = d.updated { Text("Updated \(u.formatted(.relative(presentation: .named)))") }
                     }
+                    extra(d)
                     if store.role == .admin {
                         Section("Internals") {
                             LabeledContent("Id", value: d.id).font(.footnote.monospaced())
@@ -231,16 +249,17 @@ struct DeviceDetailSheet: View {
                         }
                     }
                 }
-                .navigationTitle(d.name).navigationBarTitleDisplayMode(.inline)
-                .toolbar { Button("Done") { dismiss() } }
                 .onAppear { level = d.brightness ?? 100 }
                 .onChange(of: d.brightness) { _, v in if !editing, let v { level = v } }
             } else {
                 ContentUnavailableView("Not found", systemImage: "questionmark")
             }
         }
-        .presentationDetents([.medium, .large])
     }
+}
+
+extension DeviceDetailForm where Extra == EmptyView {
+    init(deviceID: String) { self.init(deviceID: deviceID) { _ in EmptyView() } }
 }
 
 /// Thermostat card with − / + that sends one change after the taps settle.

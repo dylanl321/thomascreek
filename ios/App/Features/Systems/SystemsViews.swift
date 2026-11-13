@@ -54,6 +54,7 @@ struct SystemsView: View {
 }
 
 struct ActivityView: View {
+    @Environment(Router.self) private var router
     @State private var items: [ActivityEntry] = []
     @State private var before: String?
     @State private var done = false
@@ -79,6 +80,17 @@ struct ActivityView: View {
                     Text([e.who, e.source, e.outcome == "ok" ? nil : e.outcome].compactMap { $0 }.joined(separator: " · ")).font(.caption)
                         .foregroundStyle(e.outcome == "denied" || e.outcome == "error" ? Theme.warn : Theme.dim)
                     Text(e.date.formatted(date: .abbreviated, time: .shortened)).font(.caption2).foregroundStyle(Theme.dim)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                // The row opens what was acted on; a long press also offers the person who did it.
+                .links(to: Destination.forTarget(e.target) ?? e.personId.map { .person($0) }, e.what, container: true)
+                .contextMenu {
+                    if let d = Destination.forTarget(e.target), router.allows(d) {
+                        Button("Open \(ActivityEntry.thing(e.target ?? ""))", systemImage: "arrow.up.forward") { router.follow(d) }
+                    }
+                    if let p = e.personId, let who = e.who, router.allows(.person(p)) {
+                        Button("Open \(who)", systemImage: "person.crop.circle") { router.follow(.person(p)) }
+                    }
                 }
                 .onAppear { if e == items.last, !done { Task { await load() } } }
             }
