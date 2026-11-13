@@ -19,7 +19,7 @@ import UserNotifications
 @Observable
 final class SendsSync {
     static let shared = SendsSync()
-    static let refreshTask = "me.dlewis.thomascreek.sends"
+    nonisolated static let refreshTask = "me.dlewis.thomascreek.sends"
 
     struct Item: Codable, Hashable, Identifiable {
         var itemId: String
