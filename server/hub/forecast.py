@@ -148,6 +148,10 @@ def shape_forecast(raw: dict[str, Any]) -> dict[str, Any]:
         diff = cur["pressure_msl"] - pressures[max(0, len(pressures) - 3)]
         now["pressure_trend"] = "rising" if diff > 0.7 else "falling" if diff < -0.7 else "steady"
 
+    if hours and now["temp"] is not None:
+        # The first hour is "Now" in the app: show the current reading, the same number as the hero, Home and Today.
+        hours[0] = {**hours[0], "temp": now["temp"], "code": code, "symbol": now["symbol"]}
+
     daily = raw.get("daily") or {}
     days = []
     for i, d in enumerate(daily.get("time") or []):
