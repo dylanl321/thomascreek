@@ -86,7 +86,8 @@ enum OfflineCache {
     /// Replies worth saving: reads of things a person looks at, not passes, streams or sign-in.
     static func cacheable(_ path: String) -> Bool {
         let skip = ["/v1/auth", "/v1/enroll", "/v1/media/downloads", "/v1/media/file", "/v1/lights/api/live",
-                    "/pass", "/stream", "/download", "/v1/vpn", "/v1/web"]
+                    "/pass", "/stream", "/download", "/v1/vpn", "/v1/web",
+                    "/v1/remotes"]  // what's on the network right now: an old copy would offer TVs already added
         return path.hasPrefix("/v1/") && !skip.contains { path.contains($0) }
     }
 
