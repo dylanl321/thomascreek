@@ -30,6 +30,8 @@ struct DevicePage: View {
                     row("Inside", "\(Int(t.rounded()))° · \(ClimateText.summary(d))", symbol: "thermometer.medium")
                         .links(to: .climate, "Climate")
                 }
+                row("History", "Temperature, set points and run times", symbol: "chart.xyaxis.line")
+                    .links(to: .climateHistory(d.id), "History")
                 outside
             case .valve:
                 outside

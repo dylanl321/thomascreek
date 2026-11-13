@@ -127,6 +127,7 @@ final class Router {
         switch d {
         case .weather, .weatherPlace, .weatherAlert, .weatherRadar, .weatherOutlook, .today: return true
         case .climate: return !kid && store.role != .guest
+        case .climateHistory: return me?.can(.climateAll) == true || me?.can(.climateOwnRoom) == true
         case .device(let id):
             guard let dev = store.home?.device(id) else { return false }
             return !kid && store.role != .guest && Self.deviceAllowed(dev, me)
