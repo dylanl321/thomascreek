@@ -47,6 +47,7 @@ import json
 import logging
 import os
 import re
+import secrets
 import shutil
 import struct
 import time
@@ -73,6 +74,9 @@ KV_KIDS = "tvapp.kids_categories"
 KV_CONFIG_VERSION = "tvapp.config_version"
 KV_LINEUP = "tvapp.lineup"
 KV_COMMANDS = "tvapp.commands"
+KV_INSTALL = "tvapp.install_links"
+INSTALL_TTL_S = 2 * 3600
+_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 PROFILES = ("adult", "kids")
 MAX_TVS = 40
 MAX_CHANNELS = 5000
@@ -599,8 +603,96 @@ class TvApp:
                               "url": v("iptv.m3u_url")})
         return {"playlists": playlists, "epg_url": v("iptv.epg_url") or None}
 
+    def _short_code(self) -> str:
+        return "".join(secrets.choice(_CODE_ALPHABET) for _ in range(6))
+
+    def install_links(self) -> dict[str, dict[str, Any]]:
+        raw = self.db.kv_get(KV_INSTALL) or {}
+        now = time.time()
+        live = {k: v for k, v in raw.items() if float(v.get("expires_at") or 0) > now}
+        if live != raw:
+            self.db.kv_set(KV_INSTALL, live)
+        return live
+
+    def create_install_link(self, *, name: str | None, room: str | None, profile: str) -> dict[str, Any]:
+        """A short-lived code that lets Downloader or a browser fetch the signed APK on the home network."""
+        if profile not in PROFILES:
+            raise TvAppError(400, "bad_profile", "Profile is adult or kids")
+        if room:
+            self._room(room)
+        latest = self.latest()
+        if not latest or not self.apk_path(int(latest["versionCode"])).exists():
+            raise TvAppError(409, "no_build", "The hub doesn't have a TV app build yet")
+        links = self.install_links()
+        code = self._short_code()
+        while code in links:
+            code = self._short_code()
+        rec = {
+            "code": code, "name": (name or "TV")[:80], "room": room, "profile": profile,
+            "created_at": time.time(), "expires_at": time.time() + INSTALL_TTL_S, "mode": "non-adb",
+        }
+        links[code] = rec
+        self.db.kv_set(KV_INSTALL, links)
+        boxes = self.boxes()
+        boxes[f"code:{code}"] = {
+            "added_at": rec["created_at"], "name": rec["name"], "profile": profile, "room": room,
+            "auto": False, "setup": True, "mode": "non-adb", "phase": "install",
+            "message": "On the TV, open Downloader or a browser and open the address from the phone.",
+            "you_do": "Install Thomas Creek TV from the address on the phone",
+            "install_code": code, "home": {"wanted": False},
+            "capabilities": {"overlay": False, "home": False, "adb": False},
+        }
+        self._save_boxes(boxes)
+        return rec
+
+    def install_link(self, code: str) -> dict[str, Any] | None:
+        return self.install_links().get((code or "").strip().upper())
+
+    def apk_file(self) -> Path:
+        latest = self.latest()
+        if not latest:
+            raise TvAppError(409, "no_build", "The hub doesn't have a TV app build yet")
+        path = self.apk_path(int(latest["versionCode"]))
+        if not path.is_file():
+            raise TvAppError(409, "no_build", "The hub doesn't have a TV app build yet")
+        return path
+
+    def update_manifest(self) -> dict[str, Any]:
+        """What the installed app needs to download and check the next APK itself."""
+        latest = self.latest() or {}
+        if not latest or not self.apk_path(int(latest.get("versionCode") or 0)).is_file():
+            raise TvAppError(409, "no_build", "The hub doesn't have a TV app build yet")
+        return {
+            "version_code": int(latest["versionCode"]),
+            "version_name": latest.get("versionName"),
+            "sha256": latest.get("sha256"),
+            "signer_sha256": self.db.kv_get(KV_SIGNER),
+            "apk_path": "/v1/tv/apk",
+            "package": self.cfg.package,
+            "notes": latest.get("notes") or None,
+            "install": "Download the APK with this TV's bearer, check sha256 and signer_sha256, then hand the file to PackageInstaller. The person confirms on the TV.",
+        }
+
+    def approve_code(self, code: str, *, room: str | None = None, profile: str | None = None) -> dict[str, Any]:
+        """Approve a TV that is showing this code. No credentials are typed on the TV."""
+        want = (code or "").strip().upper()
+        if not re.fullmatch(r"[A-Z2-9]{6}", want):
+            raise TvAppError(400, "bad_code", "That code isn't one the TV would show")
+        found = None
+        for install_id, tv in self.tvs().items():
+            if tv.get("approve_code") == want and tv.get("status") == "pending":
+                found = install_id
+                break
+        if found is None:
+            raise TvAppError(404, "not_found", "No TV is waiting with that code")
+        if profile is not None and profile not in PROFILES:
+            raise TvAppError(400, "bad_profile", "Profile is adult or kids")
+        if room:
+            self._room(room)
+        return self.set_tv(found, status="approved", profile=profile, room=room if room else _UNSET)
+
     async def enroll(self, ip: str, install_id: str, name: str, model: str | None, app_version: str | None,
-                     public_key: str) -> dict[str, Any]:
+                     public_key: str, code: str | None = None) -> dict[str, Any]:
         from .crypto import CryptoError, normalize_public_key
 
         if not re.fullmatch(r"[A-Za-z0-9_-]{16,64}", install_id or ""):
@@ -619,22 +711,44 @@ class TvApp:
             tv = {"public_key": pk, "status": "pending", "profile": "adult", "created_at": time.time()}
         tv.update(name=(name or "TV")[:80], model=(model or "")[:80] or None, app_version=(app_version or "")[:40] or None,
                   ip=ip, last_seen_at=time.time())
+        link = self.install_link(code) if code else None
         box = self.boxes().get(ip)
         newly_pending = False
-        if tv["status"] == "pending" and box is not None:
+        if tv["status"] == "pending" and link is not None:
+            # The phone already created this install link, so the TV is approved without anyone typing on it.
+            tv.update(status="approved", profile=link.get("profile") or "adult", approved_at=time.time(),
+                      approved_by="code", mode="non-adb", room=link.get("room") or tv.get("room"))
+            if link.get("name"):
+                tv["name"] = link["name"]
+            boxes = self.boxes()
+            manual = boxes.get(f"code:{link['code']}")
+            if manual is not None:
+                manual.update(phase="ready", message="This TV is registered and has its source.", you_do=None, ip=ip)
+                boxes[f"code:{link['code']}"] = manual
+                self._save_boxes(boxes)
+        elif tv["status"] == "pending" and box is not None:
             # An admin added this box for the TV app already: that is the approval.
-            tv.update(status="approved", profile=box.get("profile") or "adult", approved_at=time.time(), approved_by="box")
+            tv.update(status="approved", profile=box.get("profile") or "adult", approved_at=time.time(), approved_by="box",
+                      mode=box.get("mode") or "adb")
             if box.get("room") and not tv.get("room"):
                 tv["room"] = box["room"]
         elif tv["status"] == "pending" and install_id not in tvs:
             newly_pending = True
+        if tv["status"] == "pending" and not tv.get("approve_code"):
+            tv["approve_code"] = self._short_code()
+            tv["mode"] = tv.get("mode") or "non-adb"
         tvs[install_id] = tv
         self._save_tvs(tvs)
         self.db.log("tvapp.enroll", "ok", target=install_id, params={"name": tv["name"], "ip": ip, "status": tv["status"]},
                     source="tv")
         if newly_pending and self.notify:
-            await self.notify("A TV wants the TV app source", f"{tv['name']} ({ip}) is waiting. Approve it in Systems, TV app.")
-        return {"status": tv["status"], "profile": tv["profile"]}
+            await self.notify("A TV wants the TV app source",
+                              f"{tv['name']} is showing code {tv.get('approve_code')}. Approve it in the app.")
+        out = {"status": tv["status"], "profile": tv["profile"], "mode": tv.get("mode") or "adb"}
+        if tv["status"] == "pending" and tv.get("approve_code"):
+            out["code"] = tv["approve_code"]
+            out["approve_url"] = f"thomascreek://tv/{tv['approve_code']}"
+        return out
 
     def set_tv(self, install_id: str, *, status: str | None = None, profile: str | None = None,
                name: str | None = None, room: Any = _UNSET, media_entity: Any = _UNSET) -> dict[str, Any]:

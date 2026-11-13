@@ -208,3 +208,89 @@ def test_plex_row_for_a_child_and_a_grown_up(hub, people):
     kid = people["phones"]["Theo"].client.get("/v1/tv/plex", headers=people["phones"]["Theo"].h).json()
     assert kid["recent"] == []
     assert kid["continue"][0]["title"].startswith("Bluey")
+
+
+def test_overlay_and_home_failures_leave_on_tv_instructions(hub, people):
+    adb = ScriptAdb(_replies(**{
+        "shell appops set me.dlewis.thomascreek.tv": "ERR denied",
+        "shell cmd package set-home-activity": "ERR no",
+    }))
+    _ready(hub, adb)
+    dylan = people["phones"]["Dylan"]
+    body = dylan.client.post("/v1/tvapp/setup", headers=dylan.h, json={"ip": "10.0.0.86", "home": True}).json()
+    assert body["phase"] == "ready" and body["mode"] == "adb"
+    assert "Default apps" in body["you_do"]
+    steps = {step["id"]: step for step in body["steps"]}
+    assert steps["permissions"]["state"] == "skipped" and "Display over other apps" in steps["permissions"]["note"]
+    assert steps["home"]["state"] == "skipped"
+
+
+def test_non_adb_install_enroll_and_update(hub, people, home_client, away_client):
+    from hub.tvapp import token_message
+    from tests.test_tv_api import Clock, Key
+
+    _ready(hub, ScriptAdb({}))
+    hub.tv_app.db.kv_set("tvapp.latest", {"versionCode": 602, "versionName": "1.4.1-tc.2", "sha256": "abc", "notes": "nightly"})
+    hub.tv_app.db.kv_set("tvapp.signer", "deadbeef")
+    dylan = people["phones"]["Dylan"]
+    body = dylan.client.post("/v1/tvapp/setup", headers=dylan.h, json={
+        "mode": "non-adb", "name": "Office", "room": "living_room", "profile": "adult",
+    }).json()
+    assert body["mode"] == "non-adb" and body["phase"] == "install"
+    code = body["install"]["code"]
+    assert body["install"]["url"] == f"https://hub.test/v1/tv/apk/{code}"
+    steps = {step["id"]: step for step in body["steps"]}
+    assert steps["permissions"]["state"] == "skipped" and steps["home"]["note"]
+    apk = home_client.get(f"/v1/tv/apk/{code}")
+    assert apk.status_code == 200 and apk.content == b"apk"
+    assert "android.package-archive" in apk.headers["content-type"]
+    assert away_client.get(f"/v1/tv/apk/{code}").status_code == 403
+    assert home_client.get("/v1/tv/apk/ZZZZZZ").status_code == 404
+    again = dylan.client.get(f"/v1/tvapp/setup/code/{code}", headers=dylan.h).json()
+    assert again["install"]["code"] == code and again["mode"] == "non-adb"
+
+    key = Key()
+    install_id = "tv_office_0123456789"
+    enrolled = home_client.post("/v1/tv/enroll", json={
+        "install_id": install_id, "name": "Office", "public_key": key.pub, "code": code,
+    })
+    assert enrolled.status_code == 200, enrolled.text
+    assert enrolled.json()["status"] == "approved" and enrolled.json()["mode"] == "non-adb"
+    listed = dylan.client.get("/v1/tvapp", headers=dylan.h).json()["tvs"]
+    assert listed[0]["mode"] == "non-adb" and listed[0]["room"] == "living_room"
+    clock = Clock()
+    ts = clock.next()
+    token = home_client.post("/v1/tv/token", json={
+        "install_id": install_id, "ts": ts, "signature": key.sign(token_message(install_id, ts, None)),
+    }).json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+    manifest = home_client.get("/v1/tv/update", headers=headers).json()
+    assert manifest["version_code"] == 602 and manifest["sha256"] == "abc"
+    assert manifest["signer_sha256"] == "deadbeef" and manifest["apk_path"] == "/v1/tv/apk"
+    assert home_client.get("/v1/tv/apk", headers=headers).content == b"apk"
+    assert dylan.client.get("/v1/tv/apk", headers=dylan.h).status_code == 403
+    assert dylan.client.get("/v1/tv/update", headers=dylan.h).status_code == 403
+    links = hub.tv_app.db.kv_get("tvapp.install_links")
+    links[code]["expires_at"] = 1
+    hub.tv_app.db.kv_set("tvapp.install_links", links)
+    assert home_client.get(f"/v1/tv/apk/{code}").status_code == 404
+
+
+def test_phone_approves_the_code_the_tv_shows(hub, people, home_client):
+    from tests.test_tv_api import Key
+
+    key = Key()
+    install_id = "tv_den_0123456789ab"
+    pending = home_client.post("/v1/tv/enroll", json={
+        "install_id": install_id, "name": "Den", "public_key": key.pub,
+    }).json()
+    assert pending["status"] == "pending" and pending["mode"] == "non-adb"
+    dylan = people["phones"]["Dylan"]
+    approved = dylan.client.post("/v1/tvapp/approve", headers=dylan.h, json={
+        "code": pending["code"], "room": "living_room",
+    })
+    assert approved.status_code == 200, approved.text
+    assert approved.json()["status"] == "approved" and approved.json()["room"] == "living_room"
+    assert dylan.client.post("/v1/tvapp/approve", headers=dylan.h, json={"code": pending["code"]}).status_code == 404
+    assert people["phones"]["Avery"].client.post("/v1/tvapp/approve", headers=people["phones"]["Avery"].h,
+                                                json={"code": "AAAAAA"}).status_code == 403

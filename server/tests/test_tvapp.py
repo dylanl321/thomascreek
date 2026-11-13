@@ -260,7 +260,9 @@ def test_tv_waits_for_approval_then_gets_its_source(hub, home_client, people):
     key = TvKey()
     r = home_client.post("/v1/tv/enroll", json={"install_id": TV_ID, "name": "Office TV", "model": "onn 4K",
                                                 "public_key": key.pub})
-    assert r.status_code == 200 and r.json() == {"status": "pending", "profile": "adult"}
+    body = r.json()
+    assert r.status_code == 200 and body["status"] == "pending" and body["profile"] == "adult"
+    assert len(body["code"]) == 6 and body["approve_url"].endswith("/" + body["code"])
     assert _config(home_client, key).json() == {"status": "pending"}
 
     dylan = people["phones"]["Dylan"]
@@ -280,7 +282,7 @@ def test_tv_on_an_added_box_is_approved_with_the_box_profile(hub, home_client):
     hub.vault.set("iptv.m3u_url", "http://iptv.example/list.m3u")
     key = TvKey()
     r = home_client.post("/v1/tv/enroll", json={"install_id": TV_ID, "name": "Theo's TV", "public_key": key.pub})
-    assert r.json() == {"status": "approved", "profile": "kids"}
+    assert r.json() == {"status": "approved", "profile": "kids", "mode": "adb"}
     cfg = _config(home_client, key).json()
     assert cfg["profile"] == "kids" and cfg["kids_categories"] == ["Kids", "Cartoons"]
     assert cfg["playlists"][0]["type"] == "m3u"

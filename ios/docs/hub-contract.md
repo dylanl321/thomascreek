@@ -393,6 +393,12 @@ The search sheet shows these cards above the other groups (`TitleResultCard`). T
 
 ## TV app setup and the Plex row (2026-11-13)
 
-On TVs and boxes, under Thomas Creek TV: `GET /v1/tvapp/discover`, `POST /v1/tvapp/setup`, `GET /v1/tvapp/setup/{ip}`. Show `you_do` as the instruction, then `steps`. `needs_allow` means tap Allow on the TV and run setup again. `warning` is the Fire TV note. `POST /v1/tvapp/setup/{ip}/rollback-home` undoes the home screen.
+On TVs and boxes, under Thomas Creek TV: `GET /v1/tvapp/discover`, `POST /v1/tvapp/setup`, `GET /v1/tvapp/setup/{ip}`. Show `you_do` as the instruction, then `steps`. A step `note` is the on-TV instruction when debugging could not grant the overlay or set Home. `needs_allow` means tap Allow on the TV and run setup again. `warning` is the Fire TV note. `POST /v1/tvapp/setup/{ip}/rollback-home` undoes the home screen.
+
+`mode` on the setup status and on each TV from `GET /v1/tvapp` is `adb` or `non-adb`. Show it as With debugging or Without debugging.
+
+Without debugging, `POST /v1/tvapp/setup` `{mode: "non-adb", name?, room?, profile?}` returns `install.url` and `install.code`. Show the URL, a QR of that URL, and the code. `GET /v1/tvapp/setup/code/{code}` refreshes it. A pending TV includes `approve_code`; `POST /v1/tvapp/approve` `{code}` lets it in.
+
+The TV app, with its bearer: `GET /v1/tv/update` then `GET /v1/tv/apk`. Check `sha256` and `signer_sha256` before `PackageInstaller`. The person confirms the install on the TV.
 
 `GET /v1/tv/plex` → `{continue, on_deck, recent}`. Each item has `poster_url` (fetch with the bearer) and `deep_link` plus `package` (`com.plexapp.android`) so the TV app can open Plex on that title. Kids' tokens only get allowed ratings.

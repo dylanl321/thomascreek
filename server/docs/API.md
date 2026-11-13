@@ -404,7 +404,7 @@ A kids' profile is always role `child`. `person_id` on the token can only narrow
 
 ### Device key
 
-`POST /v1/tv/enroll` `{install_id, name, model?, app_version?, public_key}` → `{status, profile}`. Unchanged. `public_key` is the same P-256 encoding as a phone (`crypto.normalize_public_key`).
+`POST /v1/tv/enroll` `{install_id, name, model?, app_version?, public_key, code?}` → `{status, profile, mode}` plus `code` and `approve_url` while pending. `public_key` is the same P-256 encoding as a phone (`crypto.normalize_public_key`). A pending config body stays exactly `{"status":"pending"}`.
 
 `POST /v1/tv/config` `{install_id, ts, signature}`. Signature is ES256 over the UTF-8 string `tvconfig:<install_id>:<ts>` (`crypto.verify_signature`). Approved body:
 
@@ -543,7 +543,17 @@ The person turns on Developer options and network debugging once. Wireless debug
 
 `GET /v1/tvapp/discover` (`systems`) → `{devices:[{ip, name, connect_port?, pairing_port?}], hint?}`. This is `adb mdns services`. An empty list means type the address.
 
-`POST /v1/tvapp/setup` `{ip, name?, room?, profile?, pairing_port?, pairing_code?, home?}`. Safe to run again: a box that already has this build is not reinstalled. `home: true` runs `cmd package set-home-activity` and leaves the stock launcher enabled. Fire TV is installed but not made Home, and `warning` says so. `needs_allow` means the TV is showing the debugging prompt.
+`POST /v1/tvapp/setup` `{ip?, name?, room?, profile?, pairing_port?, pairing_code?, home?, mode?}`. `mode` is `adb` (the default) or `non-adb`. Debugging is optional. Safe to run again: a box that already has this build is not reinstalled. `home: true` runs `cmd package set-home-activity` and leaves the stock launcher enabled. Fire TV is installed but not made Home, and `warning` says so. `needs_allow` means the TV is showing the debugging prompt. If the overlay grant or the home-screen change does not stick, setup still finishes and `steps[].note` is the on-TV instruction (`Settings → Apps`).
+
+`mode: "non-adb"` does not need an address. The status includes `install: {code, path, url}`. `url` is what Downloader or a browser on the home network opens. The phone shows that URL as a QR code. The link lasts two hours.
+
+`GET /v1/tv/apk/{code}` (home network, no bearer) returns the signed APK for that link. `GET /v1/tvapp/setup/code/{code}` is the status for that link.
+
+`POST /v1/tv/enroll` may include `code` (the install link). A valid code approves the TV immediately, copies the room and profile from the link, and records `mode: "non-adb"`. Without a code, a new TV stays pending and the response adds `code` and `approve_url` (`thomascreek://tv/{code}`). The TV shows that code. `POST /v1/tvapp/approve` `{code, room?, profile?}` (`systems`) approves it. Config is still the signed `POST /v1/tv/config`.
+
+`GET /v1/tv/update` (TV bearer, home network) is the update manifest: `version_code`, `version_name`, `sha256`, `signer_sha256`, `apk_path` (`/v1/tv/apk`), `package`, `notes`. `GET /v1/tv/apk` with the same bearer returns the file. The app checks both hashes, then installs with `PackageInstaller` (`REQUEST_INSTALL_PACKAGES`). The person confirms on the TV.
+
+Every status and every TV record has `mode`: `adb` or `non-adb`. The phone shows which one.
 
 `GET /v1/tvapp/setup/{ip}` is the same status, for the phone to show progress. `you_do` is the one line for the person at the TV. `steps` is `done`, `current`, `todo`, `failed` or `skipped`.
 

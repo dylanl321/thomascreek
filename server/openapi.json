@@ -8160,7 +8160,7 @@
      "tvapp"
     ],
     "summary": "Setup",
-    "description": "Install Thomas Creek TV on a box that already has network debugging on. Safe to run again.",
+    "description": "Install Thomas Creek TV. mode adb uses debugging. mode non-adb returns a short download link instead.",
     "operationId": "setup_v1_tvapp_setup_post",
     "parameters": [
      {
@@ -8193,6 +8193,117 @@
          "type": "object",
          "additionalProperties": true,
          "title": "Response Setup V1 Tvapp Setup Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/tvapp/setup/code/{code}": {
+   "get": {
+    "tags": [
+     "tvapp"
+    ],
+    "summary": "Setup By Code",
+    "description": "Status for a TV that is installing without debugging.",
+    "operationId": "setup_by_code_v1_tvapp_setup_code__code__get",
+    "parameters": [
+     {
+      "name": "code",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Code"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Setup By Code V1 Tvapp Setup Code  Code  Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/tvapp/approve": {
+   "post": {
+    "tags": [
+     "tvapp"
+    ],
+    "summary": "Approve",
+    "description": "Approve the TV that is showing this code. Nothing is typed on the TV.",
+    "operationId": "approve_v1_tvapp_approve_post",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ApproveIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Approve V1 Tvapp Approve Post"
         }
        }
       }
@@ -8394,6 +8505,135 @@
          "additionalProperties": true,
          "type": "object",
          "title": "Response Tv Enroll V1 Tv Enroll Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/tv/apk/{code}": {
+   "get": {
+    "tags": [
+     "tvapp"
+    ],
+    "summary": "Apk By Code",
+    "description": "The signed APK, for Downloader or a browser on the home network. The code expires.",
+    "operationId": "apk_by_code_v1_tv_apk__code__get",
+    "parameters": [
+     {
+      "name": "code",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Code"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/tv/apk": {
+   "get": {
+    "tags": [
+     "tvapp"
+    ],
+    "summary": "Apk For Tv",
+    "description": "The signed APK for a TV that already has a token, so it can hand the file to PackageInstaller.",
+    "operationId": "apk_for_tv_v1_tv_apk_get",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/tv/update": {
+   "get": {
+    "tags": [
+     "tvapp"
+    ],
+    "summary": "Tv Update",
+    "description": "Version, sha256 and signer pin for the APK at GET /v1/tv/apk. The TV checks both before installing.",
+    "operationId": "tv_update_v1_tv_update_get",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Tv Update V1 Tv Update Get"
         }
        }
       }
@@ -14265,6 +14505,43 @@
     "type": "object",
     "title": "AddBody"
    },
+   "ApproveIn": {
+    "properties": {
+     "code": {
+      "type": "string",
+      "maxLength": 8,
+      "title": "Code"
+     },
+     "room": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 40
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Room"
+     },
+     "profile": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Profile"
+     }
+    },
+    "type": "object",
+    "required": [
+     "code"
+    ],
+    "title": "ApproveIn"
+   },
    "AskParent": {
     "properties": {
      "text": {
@@ -16531,8 +16808,15 @@
    "SetupIn": {
     "properties": {
      "ip": {
-      "type": "string",
-      "maxLength": 64,
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 64
+       },
+       {
+        "type": "null"
+       }
+      ],
       "title": "Ip"
      },
      "name": {
@@ -16591,12 +16875,14 @@
       "type": "boolean",
       "title": "Home",
       "default": false
+     },
+     "mode": {
+      "type": "string",
+      "title": "Mode",
+      "default": "adb"
      }
     },
     "type": "object",
-    "required": [
-     "ip"
-    ],
     "title": "SetupIn"
    },
    "ShopBody": {

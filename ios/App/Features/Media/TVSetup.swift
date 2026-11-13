@@ -1,4 +1,6 @@
+import CoreImage.CIFilterBuiltins
 import SwiftUI
+import UIKit
 
 // MARK: - Models (GET /v1/remotes, POST /v1/remotes/pair)
 
@@ -190,12 +192,24 @@ struct TvAdbDevice: Decodable, Identifiable {
 struct TvSetupStatus: Decodable {
     var ip: String?
     var phase: String
+    var mode: String?
     var message: String?
     var youDo: String?
     var warning: String?
     var steps: [TvSetupStep]
+    var install: TvSetupInstall?
 }
-struct TvSetupStep: Decodable, Identifiable { var id: String; var title: String; var state: String }
+struct TvSetupInstall: Decodable { var code: String; var path: String; var url: String? }
+struct TvSetupStep: Decodable, Identifiable { var id: String; var title: String; var state: String; var note: String? }
+struct HubTvPage: Decodable { var tvs: [HubTv] }
+struct HubTv: Decodable, Identifiable {
+    var id: String
+    var name: String?
+    var status: String
+    var mode: String?
+    var approveCode: String?
+    var room: String?
+}
 
 /// Installs Thomas Creek TV once debugging is on. The hub says the one thing left to do on the TV.
 private struct TvAppSetupCard: View {
@@ -203,7 +217,9 @@ private struct TvAppSetupCard: View {
     @State private var port = ""
     @State private var code = ""
     @State private var home = false
+    @State private var debugging = true
     @State private var found: [TvAdbDevice] = []
+    @State private var hubTvs: [HubTv] = []
     @State private var status: TvSetupStatus?
     @State private var busy = false
     @State private var problem: String?
@@ -211,38 +227,76 @@ private struct TvAppSetupCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             SectionHeader("Thomas Creek TV")
-            Text("On the TV, turn on Developer options and network debugging once. Wireless debugging on a Google TV also shows a pairing code.")
-                .font(.caption).foregroundStyle(Theme.dim)
-            if !found.isEmpty {
-                ForEach(found) { device in
-                    Button(device.name ?? device.ip) {
-                        ip = device.ip
-                        if let port = device.pairingPort { self.port = String(port) }
+            Picker("How to install", selection: $debugging) {
+                Text("With debugging").tag(true)
+                Text("Without debugging").tag(false)
+            }
+            .pickerStyle(.segmented)
+            if debugging {
+                Text("On the TV, turn on Developer options and network debugging once. Wireless debugging on a Google TV also shows a pairing code.")
+                    .font(.caption).foregroundStyle(Theme.dim)
+                if !found.isEmpty {
+                    ForEach(found) { device in
+                        Button(device.name ?? device.ip) {
+                            ip = device.ip
+                            if let port = device.pairingPort { self.port = String(port) }
+                        }
+                        .buttonStyle(.bordered).controlSize(.small)
                     }
-                    .buttonStyle(.bordered).controlSize(.small)
+                }
+                TextField("TV address", text: $ip).keyboardType(.decimalPad).textFieldStyle(.roundedBorder)
+                HStack {
+                    TextField("Pairing port", text: $port).keyboardType(.numberPad).textFieldStyle(.roundedBorder)
+                    TextField("Code", text: $code).textInputAutocapitalization(.characters).textFieldStyle(.roundedBorder)
+                }
+                Toggle("Make it the home screen", isOn: $home).font(.subheadline)
+            } else {
+                Text("On the TV, open Downloader or a browser and use the address below. The TV then shows a code. Approve it here. Nothing is typed on the TV.")
+                    .font(.caption).foregroundStyle(Theme.dim)
+            }
+            Button(busy ? "Working…" : (debugging ? "Set up" : "Get the install link")) { Task { await start() } }
+                .buttonStyle(.borderedProminent).disabled(busy || (debugging && ip.count < 7))
+            if !hubTvs.isEmpty {
+                ForEach(hubTvs) { tv in
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(tv.name ?? "TV").font(.subheadline.weight(.semibold))
+                            Text(modeLabel(tv.mode)).font(.caption).foregroundStyle(Theme.dim)
+                        }
+                        Spacer()
+                        if tv.status == "pending", let pin = tv.approveCode {
+                            Button("Approve \(pin)") { Task { await allow(pin) } }
+                                .buttonStyle(.bordered).controlSize(.small)
+                        }
+                    }
                 }
             }
-            TextField("TV address", text: $ip).keyboardType(.decimalPad).textFieldStyle(.roundedBorder)
-            HStack {
-                TextField("Pairing port", text: $port).keyboardType(.numberPad).textFieldStyle(.roundedBorder)
-                TextField("Code", text: $code).textInputAutocapitalization(.characters).textFieldStyle(.roundedBorder)
-            }
-            Toggle("Make it the home screen", isOn: $home).font(.subheadline)
-            Button(busy ? "Working…" : "Set up") { Task { await start() } }
-                .buttonStyle(.borderedProminent).disabled(busy || ip.count < 7)
             if let problem {
                 Text(problem).font(.caption).foregroundStyle(Theme.warn)
             }
             if let status {
+                Text(modeLabel(status.mode)).font(.caption.weight(.semibold)).foregroundStyle(Theme.dim)
+                if let install = status.install {
+                    if let url = install.url {
+                        Text(url).font(.caption.monospaced()).textSelection(.enabled)
+                        QrCode(text: url).frame(width: 180, height: 180)
+                    }
+                    Text("Code \(install.code)").font(.headline.monospaced())
+                }
                 if let you = status.youDo, !you.isEmpty {
                     Label(you, systemImage: "hand.tap.fill").font(.subheadline.weight(.semibold)).foregroundStyle(Theme.accent)
                 }
                 if let message = status.message { Text(message).font(.caption).foregroundStyle(Theme.dim) }
                 if let warning = status.warning { Text(warning).font(.caption).foregroundStyle(Theme.warn) }
                 ForEach(status.steps) { step in
-                    HStack {
-                        Image(systemName: symbol(step.state)).foregroundStyle(color(step.state))
-                        Text(step.title).font(.caption)
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack {
+                            Image(systemName: symbol(step.state)).foregroundStyle(color(step.state))
+                            Text(step.title).font(.caption)
+                        }
+                        if let note = step.note {
+                            Text(note).font(.caption2).foregroundStyle(Theme.dim)
+                        }
                     }
                 }
             }
@@ -269,21 +323,60 @@ private struct TvAppSetupCard: View {
         }
     }
 
+    private func modeLabel(_ mode: String?) -> String {
+        mode == "non-adb" ? "Without debugging" : "With debugging"
+    }
+
     private func look() async {
         if let page: TvDiscover = try? await HubClient.shared.get("/v1/tvapp/discover") { found = page.devices }
+        if let page: HubTvPage = try? await HubClient.shared.get("/v1/tvapp") { hubTvs = page.tvs }
+    }
+
+    private func allow(_ code: String) async {
+        do {
+            _ = try await HubClient.shared.post("/v1/tvapp/approve", ["code": code], as: HubTv.self)
+            problem = nil
+            await look()
+        } catch {
+            problem = error.localizedDescription
+        }
     }
 
     private func start() async {
         busy = true
         defer { busy = false }
-        var body: [String: Any] = ["ip": ip.trimmingCharacters(in: .whitespaces), "home": home]
-        if let n = Int(port), !code.isEmpty { body["pairing_port"] = n; body["pairing_code"] = code }
+        var body: [String: Any] = ["mode": debugging ? "adb" : "non-adb", "home": home]
+        if debugging {
+            body["ip"] = ip.trimmingCharacters(in: .whitespaces)
+            if let n = Int(port), !code.isEmpty { body["pairing_port"] = n; body["pairing_code"] = code }
+        }
         do {
             status = try await HubClient.shared.post("/v1/tvapp/setup", body, as: TvSetupStatus.self)
             problem = nil
+            await look()
         } catch {
             problem = error.localizedDescription
         }
+    }
+}
+
+private struct QrCode: View {
+    var text: String
+
+    var body: some View {
+        if let image = Self.image(text) {
+            Image(uiImage: image).interpolation(.none).resizable()
+        }
+    }
+
+    private static func image(_ text: String) -> UIImage? {
+        let filter = CIFilter.qrCodeGenerator()
+        filter.message = Data(text.utf8)
+        filter.correctionLevel = "M"
+        guard let output = filter.outputImage else { return nil }
+        let scaled = output.transformed(by: CGAffineTransform(scaleX: 8, y: 8))
+        guard let cg = CIContext().createCGImage(scaled, from: scaled.extent) else { return nil }
+        return UIImage(cgImage: cg)
     }
 }
 

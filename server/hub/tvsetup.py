@@ -65,7 +65,38 @@ def parse_mdns(text: str) -> list[dict[str, Any]]:
     return [found[ip] for ip in sorted(found)]
 
 
-def _steps(phase: str, *, home: bool, fire: bool) -> list[dict[str, str]]:
+_ON_TV = {
+    "permissions": "On the TV: Settings, Apps, Thomas Creek TV, Display over other apps.",
+    "home": "On the TV: Settings, Apps, Default apps, Home. If Home isn't listed, leave the stock launcher.",
+}
+
+
+def _steps(phase: str, *, home: bool, fire: bool, mode: str = "adb",
+           notes: dict[str, str] | None = None) -> list[dict[str, str]]:
+    if mode == "non-adb":
+        order = ["install", "enroll", "permissions", "home"]
+        labels = {
+            "install": "Install from the phone's address",
+            "enroll": "Approve the code on the phone",
+            "permissions": "Allow the overlay",
+            "home": "Home screen",
+        }
+        index = len(order) if phase == "ready" else order.index(phase if phase in order else "install")
+        out = []
+        for i, step in enumerate(order):
+            if step in _ON_TV:
+                state = "skipped"
+            elif i < index:
+                state = "done"
+            elif i == index:
+                state = "current"
+            else:
+                state = "todo"
+            row = {"id": step, "title": labels[step], "state": state}
+            if step in _ON_TV:
+                row["note"] = _ON_TV[step]
+            out.append(row)
+        return out
     order = ["debug", "allow", "identify", "install", "permissions", "home", "enroll"]
     labels = {
         "debug": "Network debugging",
@@ -93,7 +124,11 @@ def _steps(phase: str, *, home: bool, fire: bool) -> list[dict[str, str]]:
             state = "current"
         else:
             state = "todo"
-        out.append({"id": step, "title": labels[step], "state": state})
+        row = {"id": step, "title": labels[step], "state": state}
+        if notes and step in notes and state != "failed":
+            row["state"] = "skipped"
+            row["note"] = notes[step]
+        out.append(row)
     return out
 
 
@@ -101,6 +136,12 @@ def status_of(box: dict[str, Any]) -> dict[str, Any]:
     phase = box.get("phase") or ("ready" if box.get("state") == "ok" else box.get("state") or "offline")
     device = box.get("device") or {}
     home = box.get("home") or {}
+    caps = box.get("capabilities") or {}
+    notes: dict[str, str] = {}
+    if (box.get("mode") or "adb") == "adb" and caps and caps.get("overlay") is False:
+        notes["permissions"] = _ON_TV["permissions"]
+    if home.get("wanted") and home.get("set") is False:
+        notes["home"] = _ON_TV["home"]
     return {
         "ip": box.get("ip"),
         "name": box.get("name"),
@@ -114,8 +155,11 @@ def status_of(box: dict[str, Any]) -> dict[str, Any]:
         "installed": box.get("installed"),
         "home": home or None,
         "capabilities": box.get("capabilities") or {},
-        "steps": _steps(phase, home=bool(home.get("wanted")), fire=device.get("kind") == "fire_tv"),
+        "mode": box.get("mode") or "adb",
+        "steps": _steps(phase, home=bool(home.get("wanted")), fire=device.get("kind") == "fire_tv",
+                        mode=box.get("mode") or "adb", notes=notes),
         "overnight_only": bool(box.get("overnight_only")),
+        "install": {"code": box["install_code"], "path": f"/v1/tv/apk/{box['install_code']}"} if box.get("install_code") else None,
     }
 
 
@@ -131,8 +175,18 @@ class Setup:
         hint = None if devices else "Nothing answered. On the TV, turn on network debugging, or type its address."
         return {"devices": devices, "hint": hint}
 
+    def manual(self, *, name: str | None, room: str | None, profile: str) -> dict[str, Any]:
+        """No debugging. The phone shows an address; the TV installs from it and then shows a code."""
+        rec = self.tv.create_install_link(name=name, room=room, profile=profile)
+        box = self.tv.boxes()[f"code:{rec['code']}"]
+        return status_of(dict(box, ip=f"code:{rec['code']}"))
+
     async def run(self, ip: str, *, name: str | None, room: str | None, profile: str, pairing_port: int | None,
-                  pairing_code: str | None, home: bool) -> dict[str, Any]:
+                  pairing_code: str | None, home: bool, mode: str = "adb") -> dict[str, Any]:
+        if mode == "non-adb":
+            return self.manual(name=name, room=room, profile=profile)
+        if mode != "adb":
+            raise TvAppError(400, "bad_mode", "Mode is adb or non-adb")
         ip = clean_ip(ip)
         if profile not in ("adult", "kids"):
             raise TvAppError(400, "bad_profile", "Profile is adult or kids")
@@ -146,7 +200,8 @@ class Setup:
             self.tv._room(room)
         boxes = self.tv.boxes()
         box = boxes.get(ip, {"added_at": time.time()})
-        box.update(name=(name or box.get("name") or ip)[:80], profile=profile, auto=True, overnight_only=True, setup=True)
+        box.update(name=(name or box.get("name") or ip)[:80], profile=profile, auto=True, overnight_only=True,
+                   setup=True, mode="adb")
         if room:
             box["room"] = room
         box["home"] = {**(box.get("home") or {}), "wanted": bool(home)}
@@ -209,6 +264,7 @@ class Setup:
         }
         self.tv._update_box(ip, capabilities=capabilities)
 
+        home_state = {"wanted": bool(home)}
         if home and device.get("home_ok"):
             self._phase(ip, "home", "Setting the home screen. The stock launcher stays installed.", None)
             previous = await self.tv.adb.current_home(serial)
@@ -217,9 +273,16 @@ class Setup:
             home_state = {"wanted": True, "set": result.code == 0 and "error" not in result.out.lower(),
                           "component": component, "previous": previous if previous != component else (self.tv.boxes()[ip].get("home") or {}).get("previous")}
             self.tv._update_box(ip, home=home_state)
-        return self._phase(ip, "ready",
-                           "Thomas Creek TV is installed. The first time it opens, it registers itself. Leave the TV on.",
-                           "Open Thomas Creek TV once" if not self._enrolled(ip) else None)
+        elif home and not device.get("home_ok"):
+            home_state = {"wanted": True, "set": False}
+            self.tv._update_box(ip, home=home_state)
+        you_do = None if self._enrolled(ip) else "Open Thomas Creek TV once"
+        message = "Thomas Creek TV is installed. The first time it opens, it registers itself. Leave the TV on."
+        if capabilities.get("overlay") is False:
+            you_do = _ON_TV["permissions"]
+        if home_state.get("wanted") and home_state.get("set") is False:
+            you_do = _ON_TV["home"]
+        return self._phase(ip, "ready", message, you_do)
 
     def _enrolled(self, ip: str) -> bool:
         return any(tv.get("ip") == ip and tv.get("status") == "approved" for tv in self.tv.tvs().values())

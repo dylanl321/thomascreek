@@ -14,7 +14,10 @@ PUT    /v1/tvapp/lineup                  replace the channel lineup (systems)
 
 Called by the TV app from the home network. Enroll and config are signed with the
 device key. The token exchange is too. Everything after that uses the bearer:
-POST   /v1/tv/enroll                     {install_id, name, model?, app_version?, public_key}
+POST   /v1/tv/enroll                     {install_id, name, model?, app_version?, public_key, code?}
+GET    /v1/tv/apk/{code}                 home network, the signed APK for a short install code
+GET    /v1/tv/update                     bearer, version, sha256 and signer pin
+GET    /v1/tv/apk                        bearer, the signed APK for PackageInstaller
 POST   /v1/tv/config                     {install_id, ts, signature}  ETag / 304
 POST   /v1/tv/token                      {install_id, ts, signature, person_id?} -> bearer
 GET    /v1/tv/lineup                     bearer, phones and TVs
@@ -31,7 +34,7 @@ import time
 from typing import Any
 
 from fastapi import APIRouter, Body, Depends, Request
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel, Field
 
 from ..home import iso
@@ -189,13 +192,27 @@ async def put_lineup(body: LineupIn, c: Caller = Depends(caller), h: Hub = Depen
 
 
 class SetupIn(BaseModel):
-    ip: str = Field(max_length=64)
+    ip: str | None = Field(default=None, max_length=64)
     name: str | None = Field(default=None, max_length=80)
     room: str | None = Field(default=None, max_length=40)
     profile: str = "adult"
     pairing_port: int | None = None
     pairing_code: str | None = Field(default=None, max_length=8)
     home: bool = False
+    mode: str = "adb"
+
+
+class ApproveIn(BaseModel):
+    code: str = Field(max_length=8)
+    room: str | None = Field(default=None, max_length=40)
+    profile: str | None = None
+
+
+def _with_install_url(request: Request, body: dict[str, Any]) -> dict[str, Any]:
+    install = body.get("install")
+    if isinstance(install, dict) and install.get("path"):
+        install["url"] = str(request.base_url).rstrip("/") + str(install["path"])
+    return body
 
 
 @router.get("/discover")
@@ -208,18 +225,49 @@ async def discover(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[s
 
 
 @router.post("/setup")
-async def setup(body: SetupIn, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
-    """Install Thomas Creek TV on a box that already has network debugging on. Safe to run again."""
+async def setup(request: Request, body: SetupIn, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """Install Thomas Creek TV. mode adb uses debugging. mode non-adb returns a short download link instead."""
     need(h, c, "systems")
     from ..tvsetup import Setup
 
     try:
-        out = await Setup(h.tv_app).run(body.ip, name=body.name, room=body.room, profile=body.profile,
-                                        pairing_port=body.pairing_port, pairing_code=body.pairing_code, home=body.home)
+        worker = Setup(h.tv_app)
+        if body.mode == "non-adb":
+            out = worker.manual(name=body.name, room=body.room, profile=body.profile)
+        else:
+            if not body.ip:
+                raise TvAppError(400, "bad_ip", "Type the TV's address, or set mode to non-adb")
+            out = await worker.run(body.ip, name=body.name, room=body.room, profile=body.profile,
+                                   pairing_port=body.pairing_port, pairing_code=body.pairing_code, home=body.home,
+                                   mode="adb")
     except TvAppError as exc:
         raise _err(exc) from None
-    _log(h, c, "tvapp.setup", body.ip)
-    return out
+    _log(h, c, "tvapp.setup", body.ip or (out.get("install") or {}).get("code"))
+    return _with_install_url(request, out)
+
+
+@router.get("/setup/code/{code}")
+async def setup_by_code(code: str, request: Request, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """Status for a TV that is installing without debugging."""
+    need(h, c, "systems")
+    from ..tvsetup import status_of
+
+    box = h.tv_app.boxes().get(f"code:{code.strip().upper()}")
+    if box is None:
+        raise error(404, "not_found", "That install link has expired")
+    return _with_install_url(request, status_of(dict(box, ip=f"code:{code.strip().upper()}")))
+
+
+@router.post("/approve")
+async def approve(body: ApproveIn, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """Approve the TV that is showing this code. Nothing is typed on the TV."""
+    need(h, c, "systems")
+    try:
+        tv = h.tv_app.approve_code(body.code, room=body.room, profile=body.profile)
+    except TvAppError as exc:
+        raise _err(exc) from None
+    _log(h, c, "tvapp.approve", tv.get("id") or body.code)
+    return tv
 
 
 @router.get("/setup/{ip}")
@@ -273,7 +321,46 @@ async def tv_enroll(request: Request, body: dict[str, Any] = Body(...), h: Hub =
     ip = _home_only(request, h)
     try:
         return await h.tv_app.enroll(ip, str(body.get("install_id") or ""), str(body.get("name") or ""),
-                                     body.get("model"), body.get("app_version"), str(body.get("public_key") or ""))
+                                     body.get("model"), body.get("app_version"), str(body.get("public_key") or ""),
+                                     str(body.get("code") or "") or None)
+    except TvAppError as exc:
+        raise _err(exc) from None
+
+
+@tv_router.get("/apk/{code}")
+async def apk_by_code(code: str, request: Request, h: Hub = Depends(hub)) -> FileResponse:
+    """The signed APK, for Downloader or a browser on the home network. The code expires."""
+    _home_only(request, h)
+    if h.tv_app.install_link(code) is None:
+        raise error(404, "not_found", "That install link has expired")
+    try:
+        path = h.tv_app.apk_file()
+    except TvAppError as exc:
+        raise _err(exc) from None
+    return FileResponse(path, media_type="application/vnd.android.package-archive", filename=path.name)
+
+
+@tv_router.get("/apk")
+async def apk_for_tv(request: Request, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> FileResponse:
+    """The signed APK for a TV that already has a token, so it can hand the file to PackageInstaller."""
+    _home_only(request, h)
+    if not c.subject.tv:
+        raise error(403, "forbidden", "The TV app downloads its own update")
+    try:
+        path = h.tv_app.apk_file()
+    except TvAppError as exc:
+        raise _err(exc) from None
+    return FileResponse(path, media_type="application/vnd.android.package-archive", filename=path.name)
+
+
+@tv_router.get("/update")
+async def tv_update(request: Request, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """Version, sha256 and signer pin for the APK at GET /v1/tv/apk. The TV checks both before installing."""
+    _home_only(request, h)
+    if not c.subject.tv:
+        raise error(403, "forbidden", "The TV app reads its own update")
+    try:
+        return h.tv_app.update_manifest()
     except TvAppError as exc:
         raise _err(exc) from None
 
