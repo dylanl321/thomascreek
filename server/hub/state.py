@@ -97,6 +97,11 @@ class Hub:
         from .remotes import RemoteSetup
 
         self.remotes = RemoteSetup(self)
+        from .hookups import Hookups
+        from .watch import Watch
+
+        self.watch = Watch(self)
+        self.hookups = Hookups(self)
         from .climate import ClimateHistory
 
         self.climate = ClimateHistory(self)
