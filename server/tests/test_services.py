@@ -531,9 +531,35 @@ def test_activity_asks_home_assistant_for_the_whole_window(hub, people, home_cli
             return httpx.Response(200, json=[])
         mock.get(url__startswith="http://ha.test/api/logbook/").mock(side_effect=answer)
         home_client.get("/v1/activity?category=doors", headers=people["phones"]["Dylan"].h)
-    assert seen and "end_time" in seen[0].params
-    end = dt.datetime.fromisoformat(seen[0].params["end_time"])
-    assert abs(end.timestamp() - dt.datetime.now(dt.timezone.utc).timestamp()) < 120
+    # Newest day first, one day per ask, each with an end (HA stops a day after the start otherwise).
+    assert seen and all("end_time" in u.params for u in seen)
+    first_end = dt.datetime.fromisoformat(seen[0].params["end_time"])
+    first_start = dt.datetime.fromisoformat(seen[0].path.rsplit("/", 1)[1])
+    now = dt.datetime.now(dt.timezone.utc)
+    assert abs((first_end - now).total_seconds()) < 120
+    assert 0 < (first_end - first_start).total_seconds() <= 86400
+    if len(seen) > 1:
+        assert dt.datetime.fromisoformat(seen[1].params["end_time"]) == first_start
+
+
+def test_activity_doors_shows_today_even_if_older_days_are_slow(hub, people, home_client):
+    """Today's door events show; a slow or failing older day just stops the walk back."""
+    import datetime as dt
+
+    hub.vault.set("home_assistant.token", "t")
+    now = dt.datetime.now(dt.timezone.utc)
+    calls = []
+    with respx.mock(assert_all_called=False) as mock:
+        def answer(request):
+            calls.append(request.url)
+            if len(calls) > 1:
+                return httpx.Response(500)
+            return httpx.Response(200, json=[{"when": (now - dt.timedelta(minutes=3)).isoformat(),
+                                              "name": "Front door", "message": "was locked",
+                                              "entity_id": "lock.front_door"}])
+        mock.get(url__startswith="http://ha.test/api/logbook/").mock(side_effect=answer)
+        b = home_client.get("/v1/activity?category=doors", headers=people["phones"]["Dylan"].h).json()
+    assert [i["detail"] for i in b["items"]] == ["Front door was locked"]
 
 
 def test_view_as_rows_read_as_words_and_open_the_person(hub, people, home_client):
@@ -545,6 +571,14 @@ def test_view_as_rows_read_as_words_and_open_the_person(hub, people, home_client
     row = next(i for i in b["items"] if i["action"] == "people.view_as")
     assert row["detail"] == f"Viewed the app as {name}"
     assert row["ref"] == f"thomascreek://person/{pid}"
+
+
+
+def test_rows_without_detail_get_words(hub, people, home_client):
+    hub.db.log("vpn.config", "ok", person_id=people["dylan"]["id"])
+    b = home_client.get("/v1/activity?category=people", headers=people["phones"]["Dylan"].h).json()
+    row = next(i for i in b["items"] if i["action"] == "vpn.config")
+    assert row["detail"] == "Connected the VPN"
 
 
 def test_drop_folder_takes_house_model(hub, tmp_path, monkeypatch):

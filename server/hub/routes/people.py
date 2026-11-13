@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 
 import time
 from typing import Any
@@ -18,6 +19,7 @@ from ..vpn import VpnError, valid_wg_key
 from ..vpn_pia import PiaError
 from .deps import Caller, caller, error, hub, need, require_confirm
 
+log = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1", tags=["people"])
 
 
@@ -284,6 +286,18 @@ DOOR_CLASSES = {"door", "garage_door", "window", "opening"}
 def _readable(item: dict[str, Any], names: dict[str, str]) -> dict[str, Any]:
     """A hub action row in words people read, with what it opens in the app (`ref`)."""
     action, target = item.get("action") or "", item.get("target")
+    if not item.get("detail"):
+        who = names.get(target or "", "")
+        words = {
+            "vpn.config": "Connected the VPN" + (" through Private" if target == "private" else ""),
+            "vpn.pool_add": f"Added {target or 'a config'} to the VPN pool",
+            "device.enroll": "Joined with a new device", "device.assign": "Assigned a device",
+            "device.revoke": "Removed a device", "auth.token": "Signed in",
+            "people.create": f"Added {who or 'a person'}", "people.edit": f"Changed {who or 'a person'}'s settings",
+            "people.bootstrap_admin": "Set up as the admin",
+        }.get(action)
+        if words:
+            item["detail"] = words
     if action == "people.view_as":
         who = names.get(target or "", "someone")
         item["detail"] = f"Viewed the app as {who}" if item.get("detail") != "stop" else "Stopped viewing as someone else"
@@ -326,6 +340,43 @@ def _home_category(h: Hub, e: dict[str, Any]) -> str | None:
     return None
 
 
+async def _logbook_newest_first(h: Hub, entities: list[str], since: float, until: float,
+                                limit: int) -> list[dict[str, Any]]:
+    """Home Assistant's logbook from `until` back to `since`, one day per request, newest day first.
+
+    HA answers one day unless given an end, and a multi-day ask over every door sensor can take longer
+    than a phone will wait. Asking day by day, newest first, shows today straight away and stops once
+    there are enough rows or the time budget is spent (keeping what it has)."""
+    import datetime as dt
+
+    def iso(t: float) -> str:
+        return dt.datetime.fromtimestamp(t, dt.timezone.utc).isoformat()
+
+    rows: list[dict[str, Any]] = []
+    deadline = time.monotonic() + 6
+    end = until
+    while end > since and len(rows) < limit:
+        start = max(since, end - 86400)
+        left = deadline - time.monotonic()
+        if left <= 0.5:
+            break
+        try:
+            rows += await asyncio.wait_for(h.ha.logbook(iso(start), iso(end), entities=entities), min(4, left))
+        except Exception as exc:  # noqa: BLE001
+            log.info("logbook %s..%s failed: %r", iso(start), iso(end), exc)
+            break
+        end = start
+    # A line exactly on a day boundary can come back from both days.
+    seen: set[tuple[Any, Any, Any]] = set()
+    unique = []
+    for r in rows:
+        k = (r.get("when"), r.get("entity_id"), r.get("message") or r.get("state"))
+        if k not in seen:
+            seen.add(k)
+            unique.append(r)
+    return unique
+
+
 async def _home_events(h: Hub, category: str | None, since: float, limit: int,
                        until: float | None = None) -> list[dict[str, Any]]:
     """Recent door, lock, garage, presence and automation lines from Home Assistant's logbook."""
@@ -344,14 +395,7 @@ async def _home_events(h: Hub, category: str | None, since: float, limit: int,
     if hit and time.time() - hit[0] < 60:
         rows = hit[1]
     else:
-        try:
-            rows = await asyncio.wait_for(
-                h.ha.logbook(dt.datetime.fromtimestamp(since, dt.timezone.utc).isoformat(),
-                             # Without an end, Home Assistant returns only the first day after `since`.
-                             dt.datetime.fromtimestamp(until or time.time(), dt.timezone.utc).isoformat(),
-                             entities=entities), 4)
-        except Exception:  # noqa: BLE001
-            return []
+        rows = await _logbook_newest_first(h, entities, since, until or time.time(), limit)
         if len(cache) > 50:
             cache.clear()
         cache[key] = (time.time(), rows)
