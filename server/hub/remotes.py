@@ -71,7 +71,15 @@ ENTITIES_TEMPLATE = """
 {%- set ns = namespace(out=[]) -%}
 {%- for dom in ['androidtv_remote', 'apple_tv'] -%}
   {%- for e in integration_entities(dom) | select('match', 'media_player\\.') -%}
-    {%- set ns.out = ns.out + [{'entity_id': e, 'entry_id': config_entry_id(e), 'domain': dom}] -%}
+    {%- set did = device_id(e) -%}
+    {%- set m = namespace(macs=[]) -%}
+    {%- for c in (device_attr(did, 'connections') or []) if did -%}
+      {%- if c[0] == 'mac' -%}{%- set m.macs = m.macs + [c[1] | lower] -%}{%- endif -%}
+    {%- endfor -%}
+    {%- set names = [state_attr(e, 'friendly_name'), device_attr(did, 'name') if did else none,
+                     device_attr(did, 'name_by_user') if did else none] | select('string') | list -%}
+    {%- set ns.out = ns.out + [{'entity_id': e, 'entry_id': config_entry_id(e), 'domain': dom,
+                                'macs': m.macs, 'names': names}] -%}
   {%- endfor -%}
 {%- endfor -%}
 {{ ns.out | tojson }}
@@ -170,6 +178,36 @@ def remote_port_open(ip: str, port: int = 6466) -> bool:
         return False
 
 
+def _mac(v: str | None) -> str | None:
+    hexes = re.sub(r"[^0-9a-f]", "", (v or "").lower())
+    return ":".join(hexes[i:i + 2] for i in range(0, 12, 2)) if len(hexes) == 12 and hexes != "0" * 12 else None
+
+
+def arp_mac(ip: str) -> str | None:
+    """The device's MAC from the hub's neighbour table (the hub runs on the host network, same LAN)."""
+    def read() -> str | None:
+        try:
+            with open("/proc/net/arp") as fh:
+                for line in fh.read().splitlines()[1:]:
+                    cols = line.split()
+                    if len(cols) >= 4 and cols[0] == ip:
+                        return _mac(cols[3])
+        except OSError:
+            return None
+        return None
+
+    mac = read()
+    if mac is None:  # not talked to it yet: one stray UDP packet makes the kernel look it up
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+                s.sendto(b"", (ip, 9))
+            time.sleep(0.15)
+        except OSError:
+            return None
+        mac = read()
+    return mac
+
+
 def devices_from_answers(answers: list[tuple[str, list[tuple[str, str, Any]]]],
                          has_remote: Any = remote_port_open) -> list[Found]:
     """Turn (source ip, records) pairs into Android TV and Apple TV devices, one per address."""
@@ -242,6 +280,7 @@ class RemoteSetup:
         self._scan: tuple[float, list[Found]] | None = None
         self.scanner = mdns_scan  # tests swap this out
         self.list_flows = self._flows_ws  # tests swap this out too
+        self.mac_of = arp_mac
 
     # -- Home Assistant setup API ----------------------------------------------------------------
     async def _ha(self, method: str, path: str, body: Any = None) -> Any:
@@ -301,16 +340,24 @@ class RemoteSetup:
                         raise RuntimeError((msg.get("error") or {}).get("message") or "flow list refused")
                     return list(msg.get("result") or [])
 
-    async def _entities(self) -> dict[str, str]:
+    async def _entities(self) -> dict[str, dict[str, Any]]:
+        """Per config entry: its media player, and the MACs and names Home Assistant knows the device by."""
         try:
             rows = json.loads(await self.hub.ha.render(ENTITIES_TEMPLATE))
         except Exception:  # noqa: BLE001 - older HA without config_entry_id(): no links, still usable
             return {}
-        out: dict[str, str] = {}
+        out: dict[str, dict[str, Any]] = {}
         for r in rows:
-            if r.get("entry_id") and r["entry_id"] not in out:
-                out[r["entry_id"]] = r["entity_id"]
+            if not r.get("entry_id"):
+                continue
+            cur = out.setdefault(r["entry_id"], {"entity_id": r["entity_id"], "macs": set(), "names": set()})
+            cur["macs"] |= {m for m in map(_mac, r.get("macs") or []) if m}
+            cur["names"] |= {_norm(n) for n in r.get("names") or [] if _norm(n)}
         return out
+
+    async def _macs(self, hosts: list[str]) -> dict[str, str | None]:
+        res = await asyncio.gather(*(asyncio.to_thread(self.mac_of, h) for h in hosts), return_exceptions=True)
+        return {h: (m if isinstance(m, str) else None) for h, m in zip(hosts, res)}
 
     async def _scan_network(self, fresh: bool) -> list[Found]:
         if not fresh and self._scan and time.time() - self._scan[0] < self.CACHE_S:
@@ -331,8 +378,12 @@ class RemoteSetup:
         home = self.hub.home
         added: list[dict[str, Any]] = []
         taken: set[str] = set()
+        taken_macs: set[str] = set()
         for e in entries:
-            eid = entities.get(e.get("entry_id", ""))
+            info = entities.get(e.get("entry_id", "")) or {}
+            eid = info.get("entity_id")
+            taken |= info.get("names") or set()
+            taken_macs |= info.get("macs") or set()
             area_id = home.entity_area.get(eid) if eid else None
             st = home.states.get(eid or "", {})
             added.append({
@@ -348,13 +399,16 @@ class RemoteSetup:
             if dom not in KIND_OF or (f.get("context") or {}).get("source") in ("ignore", "user", "reauth"):
                 continue
             name = ((f.get("context") or {}).get("title_placeholders") or {}).get("name") or "TV"
-            if _norm(name) in taken:
+            if _norm(name) in taken or _mac((f.get("context") or {}).get("unique_id")) in taken_macs - {None}:
                 continue
             taken.add(_norm(name))
             found.append({"id": f"flow:{f['flow_id']}", "kind": KIND_OF[dom], "name": name, "host": None,
                           "model": None, "via": "home_assistant"})
         hosts = {x["host"] for x in found}
+        macs = await self._macs([d.host for d in scan]) if taken_macs else {}
         for d in scan:
+            if macs.get(d.host) in taken_macs:
+                continue  # already added under another name (HA's title vs. the name the TV announces)
             if _norm(d.name) in taken or d.host in hosts:
                 for x in found:  # fill in what Home Assistant's discovery card didn't say
                     if _norm(x["name"]) == _norm(d.name):
