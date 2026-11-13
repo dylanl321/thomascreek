@@ -14,13 +14,22 @@ way Bambu Studio does in LAN mode:
   only while someone is watching.
 
 Current Bambu firmware only accepts commands from other software when the
-printer is in LAN-only mode with Developer Mode switched on. Without that the
-printer still reports status, so the page works read-only and the hub says
-plainly why a control was refused.
+printer is in LAN Only mode with Developer Mode switched on. Without that the
+printer still reports status (and takes the light), so the hub runs the printer
+"watch only" and switches to full control by itself as soon as the printer stops
+asking for signed commands (``print.fun`` bit 29, or ``print.flag3`` bit 16 on
+firmware that leaves ``fun`` empty).
+
+Two ways in, tried in this order:
+
+1. LAN: host + serial + access code. Works with or without LAN Only mode.
+2. Bambu account (``bambu_cloud.py``): when the LAN connection keeps failing or
+   no host is known, the same reports come from Bambu's MQTT broker. Always
+   watch only. The account also supplies the serial and access code.
 
 Secrets (added on the hub's admin page): ``printer.<id>.access_code``,
-``printer.<id>.serial`` and ``printer.<id>.host``. Host and serial can come
-from config instead.
+``printer.<id>.serial`` and ``printer.<id>.host``, or a Bambu account sign-in.
+Host and serial can come from config instead.
 """
 
 from __future__ import annotations
@@ -53,6 +62,12 @@ log = logging.getLogger("hub.bambu")
 MQTT_PORT, FTPS_PORT, RTSP_PORT = 8883, 990, 322
 PUSHALL_EVERY_S = 300
 STALE_S = 90  # no report for this long = offline
+LOCAL_TRIES = 3  # LAN failures in a row before trying the Bambu account
+CLOUD_STINT_S = 900  # then try the LAN again after this long
+SECURED_FUN = 0x20000000  # print.fun: the printer wants signed commands (no Developer Mode)
+SECURED_FLAG3 = 0x10000  # print.flag3: the same, on firmware with an empty fun
+WATCH_ONLY = ("{name} is in watch-only mode. For controls, turn on LAN Only and Developer Mode on the printer "
+              "(Settings, Network). Until then, use Bambu Handy to pause or stop.")
 
 # gcode_state -> the word the app shows.
 STATES = {"IDLE": "idle", "PREPARE": "preparing", "SLICING": "preparing", "RUNNING": "printing",
@@ -310,6 +325,9 @@ class Printer:
     _task: asyncio.Task | None = None
     _seq: int = 0
     _frames: "FrameGrabber | None" = None
+    via: str | None = None  # "lan" or "cloud" while connected
+    secured: bool | None = None  # True while the printer refuses unsigned commands
+    _local_fails: int = 0
     on_change: Callable[["Printer", dict[str, Any], dict[str, Any]], Any] | None = None
 
     @property
@@ -321,18 +339,37 @@ class Printer:
         return str(v) if v else None
 
     @property
+    def cloud(self) -> Any:
+        c = getattr(self.hub, "bambu_cloud", None)
+        return c if c is not None and c.signed_in else None
+
+    def _cloud_device(self) -> dict[str, Any] | None:
+        c = self.cloud
+        return c.device(self.entry.serial or self._secret("serial"), self.entry.model) if c else None
+
+    @property
     def host(self) -> str | None:
         return self.entry.host or self._secret("host")
 
     @property
     def serial(self) -> str | None:
-        return self.entry.serial or self._secret("serial")
+        return self.entry.serial or self._secret("serial") or (self._cloud_device() or {}).get("dev_id")
 
     @property
     def access_code(self) -> str | None:
-        return self._secret("access_code")
+        return self._secret("access_code") or (self._cloud_device() or {}).get("dev_access_code")
+
+    @property
+    def lan_ready(self) -> bool:
+        return bool(self.host and self.serial and self.access_code)
+
+    @property
+    def cloud_ready(self) -> bool:
+        return bool(self.cloud and self.serial)
 
     def missing(self) -> list[str]:
+        if self.cloud_ready:
+            return []
         out = []
         if not self.host:
             out.append(f"printer.{self.id}.host")
@@ -342,11 +379,19 @@ class Printer:
             out.append(f"printer.{self.id}.access_code")
         return out
 
+    @property
+    def control_mode(self) -> str:
+        """"full" when the hub may pause, stop, heat and print; "watch" otherwise."""
+        return "full" if self.via == "lan" and self.secured is not True else "watch"
+
     def status(self) -> dict[str, Any]:
         live = self.connected and (time.time() - self.last_report) < STALE_S
         st = status(self.raw, connected=live, last_report=self.last_report)
+        ctl = self.control_mode if live else "watch"
         return {"id": self.id, "name": self.entry.name, "model": self.entry.model, "set_up": not self.missing(),
-                "missing": self.missing(), "problem": None if live else self.last_error, **st}
+                "missing": self.missing(), "problem": None if live else self.last_error, **st,
+                "control": ctl, "via": self.via if live else None,
+                "watch_reason": None if ctl == "full" or not live else WATCH_ONLY.format(name=self.entry.name)}
 
     def summary(self) -> dict[str, Any]:
         s = self.status()
@@ -383,38 +428,68 @@ class Printer:
 
         backoff = 5.0
         while True:
-            if self.missing():
+            cloud = getattr(self.hub, "bambu_cloud", None)
+            if cloud is not None and cloud.signed_in:
+                await cloud.refresh_if_needed()
+                await cloud.load_devices()
+            way = self.pick_way()
+            if way is None:
                 self.last_error = "Not set up yet"
                 await asyncio.sleep(30)
                 continue
             try:
-                async with aiomqtt.Client(self.host, MQTT_PORT, username="bblp", password=self.access_code,  # type: ignore[arg-type]
-                                          tls_context=_insecure_ctx(), tls_insecure=True, keepalive=30,
+                if way == "lan":
+                    kw = dict(hostname=self.host, port=MQTT_PORT, username="bblp", password=self.access_code,
+                              tls_context=_insecure_ctx(), tls_insecure=True)
+                else:
+                    from .bambu_cloud import MQTT_HOST
+
+                    kw = dict(hostname=MQTT_HOST, port=MQTT_PORT, username=self.cloud.mqtt_user,
+                              password=self.cloud.token, tls_context=ssl.create_default_context())
+                async with aiomqtt.Client(**kw, keepalive=30,  # type: ignore[arg-type]
                                           identifier=f"thomascreek-{self.id}-{new_id('m')[-6:]}") as client:
                     self._client = client
                     await client.subscribe(f"device/{self.serial}/report")
-                    self.connected = True
+                    self.connected, self.via, self.secured = True, way, None
                     self.last_error = None
                     backoff = 5.0
+                    if way == "lan":
+                        self._local_fails = 0
                     await self.pushall()
                     pusher = asyncio.create_task(self._push_loop())
+                    started = time.time()
                     try:
                         async for msg in client.messages:
                             try:
                                 self.ingest(json.loads(msg.payload))
                             except (ValueError, TypeError):
-                                continue
+                                pass
+                            if way == "cloud" and self.lan_ready and time.time() - started > CLOUD_STINT_S:
+                                self._local_fails = 0  # go and see whether the LAN works again
+                                break
                     finally:
                         pusher.cancel()
             except asyncio.CancelledError:
                 raise
             except Exception as exc:  # noqa: BLE001
-                self.last_error = _why(exc)
-                log.info("printer %s: %s", self.id, self.last_error)
-            self.connected = False
-            self._client = None
-            await asyncio.sleep(backoff)
+                self.last_error = _why(exc) if way == "lan" else f"Bambu account: {_why(exc)}"
+                if way == "lan":
+                    self._local_fails += 1
+                log.info("printer %s (%s): %s", self.id, way, self.last_error)
+            was = self.connected
+            self.connected, self._client, self.via = False, None, None
+            if was and self.on_change:
+                self.on_change(self, {}, {})
+            await asyncio.sleep(1 if way == "cloud" and self._local_fails == 0 and self.lan_ready else backoff)
             backoff = min(backoff * 2, 120)
+
+    def pick_way(self) -> str | None:
+        """LAN first; the Bambu account when there's no LAN setup or the LAN keeps failing."""
+        if self.lan_ready and (self._local_fails < LOCAL_TRIES or not self.cloud_ready):
+            return "lan"
+        if self.cloud_ready:
+            return "cloud"
+        return None
 
     async def _push_loop(self) -> None:
         while True:
@@ -423,17 +498,48 @@ class Printer:
 
     def ingest(self, msg: dict[str, Any]) -> None:
         before = status(self.raw, connected=True, last_report=self.last_report)
-        result = (msg.get("print") or {}).get("result")
-        if (msg.get("print") or {}).get("command") not in (None, "push_status") and result:
+        before_ctl = self.control_mode
+        p = msg.get("print") or {}
+        result = p.get("result")
+        if p.get("command") not in (None, "push_status") and result:
             # A command echo (pause, project_file...); keep the reply but don't merge it into status.
-            self.raw.setdefault("_replies", {})[msg["print"]["command"]] = msg["print"]
+            self.raw.setdefault("_replies", {})[p["command"]] = p
+            if str(result).lower() == "failed" and "verify" in str(p.get("reason") or "").lower():
+                self.secured = True
+                self._ctl_changed(before_ctl)
             return
         deep_merge(self.raw, msg)
         self.last_report = time.time()
+        self._read_secured(p)
         after = status(self.raw, connected=True, last_report=self.last_report)
         if self.on_change and (before["state"] != after["state"] or before["job"] != after["job"]
                                or before["light"] != after["light"] or before["active_slot"] != after["active_slot"]):
             self.on_change(self, before, after)
+        else:
+            self._ctl_changed(before_ctl)
+
+    def _read_secured(self, p: dict[str, Any]) -> None:
+        fun = p.get("fun")
+        try:
+            fun_v = int(str(fun), 16) if fun not in (None, "") else 0
+        except ValueError:
+            fun_v = 0
+        if fun_v:
+            self.secured = bool(fun_v & SECURED_FUN)
+            return
+        if "flag3" in p:
+            try:
+                self.secured = bool(int(p["flag3"]) & SECURED_FLAG3)
+            except (TypeError, ValueError):
+                pass
+
+    def _ctl_changed(self, before: str) -> None:
+        if self.control_mode != before and self.on_change:
+            self.on_change(self, {}, {})
+
+    def _need_control(self) -> None:
+        if self.control_mode != "full":
+            raise PrinterError(409, "watch_only", WATCH_ONLY.format(name=self.entry.name))
 
     async def publish(self, payload: dict[str, Any]) -> None:
         if not self._client or not self.connected:
@@ -451,6 +557,7 @@ class Printer:
     async def control(self, command: str) -> None:
         if command not in ("pause", "resume", "stop"):
             raise PrinterError(400, "bad_params", "command must be pause, resume or stop")
+        self._need_control()
         await self.publish({"print": {"command": command, "param": ""}})
 
     async def set_light(self, on: bool) -> None:
@@ -460,6 +567,7 @@ class Printer:
     async def set_speed(self, level: str) -> None:
         if level not in SPEED_LEVELS:
             raise PrinterError(400, "bad_params", "speed must be silent, standard, sport or ludicrous")
+        self._need_control()
         await self.publish({"print": {"command": "print_speed", "param": str(SPEED_LEVELS[level])}})
 
     async def set_temp(self, heater: str, temp: int) -> None:
@@ -468,6 +576,7 @@ class Printer:
         code, top = HEATERS[heater]
         if not 0 <= temp <= top:
             raise PrinterError(400, "bad_params", f"{heater} must be 0 to {top}°C")
+        self._need_control()
         await self.publish({"print": {"command": "gcode_line", "param": f"{code} S{int(temp)}\n"}})
 
     async def start_print(self, name: str, data: bytes, *, plate: int, ams_mapping: list[int] | None,
@@ -477,6 +586,7 @@ class Printer:
             raise PrinterError(409, "printer_busy", f"The {self.entry.name} is busy with {s['job']['name'] if s['job'] else 'a print'}")
         if not s["online"]:
             raise PrinterError(409, "printer_offline", f"The {self.entry.name} isn't connected right now")
+        self._need_control()
         host, code = self.host, self.access_code
         try:
             await asyncio.to_thread(ftps_upload, host, code, name, data)  # type: ignore[arg-type]
@@ -505,7 +615,7 @@ def _why(exc: BaseException) -> str:
     if isinstance(exc, (socket.timeout, TimeoutError)) or "timed out" in text:
         return "The printer didn't answer. Is it on and on the network?"
     if "refused" in text.lower():
-        return "The printer refused the connection. Turn on LAN Only mode."
+        return "The printer refused the connection. Check the IP address, and that the printer is on."
     return text[:200]
 
 
@@ -545,8 +655,9 @@ class FrameGrabber:
         return self.frame
 
     async def _run(self) -> None:
-        if not shutil.which("ffmpeg") or self.printer.missing():
-            self.error = "Camera isn't available"
+        if not shutil.which("ffmpeg") or not self.printer.lan_ready:
+            self.error = ("Camera isn't available" if self.printer.lan_ready
+                          else "Add the printer's IP address on the hub's admin page to see the camera")
             return
         args = ["ffmpeg", "-loglevel", "error", "-rtsp_transport", "tcp", "-i", self.url(), "-vf", "fps=2,scale=1280:-2",
                 "-q:v", "6", "-f", "image2pipe", "-vcodec", "mjpeg", "-"]
@@ -573,7 +684,7 @@ class FrameGrabber:
                 if len(buf) > 8_000_000:
                     buf = b""
         except (asyncio.TimeoutError, OSError) as exc:
-            self.error = "The camera didn't send a picture. Turn on LAN Mode Liveview on the printer."
+            self.error = "The camera didn't send a picture. Turn on LAN Only Liveview on the printer (Settings, Network)."
             log.info("printer camera: %s", exc)
         finally:
             await self.stop_proc()
@@ -642,6 +753,8 @@ class Workshop:
     # -- events ----------------------------------------------------------------
     def _changed(self, p: Printer, before: dict[str, Any], after: dict[str, Any]) -> None:
         self.hub.bus.publish({"type": "printer", "data": p.status()})
+        if not before or not after:
+            return  # connection or control mode changed, nothing to tell anyone
         a, b = after["state"], before["state"]
         if a == b:
             return

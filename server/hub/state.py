@@ -38,6 +38,7 @@ from .push import APNs
 from .onepassword import OnePasswordSync
 from .kitchen import Kitchen
 from .bambu import Workshop
+from .bambu_cloud import BambuCloud
 from .timers import Timers
 from .vault import Vault
 from .vpn import Vpn
@@ -88,6 +89,7 @@ class Hub:
         self.actions = ActionRunner(self)
         self.timers = Timers(self)
         self.kitchen = Kitchen(self)
+        self.bambu_cloud = BambuCloud(self)
         self.workshop = Workshop(self, config.printers, data / "printers")
         self.smart = Smart(self)
         self.settings = PersonSettings(self)
