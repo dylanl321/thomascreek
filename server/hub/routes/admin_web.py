@@ -384,8 +384,8 @@ def _bambu_html(h: Hub, csrf: str) -> str:
     c = h.bambu_cloud
     hid = f"<input type=hidden name=csrf value={csrf}>"
     note = ("Optional. Lets the hub watch the printer through Bambu's cloud when it can't reach it on the home "
-            "network, and fills in the serial number and access code. The password is used once to sign in and "
-            "isn't kept. Bambu then emails a 6-digit code (or asks for your authenticator code).")
+            "network, and fills in the serial number and access code. Signed up with Google or Apple? Leave the "
+            "password empty and Bambu emails you a 6-digit login code. A password is used once to sign in and isn't kept.")
     if c.signed_in:
         names = ", ".join(f"{d.get('name') or d.get('dev_id')}" for d in c.devices) or "no printers listed yet"
         exp = token_expiry(c.token)
@@ -400,12 +400,13 @@ def _bambu_html(h: Hub, csrf: str) -> str:
                 else "the 6-digit code from your authenticator app")
         body = (f"<div class=dim>Enter {what}.</div><div class=factions><form method=post action=/admin/bambu/code "
                 f"class=fform>{hid}<input name=code inputmode=numeric autocomplete=one-time-code pattern='[0-9 ]{{6,7}}' "
-                f"placeholder='123456' required><button>Sign in</button></form></div>")
+                f"placeholder='123456' required><button>Sign in</button></form>"
+                f"<form method=post action=/admin/bambu/cancel class=inline>{hid}<button class=ghost>Start over</button></form></div>")
         badge = "<span class=pill-miss>Waiting for code</span>"
     else:
         body = (f"<div class=dim>{e(note)}</div><div class=factions><form method=post action=/admin/bambu/sign-in "
                 f"class=fform>{hid}<input type=email name=email placeholder='Bambu account email' autocomplete=off required>"
-                f"<input type=password name=password placeholder='Password' autocomplete=off required>"
+                f"<input type=password name=password placeholder='Password (empty for Google or Apple)' autocomplete=off>"
                 f"<button>Next</button></form></div>")
         badge = "<span class=pill-miss>Not signed in</span>"
     return f"<details class=key><summary><span>Bambu account (optional)</span>{badge}</summary><div class=kbody>{body}</div></details>"
@@ -725,6 +726,13 @@ async def bambu_sign_in(request: Request, h: Hub = Depends(hub)) -> Response:
         return _back("Signed in to the Bambu account.")
     return _back("Bambu emailed a 6-digit code. Enter it under 3D printer, Bambu account." if step == "code"
                  else "Enter the code from your authenticator app under 3D printer, Bambu account.")
+
+
+@pages.post("/admin/bambu/cancel")
+async def bambu_cancel(request: Request, h: Hub = Depends(hub)) -> Response:
+    await _form_session(request, h)
+    h.bambu_cloud.cancel()
+    return _back("Bambu sign-in cancelled.")
 
 
 @pages.post("/admin/bambu/code")
