@@ -55,6 +55,21 @@ class Plex(Adapter):
             out.extend(self._item(m) for m in hub.get("Metadata", []))
         return out
 
+    async def search_with_ids(self, q: str, limit: int = 20) -> list[dict[str, Any]]:
+        """Search plus TMDB / IMDb / TVDB ids and the file's resolution, for universal search."""
+        data = await self.get_json("/hubs/search", params={"query": q, "limit": limit})
+        out: list[dict[str, Any]] = []
+        for hub in data.get("MediaContainer", {}).get("Hub", []):
+            if hub.get("type") not in ("movie", "show", "episode"):
+                continue
+            for raw in hub.get("Metadata", []):
+                item = self._item(raw)
+                tmdb, imdb, tvdb = _external_ids(raw)
+                media = (raw.get("Media") or [{}])[0]
+                item.update(tmdb=tmdb, imdb=imdb, tvdb=tvdb, resolution=(media.get("videoResolution") or None))
+                out.append(item)
+        return out
+
     async def library(self, kind: str | None = None, limit: int = 200) -> list[dict[str, Any]]:
         sections = (await self.get_json("/library/sections")).get("MediaContainer", {}).get("Directory", [])
         out: list[dict[str, Any]] = []
@@ -353,6 +368,25 @@ class Jellyseerr(Adapter):
             }
 
         return list(await asyncio.gather(*(title(r) for r in rows)))
+
+
+def _external_ids(raw: dict[str, Any]) -> tuple[str | None, str | None, str | None]:
+    """Plex Guid values look like imdb://tt0133093, tmdb://603 or com.plexapp.agents.thetvdb://169?lang=en."""
+    tmdb = imdb = tvdb = None
+    guids = [raw.get("guid") or ""]
+    guids += [g.get("id") for g in raw.get("Guid") or [] if isinstance(g, dict)]
+    for guid in guids:
+        if not isinstance(guid, str) or "://" not in guid:
+            continue
+        body = guid.split("://", 1)[1].split("?", 1)[0].strip("/")
+        agent = guid.split("://", 1)[0]
+        if body.startswith("tt") or "imdb" in agent:
+            imdb = body
+        elif "tmdb" in agent or "themoviedb" in agent:
+            tmdb = body.split("/")[-1]
+        elif "tvdb" in agent or "thetvdb" in agent:
+            tvdb = body.split("/")[-1]
+    return tmdb or None, imdb or None, tvdb or None
 
 
 def _hms(v: str | None) -> int | None:

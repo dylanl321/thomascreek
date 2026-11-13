@@ -352,7 +352,7 @@ struct TVMovieView: View {
     }
 }
 
-private struct PlayOnTVSheet: View {
+struct PlayOnTVSheet: View {
     var request: TVPlayRequest
     @Environment(\.dismiss) private var dismiss
     @Environment(HomeStore.self) private var store

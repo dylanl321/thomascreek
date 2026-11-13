@@ -15,6 +15,7 @@ struct SearchView: View {
     @State private var filter = "all"
     @State private var media: MediaItem?
     @State private var recent: [String] = SearchView.loadRecent()
+    @State private var titles: TitlePage?
     @FocusState private var focused: Bool
 
     private var little: Bool { store.me?.style == .little }
@@ -80,6 +81,12 @@ struct SearchView: View {
         if CatDirector.shared.isOn && catWords.contains(query.trimmingCharacters(in: .whitespaces).lowercased()) { catsRow }
         if results?.ask == true && looksLikeQuestion { askRow }
         if let cmd = results?.command { commandRow(cmd) }
+        if let titles, !titles.titles.isEmpty {
+            SectionHeader("Films and shows")
+            VStack(spacing: 10) {
+                ForEach(titles.titles) { card in TitleResultCard(card: card) }
+            }
+        }
         if !little && groups.count > 1 { filterBar(groups) }
         if little {
             littleGrid(groups.flatMap(\.items))
@@ -337,7 +344,7 @@ struct SearchView: View {
     private func search(force: Bool = false) async {
         let q = query.trimmingCharacters(in: .whitespaces)
         filter = "all"
-        guard !q.isEmpty else { results = nil; local = []; loading = false; return }
+        guard !q.isEmpty else { results = nil; titles = nil; local = []; loading = false; return }
         local = LocalSearch.run(q, store: store)
         if !force {
             try? await Task.sleep(for: .milliseconds(220))
@@ -346,6 +353,9 @@ struct SearchView: View {
         loading = true
         failed = false
         defer { if !Task.isCancelled { loading = false } }
+        if q.count >= 2 {
+            titles = try? await HubClient.shared.get("/v1/titles/search", ["q": q])
+        } else { titles = nil }
         do {
             var r: SearchResults = try await HubClient.shared.get("/v1/search", ["q": q])
             guard !Task.isCancelled else { return }

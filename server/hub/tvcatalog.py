@@ -642,6 +642,7 @@ def _programme(item: dict[str, Any], channel: dict[str, Any], now: float) -> dic
         "start": iso(begins), "end": iso(finishes), "title": item.get("title"),
         "subtitle": item.get("subtitle"), "desc": item.get("desc"), "icon": item.get("icon"),
         "catchup": catchup,
+        "catchup_until": iso(begins + days * 86400) if catchup else None,
     }
 
 

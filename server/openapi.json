@@ -8976,6 +8976,118 @@
     }
    }
   },
+  "/v1/titles/search": {
+   "get": {
+    "tags": [
+     "titles"
+    ],
+    "summary": "Title Search",
+    "description": "Films and shows from Plex, the TV providers and TMDB, one card each.",
+    "operationId": "title_search_v1_titles_search_get",
+    "parameters": [
+     {
+      "name": "q",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "default": "",
+       "title": "Q"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Title Search V1 Titles Search Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/titles/request": {
+   "post": {
+    "tags": [
+     "titles"
+    ],
+    "summary": "Title Request",
+    "description": "Ask Jellyseerr for a title. A child's ask waits for a parent.",
+    "operationId": "title_request_v1_titles_request_post",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/RequestIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Title Request V1 Titles Request Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/v1/home/layout": {
    "get": {
     "tags": [
@@ -16033,6 +16145,20 @@
     },
     "type": "object",
     "title": "RequestBody"
+   },
+   "RequestIn": {
+    "properties": {
+     "media_id": {
+      "type": "string",
+      "maxLength": 40,
+      "title": "Media Id"
+     }
+    },
+    "type": "object",
+    "required": [
+     "media_id"
+    ],
+    "title": "RequestIn"
    },
    "SendBody": {
     "properties": {

@@ -534,3 +534,30 @@ The TV reports the outcome on its next `POST /v1/tv/state` (bearer):
 ### Admin
 
 Existing `/v1/tvapp` routes, plus `PATCH /v1/tvapp/tvs/{id}` `{room?, media_entity?, status?, profile?, name?}` and `PUT /v1/tvapp/lineup` `{channels:[…]}`. `room` is an area id such as `living_room`. `media_entity` is `media_player.…`. Forgetting a TV (`DELETE`) is how a box gets a new key; revoke rejects the bearer on the next request.
+
+A programme that can be started over also has `catchup_until` (ISO), the end of the archive window.
+
+## Universal title search
+
+`GET /v1/titles/search?q=` (at least two letters). One card per title across Plex, the IPTV lineup and guide, and TMDB (Jellyseerr, which is what asks Sonarr and Radarr). The same title is one card: matched on TMDB id, then IMDb, then TVDB, then the cleaned name and year.
+
+```json
+{"query":"matrix","titles":[{
+  "id":"tmdb:movie:603","title":"The Matrix","year":1999,"kind":"movie",
+  "poster_url":"https://image.tmdb.org/t/p/w342/m.jpg","summary":"…","rating":"R",
+  "ids":{"tmdb":"603","imdb":"tt0133093","tvdb":null},
+  "offers":[
+    {"source":"plex","label":"In Plex (4K)","plex_id":"555","play_on_phone":true,"play_on_tv":true},
+    {"source":"iptv","label":"IPTV VOD","params":{"movie_id":"vod:thomas-creek:100","title":"The Matrix"},"play_on_tv":true},
+    {"source":"guide","label":"Airs Tue 8pm on ESPN","params":{"channel_key":"xc:thomas-creek:7","title":"The Matrix"},"play_on_tv":true},
+    {"source":"guide","label":"Catch-up until Fri","params":{"kind":"catchup","channel_key":"xc:thomas-creek:7","start":"…","title":"The Matrix"},"play_on_tv":true}
+  ],
+  "request":{"media_id":"movie:603","status":"available","can_request":false,"ask_parent":false,"request_id":null}
+}]}
+```
+
+`kind` is `movie`, `show` or `channel`. `request.status` is `waiting` (a parent has not answered), `requested`, `downloading`, `available`, or null. `play_on_phone` is only on a phone's card, and only when Plex has the file (`plex_id` is `POST /v1/media/play`'s `item_id`, and the download and stream routes). `params` is a `tv.play` body. An IPTV series offer has `series_id` (`series:thomas-creek:…`) and no play params until an episode is chosen.
+
+A child only sees ratings on the household list (`child_policy.ratings`) and kids' IPTV. A TMDB title with no US rating is left out. A TV bearer can search; it cannot request.
+
+`POST /v1/titles/request {media_id:"movie:603"|"tv:1399"}`. An adult's ask goes to Jellyseerr (and from there to Radarr or Sonarr), the same pipeline as `POST /v1/media/requests`. A child's ask is a `requests` row with `status: "waiting"` and an inbox item for parents; approving it is the existing `POST /v1/requests/{id}/approve`, which is what submits it to Jellyseerr. `503 unavailable` when Jellyseerr is not configured. `503 dry_run` while `media.approve` is not a live action.

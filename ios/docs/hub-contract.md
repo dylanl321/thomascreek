@@ -380,3 +380,13 @@ Kids only get kids' rows from the hub. The guide screen does not filter a second
 App: Media and the kids' Watch tab open `TVGuideView` (`Destination.tvGuide`, `thomascreek://guide`). A row opens `PlayOnTVSheet`, which lists `/v1/tv/players` and sends `tv.play`. Series and movie pages are `TVSeriesView` / `TVMovieView`.
 
 Follow-ups, not in this build: resume slider, a full programme grid (the guide shows now and next, not every row in the window), artwork caching, and waking the TV through `media.command` before `tv.play`. The Android TV app still has to enroll, take the token, and apply `tv_command`.
+
+## Universal search (2026-11-13)
+
+`GET /v1/titles/search?q=` is the one title search (Plex, IPTV channels, guide, VOD, series, and TMDB through Jellyseerr). The house search (`GET /v1/search`) is unchanged and still runs beside it.
+
+Each `titles[]` card is one film or show. `offers[].label` is the line to show (`In Plex (4K)`, `IPTV VOD`, `Airs Tue 8pm on ESPN`, `Catch-up until Fri`). `offers[].params` is ready for `tv.play`. `offers[].plex_id` opens the existing Plex play sheet (`PlayOnSheet` / `KidPlaySheet`: play on a TV through `/v1/media/play`, or download to the phone). `offers[].series_id` opens `Destination.tvSeries`.
+
+`request.status` is `waiting`, `requested`, `downloading`, `available`, or null. `can_request` shows Request. `ask_parent` means the button says "Ask a grown-up" and `POST /v1/titles/request {media_id}` waits for `POST /v1/requests/{id}/approve` instead of calling Jellyseerr itself.
+
+The search sheet shows these cards above the other groups (`TitleResultCard`). The TV app uses the same GET.
