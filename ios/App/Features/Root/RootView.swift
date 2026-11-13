@@ -203,6 +203,9 @@ struct DestinationView: View {
         case .weatherAlert(let id): WeatherAlertView(alertID: id)
         case .weatherRadar: WeatherRadarView()
         case .weatherOutlook: WeatherOutlookView()
+        case .weatherPlace(let place): WeatherView().task { await WeatherStore.shared.select(place) }
+        case .device(let id): DevicePage(deviceID: id)
+        case .person(let id): PersonPage(personID: id)
         }
     }
 }

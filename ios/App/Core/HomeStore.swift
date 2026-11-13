@@ -321,7 +321,7 @@ final class HomeStore {
     func use(_ b: SmartCard.Button, on card: SmartCard, router: Router) {
         switch b.kind {
         case "open":
-            if let u = b.url.flatMap(URL.init(string:)) { router.open(u) }
+            if let u = b.url.flatMap(URL.init(string:)) { router.follow(u) }
         case "done":
             if let d = b.done { show(d) }
             dismissSmart(card, handled: true)

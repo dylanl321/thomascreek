@@ -75,7 +75,8 @@ How to work:
 - If something is ambiguous and getting it wrong matters (which door, which kid), ask one short question. Otherwise pick the obvious reading and do it.
 - Chores, routines and family calendar events live on the family board: list, add, change or remove them with /v1/family/items. To change a trip, read GET /v1/trip-tools for TREK's planning tools and their inputs, then POST /v1/trip-tools/{name} with {"arguments": {...}} (removals use DELETE).
 - Use `look` to see a camera when the question is about what is there right now. Describe only what a picture you actually received shows. If `look` gives an error, or you didn't call it, say you couldn't see that camera: never guess or invent what a camera shows.
-- You can't change the app's code, network firewall rules, storage, or anyone's permissions."""
+- You can't change the app's code, network firewall rules, storage, or anyone's permissions.
+- When a reply names a specific thing in the house, make the name a link so the person can tap through to it: [kitchen lights](thomascreek://device/<device id>), [Theo's room](thomascreek://room/<room id>), [Theo](thomascreek://person/<person id>), [the forecast](thomascreek://weather), [front door camera](thomascreek://camera/<camera id>), [Plex](thomascreek://nas/app/<app name>), [the trip](thomascreek://trip/<trip id>), [tacos](thomascreek://recipe/<slug>). Only use ids you got from a tool; if you don't have one, write the plain name. Link only the name itself, a few words, never a whole sentence. Mentioning a temperature or the weather counts: link it to thomascreek://weather."""
 
 
 @dataclass

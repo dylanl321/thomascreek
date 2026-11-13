@@ -178,6 +178,7 @@ struct ClimateView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 12) {
+                OutsideNowRow()
                 ForEach((store.home?.devices(kind: .climate) ?? []).filter { ($0.available != false && $0["available"]?.bool != false) }) { ClimateCard(device: $0) }
                 ForEach((store.home?.devices(kind: .shower) ?? [])) { s in
                     HStack {
