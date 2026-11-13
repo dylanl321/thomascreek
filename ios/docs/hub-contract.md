@@ -268,3 +268,22 @@ The hub talks to the H2S directly on the LAN (MQTT 8883, FTPS 990, RTSPS 322). T
 - Actions (`POST /v1/actions`, target = printer id, cap `appliances`): `printer.control {command pause|resume|stop}` (stop is secure), `printer.light {on}`, `printer.speed {speed}`, `printer.temp {heater nozzle|bed|chamber, temp °C}` (max 350/120/65), `printer.print {model_id, plate, ams_mapping[], bed_leveling, timelapse}` (secure). Errors: 409 `printer_offline`, 409 `printer_busy`, 502 `upload_failed`.
 - SSE `printer` event: the full status (no per-person trimming) whenever state, job, light or active spool changes. Push (cat `printer`) to whoever started the print when it finishes, fails or pauses with an error.
 - App: `WorkshopView` (Destination `.workshop`), `PrintLibraryView` (`.printLibrary`), deep links `thomascreek://workshop`, `thomascreek://workshop/library`; `PrinterNowCard` on Home while a print is active.
+
+## Weather (2026-11-13)
+
+Hub: `hub/forecast.py`, `routes/weather.py`. Free sources only, fetched and cached by the hub, so the app only talks to the pinned hub.
+
+- `GET /v1/weather?place=home|here|trip:<id>[&lat=&lon=]` (any signed-in person). `here` sends the phone's location rounded to 0.01°; within 25 miles of the house it answers as `home`. Trips appear in `places` from 7 days before they start until they end (TREK; the first stop or stay with coordinates).
+  - `place {id, kind, name, lat, lon, country: US|DE|other, tz, spot?}`, `places [{id, kind, name, start_date, end_date, now}]`
+  - `now {temp, feels, condition, symbol, code, is_day, humidity, dew_point, wind, wind_dir, gust, pressure (inHg), pressure_trend, visibility (mi), uv, uv_words, cloud, precip}` (°F, mph, inches everywhere)
+  - `minutely [{t, precip}]` (15-minute steps, 2 h) and `next_hour` (one line); `hourly` 48 × `{t, temp, code, symbol, rain_chance, precip, wind, gust}`; `daily` 10 × `{date, high, low, symbol, condition, rain_chance, precip, snow, wind, gust, wind_dir, uv, sunrise, sunset, text_day?, text_night?}` (text from the NWS in the US). Times are the place's wall clock; use `tz`.
+  - `summary` (NWS first period), `air {aqi, words}`, `alerts [WxAlert]`, `alerts_ok`, `sources [str]`, `updated`.
+  - Grown-ups also: `outlook [{id, title, dates, temp {tone: warm|cold|even, words, prob}, precip {tone: wet|dry|even, ...}}]` (US: CPC 6–10, 8–14, month, 3-month at the point; elsewhere ECMWF seasonal by month), `outlook_source`, `radar {provider: nexrad|dwd|rainviewer, frames [{id, t, future}], max_zoom, step_min, attribution}`.
+  - Children instead: `wear [{emoji, words}]`, alerts reduced to warnings `{id, event, level}`; no radar or outlook.
+- `WxAlert {id, source: NWS|DWD, event, level: warning|watch|advisory|statement, severity, certainty, urgent, headline, headline_local (DWD German), area, sender, onset, ends, description, instruction, polygon [[lon, lat]]?}`.
+- `GET /v1/weather/alerts/{id}`: one alert in full (grown-ups). 404 `expired` once it has ended.
+- `GET /v1/weather/radar/{provider}/{frame}/{z}/{x}/{y}.png`: radar tile through the hub (disk cache, 3 h). 204 = no tile. Grown-ups only.
+- `/v1/home` → `weather.alert {id, event, level}` and `weather.alert_count` when an official alert covers the house.
+- Push: category `weather` (on by default per device). Per person in `/v1/alerts` prefs: `weather {warnings: true, watches: true, advisories: false, trips: true}`; works even when house alerts are off. Warnings ring (tornado, flash-flood, extreme-wind and other "urgent" ones also in quiet hours), the rest arrive quietly. Children never get them. `ref` = `thomascreek://weather/alert/<id>`. History kind `weather`.
+- Smart card rule `wx_alert` (grown-ups): a warning (priority 95) or watch (70) for the house, `ref` to the alert.
+- Deep links: `thomascreek://weather`, `/weather/alert/<id>`, `/weather/radar`, `/weather/outlook`.

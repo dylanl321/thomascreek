@@ -218,6 +218,9 @@ struct HomeSnapshot: Codable, Hashable {
     struct Weather: Codable, Hashable {
         var temp: Double?; var condition: String?; var symbol: String?
         var high: Double?; var low: Double?; var sunset: String?; var sunrise: String?
+        /// The most serious official alert for the house (warnings only for children).
+        var alert: AlertRef?; var alertCount: Int?
+        struct AlertRef: Codable, Hashable { var id: String; var event: String; var level: String }
     }
 
     var generated: Date? { generatedAt.flatMap(ISO.parse) }
