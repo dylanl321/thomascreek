@@ -211,3 +211,9 @@ def test_assistant_cannot_fetch_camera_or_pictures():
     assert DENY.search("/v1/printers/h2s/mjpeg")
     assert DENY.search("/v1/printers/library/mdl_1/thumb.png")
     assert not DENY.search("/v1/printers")
+
+
+def test_printer_without_keys_stays_off_house_status(hub):
+    h = next(x for x in hub.workshop.health() if x["id"] == "printer_h2s")
+    assert h["enabled"] is False and h["error"]
+    assert not any(x["enabled"] and x["error"] == "Not set up yet" for x in hub.health())

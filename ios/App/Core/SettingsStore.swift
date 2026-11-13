@@ -36,6 +36,8 @@ final class SettingsStore {
             // A section added in a later version slots in after the one it follows by default.
             if let i = defaults.firstIndex(of: s), i > 0, let after = out.firstIndex(of: defaults[i - 1]) {
                 out.insert(s, at: after + 1)
+            } else if defaults.first == s {
+                out.insert(s, at: 0)  // a new first section (Who's home) goes on top, not at the bottom
             } else { out.append(s) }
         }
         return out.filter { !hidden.contains($0.rawValue) }
