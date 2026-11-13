@@ -31,7 +31,7 @@ ALL_CAPABILITIES = (
     "holiday.full", "holiday.looks", "holiday.pick", "family.edit", "family.view",
     "shopping.add", "chores.manage", "chores.do", "inventory.edit", "inventory.search",
     "appliances", "network.manage", "network.ask", "systems", "people", "activity",
-    "trips.view", "trips.plan", "guests", "remotes.setup",
+    "trips.view", "trips.plan", "guests", "remotes.setup", "home.layout",
 )
 
 ROLE_CAPABILITIES: dict[str, frozenset[str]] = {
