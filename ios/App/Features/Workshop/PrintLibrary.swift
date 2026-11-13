@@ -253,7 +253,8 @@ struct SendToPrinterSheet: View {
                         Toggle("Record a time-lapse", isOn: $timelapse)
                     } footer: {
                         if let p = printer {
-                            if p.busy { Text("The \(p.name) is busy with \(p.job?.name ?? "a print"). Try again once it's done and the plate is clear.") }
+                            if p.watchOnly { Text("The \(p.name) is in watch-only mode, so it can't start prints from here yet. Send it from Bambu Studio or Handy, or turn on LAN Only and Developer Mode on the printer.") }
+                            else if p.busy { Text("The \(p.name) is busy with \(p.job?.name ?? "a print"). Try again once it's done and the plate is clear.") }
                             else if p.online == false { Text("The \(p.name) isn't connected right now.") }
                             else { Text("Make sure the plate is clear. Starting a print asks for Face ID.") }
                         }
@@ -265,7 +266,7 @@ struct SendToPrinterSheet: View {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     if grownUp {
-                        Button("Print") { start() }.disabled(busy || printer == nil || printer?.busy == true || printer?.online == false)
+                        Button("Print") { start() }.disabled(busy || printer == nil || printer?.busy == true || printer?.online == false || printer?.watchOnly == true)
                     } else {
                         Button("Ask a grown-up") { ask() }.disabled(busy)
                     }

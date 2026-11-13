@@ -56,7 +56,7 @@ def ws(hub):
     hub.vault.set("printer.h2s.host", "10.0.1.50")
     p = hub.workshop.get("h2s")
     p._client = FakeMQTT()
-    p.connected = True
+    p.connected, p.via = True, "lan"
     p.ingest(json.loads(json.dumps(H2_REPORT)))
     sent = []
 
@@ -217,3 +217,91 @@ def test_printer_without_keys_stays_off_house_status(hub):
     h = next(x for x in hub.workshop.health() if x["id"] == "printer_h2s")
     assert h["enabled"] is False and h["error"]
     assert not any(x["enabled"] and x["error"] == "Not set up yet" for x in hub.health())
+
+
+# -- watch only (no LAN Only / Developer Mode) and the Bambu account ---------------------
+def test_secured_printer_is_watch_only_until_developer_mode(ws, people, home_client):
+    dylan = people["phones"]["Dylan"]
+    p = ws.workshop.get("h2s")
+    mq = p._client
+    assert p.status()["control"] == "full" and p.status()["via"] == "lan"
+    p.ingest({"print": {"command": "push_status", "fun": "2000FFFF"}})  # bit 29 set: wants signed commands
+    s = p.status()
+    assert s["control"] == "watch" and "Developer Mode" in s["watch_reason"]
+    before = len(mq.sent)
+    r = _act(home_client, dylan, "printer.control", {"command": "pause"})
+    assert r.status_code == 409 and r.json()["error"] == "watch_only"
+    assert _act(home_client, dylan, "printer.temp", {"heater": "bed", "temp": 70}).status_code == 409
+    assert len(mq.sent) == before
+    # Bambu still allows the light.
+    assert _act(home_client, dylan, "printer.light", {"on": True}).status_code == 200
+    # Developer Mode on: the bit clears and controls come back by themselves.
+    p.ingest({"print": {"command": "push_status", "fun": "0000FFFF"}})
+    assert p.status()["control"] == "full"
+    assert _act(home_client, dylan, "printer.control", {"command": "pause"}).status_code == 200
+
+
+def test_flag3_and_refused_command_also_mean_watch_only(ws):
+    p = ws.workshop.get("h2s")
+    p.ingest({"print": {"command": "push_status", "fun": "", "flag3": 0x10000 | 7}})
+    assert p.control_mode == "watch"
+    p.ingest({"print": {"command": "push_status", "fun": "", "flag3": 7}})
+    assert p.control_mode == "full"
+    p.ingest({"print": {"command": "pause", "result": "failed", "reason": "mqtt message verify failed", "sequence_id": "9"}})
+    assert p.control_mode == "watch"
+
+
+def _jwt(exp: float) -> str:
+    import base64
+
+    part = base64.urlsafe_b64encode(json.dumps({"exp": exp}).encode()).decode().rstrip("=")
+    return f"e30.{part}.sig"
+
+
+async def test_bambu_account_sign_in_with_emailed_code(hub):
+    import time
+
+    import httpx
+    import respx
+
+    from hub import bambu_cloud as bc
+
+    c = hub.bambu_cloud
+    token = _jwt(time.time() + 90 * 86400)
+    with respx.mock(assert_all_called=False) as m:
+        login = m.post(f"{bc.API}/v1/user-service/user/login")
+        login.side_effect = [httpx.Response(200, json={"loginType": "verifyCode", "accessToken": ""}),
+                             httpx.Response(200, json={"accessToken": token, "refreshToken": "r1"})]
+        sent = m.post(f"{bc.API}/v1/user-service/user/sendemail/code").mock(return_value=httpx.Response(200, json={}))
+        m.get(f"{bc.API}/v1/design-user-service/my/preference").mock(return_value=httpx.Response(200, json={"uid": 1234}))
+        m.get(f"{bc.API}/v1/iot-service/api/user/bind").mock(return_value=httpx.Response(200, json={"devices": [
+            {"dev_id": "0938AB000000001", "name": "H2S", "dev_product_name": "H2S", "dev_access_code": "87654321",
+             "online": True}]}))
+        assert await c.start("dylan@example.com", "pw") == "code"
+        assert sent.called and c.waiting_for == "code"
+        with pytest.raises(bc.CloudError):
+            await c.finish("12")
+        await c.finish("123 456")
+    assert c.signed_in and c.mqtt_user == "u_1234" and hub.vault.get("bambu.refresh_token") == "r1"
+    assert not any("pw" == hub.vault.get(n) for n in hub.vault.names())  # the password isn't kept
+    p = hub.workshop.get("h2s")
+    # No LAN details typed in: the account supplies the serial and access code, and the hub watches via the cloud.
+    assert p.serial == "0938AB000000001" and p.access_code == "87654321"
+    assert p.missing() == [] and p.pick_way() == "cloud"
+    p.connected, p.via = True, "cloud"
+    p.ingest(json.loads(json.dumps(H2_REPORT)))
+    assert p.status()["control"] == "watch" and p.status()["via"] == "cloud"
+    # With an IP address the LAN comes first, and after three LAN failures it falls back to the account.
+    hub.vault.set("printer.h2s.host", "10.0.1.50")
+    assert p.pick_way() == "lan"
+    p._local_fails = 3
+    assert p.pick_way() == "cloud"
+    c.sign_out()
+    assert not c.signed_in and p.pick_way() is None  # serial and code came from the account
+
+
+def test_admin_page_shows_bambu_account(hub):
+    from hub.routes import admin_web
+
+    html_out = admin_web._bambu_html(hub, "x")
+    assert "Bambu account" in html_out and "/admin/bambu/sign-in" in html_out
