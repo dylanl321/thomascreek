@@ -5,8 +5,10 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
+from pydantic import BaseModel, Field
 
+from .. import testkeys
 from ..crypto import CryptoError
 from ..state import Hub
 from .deps import _token_from, hub
@@ -46,6 +48,29 @@ async def app_update(request: Request, build: int | None = Query(default=None, g
         info["update_available"] = bool(latest and latest > build)
         info["update_required"] = bool(info["min_build"] and build < info["min_build"])
     return info
+
+
+class Release(BaseModel):
+    build: int = Field(ge=1, le=10_000_000)
+    version: str | None = Field(default=None, max_length=20)
+
+
+@router.post("/release")
+async def app_release(body: Release, x_test_key: str | None = Header(default=None),
+                      h: Hub = Depends(hub)) -> dict[str, Any]:
+    """The Mac's upload script: TestFlight has finished processing `build`, tell the phones.
+
+    Signed with the Mac's test key (~/.thomascreek/test-key, made on the hub web page), which
+    must belong to an admin. Only ever raises the latest build, never lowers it.
+    """
+    row = testkeys.check(h, x_test_key or "")
+    person = h.db.person(row["person_id"]) if row else None
+    if not person or person.get("role") != "admin":
+        raise HTTPException(status_code=401, detail="Needs the Mac's test key")
+    changed = h.app_update.learn(body.build, body.version, source="upload")
+    h.db.log("app.release", "ok", person_id=person["id"], target=str(body.build),
+             params={"version": body.version, "changed": changed}, source="mac")
+    return {"changed": changed, **h.app_update.info()}
 
 
 # uname() machine names a Simulator reports instead of "iPhone17,2".

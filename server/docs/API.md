@@ -285,6 +285,10 @@ family phone on `testflight`/`appstore` reports a build newer than anything the 
 latest (`source: "phone"`), so the other phones see the Update banner even without the App Store Connect key.
 Test simulators, Simulator models and sandbox-push (Xcode) installs never count. Builds before 25 send no channel.
 
+`POST /v1/app/release` `{"build": 26, "version": "2.0"}` with header `X-Test-Key: tctest_…` (an admin's test key):
+the Mac's `ios/scripts/announce-build.sh` (run by `upload.sh`) calls this once TestFlight has finished processing
+an upload, so phones see the banner before anyone installs it (`source: "upload"`). It only ever raises the latest build.
+
 ```json
 {"latest_build": 17, "latest_version": "2.0", "released_at": "2026-11-12T16:00:00Z", "min_build": 15,
  "notes": null, "source": "testflight", "apple_id": "6700000001",

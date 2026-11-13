@@ -11,7 +11,7 @@ from typing import Any
 import httpx
 
 from ..config import ShowPlayerConfig
-from .base import Adapter, AdapterError
+from .base import Adapter, AdapterError, log
 
 FAVORITE_TAG = "Favorite"
 OVEN_TAG = "Oven"
@@ -421,7 +421,15 @@ class FamilyBoard(Adapter):
 
     async def calendar(self, days: int, tz: str = "America/New_York") -> dict[str, Any]:
         resp = await self.request("GET", "/api/export/calendar.ics", params={"days": days})
-        return {"events": parse_ics(resp.text, tz)}
+        events = parse_ics(resp.text, tz)
+        # The board's export leaves out a checkable item once someone ticks it off (it only lists
+        # open work), so a 9 AM activity vanished from Today the moment it was done. Its own plan
+        # for today still has it: put those back, marked done.
+        try:
+            events = merge_plan(events, (await self.get_json("/api/bootstrap")).get("family_plan") or {}, tz)
+        except Exception as exc:  # noqa: BLE001
+            log.info("board plan read failed: %s", exc)
+        return {"events": events}
 
 
 class BoardRefused(Exception):
@@ -507,6 +515,30 @@ def parse_ics(text: str, tz: str = "America/New_York") -> list[dict[str, Any]]:
         out.append({"id": e.get("id"), "title": title, "start": e.get("start"), "end": e.get("end"),
                     "who": who, "all_day": e.get("all_day", False), "location": e.get("location")})
     return out
+
+
+def merge_plan(events: list[dict[str, Any]], plan: dict[str, Any], tz: str = "America/New_York") -> list[dict[str, Any]]:
+    """Add today's calendar and schedule rows from the board's plan that the ICS export left out
+    (checked-off activities), keyed like the export's UIDs so nothing shows twice."""
+    day = plan.get("date")
+    if not day:
+        return events
+    seen = {e.get("id") for e in events}
+    added = []
+    for item in (plan.get("calendar") or []) + (plan.get("schedule") or []):
+        uid = f"{item.get('id')}-{day}@family-command-center"
+        if not item.get("id") or uid in seen:
+            continue
+        seen.add(uid)
+        t = str(item.get("time") or "").strip()
+        who = item.get("who")
+        added.append({"id": uid, "title": item.get("title") or "Board item",
+                      "start": f"{day}T{t[:5]}:00" if t else day, "end": None,
+                      "who": None if who in (None, "", "Whole family") else who,
+                      "all_day": not t, "location": None, "done": bool(item.get("completed"))})
+    if not added:
+        return events
+    return sorted(events + added, key=lambda e: _sort_key(e, tz))
 
 
 class ShowPlayer(Adapter):

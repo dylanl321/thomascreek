@@ -150,3 +150,27 @@ def test_phones_teach_the_hub_new_builds(hub, people, home_client, tmp_path):
     hub.db.update("devices", "id", dylan.device_id, {"apns_env": "sandbox"})
     home_client.get("/v1/app/update", params={"build": 40}, headers=dylan.h)
     assert home_client.get("/v1/app/update", params={"build": 21}).json()["latest_build"] == 24
+
+
+def test_upload_script_announces_a_build(hub, people, home_client, tmp_path):
+    """The Mac's upload script tells the hub once TestFlight has processed a build."""
+    from hub import testkeys
+    hub.app_update.path = tmp_path / "app_update.json"
+    hub.config.app_update.latest_build = 24
+    seen = []
+    hub.app_update.on_change = seen.append
+    body = {"build": 26, "version": "2.0"}
+    assert home_client.post("/v1/app/release", json=body).status_code == 401
+    assert home_client.post("/v1/app/release", json=body, headers={"X-Test-Key": "tctest_nope"}).status_code == 401
+    adult = next(p for p in hub.db.people() if p["role"] == "adult")
+    _, not_admin = testkeys.create(hub, adult["id"], "Lauren's Mac", created_by=people["dylan"]["id"])
+    assert home_client.post("/v1/app/release", json=body, headers={"X-Test-Key": not_admin}).status_code == 401
+    _, key = testkeys.create(hub, people["dylan"]["id"], "Mac", created_by=people["dylan"]["id"])
+    r = home_client.post("/v1/app/release", json=body, headers={"X-Test-Key": key})
+    assert r.status_code == 200 and r.json()["changed"] is True
+    j = home_client.get("/v1/app/update", params={"build": 25}).json()
+    assert j["latest_build"] == 26 and j["source"] == "upload" and j["update_available"] is True
+    assert len(seen) == 1
+    # Never lowers it.
+    r = home_client.post("/v1/app/release", json={"build": 25}, headers={"X-Test-Key": key})
+    assert r.json()["changed"] is False and r.json()["latest_build"] == 26

@@ -650,12 +650,18 @@ def r_today(sm: Smart, c: Ctx):
     events = sm.hub.home.calendar or []
     if not events:
         return None
+    # Every one of today's things, in order (the card used to stop at four while its title counted
+    # them all). Checked-off ones stay, marked done; UTC times are read in home time.
     items = []
-    for e in events[:4]:
-        st = _iso_local(e.get("start"))
+    for e in events:
+        st = _iso_local((e.get("start") or "").replace("Z", "+00:00"))
+        if st is not None and st.tzinfo is not None and c.now.tzinfo is not None:
+            st = st.astimezone(c.now.tzinfo)
         when = "all day" if e.get("all_day") or not st else clock(st.hour * 60 + st.minute)
-        items.append({"title": e.get("title") or "Event", "value": when})
+        items.append({"title": e.get("title") or "Event", "value": f"Done · {when}" if e.get("done") else when})
     n = len(events)
+    if n > 6:
+        items = items[:5] + [{"title": f"{n - 5} more", "value": "", "url": "thomascreek://calendar"}]
     return card(f"today:{c.today}", 62, "accent", "calendar", "Today", f"{n} thing{'s' if n != 1 else ''} today",
                 items=items, buttons=[sm.link("Calendar", "thomascreek://calendar")],
                 why="Morning: today's family calendar")
