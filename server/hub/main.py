@@ -18,6 +18,7 @@ from .db import DB
 from .routes import admin_web, alerts, appupdate, assistant, auth, cameras, family, home, household, kitchen, lights, me, media, media_requests, network, people, recipes, search, smart, trips, youtube
 from .routes.deps import http_error_handler
 from .state import Hub
+from .routes import sends as sends_routes
 from .vault import Vault, load_master_key
 
 log = logging.getLogger("hub")
@@ -110,6 +111,7 @@ def build_app(hub: Hub | None = None, *, start_background: bool = True) -> FastA
         resp.headers.setdefault("Cache-Control", "no-store")
         return resp
 
+    app.include_router(sends_routes.router)  # films and shows sent to the kids' iPads
     for r in (auth.router, alerts.router, home.router, people.router, media_requests.router, media.router, family.router, trips.router, network.router,
               cameras.router, kitchen.router, recipes.router, search.router, lights.router, appupdate.router, lights.pages, admin_web.api, admin_web.pages,
               assistant.router, youtube.router, smart.router, me.router, household.router, household.pages):

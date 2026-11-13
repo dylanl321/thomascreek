@@ -12,7 +12,14 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
             WatchBridge.shared.activate()
         }
         application.registerForRemoteNotifications()
+        SendsSync.registerBackgroundRefresh()
         return true
+    }
+
+    /// The hub's silent push: something was sent to this device (or taken off it).
+    func application(_ application: UIApplication, didReceiveRemoteNotification userInfo: [AnyHashable: Any]) async -> UIBackgroundFetchResult {
+        guard userInfo["cat"] as? String == "sends" else { return .noData }
+        return await SendsSync.shared.handlePush()
     }
 
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {

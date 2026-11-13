@@ -51,7 +51,9 @@ targets:
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
         UIRequiresFullScreen: true
-        UIBackgroundModes: [remote-notification]
+        UIBackgroundModes: [remote-notification, fetch]
+        # Background refresh: picks up films and shows a grown-up sent to this device (SendsSync).
+        BGTaskSchedulerPermittedIdentifiers: [me.dlewis.thomascreek.sends]
         NSSupportsLiveActivities: true
         NSSupportsLiveActivitiesFrequentUpdates: true
         NSLocationWhenInUseUsageDescription: Thomas Creek notices when you get home or leave, to check the doors and garage.

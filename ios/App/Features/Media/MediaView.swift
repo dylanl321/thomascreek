@@ -39,6 +39,9 @@ struct MediaView: View {
                     .padding(.horizontal, 14)
                     .background(Theme.card, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
                 }
+                if store.me?.role == .admin || store.me?.role == .adult {
+                    SectionTile(symbol: "ipad.and.arrow.forward", title: "Kids' iPads", detail: "Send shows and YouTube, see what's on them") { router.go(.kidsIPads) }
+                }
                 DownloadsEntry()
                 YouTubeShelf()
                 let tvs = store.home?.devices(kind: .media) ?? []
@@ -389,11 +392,16 @@ struct PlayOnSheet: View {
     @Environment(HomeStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     let item: MediaItem
+    @State private var sending: SendTarget?
     var body: some View {
         NavigationStack {
             List {
                 Section {
                     if let s = item.summary { Text(s).font(.subheadline).foregroundStyle(Theme.dim) }
+                    if store.me?.role == .admin || store.me?.role == .adult {
+                        Button { sending = SendTarget.from(item) } label: { Label("Send to kids' iPads", systemImage: "ipad.and.arrow.forward") }
+                            .sheet(item: $sending) { AddToIPadView(target: $0) }
+                    }
                 }
                 Section {
                     DownloadButton(item: item)

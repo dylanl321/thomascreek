@@ -185,6 +185,25 @@ Jellyseerr is the source of truth, so requests made on its website or from a Ple
 - `GET /v1/media/search` `requestable` now uses the discover item shape above (it used `MediaItem` with a string year, which the app couldn't decode).
 - "Ready to watch" push (`thomascreek://media/requests/{id}`) goes once per request to the person who asked, matched by the app's own record or by Jellyseerr display name = hub first name. Requests already ready when the hub first looks aren't announced.
 
+=======
+## Sending to the kids' iPads (`/v1/sends`)
+
+Grown-ups (admin, adult) pick a film, a show or YouTube and send it to someone's devices. The hub works
+out a *lineup* per person, prepares the files ahead (kept 7 days), and wakes the devices with a silent
+push (`{"aps":{"content-available":1},"cat":"sends"}`, push type `background`, priority 5).
+
+- `GET /v1/sends` (grown-ups): `{people:[{person, devices:[{id,name,model,reported_at,free_bytes,total_bytes,used_bytes,sent_bytes,holdings,can_wake}], sends:[{id,kind,ref,title,poster_url,scope,count,season,quality,from,state,detail,error,items:[{item_id,title,season,episode,ready,on:{device_id: state}}]}]}]}`. `state`: ready, preparing, waiting (request not on Plex yet), done (all watched), gone, empty, error.
+- `GET /v1/sends/choices?kind=show|title|youtube&ref=` (grown-ups): seasons, episode count, `bytes_per_episode` per quality.
+- `POST /v1/sends` `{person_ids, kind: title|show|youtube|request, ref, title?, poster_url?, scope?, count?, season?, quality: high|small|original}`.
+  - `title`: a Plex film/episode id or `yt-<video id>` (a Plex show id becomes a `show`).
+  - `show`: scope `next` (next `count` after the last one this person watched, topped up), `last` (newest `count`), `season` (`season`, or the newest), `all`.
+  - `youtube`: a channel/playlist link or a `yts_…` source id; newest `count` videos. The hub follows it and looks back at least `count`.
+  - `request`: `movie:<tmdb>` or `tv:<tmdb>`; waits until Plex has it, then becomes `title`/`show`.
+  Sending the same thing to the same person again updates it.
+- `PATCH /v1/sends/{id}` `{scope?, count?, season?, quality?}`, `DELETE /v1/sends/{id}`, `POST /v1/sends/sync {person_id?}` (top up now: recompute, prepare, wake).
+- `GET /v1/sends/mine` (any device): `{items:[{item_id,title,kind,poster_url,rating,summary,year,show,season,episode,duration_s,ready,send_id,quality,from,sent_at,watched}], active}`. Download each `ready` item with `POST /v1/media/{item_id}/download {quality}` (allowed even past a child's ratings); delete sent items not listed. A 503 means "couldn't check": keep everything.
+- `POST /v1/sends/inventory` `{items:[{item_id,title,quality,state,progress,bytes,watched,sent,error}], free_bytes, total_bytes}`: what this device holds. `watched` moves `next` shows along.
+
 ## Smart "Right now" cards
 
 `GET /v1/home` now carries `weather` ({temp, condition, symbol, high, low, sunrise, sunset}) and `smart`, a list of

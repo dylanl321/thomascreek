@@ -39,7 +39,7 @@ def yt(hub, tmp_path, monkeypatch):
     hub.youtube = YouTube(hub, tmp_path / "youtube")
     feed = {"videos": [_entry(i) for i in range(3)]}
 
-    async def lookup(link):
+    async def lookup(link, latest=None):
         return {"kind": link["kind"], "url": link["url"], "yt_id": "UCmark" if link["kind"] == "channel" else link["id"],
                 "title": "Mark Rober" if link["kind"] == "channel" else "Video 0", "channel": "Mark Rober",
                 "channel_id": "UCmark", "thumb": None, "followers": 1,

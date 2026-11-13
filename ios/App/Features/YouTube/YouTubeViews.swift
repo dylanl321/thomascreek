@@ -519,6 +519,7 @@ struct YouTubeAddSheet: View {
 struct YouTubeManageView: View {
     @Environment(HomeStore.self) private var store
     @State private var refreshing = false
+    @State private var sendTo: SendTarget?
     private let yt = YouTubeStore.shared
 
     var body: some View {
@@ -544,6 +545,13 @@ struct YouTubeManageView: View {
                                 .font(.caption).foregroundStyle(Theme.dim)
                             if let e = s.lastError { Text(e).font(.caption).foregroundStyle(Theme.warn) }
                         }
+                    }
+                    .swipeActions(edge: .leading) {
+                        Button { sendTo = SendTarget(kind: .youtube, ref: s.kind == "video" ? "yt-\(yt.videos(of: s).first?.videoId ?? "")" : s.id,
+                                                    title: s.title, posterUrl: s.pictureUrl) } label: {
+                            Label("Send to iPads", systemImage: "ipad.and.arrow.forward")
+                        }
+                        .tint(Theme.kid)
                     }
                     .swipeActions {
                         Button("Remove", role: .destructive) { Task { _ = await yt.delete("/v1/youtube/sources/\(s.id)") } }
@@ -576,6 +584,7 @@ struct YouTubeManageView: View {
             }
         }
         .navigationTitle("Kids' YouTube")
+        .sheet(item: $sendTo) { AddToIPadView(target: $0) }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button { Task { refreshing = true; _ = try? await HubClient.shared.send("/v1/youtube/refresh"); await yt.load(); refreshing = false } } label: {

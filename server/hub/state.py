@@ -27,6 +27,7 @@ from .config import Config
 from .crypto import TokenIssuer
 from .db import DB
 from .downloads import Downloads
+from .sends import Sends
 from .youtube import YouTube
 from .events import EventBus
 from .home import HomeModel
@@ -80,6 +81,7 @@ class Hub:
         self.downloads = Downloads(self, (Path(db._path).parent if db._path != ":memory:" else Path("/tmp")) / "downloads")
         data = Path(db._path).parent if db._path != ":memory:" else Path("/tmp")
         self.youtube = YouTube(self, data / "youtube")
+        self.sends = Sends(self)
         self.notify = Notifier(self)
         self.alerts = Alerts(self)
         self.actions = ActionRunner(self)
@@ -225,6 +227,7 @@ class Hub:
         self.home.start()
         self.timers.start()
         self.youtube.start()
+        self.sends.start()
         self.kitchen.start()
         self.smart.start()
         self.alerts.start()
@@ -301,6 +304,7 @@ class Hub:
         await self.home.stop()
         await self.timers.stop()
         await self.youtube.stop()
+        await self.sends.stop()
         await self.kitchen.stop()
         await self.smart.stop()
         await self.alerts.stop()

@@ -313,6 +313,7 @@ struct KidWatchView: View {
         let little = store.me?.style == .little
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
+                SentShelf(tint: little ? Theme.little : Theme.kid)
                 DownloadsEntry(tint: little ? Theme.little : Theme.kid)
                 YouTubeShelf(tint: little ? Theme.little : Theme.kid)
                 if !items.isEmpty { SectionHeader(little ? "Movies and shows" : "Rated for you") }

@@ -157,6 +157,7 @@ struct DestinationView: View {
         case .watch: WatchView()
         case .requests: RequestsView()
         case .pipeline: PipelineView()
+        case .kidsIPads: KidsIPadsView()
         case .askMedia: AskMediaView()
         case .mediaTitle(let id): MediaTitleView(mediaId: id)
         case .mediaRequest(let id): MediaRequestView(requestID: id)
