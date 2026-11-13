@@ -14,7 +14,8 @@ from ..home import iso
 from ..notify import CATEGORIES, DEFAULT_PREFS, Notifier
 from ..policy import ROLES
 from ..state import Hub
-from ..vpn import VpnError
+from ..vpn import VpnError, valid_wg_key
+from ..vpn_pia import PiaError
 from .deps import Caller, caller, error, hub, need, require_confirm
 
 router = APIRouter(prefix="/v1", tags=["people"])
@@ -399,8 +400,11 @@ async def systems(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[st
 
 # -- VPN -----------------------------------------------------------------
 class VpnBody(BaseModel):
-    # Required for the hub's own WireGuard; ignored with a pooled (Firewalla) config.
+    # Required for the hub's own WireGuard and for Private; ignored with a pooled (Firewalla) config.
     wg_public_key: str | None = Field(default=None, max_length=64)
+    # "home" (the Firewalla, the default for older app builds) or "private" (PIA).
+    exit: str = Field(default="home", pattern="^(home|private)$")
+    region: str | None = Field(default=None, max_length=64, pattern="^[A-Za-z0-9_.-]+$")
 
 
 class PoolBody(BaseModel):
@@ -427,18 +431,50 @@ async def vpn_pool_add(body: PoolBody, request: Request, c: Caller = Depends(cal
     return {"name": name, "clients": h.vpn.pool_status()}
 
 
+@router.get("/vpn/exits")
+async def vpn_exits(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """The VPN buttons this person gets, and for Private the regions the app times to find the nearest."""
+    private = h.pia.allowed(c.subject.role)
+    out: dict[str, Any] = {"exits": [
+        {"id": "home", "available": h.vpn.enabled},
+        {"id": "private", "available": private, "provider": "pia"},
+    ]}
+    if private:
+        try:
+            out["regions"] = await h.pia.public_regions()
+        except PiaError as exc:
+            out["exits"][1]["available"] = False
+            out["exits"][1]["problem"] = str(exc)
+    return out
+
+
 @router.post("/vpn/config")
 async def vpn_config(body: VpnBody, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
     if c.device["status"] != "active":
         raise error(403, "pending", "Waiting for Dylan to say whose device this is")
     if c.device.get("kind") == "test":
         raise error(403, "test_device", "Test simulators don't get a VPN client")
+    if body.exit == "private":
+        if not h.pia.allowed(c.subject.role):
+            raise error(403 if h.pia.configured else 503, "vpn_unavailable",
+                        "Private VPN isn't set up for you" if h.pia.configured else "Private VPN isn't set up yet")
+        if not body.wg_public_key or not valid_wg_key(body.wg_public_key):
+            raise error(400, "bad_key", "wg_public_key must be a base64 Curve25519 public key")
+        try:
+            cfg = await h.pia.config_for(body.wg_public_key, body.region)
+        except PiaError as exc:
+            h.db.log("vpn.config", "error", person_id=c.subject.person_id, device_id=c.device["id"], target="private")
+            raise error(502, "vpn_provider", str(exc)) from None
+        cfg["home_ssids"] = h.config.vpn.home_ssids
+        h.db.log("vpn.config", "ok", person_id=c.subject.person_id, device_id=c.device["id"],
+                 target=f"private:{cfg['region']['id']}")
+        return cfg
     try:
         cfg = h.vpn.config_for(c.device, body.wg_public_key)
     except VpnError as exc:
         raise error(503 if not h.vpn.enabled else 400, "vpn_unavailable", str(exc)) from None
     h.db.log("vpn.config", "ok", person_id=c.subject.person_id, device_id=c.device["id"])
-    return cfg
+    return {**cfg, "exit": "home"}
 
 
 @router.post("/push/test")

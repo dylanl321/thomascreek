@@ -256,6 +256,23 @@ A client named for a person (`vpn.pool.lauren`) is kept for that person; numbere
 go to anyone.
 A phone connecting through the tunnel counts as "away" (so cameras still ask for Face ID).
 
+### Private (PIA)
+
+The app's second VPN button. The PIA login lives only in the vault (`vpn.pia.username`,
+`vpn.pia.password`, from 1Password); phones never see it or the PIA token.
+
+`GET /v1/vpn/exits` -> `{exits:[{id:"home", available}, {id:"private", available, provider:"pia", problem?}],
+regions?:[{id, name, country, auto, probe:"ip:1337"}]}`. `regions` only when Private is available to this
+person (`vpn.pia.roles`, default admin and adult). The app times a TCP connect to each `auto` region's
+`probe` and asks for the fastest.
+
+`POST /v1/vpn/config {exit:"private", wg_public_key, region?}` -> the same shape as above (no
+`private_key`: the phone uses its own), plus `exit` and `region:{id, name, country}`. Everything is
+routed through PIA (`allowed_ips` 0.0.0.0/0 and ::/0). The hub signs in to PIA (24-hour token), calls
+`addKey` on a server in that region, and returns its settings. PIA forgets keys, so the app asks again on
+every Connect. 403 `vpn_unavailable` for a role without Private, 503 until the login is in the vault,
+502 `vpn_provider` when PIA refuses. `exit` defaults to `"home"`, so older app builds are unchanged.
+
 ## App updates
 
 `GET /v1/app/update?build=16&version=2.0` (no sign-in needed; with a token the hub records the phone's build for the web page)

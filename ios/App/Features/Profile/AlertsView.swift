@@ -29,8 +29,10 @@ struct AlertsReply: Codable {
         var quiet: Quiet
         var network: [String: Bool]?
         var kids: [String: Bool]?
+        /// Official weather alerts (NWS, DWD): warnings, watches, advisories, trips. Not paused by the switch above.
+        var weather: [String: Bool]?
         enum CodingKeys: String, CodingKey {
-            case on, doorbell, package, cameras, garage, hazards, entities, automations, quiet, network, kids
+            case on, doorbell, package, cameras, garage, hazards, entities, automations, quiet, network, kids, weather
             case skipKnown = "skip_known", onlyAway = "only_away", gapS = "gap_s", awayDoors = "away_doors"
         }
     }
@@ -295,6 +297,17 @@ struct AlertsView: View {
             }
         }
         .disabled(!(model.reply?.prefs.on ?? true))
+
+        if r.grownUp {
+            Section {
+                Toggle(isOn: sub("weather", \.weather, "warnings")) { row("Warnings", "Severe storms, tornadoes, floods, winter storms. These ring.", "exclamationmark.triangle") }
+                Toggle(isOn: sub("weather", \.weather, "watches")) { row("Watches", "Conditions are right for something serious. Quiet.", "eye") }
+                Toggle(isOn: sub("weather", \.weather, "advisories")) { row("Advisories", "Wind, frost, fog and the like. Quiet.", "info.circle") }
+                Toggle(isOn: sub("weather", \.weather, "trips")) { row("Where we're travelling", "Warnings for a trip that's under way", "airplane") }
+            } header: { Text("Weather") } footer: {
+                Text("From the National Weather Service at home and the German weather service (DWD) on a trip there. Tornado, flash flood and extreme-wind warnings ring even in quiet hours.")
+            }
+        }
 
         Section {
             NavigationLink { AlertHistoryList(close: {}).navigationTitle("History").navigationBarTitleDisplayMode(.inline) } label: {

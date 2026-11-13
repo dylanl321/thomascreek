@@ -116,6 +116,7 @@ struct KidHomeView: View {
         HStack(spacing: 10) {
             KidActionTile(emoji: "🙋", title: "Ask a parent", color: color) { asking = true }
             KidActionTile(emoji: "🎁", title: "Rewards", color: .orange) { router.show(.chores) }
+            KidActionTile(emoji: Wx.emoji(nil), title: "Weather", color: .teal) { router.go(.weather) }
         }
         let todo = (board?.items ?? []).filter { !$0.done }
         if !todo.isEmpty {
@@ -156,6 +157,7 @@ struct KidHomeView: View {
             BigPictureButton(emoji: "⭐", title: "Jobs \(board?.doneCount ?? 0)/\(board?.items.count ?? 0)", colors: [.pink, Theme.little]) { router.show(.chores) }
             BigPictureButton(emoji: "🎁", title: "Prizes", colors: [.orange, .yellow]) { router.show(.chores) }
             BigPictureButton(emoji: "🙋", title: "Ask a grown-up", colors: [.teal, .green]) { asking = true }
+            BigPictureButton(emoji: "🌤️", title: "Weather", colors: [.cyan, .blue]) { router.go(.weather) }
             if store.holidaySeason {
                 BigPictureButton(emoji: "✨", title: "Light show", colors: [.purple, Color(red: 0.23, green: 0.16, blue: 0.56)]) { router.go(.holiday) }
             }
@@ -453,6 +455,7 @@ struct KidChoresView: View {
             if store.me?.style == .little { Speaker.say("Great job!") }
             if sent { await load() } else { markDoneOffline(c); store.show("Ticked!", "It's sent when home is back") }
             AppSettings.refreshSurfaces()
+            if let b = board, !b.items.isEmpty, b.doneCount == b.items.count { CatDirector.shared.perform(.celebrate) }
         } catch { store.show(error.localizedDescription, isError: true) }
     }
 

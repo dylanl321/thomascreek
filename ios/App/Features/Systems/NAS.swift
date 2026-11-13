@@ -211,7 +211,7 @@ struct NASView: View {
     }
 
     private func load() async {
-        do { o = try await HubClient.shared.get("/v1/nas", as: NASOverview.self); failed = nil }
+        do { o = try await HubClient.shared.get("/v1/nas", as: NASOverview.self, timeout: NASTimeout.slow); failed = nil }
         catch { failed = error.localizedDescription }
     }
 
@@ -456,7 +456,7 @@ struct NASAppsView: View {
     }
 
     private func load() async {
-        do { apps = (try await HubClient.shared.get("/v1/nas/apps", as: NASAppList.self)).apps; failed = nil }
+        do { apps = (try await HubClient.shared.get("/v1/nas/apps", as: NASAppList.self, timeout: NASTimeout.slow)).apps; failed = nil }
         catch { failed = error.localizedDescription }
     }
 
@@ -557,7 +557,7 @@ struct NASAppView: View {
     }
 
     private func load() async {
-        do { app = try await HubClient.shared.get("/v1/nas/apps/\(name)", as: NASApp.self); failed = nil }
+        do { app = try await HubClient.shared.get("/v1/nas/apps/\(name)", as: NASApp.self, timeout: NASTimeout.slow); failed = nil }
         catch { failed = error.localizedDescription }
     }
 
@@ -719,7 +719,7 @@ struct NASLogsView: View {
     private func load() async {
         var q = ["tail": "400"]
         if let container { q["container"] = container }
-        do { logs = try await HubClient.shared.get("/v1/nas/apps/\(app)/logs", q, as: NASLogs.self); failed = nil }
+        do { logs = try await HubClient.shared.get("/v1/nas/apps/\(app)/logs", q, as: NASLogs.self, timeout: NASTimeout.slow); failed = nil }
         catch HubClient.HubError.cancelled {}
         catch { failed = error.localizedDescription }
     }
@@ -790,7 +790,7 @@ struct NASUpdatesView: View {
         }
     }
 
-    private func load() async { apps = (try? await HubClient.shared.get("/v1/nas/apps", as: NASAppList.self))?.apps }
+    private func load() async { apps = (try? await HubClient.shared.get("/v1/nas/apps", as: NASAppList.self, timeout: NASTimeout.slow))?.apps }
 }
 
 // MARK: - Settings
@@ -857,7 +857,7 @@ struct NASSettingsView: View {
         .nasAwayAsk(acts, store)
     }
 
-    private func load() async { o = try? await HubClient.shared.get("/v1/nas", as: NASOverview.self) }
+    private func load() async { o = try? await HubClient.shared.get("/v1/nas", as: NASOverview.self, timeout: NASTimeout.slow) }
 }
 
 // MARK: - Away warning
@@ -877,3 +877,7 @@ private struct NASAwayAsk: ViewModifier {
 extension View {
     func nasAwayAsk(_ acts: NASActions, _ store: HomeStore) -> some View { modifier(NASAwayAsk(acts: acts, store: store)) }
 }
+
+/// TrueNAS answers slowly (the overview asks it for pools, disks, alerts and apps), so its screens wait longer
+/// than the usual 10 seconds before saying home can't be reached.
+enum NASTimeout { static let slow: TimeInterval = 45 }

@@ -450,7 +450,7 @@ class HomeModel:
             "today": {"events": self.calendar if policy.has(s, "family.view") else [],
                       "dinner": self.dinner},
             "seasonal": {"holiday_lights": month in (11, 12, 1)},
-            "weather": self.hub.smart.weather.now(),
+            "weather": self._weather_now(s),
             "smart": self._smart_cards(s),
         }
         if self.hub.workshop.enabled and (policy.has(s, "appliances") or s.role == "child"):
@@ -516,6 +516,20 @@ class HomeModel:
         if issues:
             return {"level": "attention", "line": "; ".join(issues[:3])}
         return {"level": "ok", "line": "Everything looks good"}
+
+    def _weather_now(self, s) -> dict[str, Any] | None:
+        """The date-line weather, plus the most serious official alert for the house (warnings only for kids)."""
+        w = self.hub.smart.weather.now()
+        alerts = self.hub.forecasts.cached_home_alerts()
+        if s.role == "child":
+            alerts = [a for a in alerts if a["level"] == "warning"]
+        alerts = [a for a in alerts if a["level"] != "statement"]
+        if alerts:
+            w = dict(w or {})
+            w["alert"] = {"id": alerts[0]["id"], "event": alerts[0]["event"], "level": alerts[0]["level"]}
+            if len(alerts) > 1:
+                w["alert_count"] = len(alerts)
+        return w
 
     def systems_card(self) -> dict[str, Any]:
         s = self.systems or {}

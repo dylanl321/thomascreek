@@ -91,6 +91,7 @@ struct MainTabs: View {
         .tabViewStyle(.sidebarAdaptable)
         }
         .familyWelcome()
+        .onAppear { CatDirector.shared.install() }
         .kidBedtime()
         .tellDylan()
         .animation(.spring(duration: 0.3), value: store.previewing)
@@ -106,6 +107,7 @@ struct MainTabs: View {
         .sheet(isPresented: $router.showInbox) { InboxView().personalStyle() }
         .sheet(isPresented: $router.showSearch) { SearchView().personalStyle() }
         .sheet(isPresented: $router.showProfile) { ProfileView().personalStyle() }
+        .sheet(isPresented: $router.showVPN) { NavigationStack { VPNView() }.personalStyle() }
         .sheet(isPresented: $router.showEditHome) { EditHomeSheet().personalStyle() }
         .sheet(isPresented: $router.showViewAs) { ViewAsSheet().personalStyle() }
         .sheet(isPresented: $router.showOffline) {
@@ -195,6 +197,10 @@ struct DestinationView: View {
         case .guestPasses: GuestPassesView()
         case .bedtimes: BedtimesView()
         case .feedback: FeedbackListView()
+        case .weather: WeatherView()
+        case .weatherAlert(let id): WeatherAlertView(alertID: id)
+        case .weatherRadar: WeatherRadarView()
+        case .weatherOutlook: WeatherOutlookView()
         }
     }
 }

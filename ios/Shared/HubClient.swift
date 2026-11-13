@@ -117,8 +117,9 @@ actor HubClient {
     /// GET a reply, saving a copy for offline use. When home can't be reached (or the service behind
     /// the hub is down), the saved copy is returned instead. `keep` files it with the copies that
     /// aren't trimmed (trips that are coming up).
-    func get<T: Decodable>(_ path: String, _ query: [String: String] = [:], keep: Bool = false, as: T.Type = T.self) async throws -> T {
-        try await fetch(path, query, keep: keep, as: T.self).value
+    func get<T: Decodable>(_ path: String, _ query: [String: String] = [:], keep: Bool = false, as: T.Type = T.self,
+                           timeout: TimeInterval? = nil) async throws -> T {
+        try await fetch(path, query, keep: keep, as: T.self, timeout: timeout).value
     }
 
     /// Like `get`, and says whether the answer is a saved copy (and from when).
@@ -126,13 +127,13 @@ actor HubClient {
     private var showedSaved = false
 
     func fetch<T: Decodable>(_ path: String, _ query: [String: String] = [:], keep: Bool = false,
-                             as: T.Type = T.self) async throws -> (value: T, savedAt: Date?) {
+                             as: T.Type = T.self, timeout: TimeInterval? = nil) async throws -> (value: T, savedAt: Date?) {
         // A preview's answers belong to someone else: never save them over this phone's own copies.
         let cacheable = OfflineCache.cacheable(path) && Self.viewAs == nil
         let data: Data
         var savedAt: Date?
         do {
-            data = try await raw("GET", path, query: query)
+            data = try await raw("GET", path, query: query, timeout: timeout)
             if cacheable { OfflineCache.store(data, path: path, query: query, keep: keep) }
         } catch let e as HubError {
             switch e {

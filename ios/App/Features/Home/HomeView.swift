@@ -57,6 +57,7 @@ struct HomeView: View {
         switch s {
         case .whosHome: WhosHomeRow()
         case .rightNow: RightNowSection()
+        case .weather: HomeWeatherCard()
         case .status:
             if !store.reachable {
                 // Everyone sees the offline strip; Dylan also gets the likely cause.
@@ -127,6 +128,7 @@ struct HeroHeader: View {
                 Image("HomeHeader").resizable().scaledToFill()
             }
             .frame(height: height).frame(maxWidth: .infinity).clipped()
+            .onLongPressGesture(minimumDuration: 0.7) { CatDirector.shared.perform(.briDash) }
             LinearGradient(colors: [.black.opacity(0.35), .clear], startPoint: .top, endPoint: .center)
             VStack(alignment: .leading, spacing: 0) {
                 if store.me?.dryRun == true {
@@ -141,6 +143,7 @@ struct HeroHeader: View {
             .padding(.horizontal, 18)
             .padding(.top, 62) // clears the avatar / 3D / bell row
         }
+        .catLedge()
         .overlay(alignment: .top) {
             HStack {
                 Button { router.showProfile = true } label: {
@@ -523,7 +526,7 @@ struct VPNNotice: View {
             .background(Theme.card, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(connected ? Theme.accent : Theme.line, lineWidth: connected ? 1.5 : 1))
             .contentShape(Rectangle())
-            .onTapGesture { router.showProfile = true }
+            .onTapGesture { router.showVPN = true }
             .task { await vpn.refreshStatus() }
             .accessibilityElement(children: .contain)
             .accessibilityLabel("VPN, \(title(vpn))")
@@ -540,11 +543,13 @@ struct VPNNotice: View {
     }
     private func detail(_ vpn: VPN) -> String {
         if let p = vpn.problem { return p }
-        if vpn.status == .connected { return "Home traffic goes through Thomas Creek's tunnel" }
+        if vpn.status == .connected {
+            return vpn.exit == .home ? "Home · home traffic goes through the tunnel" : "Private · PIA \(vpn.regionName ?? "nearest region")"
+        }
         return switch vpn.mode {
-        case .off: vpn.isSetUp ? "Tap Connect to reach home from anywhere" : "Tap Connect once at home to set it up"
-        case .away: "Connects by itself when you leave home Wi-Fi"
-        case .always: "Set to always on; it should connect shortly"
+        case .off: vpn.exit == .private ? "Private · tap Connect" : (vpn.isSetUp ? "Home · tap Connect to reach home from anywhere" : "Tap Connect once at home to set it up")
+        case .away: "\(vpn.exit.title) · connects by itself when you leave home Wi-Fi"
+        case .always: "\(vpn.exit.title) · always on; it should connect shortly"
         }
     }
 }

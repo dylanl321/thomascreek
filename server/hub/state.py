@@ -42,6 +42,7 @@ from .bambu_cloud import BambuCloud
 from .timers import Timers
 from .vault import Vault
 from .vpn import Vpn
+from .vpn_pia import Pia
 
 log = logging.getLogger("hub")
 
@@ -76,6 +77,7 @@ class Hub:
         self.apns = APNs(config.apns, vault)
         self.onepassword = OnePasswordSync(config.onepassword, vault)
         self.vpn = Vpn(config.vpn, vault, db)
+        self.pia = Pia(config.vpn.pia, vault)
         self.home = HomeModel(self)
         self.app_update = AppUpdates(config.app_update, vault,
                                      Path(db._path).parent / "app_update.json" if db._path != ":memory:" else None)
@@ -92,6 +94,10 @@ class Hub:
         self.bambu_cloud = BambuCloud(self)
         self.workshop = Workshop(self, config.printers, data / "printers")
         self.smart = Smart(self)
+        from .forecast import AlertWatch, Forecasts
+
+        self.forecasts = Forecasts(self, data / "radar")
+        self.wx_watch = AlertWatch(self.forecasts)
         self.settings = PersonSettings(self)
         self.assistant = Assistant(self)
         self.household = Household(self)
@@ -313,6 +319,7 @@ class Hub:
         await self.kitchen.stop()
         await self.workshop.stop()
         await self.smart.stop()
+        await self.forecasts.close()
         await self.alerts.stop()
         await self.household.stop()
         await self.onepassword.stop()

@@ -65,6 +65,8 @@ DEFAULT_PREFS: dict[str, Any] = {
     "network": {"new_device": True, "security": True, "internet": True, "vpn": False, "offline": False},
     # Firewalla alarms about the kids' devices (parents).
     "kids": {"adult": True, "bedtime": True, "gaming": False, "video": False, "bandwidth": False},
+    # Official weather alerts (NWS at home, DWD on a trip in Germany). Grown-ups only; on by default.
+    "weather": {"warnings": True, "watches": True, "advisories": False, "trips": True},
     "quiet": {"on": False, "from": "22:00", "to": "06:30", "ring_urgent": True},
 }
 DEFAULT_CAMERA_WORDS = ("frontdoor", "front_door", "sidedoor", "side_door")
@@ -119,7 +121,7 @@ class Alerts:
             out["quiet"] = {"on": True, "from": "21:00", "to": "07:00", "ring_urgent": False}
             out["hazards"] = False
         for k, v in (saved or {}).items():
-            if k in ("quiet", "network", "kids") and isinstance(v, dict):
+            if k in ("quiet", "network", "kids", "weather") and isinstance(v, dict):
                 out[k].update(v)
             elif k in out:
                 out[k] = v
@@ -147,7 +149,7 @@ class Alerts:
                 ents = dict(cur.get("entities") or {})
                 ents.update({e: bool(on) for e, on in v.items() if e in offered})
                 cur[k] = {e: on for e, on in ents.items() if e in offered}
-            elif k in ("network", "kids") and isinstance(v, dict):
+            elif k in ("network", "kids", "weather") and isinstance(v, dict):
                 cur[k] = {**cur[k], **{kk: vv for kk, vv in v.items() if kk in cur[k] and isinstance(vv, bool)}}
             elif k == "quiet" and isinstance(v, dict):
                 q = dict(cur["quiet"])
@@ -268,7 +270,7 @@ class Alerts:
         return True
 
     # -- history: every alert, pushed or not ----------------------------------
-    HISTORY_KINDS = ("camera", "package", "doorbell", "house", "doors", "kids", "network", "media")
+    HISTORY_KINDS = ("camera", "package", "doorbell", "house", "doors", "kids", "network", "media", "weather")
     KEEP_DAYS = 30
 
     def record(self, kind: str, title: str, body: str | None, people: list[dict[str, Any]], *,
