@@ -486,8 +486,10 @@ struct KidActionTile: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 10) {
-                Text(emoji).font(.system(size: 30))
+                Text(emoji).font(.system(size: 28))
+                // Never break a word across lines ("Rewa rds"): shrink to fit instead.
                 Text(title).font(Theme.kidFont(18, .semibold)).foregroundStyle(.white)
+                    .lineLimit(1).minimumScaleFactor(0.5).allowsTightening(true)
                 Spacer(minLength: 0)
             }
             .padding(14).frame(maxWidth: .infinity, minHeight: 64)

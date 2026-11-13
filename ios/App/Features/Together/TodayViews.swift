@@ -38,6 +38,12 @@ struct WhosHomeRow: View {
         .task { await family.load() }
     }
 
+    /// In View as, "You" is the person being previewed (the family list may still be the admin's own copy).
+    private func isMe(_ p: FamilyMember) -> Bool {
+        if let v = HubClient.viewAs { return p.id == v }
+        return p.me == true
+    }
+
     private func face(_ p: FamilyMember) -> some View {
         VStack(spacing: 5) {
             ZStack(alignment: .bottomTrailing) {
@@ -49,7 +55,7 @@ struct WhosHomeRow: View {
                         .padding(4).background(Color.green, in: Circle()).offset(x: 3, y: 3)
                 }
             }
-            Text(p.me == true ? "You" : p.first).font(.caption.weight(.medium)).foregroundStyle(p.home == false ? Theme.dim : Theme.fg)
+            Text(isMe(p) ? "You" : p.first).font(.caption.weight(.medium)).foregroundStyle(p.home == false ? Theme.dim : Theme.fg)
         }
         .frame(minWidth: 52)
         .accessibilityElement(children: .ignore)
