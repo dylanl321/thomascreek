@@ -11,6 +11,12 @@ struct HouseView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 sections
+                if store.me?.can(.climateAll) == true, !thermostats.isEmpty {
+                    SectionHeader("Thermostats", live: true)
+                    LazyVGrid(columns: grid, spacing: 10) {
+                        ForEach(thermostats) { DeviceTile(device: $0) }
+                    }
+                }
                 ForEach(store.home?.floors ?? []) { floor in
                     SectionHeader(floor.name, live: true)
                     LazyVGrid(columns: grid, spacing: 10) {
@@ -59,6 +65,11 @@ struct HouseView: View {
                 SectionTile(symbol: "printer.fill", title: "Workshop", detail: printersLine) { router.go(.workshop) }
             }
         }
+    }
+
+    /// Each thermostat on House itself; a tap opens its history with the controls on top.
+    private var thermostats: [DeviceItem] {
+        (store.home?.devices(kind: .climate) ?? []).filter { $0.available != false && $0["available"]?.bool != false }
     }
 
     private var climateLine: String {
