@@ -10,6 +10,8 @@ enum AppTab: String, Hashable {
 /// Every screen a deep link, notification or card can open.
 enum Destination: Hashable {
     case room(String)
+    /// The dollhouse page for a room that has a model. The existing room screen stays on `.room`.
+    case dollhouse(String)
     case climate, climateHistory(String), doors, cameras, camera(String), cameraEvent(String), appliances, outdoor, workshop, printLibrary
     case holiday, holidayControllers, house3D
     case remote(String), music, watch, requests, pipeline, askMedia, mediaTitle(String), mediaRequest(String)
@@ -132,7 +134,7 @@ final class Router {
         case .device(let id):
             guard let dev = store.home?.device(id) else { return false }
             return !kid && store.role != .guest && Self.deviceAllowed(dev, me)
-        case .room: return !kid && store.role != .guest
+        case .room, .dollhouse: return !kid && store.role != .guest
         case .person: return store.role.isGrownUp
         case .camera, .cameraEvent, .cameras: return me?.can(.cameras) == true
         case .doors: return me?.can(.doors) == true
@@ -184,6 +186,9 @@ final class Router {
         case "controllers": show(.house, .holidayControllers)
         case "alerts", "inbox": showInbox = true
         case "room": if parts.count > 1 { kid ? show(.myRoom) : show(.house, .room(parts[1])) }
+        case "dollhouse", "living-room", "livingroom":
+            let id = parts.count > 1 ? parts[1] : "living_room"
+            kid ? show(.myRoom) : show(.house, .dollhouse(id))
         case "camera": if parts.count > 1 { show(.house, .camera(parts[1])) } else { show(.house, .cameras) }
         case "doors", "garage": show(.house, .doors)
         case "kitchen", "oven": kid ? show(.home) : show(.family, .kitchen(parts.count > 1 ? parts[1] : nil))

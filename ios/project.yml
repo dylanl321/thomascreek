@@ -26,6 +26,9 @@ targets:
     sources:
       - App
       - Shared
+      # Dollhouse models, devices.json and the editable hub mapping. A folder reference keeps the paths.
+      - path: Rooms
+        type: folder
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(BUNDLE_ID)

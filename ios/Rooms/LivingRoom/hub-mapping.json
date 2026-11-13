@@ -1,0 +1,70 @@
+{
+  "room_id": "living_room",
+  "title": "Living Room",
+  "climate_entity_id": null,
+  "notes": "Dollhouse device names (the keys below) come from devices.json. The model file calls this corner \"den\"; the hub room id is living_room. Entity ids are the ones the Home Assistant scenes actually call. Presets on this page set these entities to match devices.json. They do not run the related scenes, because those scenes are not the same set: scene.living_room_all_on leaves the Frame off, and scene.living_room_night does not know about a cabinet light. Edit an id here when a device is renamed. An empty entities list means the model can still show that device, and the hub is not called.",
+  "devices": {
+    "shelf_lights": {
+      "entities": [
+        {"id": "light.book_shelves_light_2", "action": "light.set"}
+      ]
+    },
+    "soffit_downlights": {
+      "entities": [
+        {"id": "light.living_room_book_shelves_overhead", "action": "light.set"}
+      ]
+    },
+    "sconce": {
+      "entities": [
+        {"id": "light.living_room_sconces", "action": "light.set"}
+      ]
+    },
+    "table_lamp": {
+      "entities": [
+        {"id": "light.living_room_couch_lamp", "action": "light.set"},
+        {"id": "light.living_room_couch_lamp_2", "action": "light.set"}
+      ]
+    },
+    "chandelier": {
+      "entities": [
+        {"id": "light.living_room_chandelier", "action": "light.set"}
+      ]
+    },
+    "cabinet_light": {
+      "entities": []
+    },
+    "fireplace": {
+      "entities": []
+    },
+    "tv": {
+      "entities": [
+        {"id": "media_player.samsung_the_frame_55", "action": "media.command", "command": "power"}
+      ]
+    },
+    "soundbar": {
+      "entities": []
+    }
+  },
+  "related_scenes": {
+    "all_off": "scene.living_room_all_off",
+    "all_on": "scene.living_room_all_on",
+    "evening": "scene.living_room_night"
+  },
+  "not_in_model": [
+    {
+      "id": "light.living_room_hallway",
+      "name": "Living Room Hallway",
+      "note": "In the main-floor scenes. This model is the corner, not the hall."
+    },
+    {
+      "id": "switch.living_room_book_shelves_overhead",
+      "name": "Living Room Wetbar Sconce",
+      "note": "The living-room scenes give this switch the friendly name Living Room Wetbar Sconce. It is not a node in the model. The shelf downlights are the light entity above, not this switch."
+    },
+    {
+      "id": "light.living_room_shelves",
+      "name": "Living Room Shelves",
+      "note": "Zigbee2MQTT's friendly name for the bookshelf strip would publish this id. The scenes still call light.book_shelves_light_2, which is what shelf_lights uses. If a rename made that the only id that answers, point shelf_lights at it."
+    }
+  ]
+}

@@ -39,6 +39,7 @@ Bump `CURRENT_PROJECT_VERSION` for each upload.
 - **Holiday lights:** the Christmas Lights app, moved in whole as a section (show, looks, schedule, 3D, controllers,
   Live Activity, widgets, Control Center, Siri). It now reaches the show player through the hub.
 - **3D house:** drawn natively with SceneKit from `/v1/assets/house-model`. The model is not in this public repo.
+- **Living Room:** a dollhouse page beside the existing room screen (House → Living Room). Advanced on that page opens the room screen that was already there. The model and the hub mapping live in `Rooms/`; `Rooms/README.md` says how the USDZ was built and how to drop in another room.
 
 ## Testing in the Simulator
 

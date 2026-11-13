@@ -146,6 +146,7 @@ struct DestinationView: View {
     var body: some View {
         switch destination {
         case .room(let id): RoomDetailView(roomID: id)
+        case .dollhouse(let id): DollhouseRoomView(roomID: id)
         case .climate: ClimateView()
         case .climateHistory(let id): ClimateHistoryView(deviceID: id)
         case .doors: DoorsView()

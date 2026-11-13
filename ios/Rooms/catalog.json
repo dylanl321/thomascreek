@@ -1,0 +1,13 @@
+{
+  "rooms": [
+    {
+      "id": "living_room",
+      "title": "Living Room",
+      "symbol": "sofa.fill",
+      "model": "LivingRoom/room_corner.usdz",
+      "devices": "LivingRoom/devices.json",
+      "mapping": "LivingRoom/hub-mapping.json",
+      "appearance": "LivingRoom/appearance.json"
+    }
+  ]
+}
