@@ -153,7 +153,7 @@ struct TVSetupView: View {
         }
         .background(Backdrop())
         .navigationTitle("TVs and boxes").navigationBarTitleDisplayMode(.inline)
-        .task { await load(fresh: false) }
+        .task { await load(fresh: true) }  // a new search each time the screen opens
         .refreshable { await load(fresh: true) }
         .sheet(item: $pairing, onDismiss: { Task { await load(fresh: false); await store.loadHome() } }) { f in
             PairSheet(device: f) { entity in

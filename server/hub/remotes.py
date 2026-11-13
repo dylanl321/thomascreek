@@ -201,10 +201,12 @@ def arp_mac(ip: str) -> str | None:
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
                 s.sendto(b"", (ip, 9))
-            time.sleep(0.15)
         except OSError:
             return None
-        mac = read()
+        for _ in range(10):  # the reply usually takes a few ms; give a slow Wi-Fi TV up to half a second
+            time.sleep(0.05)
+            if (mac := read()) is not None:
+                break
     return mac
 
 
