@@ -351,3 +351,14 @@ Each change sends a `settings` event (`{version, device_id}`) to the person's ow
 **View as.** `X-TC-View-As: <person_id>` from an admin's device makes the hub answer as that person
 (`deps.caller`). Writes other than that person's settings and favorites are refused with `preview_only`,
 so the preview can never change the house or anyone's devices. A non-admin sending the header gets 403.
+
+## Thermostat history (`hub/climate.py`, `routes/climate.py`)
+
+| Route | Who | Does |
+| --- | --- | --- |
+| `GET /v1/climate/{climate.entity}/history?range=6h\|24h\|3d\|7d` | anyone who sees the thermostat on Home (children: their rooms) | indoor temperature, set points and heating/cooling runs |
+
+Reads Home Assistant's `/api/history/period/{start}?filter_entity_id=…&end_time=…&significant_changes_only=0`
+for that one entity (cached 60 s per entity and range) and Open-Meteo's past hours at the house for the
+outdoor line (cached 30 min). HA's recorder keeps 10 days by default, so 7 days is the longest range.
+All times are Unix seconds. 503 `unavailable` when HA can't answer.

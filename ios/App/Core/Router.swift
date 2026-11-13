@@ -10,7 +10,7 @@ enum AppTab: String, Hashable {
 /// Every screen a deep link, notification or card can open.
 enum Destination: Hashable {
     case room(String)
-    case climate, doors, cameras, camera(String), cameraEvent(String), appliances, outdoor, workshop, printLibrary
+    case climate, climateHistory(String), doors, cameras, camera(String), cameraEvent(String), appliances, outdoor, workshop, printLibrary
     case holiday, holidayControllers, house3D
     case remote(String), music, watch, requests, pipeline, askMedia, mediaTitle(String), mediaRequest(String)
     case kidsIPads                      // what's on the kids' iPads; send them shows
@@ -159,7 +159,11 @@ final class Router {
         case "search": startSearch(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "q" }?.value)
         case "tvs": if role == .admin || role == .adult { show(.media, .tvSetup) } else { show(.home) }
         case "remote": if parts.count > 1, !kid { show(.media, .remote(parts[1])) } else if kid { show(.myRoom) }
-        case "climate": kid ? show(.myRoom) : show(.house, .climate)
+        case "climate":
+            // thomascreek://climate, /climate/<entity_id> (one thermostat's history)
+            if parts.count > 1, parts[1].hasPrefix("climate.") {
+                if kid { show(.myRoom, .climateHistory(parts[1])) } else { tab = .house; paths[.house] = [.climate, .climateHistory(parts[1])] }
+            } else { kid ? show(.myRoom) : show(.house, .climate) }
         case "music": if !kid { show(.media, .music) }
         case "calendar": if !kid { show(.family, .calendar) }
         case "shopping": if !kid { show(.family, .shopping) }
