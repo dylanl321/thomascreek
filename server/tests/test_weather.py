@@ -428,3 +428,17 @@ def test_home_card_says_when_a_watch_starts():
     utc = {"onset": "2026-11-13T05:00:00Z", "ends": "2026-11-13T19:00:00Z"}  # converted to house time
     assert alert_when(utc, now, ny) == "Until 2 pm"
     assert alert_when({"onset": None, "ends": None}, now, ny) is None
+
+
+async def test_home_line_alert_has_when_and_pending_after_restart(hub, people, pushed):
+    dylan = hub.subject_for(hub.db.device(people["phones"]["Dylan"].device_id), True)
+    hub.smart.weather.data = None
+    hub.started_at = time.time()
+    assert hub.home._weather_now(dylan) == {"pending": True}  # just restarted: "loading", not nothing
+    hub.started_at = time.time() - 600
+    assert hub.home._weather_now(dylan) is None  # still nothing after minutes: really unavailable
+    with respx.mock(assert_all_called=False) as mock:
+        mock_us(mock)
+        await hub.forecasts.home_alerts()
+    w = hub.home._weather_now(dylan)
+    assert w["alert"]["event"] == "Severe Thunderstorm Warning" and w["alert"]["when"].startswith("Until ")

@@ -315,7 +315,7 @@ struct HomeWeatherCard: View {
     @Environment(Router.self) private var router
 
     var body: some View {
-        if let w = store.home?.weather, w.temp != nil {
+        if let w = store.home?.weather {
             VStack(spacing: 8) {
                 if let a = w.alert {
                     Button { router.go(.weatherAlert(a.id)) } label: {
@@ -324,6 +324,7 @@ struct HomeWeatherCard: View {
                                 .frame(width: 30, height: 30).background(a.level == "warning" ? Theme.crit : Theme.warn, in: RoundedRectangle(cornerRadius: 9))
                             VStack(alignment: .leading, spacing: 1) {
                                 Text(a.event).font(.subheadline.weight(.semibold)).foregroundStyle(Theme.fg)
+                                if let when = a.when { Text(when).font(.caption).foregroundStyle(Theme.fg.opacity(0.8)) }
                                 if let n = w.alertCount, n > 1 { Text("and \(n - 1) more").font(.caption).foregroundStyle(Theme.dim) }
                             }
                             Spacer()
@@ -333,23 +334,37 @@ struct HomeWeatherCard: View {
                     }
                     .buttonStyle(.plain)
                 }
-                Button { router.go(.weather) } label: {
-                    HStack(spacing: 12) {
-                        WxIcon(name: w.symbol ?? "cloud.sun.fill").font(.system(size: 34)).frame(width: 44)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("\(Wx.deg(w.temp)) \(w.condition ?? "")").font(.headline).foregroundStyle(Theme.fg)
-                            if let hi = w.high, let lo = w.low {
-                                Text("High \(Wx.deg(hi)) · Low \(Wx.deg(lo))").font(.subheadline).foregroundStyle(Theme.dim)
+                if w.temp != nil {
+                    Button { router.go(.weather) } label: {
+                        HStack(spacing: 12) {
+                            WxIcon(name: w.symbol ?? "cloud.sun.fill").font(.system(size: 34)).frame(width: 44)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("\(Wx.deg(w.temp)) \(w.condition ?? "")").font(.headline).foregroundStyle(Theme.fg)
+                                if let hi = w.high, let lo = w.low {
+                                    Text("High \(Wx.deg(hi)) · Low \(Wx.deg(lo))").font(.subheadline).foregroundStyle(Theme.dim)
+                                }
                             }
+                            Spacer()
+                            Text("Forecast").font(.subheadline.weight(.medium)).foregroundStyle(Theme.accent)
+                            Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(Theme.dim)
                         }
+                        .card(padding: 14)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Weather: \(Wx.deg(w.temp)) \(w.condition ?? ""). Opens the forecast.")
+                } else if w.pending == true {
+                    HStack(spacing: 12) {
+                        ProgressView()
+                        Text("Getting the weather…").font(.subheadline).foregroundStyle(Theme.dim)
                         Spacer()
-                        Text("Forecast").font(.subheadline.weight(.medium)).foregroundStyle(Theme.accent)
-                        Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(Theme.dim)
                     }
                     .card(padding: 14)
+                    // The hub just started; check again shortly instead of waiting for the next Home refresh.
+                    .task(id: store.home?.generatedAt) {
+                        try? await Task.sleep(for: .seconds(5))
+                        await store.loadHome()
+                    }
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Weather: \(Wx.deg(w.temp)) \(w.condition ?? ""). Opens the forecast.")
             }
         }
     }

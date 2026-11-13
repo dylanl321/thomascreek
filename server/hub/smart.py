@@ -154,7 +154,7 @@ class Smart:
             self._task = None
 
     async def _loop(self) -> None:
-        await asyncio.sleep(5)
+        await asyncio.sleep(1)
         while True:
             try:
                 await self.refresh()
@@ -164,7 +164,12 @@ class Smart:
 
     async def refresh(self) -> None:
         h = self.hub
-        jobs: list[tuple[str, Callable[[], Any]]] = [("weather", self.weather.refresh)]
+        # Home's weather first, both sources at once, so it's there within seconds of a restart.
+        got = await asyncio.gather(self.weather.refresh(), h.forecasts.warm_home(), return_exceptions=True)
+        for name, r in zip(("weather", "forecast"), got):
+            if isinstance(r, Exception):
+                log.info("smart %s: %s", name, r)
+        jobs: list[tuple[str, Callable[[], Any]]] = []
         if h.config.smart.weather_alerts:
             jobs.append(("weather alerts", h.wx_watch.check))
         if h.family_board.enabled:
