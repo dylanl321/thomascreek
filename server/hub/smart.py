@@ -568,6 +568,37 @@ def r_package(sm: Smart, c: Ctx):
     return out
 
 
+def alert_when(a: dict[str, Any], now: datetime, tz: Any) -> str | None:
+    """Same words as the Weather page's banner: "From Sun 1 am until 9 am" before it starts, then "Until 9 am"."""
+    def local(ts: str | None) -> datetime | None:
+        d = _iso_local((ts or "").replace("Z", "+00:00")) if ts else None
+        if d is None:
+            return None
+        if d.tzinfo is not None:
+            d = d.astimezone(tz) if tz else d
+            d = d.replace(tzinfo=None) if now.tzinfo is None else d
+        elif now.tzinfo is not None:
+            d = d.replace(tzinfo=now.tzinfo)
+        return d
+
+    def say(d: datetime) -> str:
+        t = clock(d.hour * 60 + d.minute)
+        if d.date() == now.date():
+            return t
+        if (d.date() - now.date()).days == 1:
+            return f"tomorrow {t}"
+        return f"{d.strftime('%a')} {t}"
+
+    start, end = local(a.get("onset")), local(a.get("ends"))
+    if start and (start - now).total_seconds() > 300:
+        if end:
+            # "From Sun 1 am until 9 am": the end's day only when it differs from the start's.
+            until = clock(end.hour * 60 + end.minute) if end.date() == start.date() else say(end)
+            return f"From {say(start)} until {until}"
+        return f"From {say(start)}"
+    return f"Until {say(end)}" if end else None
+
+
 def r_wx_alert(sm: Smart, c: Ctx):
     """An official warning or watch for the house is the first thing a grown-up sees."""
     alerts = [a for a in sm.hub.forecasts.cached_home_alerts() if a["level"] in ("warning", "watch")]
@@ -575,8 +606,7 @@ def r_wx_alert(sm: Smart, c: Ctx):
         return None
     a = alerts[0]
     warn = a["level"] == "warning"
-    ends = _iso_local((a.get("ends") or "")[:19])
-    eyebrow = ("Until " + clock(ends.hour * 60 + ends.minute)) if ends else ("Warning" if warn else "Watch")
+    eyebrow = alert_when(a, c.now, sm.hub.policy.tz) or ("Warning" if warn else "Watch")
     detail = (a.get("headline") or "").replace("\n", " ").strip() or None
     if detail and len(detail) > 160:
         detail = detail[:157].rsplit(" ", 1)[0] + "…"

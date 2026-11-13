@@ -412,3 +412,19 @@ def test_trip_names_are_capitalized():
     from hub.adapters import trips as T
     got = T.travellers([{"name": "lauren"}, {"name": "Dylan", "owner": True}, {"name": "mary ann"}, {"name": "McKay"}])
     assert [t["name"] for t in got] == ["Lauren", "Dylan", "Mary Ann", "McKay"]
+
+
+def test_home_card_says_when_a_watch_starts():
+    from zoneinfo import ZoneInfo
+    from hub.smart import alert_when
+    ny = ZoneInfo("America/New_York")
+    now = datetime(2026, 11, 13, 7, 30, tzinfo=ny)  # Friday morning
+    watch = {"onset": "2026-11-15T01:00:00-05:00", "ends": "2026-11-15T09:00:00-05:00"}
+    assert alert_when(watch, now, ny) == "From Sun 1 am until 9 am"
+    tonight = {"onset": "2026-11-13T22:00:00-05:00", "ends": "2026-11-14T09:00:00-05:00"}
+    assert alert_when(tonight, now, ny) == "From 10 pm until tomorrow 9 am"
+    started = {"onset": "2026-11-13T06:00:00-05:00", "ends": "2026-11-13T14:45:00-05:00"}
+    assert alert_when(started, now, ny) == "Until 2:45 pm"
+    utc = {"onset": "2026-11-13T05:00:00Z", "ends": "2026-11-13T19:00:00Z"}  # converted to house time
+    assert alert_when(utc, now, ny) == "Until 2 pm"
+    assert alert_when({"onset": None, "ends": None}, now, ny) is None
