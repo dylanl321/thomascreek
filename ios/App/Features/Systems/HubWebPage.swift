@@ -57,8 +57,11 @@ struct HubWebPageView: View {
             message = ("Approved. The browser signs itself in now.", true)
             code = ""
         } catch HubClient.HubError.cancelled {
-        } catch HubClient.HubError.server(404, _) {
-            message = ("That code has expired. Reload the page for a new one.", false)
+        } catch HubClient.HubError.unreachable {
+            message = ("Couldn't reach the hub at home. This only works on home Wi-Fi.", false)
+        } catch HubClient.HubError.server(404, let text) {
+            // The hub's own answer says the code is unknown; anything else came from somewhere other than the hub.
+            message = (text.contains("not valid") ? "That code has expired. Reload the page for a new one." : "The hub didn't answer this (\(text)). Are you on home Wi-Fi?", false)
         } catch {
             message = (error.localizedDescription, false)
         }
