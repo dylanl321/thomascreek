@@ -281,6 +281,23 @@ ACTIVITY_CATEGORIES = {
 DOOR_CLASSES = {"door", "garage_door", "window", "opening"}
 
 
+def _readable(item: dict[str, Any], names: dict[str, str]) -> dict[str, Any]:
+    """A hub action row in words people read, with what it opens in the app (`ref`)."""
+    action, target = item.get("action") or "", item.get("target")
+    if action == "people.view_as":
+        who = names.get(target or "", "someone")
+        item["detail"] = f"Viewed the app as {who}" if item.get("detail") != "stop" else "Stopped viewing as someone else"
+    if action.startswith("people.") and target in names:
+        item["ref"] = f"thomascreek://person/{target}"
+    elif action.startswith(("device.", "auth.")):
+        item["ref"] = "thomascreek://people"
+    elif action.startswith("vpn."):
+        item["ref"] = "thomascreek://vpnpool"
+    if "ref" not in item and item.get("person_id") in names:
+        item["ref"] = f"thomascreek://person/{item['person_id']}"
+    return item
+
+
 def _activity_ref(eid: str, cat: str | None, person_id: str | None) -> str | None:
     """What a logbook row opens in the app: the lock or garage itself, Doors for a door sensor, the person."""
     domain = eid.split(".", 1)[0]
@@ -309,7 +326,8 @@ def _home_category(h: Hub, e: dict[str, Any]) -> str | None:
     return None
 
 
-async def _home_events(h: Hub, category: str | None, since: float, limit: int) -> list[dict[str, Any]]:
+async def _home_events(h: Hub, category: str | None, since: float, limit: int,
+                       until: float | None = None) -> list[dict[str, Any]]:
     """Recent door, lock, garage, presence and automation lines from Home Assistant's logbook."""
     import datetime as dt
 
@@ -320,7 +338,7 @@ async def _home_events(h: Hub, category: str | None, since: float, limit: int) -
     if not entities:
         return []
     # One fetch per minute per window serves every phone; HA's logbook is the slow part.
-    key = (int(since // 60), category)
+    key = (int(since // 60), int((until or 0) // 60), category)
     cache = h.__dict__.setdefault("_logbook_cache", {})
     hit = cache.get(key)
     if hit and time.time() - hit[0] < 60:
@@ -328,7 +346,10 @@ async def _home_events(h: Hub, category: str | None, since: float, limit: int) -
     else:
         try:
             rows = await asyncio.wait_for(
-                h.ha.logbook(dt.datetime.fromtimestamp(since, dt.timezone.utc).isoformat(), entities=entities), 4)
+                h.ha.logbook(dt.datetime.fromtimestamp(since, dt.timezone.utc).isoformat(),
+                             # Without an end, Home Assistant returns only the first day after `since`.
+                             dt.datetime.fromtimestamp(until or time.time(), dt.timezone.utc).isoformat(),
+                             entities=entities), 4)
         except Exception:  # noqa: BLE001
             return []
         if len(cache) > 50:
@@ -383,16 +404,16 @@ async def activity(before: str | None = None, person: str | None = None, limit: 
     rows = [] if category == "automation" else h.db.activity(limit=limit, person_id=person, prefixes=prefixes,
                                                               before_ts=before_ts)
     names = {p["id"]: p["name"] for p in h.db.people()}
-    items = [{
+    items = [_readable({
         "id": str(r["id"]), "t": r["ts"], "at": iso(r["ts"]), "who": names.get(r["person_id"] or "", None),
         "person_id": r["person_id"], "device_id": r["device_id"], "action": r["action"], "target": r["target"],
         "params": r["params"], "outcome": r["outcome"], "detail": r["detail"], "source": r["source"],
-    } for r in rows]
+    }, names) for r in rows]
     if not person:
         now = time.time()
         newest = before_ts or now
         oldest = items[-1]["t"] if len(items) == limit else newest - 3 * 86400
-        home = await _home_events(h, category, oldest, limit)
+        home = await _home_events(h, category, oldest, limit, until=newest)
         items += [e for e in home if oldest <= e["t"] < newest]
     items.sort(key=lambda r: r["t"], reverse=True)
     items = items[:limit]

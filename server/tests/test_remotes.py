@@ -21,8 +21,10 @@ FLOWS = [
      "context": {"source": "ignore", "title_placeholders": {"name": "Dylan's office"}}},
     {"flow_id": "f3hue0000000", "handler": "hue", "step_id": "link", "context": {"source": "zeroconf"}},
 ]
-ENTITIES = [{"entity_id": "media_player.basement_apple_tv", "entry_id": "e-base", "domain": "apple_tv"},
-            {"entity_id": "media_player.office_tv", "entry_id": "e-office", "domain": "androidtv_remote"}]
+ENTITIES = [{"entity_id": "media_player.basement_apple_tv", "entry_id": "e-base", "domain": "apple_tv",
+             "macs": [], "names": ["Basement"]},
+            {"entity_id": "media_player.office_tv", "entry_id": "e-office", "domain": "androidtv_remote",
+             "macs": ["AA:BB:CC:00:11:22"], "names": ["Basement Office TV", "SmartTV 4K"]}]
 SCAN = [Found("apple", "10.0.3.143", "Living Room", "AppleTV14,1"), Found("apple", "10.0.0.204", "Basement", "AppleTV14,1"),
         Found("android", "10.0.1.21", "SHIELD", "SHIELD Android TV")]
 
@@ -150,6 +152,24 @@ def test_apple_tv_step_that_shows_a_code_to_type_on_the_tv(hub, people, home_cli
         r = home_client.post("/v1/remotes/pair", json={"id": "flow:f1shield0000"}, headers=dylan.h).json()
     assert r["state"] == "form" and not r["needs_pin"] and r["show_code"] == "4821"
     assert r["message"] == "On Living Room, enter 4821, then tap Continue."
+
+
+def test_found_leaves_out_tvs_already_added_under_another_name(hub, people, home_client):
+    # Home Assistant titled it "Basement Office TV"; on the network it calls itself "SmartTV 4K".
+    hub.remotes.scanner = lambda: [Found("android", "10.0.2.131", "Hisense 4K", "SmartTV 4K"),
+                                   Found("android", "10.0.2.114", "Adeline's TV", "SmartTV 4K")]
+    hub.remotes.mac_of = lambda ip: {"10.0.2.131": "aa:bb:cc:00:11:22", "10.0.2.114": "aa:bb:cc:00:11:99"}.get(ip)
+
+    async def flows():
+        return [{"flow_id": "f9office0000", "handler": "androidtv_remote", "step_id": "zeroconf_confirm",
+                 "context": {"source": "zeroconf", "unique_id": "aa:bb:cc:00:11:22",
+                             "title_placeholders": {"name": "Living Hisense"}}}]
+    hub.remotes.list_flows = flows
+    with respx.mock(assert_all_called=False) as mock:
+        _mock_lists(mock)
+        body = home_client.get("/v1/remotes", headers=people["phones"]["Dylan"].h).json()
+    assert [f["name"] for f in body["found"]] == ["Adeline's TV"]
+    assert "Basement Office TV" in [a["name"] for a in body["added"]]
 
 
 def test_scan_still_works_when_discovered_list_fails(hub, people, home_client):

@@ -519,6 +519,34 @@ def test_activity_merges_home_assistant_logbook(hub, people, home_client):
     assert item["ref"] == "thomascreek://device/lock.front_door"  # the row opens the lock
 
 
+def test_activity_asks_home_assistant_for_the_whole_window(hub, people, home_client):
+    """HA's logbook stops one day after its start unless given an end, so older windows lost today's rows."""
+    import datetime as dt
+
+    hub.vault.set("home_assistant.token", "t")
+    seen = []
+    with respx.mock(assert_all_called=False) as mock:
+        def answer(request):
+            seen.append(request.url)
+            return httpx.Response(200, json=[])
+        mock.get(url__startswith="http://ha.test/api/logbook/").mock(side_effect=answer)
+        home_client.get("/v1/activity?category=doors", headers=people["phones"]["Dylan"].h)
+    assert seen and "end_time" in seen[0].params
+    end = dt.datetime.fromisoformat(seen[0].params["end_time"])
+    assert abs(end.timestamp() - dt.datetime.now(dt.timezone.utc).timestamp()) < 120
+
+
+def test_view_as_rows_read_as_words_and_open_the_person(hub, people, home_client):
+    theo = people["theo"]["id"] if isinstance(people.get("theo"), dict) else None
+    pid = theo or next(p["id"] for p in hub.db.people() if p["role"] == "child")
+    name = hub.db.person(pid)["name"]
+    hub.db.log("people.view_as", "ok", person_id=people["dylan"]["id"], target=pid, detail="start")
+    b = home_client.get("/v1/activity?category=people", headers=people["phones"]["Dylan"].h).json()
+    row = next(i for i in b["items"] if i["action"] == "people.view_as")
+    assert row["detail"] == f"Viewed the app as {name}"
+    assert row["ref"] == f"thomascreek://person/{pid}"
+
+
 def test_drop_folder_takes_house_model(hub, tmp_path, monkeypatch):
     from hub.dropbox import import_dropped
 

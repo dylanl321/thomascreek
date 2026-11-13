@@ -327,15 +327,18 @@ struct LinkDevicesSheet: View {
     }
 }
 
-/// An Activity row opens what it's about: the hub's `ref` when it sent one, else the device, camera or
-/// person the app recognises from the target.
+/// An Activity row opens what it's about: the device, camera or door the app recognises from the target,
+/// else the hub's `ref` (the person, People, the VPN pool), else whoever did it.
 private struct ActivityRowLink: ViewModifier {
+    @Environment(Router.self) private var router
     let entry: ActivityEntry
     func body(content: Content) -> some View {
-        if entry.ref != nil {
+        if let d = Destination.forTarget(entry.target), router.allows(d) {
+            content.links(to: d, entry.what, container: true)
+        } else if entry.ref != nil {
             content.links(ref: entry.ref, entry.what, container: true)
         } else {
-            content.links(to: Destination.forTarget(entry.target) ?? entry.personId.map { .person($0) }, entry.what, container: true)
+            content.links(to: entry.personId.map { .person($0) }, entry.what, container: true)
         }
     }
 }
