@@ -87,6 +87,13 @@ class Hub:
         self.youtube = YouTube(self, data / "youtube")
         self.sends = Sends(self)
         self.notify = Notifier(self)
+        from .tvapp import TvApp
+
+        async def _tv_notice(title: str, body: str) -> None:
+            await self.notify.send(title=title, body=body, cat="systems", level="maintenance", roles=["admin"],
+                                   ref="thomascreek://tvs", group_key="tvapp")
+
+        self.tv_app = TvApp(config.tv_app, vault, db, data, notify=_tv_notice)
         self.alerts = Alerts(self)
         self.actions = ActionRunner(self)
         self.timers = Timers(self)
@@ -260,6 +267,7 @@ class Hub:
         self._frigate = asyncio.create_task(self._watch_frigate()) if self.frigate.enabled else None
         self._prober = asyncio.create_task(self._probe_services())
         self.app_update.start()
+        self.tv_app.start()
 
     async def probe_once(self) -> None:
         """Touch each enabled service so the status page shows a real answer, not "never checked"."""
@@ -344,3 +352,4 @@ class Hub:
             await a.close()
         await self.apns.close()
         await self.app_update.stop()
+        await self.tv_app.stop()

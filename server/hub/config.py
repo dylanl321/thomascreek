@@ -190,6 +190,16 @@ class AppUpdateConfig(BaseModel):
     check_minutes: int = 15
 
 
+class TvAppConfig(BaseModel):
+    """Thomas Creek TV, the household IPTV app, kept installed on the Android TV boxes (see hub/tvapp.py)."""
+
+    enabled: bool = True
+    repo: str = "dylanl321/thomascreek-tv"
+    package: str = "me.dlewis.thomascreek.tv"
+    adb_port: int = 5555
+    check_minutes: int = 360
+
+
 class PrinterEntry(BaseModel):
     """One Bambu printer. Host, serial and access code can live in the vault as
     printer.<id>.host / .serial / .access_code so they're added on the admin page."""
@@ -341,6 +351,7 @@ class Config(BaseModel):
     vpn: VpnConfig = Field(default_factory=VpnConfig)
     youtube: YouTubeConfig = Field(default_factory=YouTubeConfig)
     app_update: AppUpdateConfig = Field(default_factory=AppUpdateConfig)
+    tv_app: TvAppConfig = Field(default_factory=TvAppConfig)
     assistant: AssistantConfig = Field(default_factory=AssistantConfig)
     printers: PrintersConfig = Field(default_factory=PrintersConfig)
     child_policy: ChildPolicy = Field(default_factory=ChildPolicy)

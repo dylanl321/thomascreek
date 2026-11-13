@@ -75,6 +75,7 @@ DESCRIPTIONS = {
     "printer.h2s.access_code": "Bambu H2S access code (LAN mode)",
     "printer.h2s.serial": "Bambu H2S serial number",
     "printer.h2s.host": "Bambu H2S IP address",
+    "github.tv_app_token": "GitHub token for downloading Thomas Creek TV builds",
 }
 APPSTORE_KEYS = ("appstore.auth_key_p8", "appstore.key_id", "appstore.issuer_id")
 NEVER_EDIT = {"wireguard.server_private_key"}
@@ -342,6 +343,12 @@ SECTIONS: list[dict[str, Any]] = [
         ("family_board.admin_token", "Family Command Center admin token", "text",
          "The board's 6-digit parent PIN (its ADMIN_TOKEN). Needed to add or change chores and calendar events "
          "from the app or the assistant; marking chores done works without it on the home network."),
+    ]},
+    {"title": "TV app (Thomas Creek TV)", "always": True, "optional": True, "fields": [
+        ("github.tv_app_token", "GitHub token", "text",
+         "github.com, Settings, Developer settings, Fine-grained tokens, Generate new token: only the "
+         "dylanl321/thomascreek-tv repository, permission Contents read-only. The hub uses it to download new "
+         "builds of the TV app from the repo's releases."),
     ]},
     {"title": "Homebox", "always": True, "optional": True, "fields": [
         ("homebox.password", "Homebox password", "text", "Optional: the password of the Homebox account the hub signs in as."),

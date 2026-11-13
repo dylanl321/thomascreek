@@ -2981,6 +2981,71 @@
     }
    }
   },
+  "/v1/media/{item_id}/language": {
+   "post": {
+    "tags": [
+     "media"
+    ],
+    "summary": "Fix Language",
+    "description": "Not in English? Pick English audio, or the original audio with English subtitles, and switch the TV\nnow if it's playing there.",
+    "operationId": "fix_language_v1_media__item_id__language_post",
+    "parameters": [
+     {
+      "name": "item_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Item Id"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/LanguageBody"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Fix Language V1 Media  Item Id  Language Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/v1/media/{item_id}/stream": {
    "get": {
     "tags": [
@@ -3614,6 +3679,163 @@
          "type": "object",
          "additionalProperties": true,
          "title": "Response Pipeline V1 Pipeline Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/media/watch": {
+   "get": {
+    "tags": [
+     "media"
+    ],
+    "summary": "Watch Anywhere",
+    "description": "Every app, and the TVs this person can open it on: \"Watch YouTube on the basement TV\" is the same\ntap whatever the TV is. A child sees only the kids' apps and the TVs they're allowed to use.",
+    "operationId": "watch_anywhere_v1_media_watch_get",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Watch Anywhere V1 Media Watch Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/media/hookups": {
+   "get": {
+    "tags": [
+     "media"
+    ],
+    "summary": "Hookups",
+    "description": "Boxes, TVs with their inputs, and which box is plugged into which TV.",
+    "operationId": "hookups_v1_media_hookups_get",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Hookups V1 Media Hookups Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/media/hookups/{box_id}": {
+   "put": {
+    "tags": [
+     "media"
+    ],
+    "summary": "Set Hookup",
+    "description": "\"This Apple TV is plugged into the Samsung TV, on HDMI 2.\" Adults only.",
+    "operationId": "set_hookup_v1_media_hookups__box_id__put",
+    "parameters": [
+     {
+      "name": "box_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Box Id"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/HookupBody"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Set Hookup V1 Media Hookups  Box Id  Put"
         }
        }
       }
@@ -7253,6 +7475,391 @@
          "type": "object",
          "additionalProperties": true,
          "title": "Response Cancel V1 Remotes Pair  Flow Id  Delete"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/tvapp": {
+   "get": {
+    "tags": [
+     "tvapp"
+    ],
+    "summary": "Overview",
+    "operationId": "overview_v1_tvapp_get",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Overview V1 Tvapp Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/tvapp/check": {
+   "post": {
+    "tags": [
+     "tvapp"
+    ],
+    "summary": "Check",
+    "operationId": "check_v1_tvapp_check_post",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Check V1 Tvapp Check Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/tvapp/boxes": {
+   "post": {
+    "tags": [
+     "tvapp"
+    ],
+    "summary": "Add Box",
+    "operationId": "add_box_v1_tvapp_boxes_post",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "additionalProperties": true,
+        "title": "Body"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Add Box V1 Tvapp Boxes Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/tvapp/boxes/{ip}/refresh": {
+   "post": {
+    "tags": [
+     "tvapp"
+    ],
+    "summary": "Refresh",
+    "operationId": "refresh_v1_tvapp_boxes__ip__refresh_post",
+    "parameters": [
+     {
+      "name": "ip",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Ip"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Refresh V1 Tvapp Boxes  Ip  Refresh Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/tvapp/boxes/{ip}/install": {
+   "post": {
+    "tags": [
+     "tvapp"
+    ],
+    "summary": "Install",
+    "operationId": "install_v1_tvapp_boxes__ip__install_post",
+    "parameters": [
+     {
+      "name": "ip",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Ip"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "additionalProperties": true,
+        "default": {},
+        "title": "Body"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Install V1 Tvapp Boxes  Ip  Install Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/tvapp/boxes/{ip}": {
+   "patch": {
+    "tags": [
+     "tvapp"
+    ],
+    "summary": "Set Auto",
+    "operationId": "set_auto_v1_tvapp_boxes__ip__patch",
+    "parameters": [
+     {
+      "name": "ip",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Ip"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "additionalProperties": true,
+        "title": "Body"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Set Auto V1 Tvapp Boxes  Ip  Patch"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "delete": {
+    "tags": [
+     "tvapp"
+    ],
+    "summary": "Remove",
+    "operationId": "remove_v1_tvapp_boxes__ip__delete",
+    "parameters": [
+     {
+      "name": "ip",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Ip"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Remove V1 Tvapp Boxes  Ip  Delete"
         }
        }
       }
@@ -12962,6 +13569,36 @@
     ],
     "title": "Holding"
    },
+   "HookupBody": {
+    "properties": {
+     "display_entity_id": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 200
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Display Entity Id"
+     },
+     "input": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 100
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Input"
+     }
+    },
+    "type": "object",
+    "title": "HookupBody"
+   },
    "InboxAct": {
     "properties": {
      "action": {
@@ -13072,6 +13709,24 @@
     },
     "type": "object",
     "title": "Label"
+   },
+   "LanguageBody": {
+    "properties": {
+     "target_device_id": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 200
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Target Device Id"
+     }
+    },
+    "type": "object",
+    "title": "LanguageBody"
    },
    "LinkBody": {
     "properties": {
