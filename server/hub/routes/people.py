@@ -281,6 +281,18 @@ ACTIVITY_CATEGORIES = {
 DOOR_CLASSES = {"door", "garage_door", "window", "opening"}
 
 
+def _activity_ref(eid: str, cat: str | None, person_id: str | None) -> str | None:
+    """What a logbook row opens in the app: the lock or garage itself, Doors for a door sensor, the person."""
+    domain = eid.split(".", 1)[0]
+    if domain in ("lock", "cover", "valve"):
+        return f"thomascreek://device/{eid}"
+    if cat == "doors":
+        return "thomascreek://doors"
+    if person_id:
+        return f"thomascreek://person/{person_id}"
+    return None
+
+
 def _home_category(h: Hub, e: dict[str, Any]) -> str | None:
     """Which activity category a Home Assistant logbook line belongs to, if any."""
     eid = e.get("entity_id") or ""
@@ -322,6 +334,11 @@ async def _home_events(h: Hub, category: str | None, since: float, limit: int) -
         if len(cache) > 50:
             cache.clear()
         cache[key] = (time.time(), rows)
+    # HA person entities → hub people, so a "Dylan left" row opens Dylan.
+    people: dict[str, str] = {}
+    for p in h.db.people():
+        eid = p.get("presence_entity") or f"person.{str(p['name']).split(' ')[0].lower()}"
+        people.setdefault(eid, p["id"])
     out = []
     for e in rows:
         cat = _home_category(h, e)
@@ -333,8 +350,11 @@ async def _home_events(h: Hub, category: str | None, since: float, limit: int) -
             continue
         by_automation = str(e.get("context_entity_id") or "").startswith(("automation.", "script."))
         name = e.get("name") or e.get("entity_id")
+        eid = str(e.get("entity_id") or "")
+        pid = people.get(eid) if cat == "people" else None
         out.append({
-            "id": f"ha:{int(ts * 1000)}:{e.get('entity_id')}", "t": ts, "at": iso(ts), "who": None, "person_id": None,
+            "id": f"ha:{int(ts * 1000)}:{e.get('entity_id')}", "t": ts, "at": iso(ts), "who": None, "person_id": pid,
+            "ref": _activity_ref(eid, cat, pid),
             "device_id": None, "action": e.get("entity_id", "").split(".", 1)[0] + ".changed", "target": e.get("entity_id"),
             "params": {}, "outcome": "ok", "detail": f"{name} {e.get('message') or e.get('state') or ''}".strip(),
             "source": "automation" if by_automation or cat == "automation" else "home",
