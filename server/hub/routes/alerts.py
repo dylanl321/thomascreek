@@ -114,7 +114,8 @@ async def test_alert(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict
 
 # -- history: every alert, pushed or not --------------------------------------
 HISTORY_TITLES = {"camera": "Cameras", "package": "Packages", "doorbell": "Doorbell", "doors": "Doors and garage",
-                  "house": "House", "kids": "Kids", "network": "Network", "media": "Media"}
+                  "house": "House", "kids": "Kids", "network": "Network", "media": "Media",
+                  "weather": "Weather"}
 
 
 def _history_kinds(role: str) -> list[str]:

@@ -47,7 +47,7 @@ RULE_TITLES = {
     "today": "Today's plans", "rain": "Rain coming", "freeze": "Freezing tonight", "heat": "Hot day",
     "kids_chores": "Kids' chores left", "dinner": "Dinner and the oven", "habit": "Usually about now",
     "show": "Holiday show", "bedtime": "Kids' bedtime", "trash": "Trash night", "lockup": "Lock up for the night",
-    "media_ready": "Your request is ready", "trip": "Trip coming up", "my_chores": "My chores",
+    "media_ready": "Your request is ready", "wx_alert": "Weather warnings", "trip": "Trip coming up", "my_chores": "My chores",
     "my_bedtime": "My bedtime", "my_dinner": "What's for dinner", "my_weather": "Morning weather",
 }
 
@@ -165,6 +165,8 @@ class Smart:
     async def refresh(self) -> None:
         h = self.hub
         jobs: list[tuple[str, Callable[[], Any]]] = [("weather", self.weather.refresh)]
+        if h.config.smart.weather_alerts:
+            jobs.append(("weather alerts", h.wx_watch.check))
         if h.family_board.enabled:
             jobs.append(("chores", self._refresh_chores))
         if h.trek.enabled:
@@ -536,6 +538,25 @@ def r_package(sm: Smart, c: Ctx):
                         why="Frigate saw a package in the last 4 hours"))
         break
     return out
+
+
+def r_wx_alert(sm: Smart, c: Ctx):
+    """An official warning or watch for the house is the first thing a grown-up sees."""
+    alerts = [a for a in sm.hub.forecasts.cached_home_alerts() if a["level"] in ("warning", "watch")]
+    if not alerts:
+        return None
+    a = alerts[0]
+    warn = a["level"] == "warning"
+    ends = _iso_local((a.get("ends") or "")[:19])
+    eyebrow = ("Until " + clock(ends.hour * 60 + ends.minute)) if ends else ("Warning" if warn else "Watch")
+    detail = (a.get("headline") or "").replace("\n", " ").strip() or None
+    if detail and len(detail) > 160:
+        detail = detail[:157].rsplit(" ", 1)[0] + "…"
+    more = f" (+{len(alerts) - 1} more)" if len(alerts) > 1 else ""
+    return card(f"wx_alert:{a['id']}", 95 if warn else 70, "bad" if warn else "warn", "exclamationmark.triangle.fill",
+                eyebrow, a["event"] + more, detail=detail, ref=f"thomascreek://weather/alert/{a['id']}",
+                buttons=[sm.ok("Got it", done="OK")],
+                why="An official weather " + ("warning" if warn else "watch") + " covers the house")
 
 
 def r_weather_am(sm: Smart, c: Ctx):
@@ -955,7 +976,7 @@ def r_my_weather(sm: Smart, c: Ctx):
                 why="Morning weather", emoji=emoji)
 
 
-ADULT_RULES = [r_oven_on, r_away_unlocked, r_away_lights, r_garage_open, r_package, r_weather_am, r_today, r_rain,
+ADULT_RULES = [r_wx_alert, r_oven_on, r_away_unlocked, r_away_lights, r_garage_open, r_package, r_weather_am, r_today, r_rain,
                r_freeze, r_heat, r_kids_chores, r_dinner, r_habit, r_show, r_bedtime, r_trash, r_lockup, r_media_ready,
                r_trip]
 KID_RULES = [r_my_weather, r_my_chores, r_my_dinner, r_my_bedtime, r_media_ready, r_trip]

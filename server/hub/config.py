@@ -191,6 +191,7 @@ class SmartConfig(BaseModel):
     wake_time: str = "07:00"           # a bedtime pause lasts until this time
     latitude: float | None = None      # default: Home Assistant's location
     longitude: float | None = None
+    weather_alerts: bool = True        # watch NWS/DWD alerts for home (and a trip under way) and push them
     goodnight_mode: str | None = None  # a mode id to run for "Goodnight" instead of the card's own steps
     off_rules: list[str] = Field(default_factory=list)  # rule ids switched off for everyone
 
