@@ -348,3 +348,14 @@ Each change sends a `settings` event (`{version, device_id}`) to the person's ow
 **View as.** `X-TC-View-As: <person_id>` from an admin's device makes the hub answer as that person
 (`deps.caller`). Writes other than that person's settings and favorites are refused with `preview_only`,
 so the preview can never change the house or anyone's devices. A non-admin sending the header gets 403.
+
+## House layout (admin, `home.layout`)
+
+| Method | Path | Body | Notes |
+|---|---|---|---|
+| GET | /v1/home/layout | | `{hidden, rooms, cleanup}`; cleanup = listed devices unavailable for 3+ days |
+| POST | /v1/home/hidden | `{ids: [...], hidden: true}` | hide or show for everyone; `device:<id>` hides an appliance card |
+| GET | /v1/rooms/{id}/layout | | name, symbol, hidden, ha_name, devices (hidden too), scenes |
+| PUT | /v1/rooms/{id}/layout | `{name?, symbol?, hidden?, order?, add?, remove?}` | add/remove move devices into/out of the room |
+
+`GET /v1/home` also gains `appliances` (one card per appliance) and `rooms[].scenes`. Stored in `hub_kv` key `home.layout`.

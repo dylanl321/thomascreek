@@ -312,3 +312,21 @@ Adults and admins (`remotes.setup`). Pairing runs through Home Assistant's own s
 - `POST /v1/remotes/pair/{flow_id} {pin?}` answers a step; `DELETE /v1/remotes/pair/{flow_id}` stops.
 - Step: `{flow_id, kind, name, state: form|done|failed, step?, needs_pin?, show_code?, message, error?, entry_id?, reason?}`. `message` is ready to show. `needs_pin`: Android TV shows 6 letters and numbers, Apple TV 4 digits (sometimes once per feature, so expect more than one PIN step). `show_code`: a code to type on the Apple TV, then Continue. `done` refreshes the home model and sends SSE `{type: "remotes"}`; the new TV then appears in `/v1/home` with its remote buttons.
 - Deep link `thomascreek://tvs`. Activity: `remotes.pair_start`, `remotes.add`.
+
+## House layout, TVs and appliances (2026-11-13)
+
+- `GET /v1/home` lists one media player per real TV or box (the hub drops Cast/DLNA/AirPlay copies,
+  wall tablets, voice assistants, laptops, Plex sessions and players dead for 3+ days, and keeps the
+  remote-capable copy, borrowing a room from another copy). A child's own TV always stays.
+- `appliances` (people with `appliances`): one card per real appliance: `{id, type (oven|fridge|dishwasher|
+  washer|dryer|microwave|vacuum|water_heater|appliance), name, symbol, room_id, status, running, available,
+  door_open, parts:[{id,name,value}], oven_id?, maker, model}`. Temperature sensors are not appliances; GE
+  fridge/freezer water heaters are no longer "shower" devices. Tap an oven card to open `.kitchen(oven_id)`.
+- Rooms carry `scenes: [{id, name, icon}]` (run with `scene.run`) and `device_ids` in the room's saved order.
+- Admin only (`home.layout`): `GET /v1/home/layout` (hidden, rooms, cleanup = dead 3+ days),
+  `POST /v1/home/hidden {ids, hidden}` (entity ids, or `device:<id>` for appliances),
+  `GET|PUT /v1/rooms/{id}/layout` (`{name?, symbol?, hidden?, order?, add?, remove?}`; add/remove move
+  devices between rooms). Each change sends a `snapshot` event so every phone reloads. Hidden devices still
+  work for actions, modes and Ask; they're only left out of lists and search.
+- App: `HideForEveryoneButton(deviceID:)` (drop into any menu or device page), `RoomEditView`, `HiddenDevicesView`
+  (House › Hidden devices), `AppliancesView`.
