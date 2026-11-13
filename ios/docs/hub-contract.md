@@ -185,7 +185,6 @@ Jellyseerr is the source of truth, so requests made on its website or from a Ple
 - `GET /v1/media/search` `requestable` now uses the discover item shape above (it used `MediaItem` with a string year, which the app couldn't decode).
 - "Ready to watch" push (`thomascreek://media/requests/{id}`) goes once per request to the person who asked, matched by the app's own record or by Jellyseerr display name = hub first name. Requests already ready when the hub first looks aren't announced.
 
-=======
 ## Sending to the kids' iPads (`/v1/sends`)
 
 Grown-ups (admin, adult) pick a film, a show or YouTube and send it to someone's devices. The hub works
@@ -256,3 +255,16 @@ to the first `weather.*` entity.
 - Doorbell Live Activity: `POST /v1/devices/live-activity {push_to_start_token, env}`; the hub starts `DoorbellAttributes {camera,cameraName,door}` / state `{status, atUnix, answeredBy}` when the doorbell rings.
 - Guest passes (capability `guests`): `GET/POST /v1/guest-passes {name, days|until, starts, show_wifi, door_code, note}` (door code = Face ID), `DELETE /v1/guest-passes/{id}`. Public page `/g/{token}` (+ `.json`), no sign-in, ends by itself. Optional `guest.lock_code {entity, service: zwave_js|keymaster, slots}` puts the code on the lock and clears it at the end.
 - Tell Dylan: `POST /v1/feedback {text, screen, app_build, screenshot_jpeg_b64}` → inbox item (cat `feedback`) for admins; `GET /v1/feedback`, `/v1/feedback/{id}/shot.jpg`, `POST /v1/feedback/{id}/done` (admin).
+
+
+## Workshop: Bambu printers (2026-11-12)
+
+The hub talks to the H2S directly on the LAN (MQTT 8883, FTPS 990, RTSPS 322). The printer must be in **LAN Only + Developer Mode**; otherwise status still arrives but commands are ignored. Vault keys (admin page, "3D printer" section): `printer.h2s.access_code`, `printer.h2s.serial`, `printer.h2s.host`. Config `printers.printers[]` (`id`, `name`, `model`, optional `host`, `serial`, `file_url_prefix`) defaults to one printer `h2s`.
+
+- `GET /v1/home` → `printers[]` summaries `{id, name, model, state, online, set_up, job, color}` for people with `appliances` and for children.
+- `GET /v1/printers` → `{printers: [status]}`; `GET /v1/printers/{id}`. Status: `state` idle|preparing|printing|paused|done|failed|offline, `online`, `set_up`, `missing[]`, `problem`, `job {name, progress, minutes_left, finish_at (epoch s), layer, layers, stage}`, `temps {nozzle, bed, chamber: {current, target}}`, `speed` silent|standard|sport|ludicrous, `light`, `ams [{id, humidity, temp, drying, trays [{slot, index, empty, color, material, name, remain}]}]`, `active_slot`, `error`, `actions[]` (empty for children, who also get no temps).
+- `GET /v1/printers/{id}/snapshot.jpg` (chamber camera, first frame takes a few seconds), `/mjpeg` (multipart, ~2 fps).
+- Library: `GET /v1/printers/library` → `{models: [{id, title, bytes, added_at, plates [{index, seconds, grams, filaments [{id, type, color, grams}]}], thumbnail_url, prints}]}`; `POST` multipart `file` (sliced `.gcode.3mf` only; 400 `not_sliced` otherwise), `title`; `PATCH /library/{id}` `{title}`; `DELETE /library/{id}`; `GET /library/{id}/thumb.png`; `POST /library/{id}/ask` (a child asks the grown-ups).
+- Actions (`POST /v1/actions`, target = printer id, cap `appliances`): `printer.control {command pause|resume|stop}` (stop is secure), `printer.light {on}`, `printer.speed {speed}`, `printer.temp {heater nozzle|bed|chamber, temp °C}` (max 350/120/65), `printer.print {model_id, plate, ams_mapping[], bed_leveling, timelapse}` (secure). Errors: 409 `printer_offline`, 409 `printer_busy`, 502 `upload_failed`.
+- SSE `printer` event: the full status (no per-person trimming) whenever state, job, light or active spool changes. Push (cat `printer`) to whoever started the print when it finishes, fails or pauses with an error.
+- App: `WorkshopView` (Destination `.workshop`), `PrintLibraryView` (`.printLibrary`), deep links `thomascreek://workshop`, `thomascreek://workshop/library`; `PrinterNowCard` on Home while a print is active.

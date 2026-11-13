@@ -17,6 +17,7 @@ dependencies = [
   "python-multipart>=0.0.9",
   "yt-dlp[default,deno]>=2026.10",
   "anthropic>=2.8",
+  "aiomqtt>=2.3",
 ]
 
 [project.optional-dependencies]

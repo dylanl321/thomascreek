@@ -433,6 +433,8 @@ class HomeModel:
             "weather": self.hub.smart.weather.now(),
             "smart": self._smart_cards(s),
         }
+        if self.hub.workshop.enabled and (policy.has(s, "appliances") or s.role == "child"):
+            snap["printers"] = self.hub.workshop.summaries()
         if policy.has(s, "systems"):
             snap["systems"] = self.systems_card()
         return snap

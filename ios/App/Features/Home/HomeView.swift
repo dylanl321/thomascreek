@@ -40,7 +40,7 @@ struct HomeView: View {
         HomeSection.allCases.filter { s in
             switch s {
             case .whosHome: true
-            case .printer: false  // arrives with the printers work (PR #34): then `me?.can(.appliances) == true`
+            case .printer: me?.can(.appliances) == true
             case .kids: me?.can(.networkManage) == true
             case .cameras: me?.can(.cameras) == true
             case .holiday: me?.can(.holidayLooks) == true || me?.can(.holidayFull) == true
@@ -79,7 +79,7 @@ struct HomeView: View {
                 HouseNowPlayingCard(item: np)
             }
         // Printers (PR #34): `ForEach(home?.activePrinters ?? []) { PrinterNowCard(printer: $0) }`
-        case .printer: EmptyView()
+        case .printer: ForEach(home?.activePrinters ?? []) { PrinterNowCard(printer: $0) }
         case .cameras:
             if !(home?.cameras?.isEmpty ?? true) {
                 SectionHeader(title: "Recent at the cameras") { MoreButton { router.show(.house, .cameras) } }

@@ -127,6 +127,11 @@ def _oven_tier(params: dict[str, Any], _s: Subject) -> str:
     return "everyday" if params.get("on") is False else "secure"
 
 
+def _printer_tier(params: dict[str, Any], _s: Subject) -> str:
+    # Stopping throws the print away, so it needs Face ID like starting one.
+    return "secure" if params.get("command") == "stop" else "everyday"
+
+
 def _garage_tier(params: dict[str, Any], _s: Subject) -> str:
     return "secure" if params.get("open") else "everyday"
 
@@ -152,6 +157,11 @@ ACTIONS: dict[str, ActionSpec] = {
         ActionSpec("oven.set", "secure", ("appliances",), tier_fn=_oven_tier),
         ActionSpec("oven.timer", "everyday", ("appliances",)),
         ActionSpec("shower.preheat", "secure", ("appliances",)),
+        ActionSpec("printer.control", "everyday", ("appliances",), tier_fn=_printer_tier),
+        ActionSpec("printer.light", "everyday", ("appliances",)),
+        ActionSpec("printer.speed", "everyday", ("appliances",)),
+        ActionSpec("printer.temp", "everyday", ("appliances",)),
+        ActionSpec("printer.print", "secure", ("appliances",)),
         ActionSpec("camera.view", "look", ("cameras",)),
         ActionSpec("network.pause", "secure", ("network.manage",)),
         ActionSpec("network.grant", "secure", ("network.manage",)),
