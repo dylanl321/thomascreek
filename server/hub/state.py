@@ -94,6 +94,9 @@ class Hub:
         self.bambu_cloud = BambuCloud(self)
         self.workshop = Workshop(self, config.printers, data / "printers")
         self.smart = Smart(self)
+        from .remotes import RemoteSetup
+
+        self.remotes = RemoteSetup(self)
         from .forecast import AlertWatch, Forecasts
 
         self.forecasts = Forecasts(self, data / "radar")

@@ -275,7 +275,12 @@ every Connect. 403 `vpn_unavailable` for a role without Private, 503 until the l
 
 ## App updates
 
-`GET /v1/app/update?build=16&version=2.0` (no sign-in needed; with a token the hub records the phone's build for the web page)
+`GET /v1/app/update?build=16&version=2.0&channel=testflight` (no sign-in needed; with a token the hub records the phone's build for the web page)
+
+`channel` is how the app was installed: `testflight`, `appstore`, `xcode`, `simulator` or `unknown`. When a signed-in
+family phone on `testflight`/`appstore` reports a build newer than anything the hub knows, that build becomes the
+latest (`source: "phone"`), so the other phones see the Update banner even without the App Store Connect key.
+Test simulators, Simulator models and sandbox-push (Xcode) installs never count. Builds before 25 send no channel.
 
 ```json
 {"latest_build": 17, "latest_version": "2.0", "released_at": "2026-11-12T16:00:00Z", "min_build": 15,

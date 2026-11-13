@@ -352,3 +352,35 @@ def test_alert_detail_route(at_home, people):
         kid = people["phones"]["Theo"].client.get("/v1/weather/alerts/urn:svr", headers=people["phones"]["Theo"].h)
     assert ok.status_code == 200 and ok.json()["instruction"] == "Move inside."
     assert gone.status_code == 404 and kid.status_code == 403
+
+
+# -- build 24 QA ------------------------------------------------------------------------
+
+def test_tonight_low_is_tonights_not_this_mornings():
+    f = F.shape_forecast(OM)
+    assert f["daily"][0]["low"] == 44 and f["tonight_low"] == 50 and f["evening"]  # coldest hour left in the fixture
+    assert F.nws_tonight(F.shape_nws_text(NWS_TEXT)) == 44
+    assert F.nws_tonight([{"day": True, "temp": 60}, {"day": True, "temp": 61}, {"day": False, "temp": 40}]) is None
+
+
+def test_page_tonight_low_matches_the_forecast_text(at_home, people):
+    with respx.mock(assert_all_called=False) as mock:
+        mock_us(mock)
+        ph = people["phones"]["Dylan"]
+        d = ph.client.get("/v1/weather", headers=ph.h).json()
+    assert d["tonight_low"] == 44 and "low around 44" in d["daily"][0]["text_night"]
+    # the cached forecast underneath wasn't changed by the text
+    hit = next(v for k, v in at_home.forecasts._c.items() if k.startswith("forecast:"))
+    assert hit[1]["tonight_low"] == 50 and "text_night" not in hit[1]["daily"][0]
+
+
+async def test_home_line_uses_the_weather_pages_forecast(hub, people):
+    hub.config.smart.latitude, hub.config.smart.longitude = HOME
+    hub.smart.weather.data = {"temp": 49.4, "condition": "Cloudy", "symbol": "cloud.fill", "high": 60, "low": 40}
+    with respx.mock(assert_all_called=False) as mock:
+        mock_us(mock)
+        await hub.forecasts.warm_home()
+    dylan = hub.subject_for(hub.db.device(people["phones"]["Dylan"].device_id), True)
+    w = hub.home._weather_now(dylan)
+    assert w["temp"] == 64 and w["condition"] == "Thunderstorms" and w["symbol"] == "cloud.bolt.rain.fill"
+    assert w["high"] == 68 and w["low"] == 44  # evening: tonight's low, the NWS number like the page

@@ -51,6 +51,10 @@ struct MediaView: View {
                         ForEach(tvs) { DeviceTile(device: $0) }
                     }
                 }
+                if store.me?.can(.remotesSetup) == true {
+                    SectionTile(symbol: "plus.rectangle.on.rectangle", title: "Add a TV or box",
+                                detail: "Android TV and Apple TV, added once for everyone") { router.go(.tvSetup) }
+                }
             }
             .screen()
         }

@@ -302,3 +302,13 @@ Hub: `hub/forecast.py`, `routes/weather.py`. Free sources only, fetched and cach
 - Push: category `weather` (on by default per device). Per person in `/v1/alerts` prefs: `weather {warnings: true, watches: true, advisories: false, trips: true}`; works even when house alerts are off. Warnings ring (tornado, flash-flood, extreme-wind and other "urgent" ones also in quiet hours), the rest arrive quietly. Children never get them. `ref` = `thomascreek://weather/alert/<id>`. History kind `weather`.
 - Smart card rule `wx_alert` (grown-ups): a warning (priority 95) or watch (70) for the house, `ref` to the alert.
 - Deep links: `thomascreek://weather`, `/weather/alert/<id>`, `/weather/radar`, `/weather/outlook`.
+
+## TVs and boxes: find and add for the remote (2026-11-13)
+
+Adults and admins (`remotes.setup`). Pairing runs through Home Assistant's own setup flows (`androidtv_remote`, `apple_tv`), so a TV added from one phone is on everyone's remote; nobody pairs on their own device. The hub's Home Assistant token must belong to an HA admin (else `409 ha_admin_needed`).
+
+- `GET /v1/remotes[?fresh=1]` → `{added:[{id, kind: android|apple, name, entity_id?, room?, state?, working, disabled}], found:[{id, kind, name, host?, model?, via: home_assistant|network}], scanned_at}`. `found` merges Home Assistant's discovery (`flow:<id>`) with a 2.5 s mDNS query from the hub (`net:<kind>:<ip>`), minus anything already added. The scan is cached 20 s; `fresh=1` rescans.
+- `POST /v1/remotes/pair {id, name?}`: `id` is a `found` id, or `host:<android|apple>:<address>` to add by address. Returns a step.
+- `POST /v1/remotes/pair/{flow_id} {pin?}` answers a step; `DELETE /v1/remotes/pair/{flow_id}` stops.
+- Step: `{flow_id, kind, name, state: form|done|failed, step?, needs_pin?, show_code?, message, error?, entry_id?, reason?}`. `message` is ready to show. `needs_pin`: Android TV shows 6 letters and numbers, Apple TV 4 digits (sometimes once per feature, so expect more than one PIN step). `show_code`: a code to type on the Apple TV, then Continue. `done` refreshes the home model and sends SSE `{type: "remotes"}`; the new TV then appears in `/v1/home` with its remote buttons.
+- Deep link `thomascreek://tvs`. Activity: `remotes.pair_start`, `remotes.add`.

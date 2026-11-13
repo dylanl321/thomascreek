@@ -97,7 +97,7 @@ struct TodaySection: View {
                 Spacer()
                 if let w = t?.weather {
                     VStack(alignment: .trailing, spacing: 0) {
-                        Image(systemName: w.symbol ?? "cloud.sun.fill").symbolRenderingMode(.multicolor).font(.title)
+                        WxIcon(name: w.symbol ?? "cloud.sun.fill", onDark: true).font(.title)
                         if let temp = w.temp { Text("\(Int(temp.rounded()))°").font(.title3.weight(.semibold)).foregroundStyle(.white) }
                     }
                 }
@@ -185,7 +185,7 @@ struct TodayView: View {
                 .foregroundStyle(.white).fixedSize(horizontal: false, vertical: true)
             if let w = t?.weather {
                 HStack(spacing: 10) {
-                    Image(systemName: w.symbol ?? "cloud.sun.fill").symbolRenderingMode(.multicolor).font(.system(size: 38))
+                    WxIcon(name: w.symbol ?? "cloud.sun.fill", onDark: true).font(.system(size: 38))
                     VStack(alignment: .leading, spacing: 0) {
                         if let temp = w.temp { Text("\(Int(temp.rounded()))°  \(w.condition ?? "")").font(.title3.weight(.semibold)) }
                         if let line = w.line { Text(line).font(.subheadline).opacity(0.9) }

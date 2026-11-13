@@ -24,6 +24,9 @@ struct WeatherPage: Codable, Hashable {
     var outlookSource: String?
     var radar: Radar?
     var wear: [Wear]?
+    /// The coldest it gets tonight (the NWS number when there's forecast text), and whether it's after 3 pm there.
+    var tonightLow: Double?
+    var evening: Bool?
     var error: String?
 
     struct Now: Codable, Hashable {
@@ -95,15 +98,20 @@ final class WeatherStore {
     var failed: [String: String] = [:]
     /// "home", "here" or "trip:<id>".
     var place = "home"
+    /// "child" or "adult": the hub shapes the page for who's looking, so "View as" mustn't reuse the other one.
+    var viewer = "adult"
     var here: CLLocationCoordinate2D?
 
-    var page: WeatherPage? { pages[place] }
+    var key: String { "\(viewer)|\(place)" }
+    var page: WeatherPage? { pages[key] }
+    var failure: String? { failed[key] }
 
     func load(force: Bool = false) async {
-        let key = place
+        let key = key
+        let place = place
         if !force, let at = pages[key]?.updated.flatMap(ISO.parse), -at.timeIntervalSinceNow < 300 { return }
-        var q = ["place": key]
-        if key == "here" {
+        var q = ["place": place]
+        if place == "here" {
             var spot = here
             if spot == nil { spot = await HereLocation.shared.locate() }
             guard let c = spot else {
@@ -247,6 +255,36 @@ enum Wx {
     }
 }
 
+/// A weather symbol that shows on light and dark cards. Multicolor draws clouds and the moon white,
+/// which vanished on Home and in the 48-hour row, so tint each symbol by what it shows instead.
+struct WxIcon: View {
+    let name: String
+    var onDark = false
+
+    var body: some View {
+        let safe = UIImage(systemName: name) != nil ? name : "cloud.fill"
+        Image(systemName: safe)
+            .symbolRenderingMode(.palette)
+            .foregroundStyle(cloud, accent, accent)
+            .accessibilityHidden(true)
+    }
+
+    private var cloud: Color {
+        if !name.hasPrefix("cloud") && !name.hasPrefix("wind") { return accent }
+        return onDark ? .white : Color(red: 0.55, green: 0.6, blue: 0.68)
+    }
+
+    private var accent: Color {
+        if name.contains("bolt") { return .yellow }
+        if name.contains("snow") || name.contains("sleet") || name.contains("hail") { return .cyan }
+        if name.contains("rain") || name.contains("drizzle") { return Color(red: 0.2, green: 0.55, blue: 0.95) }
+        if name.contains("sun") { return .orange }
+        if name.contains("moon") { return onDark ? Color(red: 1, green: 0.93, blue: 0.6) : Color(red: 0.45, green: 0.45, blue: 0.85) }
+        if name.contains("fog") { return Color(red: 0.6, green: 0.64, blue: 0.7) }
+        return onDark ? .white : Color(red: 0.55, green: 0.6, blue: 0.68)
+    }
+}
+
 // MARK: - Home card
 
 /// Home's weather section: now, today's range and any official alert. Opens the Weather page.
@@ -275,7 +313,7 @@ struct HomeWeatherCard: View {
                 }
                 Button { router.go(.weather) } label: {
                     HStack(spacing: 12) {
-                        Image(systemName: w.symbol ?? "cloud.sun.fill").symbolRenderingMode(.multicolor).font(.system(size: 34))
+                        WxIcon(name: w.symbol ?? "cloud.sun.fill").font(.system(size: 34)).frame(width: 44)
                         VStack(alignment: .leading, spacing: 2) {
                             Text("\(Wx.deg(w.temp)) \(w.condition ?? "")").font(.headline).foregroundStyle(Theme.fg)
                             if let hi = w.high, let lo = w.low {
@@ -316,7 +354,7 @@ struct WeatherView: View {
                 if let p = wx.page {
                     if let e = p.error { EmptyCard(symbol: "cloud.slash", title: "No forecast right now", detail: e) }
                     else { content(p) }
-                } else if let f = wx.failed[wx.place] {
+                } else if let f = wx.failure {
                     EmptyCard(symbol: "cloud.slash", title: "Weather isn't available", detail: f)
                 } else { LoadingCard() }
             }
@@ -326,7 +364,7 @@ struct WeatherView: View {
         .navigationTitle(wx.page?.place.kind == "home" || wx.page == nil ? "Weather" : wx.page?.place.name ?? "Weather")
         .navigationBarTitleDisplayMode(.inline)
         .refreshable { await wx.load(force: true) }
-        .task { await wx.load() }
+        .task { wx.viewer = "adult"; await wx.load() }
     }
 
     private var placeChips: some View {
@@ -393,10 +431,17 @@ struct WeatherHero: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(n?.condition ?? "").font(.headline)
                     if let f = n?.feels { Text("Feels \(Wx.deg(f))").font(.subheadline).opacity(0.9) }
-                    if let d = page.daily?.first { Text("H \(Wx.deg(d.high)) · L \(Wx.deg(d.low))").font(.subheadline).opacity(0.9) }
+                    if let d = page.daily?.first {
+                        // In the evening today's low already happened this morning; show tonight's, which the text talks about.
+                        if page.evening == true, let t = page.tonightLow {
+                            Text("H \(Wx.deg(d.high)) · Tonight \(Wx.deg(t))").font(.subheadline).opacity(0.9)
+                        } else {
+                            Text("H \(Wx.deg(d.high)) · L \(Wx.deg(d.low))").font(.subheadline).opacity(0.9)
+                        }
+                    }
                 }
                 Spacer()
-                Image(systemName: n?.symbol ?? "cloud.sun.fill").symbolRenderingMode(.multicolor).font(.system(size: 52))
+                WxIcon(name: n?.symbol ?? "cloud.sun.fill", onDark: true).font(.system(size: 52))
             }
             if let s = page.summary { Text(s).font(.subheadline).opacity(0.92).fixedSize(horizontal: false, vertical: true) }
         }
@@ -480,7 +525,7 @@ struct HoursCard: View {
                         VStack(spacing: 5) {
                             Text(i == 0 ? "Now" : Wx.hour(h.t, tz: tz)).font(.caption.weight(.semibold)).foregroundStyle(Theme.dim)
                             Text((h.rainChance ?? 0) >= 20 ? "\(Int(h.rainChance ?? 0))%" : " ").font(.caption2.weight(.bold)).foregroundStyle(.blue)
-                            Image(systemName: h.symbol ?? "cloud").symbolRenderingMode(.multicolor).font(.title3).frame(height: 26)
+                            WxIcon(name: h.symbol ?? "cloud.fill").font(.title3).frame(height: 26)
                             Text(Wx.deg(h.temp)).font(.subheadline.weight(.semibold))
                         }
                         .frame(width: 46)
@@ -509,7 +554,7 @@ struct DaysCard: View {
                     HStack(spacing: 10) {
                         Text(Wx.weekday(d.date, tz: tz, first: i == 0)).font(.subheadline.weight(.semibold)).frame(width: 50, alignment: .leading)
                         VStack(spacing: 0) {
-                            Image(systemName: d.symbol ?? "cloud").symbolRenderingMode(.multicolor)
+                            WxIcon(name: d.symbol ?? "cloud.fill")
                             if (d.rainChance ?? 0) >= 20 { Text("\(Int(d.rainChance ?? 0))%").font(.caption2.weight(.bold)).foregroundStyle(.blue) }
                         }
                         .frame(width: 34)
@@ -734,7 +779,7 @@ struct WeatherRadarView: View {
         .background(Backdrop())
         .navigationTitle("Radar")
         .navigationBarTitleDisplayMode(.inline)
-        .task { await wx.load() }
+        .task { wx.viewer = "adult"; await wx.load() }
     }
 
     private func controls(_ r: WeatherPage.Radar) -> some View {
@@ -766,6 +811,7 @@ struct WeatherRadarView: View {
             HStack { Text("Light"); Spacer(); Text("Heavy"); Spacer(); Text("Hail") }.font(.caption2).foregroundStyle(Theme.dim)
         }
         .padding(16)
+        .padding(.trailing, 64)  // the floating Ask button sits over the bottom-right corner
         .background(Theme.card)
     }
 
@@ -960,20 +1006,24 @@ struct KidWeatherView: View {
                         }
                     }
                     if let d = p.daily, d.count > 1 {
+                        // At night today is over, so start with tomorrow. Same days and numbers as the 10-day list.
+                        let skip = night(p, n) ? 1 : 0
                         Text("Next days").font(Theme.kidFont(20))
                         HStack(spacing: 10) {
-                            ForEach(Array(d.prefix(3).enumerated()), id: \.offset) { i, day in
+                            ForEach(Array(d.dropFirst(skip).prefix(3).enumerated()), id: \.offset) { j, day in
+                                let i = j + skip
                                 VStack(spacing: 4) {
                                     Text(Wx.emoji(day.code)).font(.system(size: 40))
                                     Text(i == 0 ? "Today" : i == 1 ? "Tomorrow" : Wx.weekday(day.date, tz: p.tz, first: false)).font(Theme.kidFont(15))
-                                    Text(Wx.deg(day.high)).font(Theme.kidFont(15, .semibold)).foregroundStyle(Theme.dim)
+                                    Text(day.low.map { "\(Wx.deg(day.high)) / \(Wx.deg($0))" } ?? Wx.deg(day.high))
+                                        .font(Theme.kidFont(15, .semibold)).foregroundStyle(Theme.dim)
                                 }
                                 .frame(maxWidth: .infinity).padding(.vertical, 12)
                                 .background(Theme.card, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
                             }
                         }
                     }
-                } else if let f = wx.failed[wx.place] {
+                } else if let f = wx.failure {
                     EmptyCard(symbol: "cloud.slash", title: "No weather right now", detail: f)
                 } else { LoadingCard() }
             }
@@ -982,13 +1032,14 @@ struct KidWeatherView: View {
         .background(Backdrop())
         .navigationTitle("Weather")
         .navigationBarTitleDisplayMode(.inline)
-        .task { wx.place = "home"; await wx.load() }
+        .task { wx.viewer = "child"; wx.place = "home"; await wx.load() }
         .refreshable { await wx.load(force: true) }
     }
 
     private func hero(_ p: WeatherPage, _ n: WeatherPage.Now) -> some View {
         let warn = p.alerts?.first
-        let line = warn.map { "\($0.event)! Stay with a grown-up." } ?? kidLine(n, today: p.daily?.first)
+        let line = warn.map { "\($0.event)! Stay with a grown-up." }
+            ?? kidLine(n, today: p.daily?.first, tomorrow: (p.daily?.count ?? 0) > 1 ? p.daily?[1] : nil, night: night(p, n))
         return VStack(spacing: 6) {
             Text(Wx.emoji(n.code, day: n.isDay ?? true)).font(.system(size: 64))
             Text(Wx.deg(n.temp)).font(Theme.kidFont(72))
@@ -1002,8 +1053,20 @@ struct KidWeatherView: View {
                     in: RoundedRectangle(cornerRadius: 28, style: .continuous))
     }
 
-    private func kidLine(_ n: WeatherPage.Now, today: WeatherPage.Day?) -> String {
+    /// After dark, or from 7 pm there.
+    private func night(_ p: WeatherPage, _ n: WeatherPage.Now) -> Bool {
+        if n.isDay == false { return true }
+        guard let t = p.localTime, t.count >= 13, let h = Int(t.dropFirst(11).prefix(2)) else { return false }
+        return h >= 19
+    }
+
+    private func kidLine(_ n: WeatherPage.Now, today: WeatherPage.Day?, tomorrow: WeatherPage.Day?, night: Bool) -> String {
         let c = n.code ?? 0
+        if night {
+            if c >= 95 { return "Storms tonight. Cozy inside!" }
+            guard let t = tomorrow else { return "Goodnight! 🌙" }
+            return "Goodnight! Tomorrow: \(Wx.emoji(t.code)) \(Wx.deg(t.high))"
+        }
         if c >= 95 { return "Storms! Stay inside when it thunders." }
         if [71, 73, 75, 77, 85, 86].contains(c) { return "Snow! ❄️" }
         if (51...67).contains(c) || (80...82).contains(c) { return "Rainy. Puddle time!" }

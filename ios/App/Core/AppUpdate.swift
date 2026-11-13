@@ -1,3 +1,4 @@
+import StoreKit
 import SwiftUI
 import UIKit
 
@@ -45,8 +46,11 @@ final class AppUpdate {
         checking = true
         defer { checking = false }
         do {
+            var query = ["build": "\(Self.build)", "version": Self.version]
+            // The hub learns new builds from TestFlight phones, so it needs to know this isn't a Simulator or Xcode build.
+            query["channel"] = await Self.channel() ?? "unknown"
             let i: AppUpdateInfo = try await HubClient.shared.call(
-                "GET", "/v1/app/update", query: ["build": "\(Self.build)", "version": Self.version],
+                "GET", "/v1/app/update", query: query,
                 auth: AppSettings.deviceID != nil)
             lastCheck = .now
             info = i
@@ -54,6 +58,25 @@ final class AppUpdate {
         } catch {
             // Keep the last answer: a required update stays required while the hub is out of reach.
         }
+    }
+
+    /// How this copy was installed: testflight, appstore, xcode or simulator. Nil when StoreKit can't say yet (sent as unknown, which the hub doesn't learn from).
+    private static var installChannel: String?
+    static func channel() async -> String? {
+        #if targetEnvironment(simulator)
+        return "simulator"
+        #else
+        if let installChannel { return installChannel }
+        guard let result = try? await AppTransaction.shared else { return nil }
+        let c: String = switch result.unsafePayloadValue.environment {
+        case .production: "appstore"
+        case .sandbox: "testflight"
+        case .xcode: "xcode"
+        default: "other"
+        }
+        installChannel = c
+        return c
+        #endif
     }
 
     func dismissBanner() {

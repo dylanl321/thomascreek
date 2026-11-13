@@ -177,6 +177,7 @@ enum Capability: String {
     case systems, people, activity
     case tripsView = "trips.view", tripsPlan = "trips.plan"
     case guests
+    case remotesSetup = "remotes.setup"
 }
 
 // MARK: - The house snapshot (GET /v1/home)
