@@ -226,3 +226,18 @@ def test_lockup_card_links_to_doors(hub, people):
     cards = hub.smart.cards(dylan, at(hub, h=22, mi=5))
     lock = next(c for c in cards if c["rule"] == "lockup")
     assert lock["ref"] == "thomascreek://doors"
+
+
+def test_today_card_lists_every_event_and_done_ones(hub, people):
+    hub.home.calendar = [
+        {"title": "Wake up", "start": "2026-11-12T07:00:00", "all_day": False},
+        {"title": "Piano", "start": "2026-11-12T09:00:00", "all_day": False, "done": True},
+        {"title": "Library books", "start": "2026-11-12T15:00:00Z", "all_day": False},   # 10 AM New York
+        {"title": "Swim", "start": "2026-11-12T17:00:00", "all_day": False},
+        {"title": "Dinner", "start": "2026-11-12T18:15:00", "all_day": False},
+    ]
+    dylan = subj(hub, people["dylan"], people["phones"]["Dylan"])
+    today = next(c for c in hub.smart.cards(dylan, at(hub, h=8)) if c["rule"] == "today")
+    assert today["title"] == "5 things today"
+    assert [(i["title"], i["value"]) for i in today["items"]] == [
+        ("Wake up", "7 am"), ("Piano", "Done · 9 am"), ("Library books", "10 am"), ("Swim", "5 pm"), ("Dinner", "6:15 pm")]

@@ -85,7 +85,7 @@ Snapshot extras
 Holiday lights: commands are sent as POST to `/v1/lights/<cmd>?<query>`, `status` and `api/live` as GET.
 
 More routes
-- `GET /v1/calendar?days=7` -> `{events:[{id?,title,start,end?,who?,all_day?}]}`
+- `GET /v1/calendar?days=7` -> `{events:[{id?,title,start,end?,who?,all_day?,done?}]}`. `done: true` marks a board item someone already ticked off today (the board's export drops those; the hub adds them back from its plan).
 - `GET /v1/meals/week` -> `{days:[{date:"YYYY-MM-DD",title?,emoji?,image_url?,recipe_id?}]}`; `GET /v1/meals/recipes/{id}` -> `{id,title,image_url?,total_time?,servings?,ingredients:[..],steps:[..]}`; `today.dinner` may carry `emoji` and `recipe_id`.
 - `PATCH /v1/shopping/{list}/items/{id} {done}`
 - `GET /v1/chores` (the caller's board), `GET /v1/chores?person=all` (household totals as one board), `GET /v1/chores/all` -> `{boards:[ChoreBoard]}`

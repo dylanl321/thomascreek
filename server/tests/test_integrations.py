@@ -7,7 +7,7 @@ import pytest
 import respx
 
 from hub.adapters.base import AdapterError
-from hub.adapters.family import FamilyBoard, parse_ics
+from hub.adapters.family import FamilyBoard, merge_plan, parse_ics
 
 TODAY = {
     "date": "2026-11-12",
@@ -167,3 +167,23 @@ def test_ics_sorts_by_real_start_time():
            "END:VCALENDAR\r\n")
     assert [e["id"] for e in parse_ics(ics, "America/New_York")] == ["day", "wake", "dinner", "swim"]
     assert all("_tzid" not in e for e in parse_ics(ics))
+
+
+def test_checked_off_activity_stays_on_today():
+    """The board's ICS export drops a checkable item once it's ticked off; the plan puts it back."""
+    ics = ("BEGIN:VCALENDAR\r\n"
+           "BEGIN:VEVENT\r\nUID:wake-2026-11-13@family-command-center\r\nSUMMARY:Wake up\r\n"
+           "DTSTART;TZID=America/New_York:20261113T070000\r\nEND:VEVENT\r\n"
+           "BEGIN:VEVENT\r\nUID:swim-2026-11-13@family-command-center\r\nSUMMARY:Swim (Theo)\r\n"
+           "DTSTART;TZID=America/New_York:20261113T170000\r\nEND:VEVENT\r\n"
+           "END:VCALENDAR\r\n")
+    plan = {"date": "2026-11-13",
+            "schedule": [{"id": "wake", "title": "Wake up", "time": "07:00", "who": "Whole family"}],
+            "calendar": [{"id": "wake", "title": "Wake up", "time": "07:00"},
+                         {"id": "piano", "title": "Piano", "time": "09:00", "who": "Juni", "completed": True},
+                         {"id": "swim", "title": "Swim", "time": "17:00", "who": "Theo"}]}
+    ev = merge_plan(parse_ics(ics), plan)
+    assert [e["title"] for e in ev] == ["Wake up", "Piano", "Swim"]
+    piano = ev[1]
+    assert piano["done"] and piano["start"] == "2026-11-13T09:00:00" and piano["who"] == "Juni"
+    assert merge_plan(ev, {}) == ev
