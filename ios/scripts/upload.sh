@@ -5,6 +5,8 @@
 #   ~/.appstoreconnect/config with ASC_KEY_ID=... and ASC_ISSUER_ID=...
 # (or export ASC_KEY_ID / ASC_ISSUER_ID). Bump CURRENT_PROJECT_VERSION in
 # project.yml before each upload. Builds land in the internal "Family" group.
+# Afterwards scripts/announce-build.sh tells the hub about the build once TestFlight has processed it
+# (needs ~/.thomascreek/test-key; ANNOUNCE=0 skips it).
 # SPEC picks the XcodeGen spec:
 #   project-vpn-appstore.yml (default): the app with the WireGuard tunnel, signed manually with the
 #     "Thomas Creek <app|widgets|tunnel|notifications> App Store" profiles and the iPhone Distribution identity. Needs Go.
@@ -61,4 +63,12 @@ PLIST
 
 xcodebuild -exportArchive -archivePath "$OUT/ThomasCreek.xcarchive" \
   -exportOptionsPlist "$OUT/ExportOptions.plist" -exportPath "$OUT/export" "${AUTH[@]}"
-echo "Uploaded build $(/usr/libexec/PlistBuddy -c 'Print :ApplicationProperties:CFBundleVersion' "$OUT/ThomasCreek.xcarchive/Info.plist")"
+BUILD_NO="$(/usr/libexec/PlistBuddy -c 'Print :ApplicationProperties:CFBundleVersion' "$OUT/ThomasCreek.xcarchive/Info.plist")"
+VERSION_NO="$(/usr/libexec/PlistBuddy -c 'Print :ApplicationProperties:CFBundleShortVersionString' "$OUT/ThomasCreek.xcarchive/Info.plist" 2>/dev/null || true)"
+echo "Uploaded build $BUILD_NO"
+# Tell the hub once TestFlight has processed it, so phones show "New version ready" (runs on in the background).
+if [ "${ANNOUNCE:-1}" = 1 ]; then
+  mkdir -p "$HOME/Library/Logs"
+  nohup "$PWD/scripts/announce-build.sh" "$BUILD_NO" "$VERSION_NO" >> "$HOME/Library/Logs/thomascreek-announce.log" 2>&1 &
+  echo "The hub will be told when TestFlight finishes processing (log: ~/Library/Logs/thomascreek-announce.log)"
+fi
