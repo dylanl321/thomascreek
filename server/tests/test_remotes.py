@@ -39,7 +39,8 @@ def _mock_lists(mock: respx.MockRouter) -> None:
         return_value=httpx.Response(200, json=ENTRIES_APPLE))
     mock.get(f"{HA}/api/config/config_entries/entry", params={"domain": "androidtv_remote"}).mock(
         return_value=httpx.Response(200, json=ENTRIES_ANDROID))
-    mock.get(f"{HA}/api/config/config_entries/flow").mock(return_value=httpx.Response(200, json=FLOWS))
+    # Home Assistant only lists open flows over its websocket; REST GET on this path answers 405.
+    mock.get(f"{HA}/api/config/config_entries/flow").mock(return_value=httpx.Response(405))
     mock.post(f"{HA}/api/template").mock(side_effect=_template)
     mock.get(f"{HA}/api/states").mock(return_value=httpx.Response(200, json=[]))
 
@@ -74,6 +75,10 @@ def test_pin_cleanup():
 
 def test_overview_merges_home_assistant_and_network(hub, people, home_client):
     hub.remotes.scanner = lambda: SCAN
+
+    async def flows():
+        return FLOWS
+    hub.remotes.list_flows = flows
     dylan, theo = people["phones"]["Dylan"], people["phones"]["Theo"]
     with respx.mock(assert_all_called=False) as mock:
         _mock_lists(mock)
@@ -145,6 +150,18 @@ def test_apple_tv_step_that_shows_a_code_to_type_on_the_tv(hub, people, home_cli
         r = home_client.post("/v1/remotes/pair", json={"id": "flow:f1shield0000"}, headers=dylan.h).json()
     assert r["state"] == "form" and not r["needs_pin"] and r["show_code"] == "4821"
     assert r["message"] == "On Living Room, enter 4821, then tap Continue."
+
+
+def test_scan_still_works_when_discovered_list_fails(hub, people, home_client):
+    hub.remotes.scanner = lambda: SCAN
+
+    async def broken():
+        raise RuntimeError("websocket down")
+    hub.remotes.list_flows = broken
+    with respx.mock(assert_all_called=False) as mock:
+        _mock_lists(mock)
+        body = home_client.get("/v1/remotes", headers=people["phones"]["Dylan"].h).json()
+    assert [f["id"] for f in body["found"]] == ["net:android:10.0.1.21", "net:apple:10.0.3.143"]
 
 
 def test_home_assistant_token_without_admin_rights(hub, people, home_client):

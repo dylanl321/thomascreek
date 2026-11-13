@@ -22,6 +22,7 @@ import json
 import logging
 import re
 import socket
+import ssl
 import struct
 import time
 from dataclasses import dataclass, field
@@ -240,6 +241,7 @@ class RemoteSetup:
         self.hub = hub
         self._scan: tuple[float, list[Found]] | None = None
         self.scanner = mdns_scan  # tests swap this out
+        self.list_flows = self._flows_ws  # tests swap this out too
 
     # -- Home Assistant setup API ----------------------------------------------------------------
     async def _ha(self, method: str, path: str, body: Any = None) -> Any:
@@ -263,6 +265,41 @@ class RemoteSetup:
             rows = await self._ha("GET", f"/api/config/config_entries/entry?domain={dom}") or []
             out += [r for r in rows if r.get("domain") == dom]
         return out
+
+    async def _discovered(self) -> list[dict[str, Any]]:
+        """Setup flows Home Assistant has open (its "Discovered" cards). Optional: the network scan covers the rest."""
+        try:
+            return await self.list_flows()
+        except Exception as exc:  # noqa: BLE001
+            log.info("Home Assistant's discovered devices unavailable: %s", exc)
+            return []
+
+    async def _flows_ws(self) -> list[dict[str, Any]]:
+        # REST has no list of open flows (GET /api/config/config_entries/flow answers 405); the websocket does.
+        import websockets
+
+        cfg = self.hub.config.home_assistant
+        url = re.sub(r"^http", "ws", (cfg.url or "").rstrip("/")) + "/api/websocket"
+        ctx = None
+        if url.startswith("wss://"):
+            ctx = ssl.create_default_context()
+            if not cfg.verify_tls:
+                ctx.check_hostname, ctx.verify_mode = False, ssl.CERT_NONE
+        token = self.hub.ha.secret(cfg.token_secret)
+        if not token:
+            return []
+        async with websockets.connect(url, ssl=ctx, max_size=8 * 2**20, open_timeout=5) as ws:
+            await asyncio.wait_for(ws.recv(), 5)  # auth_required
+            await ws.send(json.dumps({"type": "auth", "access_token": token}))
+            if json.loads(await asyncio.wait_for(ws.recv(), 5)).get("type") != "auth_ok":
+                raise RuntimeError("Home Assistant refused the token")
+            await ws.send(json.dumps({"id": 1, "type": "config_entries/flow/progress"}))
+            while True:
+                msg = json.loads(await asyncio.wait_for(ws.recv(), 5))
+                if msg.get("id") == 1:
+                    if not msg.get("success"):
+                        raise RuntimeError((msg.get("error") or {}).get("message") or "flow list refused")
+                    return list(msg.get("result") or [])
 
     async def _entities(self) -> dict[str, str]:
         try:
@@ -289,7 +326,7 @@ class RemoteSetup:
     # -- listing --------------------------------------------------------------------------------
     async def overview(self, fresh: bool = False) -> dict[str, Any]:
         entries, flows, entities, scan = await asyncio.gather(
-            self._entries(), self._ha("GET", "/api/config/config_entries/flow"), self._entities(),
+            self._entries(), self._discovered(), self._entities(),
             self._scan_network(fresh))
         home = self.hub.home
         added: list[dict[str, Any]] = []
