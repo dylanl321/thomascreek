@@ -69,6 +69,13 @@ actor HubClient {
 
     func baseURL() -> URL? { lastGood ?? bases().first }
 
+    /// The published (outside) address, or nil when none is set or it is the same as home.
+    func remoteBase() -> URL? {
+        let r = AppSettings.hubRemote, l = AppSettings.hubLAN
+        guard !r.isEmpty, r != l else { return nil }
+        return URL(string: r.hasPrefix("http") ? r : "http://\(r)")
+    }
+
     // MARK: auth
 
     private struct Nonce: Decodable { var nonce: String }
@@ -174,7 +181,10 @@ actor HubClient {
 
     func raw(_ method: String, _ path: String, query: [String: String] = [:], body: Data? = nil,
              auth: Bool = true, confirm: String? = nil, retried: Bool = false, timeout: TimeInterval? = nil) async throws -> Data {
-        let list = bases()
+        // The hub's web-page sign-in only exists on the home address: the published address (NPM)
+        // answers 404 for /v1/admin/*. Never send it there, even when the app last used it.
+        let homeOnly = path.hasPrefix("/v1/admin/")
+        let list = homeOnly ? Array(bases().filter { $0 != remoteBase() }) : bases()
         guard !list.isEmpty else { throw HubError.unreachable }
         var bearer: String?
         if auth { bearer = try await accessToken() }
@@ -274,7 +284,9 @@ actor HubClient {
     /// Absolute URL for a hub-relative asset path ("/v1/assets/...") or a full URL as given.
     func resolve(_ s: String) -> URL? {
         if s.hasPrefix("http") { return URL(string: s) }
-        guard let base = baseURL() else { return nil }
+        // The web page (/admin) only opens on the home address, never the published one.
+        let base = s.hasPrefix("/admin") ? bases().first { $0 != remoteBase() } : baseURL()
+        guard let base else { return nil }
         return URL(string: s, relativeTo: base)?.absoluteURL
     }
 
