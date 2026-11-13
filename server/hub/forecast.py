@@ -161,11 +161,33 @@ def shape_forecast(raw: dict[str, Any]) -> dict[str, Any]:
                      "uv": _r(_at(daily, "uv_index_max", i), 1),
                      "sunrise": _at(daily, "sunrise", i), "sunset": _at(daily, "sunset", i)})
     today = days[0] if days else {}
+    # Tonight's low: the coldest hour from now until 9 am tomorrow. Today's daily low is usually this
+    # morning's, which reads wrong in the evening next to "low around 37" for tonight.
+    until = _tomorrow_9(cur_t)
+    tonight = [h["temp"] for h in hours if h["temp"] is not None and h["t"] <= until]
     m15 = raw.get("minutely_15") or {}
     soon = [{"t": t, "precip": _at(m15, "precipitation", i)} for i, t in enumerate(m15.get("time") or []) if t >= cur_t[:16]][:8]
     return {"now": now, "hourly": hours, "daily": days, "minutely": soon, "next_hour": next_hour(soon, hours, now),
             "local_time": cur_t, "tz": raw.get("timezone"), "utc_offset_s": raw.get("utc_offset_seconds"),
+            "tonight_low": min(tonight) if tonight else (days[1]["low"] if len(days) > 1 else None),
+            "evening": cur_t[11:13] >= "15",
             "sunrise": today.get("sunrise"), "sunset": today.get("sunset")}
+
+
+def _tomorrow_9(cur_t: str) -> str:
+    try:
+        d = datetime.fromisoformat(cur_t[:16]).date() + timedelta(days=1)
+    except ValueError:
+        return "9999"
+    return f"{d.isoformat()}T09:00"
+
+
+def nws_tonight(periods: list[dict[str, Any]]) -> int | None:
+    """The NWS low for tonight: the first night period, if it's one of the next two."""
+    for p in periods[:2]:
+        if p.get("day") is False and p.get("temp") is not None:
+            return p["temp"]
+    return None
 
 
 def next_hour(soon: list[dict[str, Any]], hours: list[dict[str, Any]], now: dict[str, Any]) -> str:
@@ -769,7 +791,12 @@ class Forecasts:
         outlook, radar = (got[2], got[3]) if not child else ([], None)
         periods = got[-1] if pt and pt.get("forecast") else []
         if periods:
+            fc = dict(fc)
+            fc["daily"] = [dict(d) for d in fc["daily"]]  # the shaped forecast is cached; don't write into it
             attach_text(fc["daily"], periods)
+            # Keep the number next to the forecast text in agreement with it.
+            if (t := nws_tonight(periods)) is not None:
+                fc["tonight_low"] = t
         summary = periods[0]["text"] if periods else None
         p["tz"] = fc.get("tz")
         out: dict[str, Any] = {
@@ -816,14 +843,38 @@ class Forecasts:
         country = "US" if pt else "DE" if self.in_germany(*home) else "other"
         return await self.alerts(home[0], home[1], country)
 
-    def cached_home_alerts(self) -> list[dict[str, Any]]:
+    def _home_loc(self) -> tuple[float, float] | None:
         h = getattr(self.hub.smart.weather, "_latlon", None)
         cfg = self.hub.config.smart
-        loc = (cfg.latitude, cfg.longitude) if cfg.latitude is not None and cfg.longitude is not None else h
+        return (cfg.latitude, cfg.longitude) if cfg.latitude is not None and cfg.longitude is not None else h
+
+    def cached_home_alerts(self) -> list[dict[str, Any]]:
+        loc = self._home_loc()
         if not loc:
             return []
         hit = self._c.get(f"alerts:{loc[0]:.3f},{loc[1]:.3f}")
         return hit[1] if hit and time.time() - hit[0] < 1800 else []
+
+    async def warm_home(self) -> None:
+        """Keep the house's forecast fresh so Home and the Weather page show the same numbers."""
+        home = await self.home()
+        if home:
+            await self.forecast(*home)
+
+    def cached_home_now(self) -> dict[str, Any] | None:
+        """Home's date-line weather from the Weather page's own forecast, when it's fresh."""
+        loc = self._home_loc()
+        if not loc:
+            return None
+        hit = self._c.get(f"forecast:{loc[0]:.2f},{loc[1]:.2f}")
+        if not hit or time.time() - hit[0] > 1800 or not hit[1]:
+            return None
+        fc = hit[1]
+        n, d = fc.get("now") or {}, (fc.get("daily") or [{}])[0]
+        out = {"temp": n.get("temp"), "condition": n.get("condition"), "symbol": n.get("symbol"),
+               "high": d.get("high"), "low": fc.get("tonight_low") if fc.get("evening") else d.get("low"),
+               "sunrise": d.get("sunrise"), "sunset": d.get("sunset")}
+        return {k: v for k, v in out.items() if v is not None}
 
 
 def wear(fc: dict[str, Any]) -> list[dict[str, str]]:
@@ -899,6 +950,10 @@ class AlertWatch:
             batches.append(("home", "Home", await self.fc.home_alerts()))
         except Exception as exc:  # noqa: BLE001
             log.info("home alerts: %s", exc)
+        try:
+            await self.fc.warm_home()
+        except Exception as exc:  # noqa: BLE001
+            log.info("home forecast: %s", exc)
         if self.hub.trek.enabled:
             for t in self.fc.trip_places():
                 if not t.get("now"):
