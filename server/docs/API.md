@@ -213,9 +213,12 @@ The kitchen tablet gets only `next`. Children don't get trips in `trek.hidden_fr
 
 `GET /v1/network/kids` (adults) -> `{kids:[{id,name,managed,paused,until,devices:[{mac,name,rule_id,paused}]}]}`.
 Pause or grant with `POST /v1/actions {action:"network.pause"|"network.grant", target:<child person id>, params:{minutes?}}` (secure tier).
-Admin: `GET /v1/network/devices` (everything Firewalla sees, with `linked_to`),
+Admin: `GET /v1/network/devices` (every device on the Thomas Creek box, with `linked_to`),
 `POST /v1/network/kids/{person_id}/devices {macs:[..]}` (admin tier; the hub creates one paused
 "block internet" rule per device), `DELETE /v1/network/kids/{person_id}/devices/{mac}`.
+Devices, rules and alarms (push alerts) come only from the box named by `firewalla.box`
+(its gid or name, default "140Thomas", the Gold Pro at the house; with one box in the account that box is used).
+If no box matches, Firewalla shows as down on Systems with the box names it found.
 
 ## People, devices, systems (admin unless noted)
 
@@ -349,6 +352,16 @@ Each change sends a `settings` event (`{version, device_id}`) to the person's ow
 (`deps.caller`). Writes other than that person's settings and favorites are refused with `preview_only`,
 so the preview can never change the house or anyone's devices. A non-admin sending the header gets 403.
 
+## Thermostat history (`hub/climate.py`, `routes/climate.py`)
+
+| Route | Who | Does |
+| --- | --- | --- |
+| `GET /v1/climate/{climate.entity}/history?range=6h\|24h\|3d\|7d` | anyone who sees the thermostat on Home (children: their rooms) | indoor temperature, set points and heating/cooling runs |
+
+Reads Home Assistant's `/api/history/period/{start}?filter_entity_id=…&end_time=…&significant_changes_only=0`
+for that one entity (cached 60 s per entity and range) and Open-Meteo's past hours at the house for the
+outdoor line (cached 30 min). HA's recorder keeps 10 days by default, so 7 days is the longest range.
+All times are Unix seconds. 503 `unavailable` when HA can't answer.
 ## House layout (admin, `home.layout`)
 
 | Method | Path | Body | Notes |

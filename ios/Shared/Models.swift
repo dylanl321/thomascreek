@@ -582,6 +582,7 @@ struct ActivityEntry: Codable, Hashable, Identifiable {
     var id: String
     var t: Double
     var who: String?
+    var personId: String?
     var action: String?
     var target: String?
     var outcome: String?

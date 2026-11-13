@@ -11,7 +11,7 @@ struct HomeView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                HeroHeader(title: greeting(me?.firstName), subtitle: dateLine, show3D: true)
+                HeroHeader(title: greeting(me?.firstName), subtitle: dateLine, subtitleLink: home?.weather?.temp == nil ? nil : .weather, show3D: true)
                 VPNNotice()
                 ForEach(sections) { section($0) }
                 if !store.reachable, store.role == .admin, !sections.contains(.status) { OfflineCard() }
@@ -119,6 +119,8 @@ struct HeroHeader: View {
     @Environment(Router.self) private var router
     let title: String
     let subtitle: String
+    /// Where the subtitle leads when tapped (the date line carries the temperature, so Weather).
+    var subtitleLink: Destination? = nil
     var show3D = false
     var height: CGFloat = 230
 
@@ -136,6 +138,7 @@ struct HeroHeader: View {
                         .padding(.horizontal, 8).padding(.vertical, 3).background(Theme.warn, in: Capsule()).padding(.bottom, 4)
                 }
                 Text(subtitle).font(.subheadline.weight(.medium)).foregroundStyle(.white.opacity(0.8))
+                    .links(to: subtitleLink, "Weather")
                 Text(title).font(.system(.title, design: .rounded, weight: .bold)).foregroundStyle(.white)
                     .lineLimit(1).minimumScaleFactor(0.6)
                     .shadow(color: .black.opacity(0.35), radius: 6, y: 1)
@@ -202,8 +205,10 @@ struct StatusBlock: View {
 
     private func alertRow(_ item: HomeSnapshot.StatusItem) -> some View {
         let color = Theme.level(item.level)
+        let link = item.ref == nil ? Destination.forTarget(item.deviceId) : nil
         return Button {
-            if let ref = item.ref, let url = URL(string: ref) { router.open(url) }
+            if let ref = item.ref, let url = URL(string: ref) { router.follow(url) }
+            else if let link, router.allows(link) { router.follow(link) }
         } label: {
             HStack(spacing: 12) {
                 IconBadge(symbol: item.level == "critical" ? "exclamationmark.octagon.fill" : "exclamationmark.triangle.fill", color: color, size: 38)
@@ -217,7 +222,7 @@ struct StatusBlock: View {
                         store.perform(action, target: item.deviceId, confirm: SecureAction.reason(for: action, name: item.title))
                     }
                     .buttonStyle(.borderedProminent).tint(color).controlSize(.small)
-                } else if item.ref != nil {
+                } else if item.ref != nil || link.map { router.allows($0) } == true {
                     Image(systemName: "chevron.right").foregroundStyle(Theme.dim)
                 }
             }
@@ -341,6 +346,7 @@ struct HouseNowPlayingCard: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(item.title).font(.headline).lineLimit(1)
                     Text([room, dev?.name, item.subtitle].compactMap { $0 }.joined(separator: " · ")).font(.caption).foregroundStyle(Theme.dim).lineLimit(1)
+                        .links(to: item.roomId.map { .room($0) }, room)
                     if let p = item.progress { ProgressBar(value: p).frame(width: 150) }
                 }
             }

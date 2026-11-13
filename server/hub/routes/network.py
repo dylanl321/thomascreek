@@ -106,12 +106,7 @@ async def link_devices(person_id: str, body: LinkBody, request: Request, c: Call
             dev = known.get(mac)
             if dev is None:
                 raise error(404, "unknown_device", f"Firewalla doesn't know {mac}")
-            gid = dev.get("gid") or gid
-            if not gid:
-                boxes = await fw.boxes()
-                gid = boxes[0].get("gid") if boxes else None
-            if not gid:
-                raise error(409, "no_box", "Couldn't find the Firewalla box")
+            gid = dev.get("gid") or gid or await fw.gid()
             rule_id = await fw.create_block_rule(mac, gid, f"Thomas Creek hub: {person['name']} internet ({dev['name']}). Paused = internet on.")
             await fw.pause_rule(rule_id)
             h.db.insert("network_rules", {"rule_id": rule_id, "person_id": person_id, "mac": mac,

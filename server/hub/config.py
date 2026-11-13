@@ -41,6 +41,10 @@ class FirewallaConfig(BaseModel):
     msp_domain: str | None = None
     token_secret: str = "firewalla.msp_token"
     timeout_s: float = 8.0
+    # The MSP account can hold several boxes; the hub only reads and changes the
+    # Thomas Creek one. `box` is that box's gid or its name in the Firewalla app
+    # (case and spaces ignored). With one box in the account it is used as is.
+    box: str | None = "140Thomas"
     # person_id -> list of Firewalla rule ids that block that person's devices.
     # Dylan creates one "block internet" rule per child device group in the
     # Firewalla app; the hub only pauses (= internet allowed) and resumes them.

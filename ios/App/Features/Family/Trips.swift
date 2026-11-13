@@ -387,6 +387,17 @@ struct TripView: View {
                         if !trip.countdown.isEmpty, !trip.isPast { Pill(text: trip.isOn ? trip.countdown : "\(trip.countdown) to go") }
                     }
                     TripOfflineRow(trip: trip, savedAt: savedAt)
+                    if !trip.isPast {
+                        // The forecast where we're going (the Weather screen's trip place).
+                        HStack(spacing: 10) {
+                            Image(systemName: "cloud.sun.fill").symbolRenderingMode(.multicolor)
+                            Text("Weather there").font(.subheadline.weight(.semibold)).foregroundStyle(Theme.fg)
+                            Spacer()
+                            Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(Theme.dim)
+                        }
+                        .card(padding: 12)
+                        .linksToWeather(place: "trip:\(tripID)")
+                    }
                     Picker("Section", selection: $section) {
                         ForEach(Part.allCases, id: \.self) { Text($0.rawValue) }
                     }

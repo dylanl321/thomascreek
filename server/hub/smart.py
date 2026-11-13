@@ -389,6 +389,10 @@ class Smart:
                 if hidden["until"].get(card["id"], 0) > ts:
                     continue
                 card["buttons"] = [b for b in card.get("buttons", []) if b]
+                if not card.get("ref"):
+                    ref = default_ref(name, card)
+                    if ref:
+                        card["ref"] = ref
                 out.append(card)
         out.sort(key=lambda x: -x["priority"])
         if little:
@@ -399,6 +403,30 @@ class Smart:
     def _ui_style(self, s: "Subject") -> str | None:
         p = self.hub.db.person(s.person_id)
         return p.get("ui_style") if p else None
+
+
+# What a card is about, so tapping the card itself opens it (the app's "web of links").
+RULE_REFS = {
+    "weather_am": "thomascreek://weather", "my_weather": "thomascreek://weather", "rain": "thomascreek://weather",
+    "freeze": "thomascreek://weather", "heat": "thomascreek://weather", "today": "thomascreek://today",
+    "kids_chores": "thomascreek://chores", "my_chores": "thomascreek://chores", "dinner": "thomascreek://dinners",
+    "my_dinner": "thomascreek://dinners", "bedtime": "thomascreek://bedtime", "trash": "thomascreek://calendar",
+    "lockup": "thomascreek://doors", "away_unlocked": "thomascreek://doors", "show": "thomascreek://show",
+    "media_ready": "thomascreek://requests",
+}
+
+
+def default_ref(rule: str, c: dict[str, Any]) -> str | None:
+    """The card's subject: the one device it names, else its first "open" button, else the rule's screen."""
+    parts = str(c.get("id", "")).split(":")
+    if rule in ("garage_open", "away_unlocked") and len(parts) > 2 and "." in parts[1]:
+        return f"thomascreek://device/{parts[1]}"
+    if rule == "habit" and len(parts) > 2 and "." in parts[2]:
+        return f"thomascreek://device/{parts[2]}"
+    for b in c.get("buttons") or []:
+        if b and b.get("kind") == "open" and b.get("url"):
+            return b["url"]
+    return RULE_REFS.get(rule)
 
 
 def card(id: str, priority: int, tint: str, symbol: str, eyebrow: str, title: str, *, detail: str | None = None,

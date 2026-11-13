@@ -60,6 +60,7 @@ firewalla:
   enabled: false
   msp_domain: YOURBOX.firewalla.net
   token_secret: firewalla.msp_token
+  box: 140Thomas  # gid or name of the box the hub uses; other boxes in the account are ignored
   person_rules: {}   # person id -> [rule id] of a "block internet" rule per child
 
 apns:

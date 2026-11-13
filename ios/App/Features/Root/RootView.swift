@@ -147,6 +147,7 @@ struct DestinationView: View {
         switch destination {
         case .room(let id): RoomDetailView(roomID: id)
         case .climate: ClimateView()
+        case .climateHistory(let id): ClimateHistoryView(deviceID: id)
         case .doors: DoorsView()
         case .cameras: CamerasView()
         case .camera(let id): CameraView(cameraID: id)
@@ -204,6 +205,9 @@ struct DestinationView: View {
         case .weatherAlert(let id): WeatherAlertView(alertID: id)
         case .weatherRadar: WeatherRadarView()
         case .weatherOutlook: WeatherOutlookView()
+        case .weatherPlace(let place): WeatherView().task { await WeatherStore.shared.select(place) }
+        case .device(let id): DevicePage(deviceID: id)
+        case .person(let id): PersonPage(personID: id)
         }
     }
 }

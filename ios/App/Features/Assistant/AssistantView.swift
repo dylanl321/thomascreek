@@ -330,6 +330,8 @@ struct AssistantSheet: View {
                 .background(l.kind == .me ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(Theme.card),
                             in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                 .textSelection(.enabled)
+                // Things the answer names ("the [kitchen lights](thomascreek://device/light.kitchen)") open in the app.
+                .inAppLinks { router.showAssistant = false }
         }
         .frame(maxWidth: .infinity, alignment: l.kind == .me ? .trailing : .leading)
         .padding(l.kind == .me ? .leading : .trailing, 40)

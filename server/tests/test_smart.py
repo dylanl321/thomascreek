@@ -206,3 +206,23 @@ def test_one_lock_listed_once_even_with_two_entities(hub, people):
     assert names.count("Home Connect 620 Connected Smart Lock") == 1
     steps = lock["buttons"][0]["params"]["steps"]
     assert {s["target"] for s in steps if s["action"] == "lock.set"} >= {"lock.home_connect_620", "lock.home_connect_620_2"}
+
+
+def test_every_card_says_what_it_is_about():
+    """Tapping a Right now card opens its subject, so each card carries a thomascreek:// ref."""
+    from hub.smart import default_ref
+    assert default_ref("garage_open", {"id": "garage_open:cover.big_door:1731500000"}) == "thomascreek://device/cover.big_door"
+    assert default_ref("away_unlocked", {"id": "away_unlocked:lock.front_door:2026-11-13"}) == "thomascreek://device/lock.front_door"
+    assert default_ref("away_unlocked", {"id": "away_unlocked:2026-11-13"}) == "thomascreek://doors"
+    assert default_ref("habit", {"id": "habit:light.set:light.porch:2026-11-13"}) == "thomascreek://device/light.porch"
+    assert default_ref("trip", {"id": "trip:4:x", "buttons": [{"kind": "open", "url": "thomascreek://trip/4"}]}) == "thomascreek://trip/4"
+    assert default_ref("rain", {"id": "rain:x"}) == "thomascreek://weather"
+    assert default_ref("away_lights", {"id": "away_lights:x:3"}) is None
+
+
+def test_lockup_card_links_to_doors(hub, people):
+    hub.home.states["lock.front_door"]["state"] = "unlocked"
+    dylan = subj(hub, people["dylan"], people["phones"]["Dylan"])
+    cards = hub.smart.cards(dylan, at(hub, h=22, mi=5))
+    lock = next(c for c in cards if c["rule"] == "lockup")
+    assert lock["ref"] == "thomascreek://doors"

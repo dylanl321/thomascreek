@@ -97,6 +97,9 @@ class Hub:
         from .remotes import RemoteSetup
 
         self.remotes = RemoteSetup(self)
+        from .climate import ClimateHistory
+
+        self.climate = ClimateHistory(self)
         from .forecast import AlertWatch, Forecasts
 
         self.forecasts = Forecasts(self, data / "radar")

@@ -10005,6 +10005,74 @@
     }
    }
   },
+  "/v1/climate/{entity_id}/history": {
+   "get": {
+    "tags": [
+     "climate"
+    ],
+    "summary": "History",
+    "description": "Anyone who can see the thermostat on Home can see its history (children: their own rooms).",
+    "operationId": "history_v1_climate__entity_id__history_get",
+    "parameters": [
+     {
+      "name": "entity_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "maxLength": 200,
+       "pattern": "^climate\\.[a-z0-9_]+$",
+       "title": "Entity Id"
+      }
+     },
+     {
+      "name": "range",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "pattern": "^(6h|24h|3d|7d)$",
+       "default": "24h",
+       "title": "Range"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response History V1 Climate  Entity Id  History Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/v1/me/settings": {
    "get": {
     "tags": [

@@ -3,8 +3,10 @@ from __future__ import annotations
 import json
 
 import httpx
+import pytest
 import respx
 
+from hub.adapters.base import AdapterError
 from hub.adapters.family import FamilyBoard, parse_ics
 
 TODAY = {
@@ -79,6 +81,8 @@ def test_firewalla_link_creates_paused_rule(hub, people, home_client):
     theo_id = people["theo"]["id"]
     base = "https://box.example.invalid/v2"
     with respx.mock(assert_all_called=False) as mock:
+        mock.get(f"{base}/boxes").mock(return_value=httpx.Response(200, json=[
+            {"gid": "box0", "name": "Firewalla"}, {"gid": "box1", "name": "140Thomas"}]))
         mock.get(f"{base}/devices").mock(return_value=httpx.Response(200, json=[
             {"mac": "aa:bb:cc:dd:ee:ff", "name": "Theo's iPad", "ip": "192.168.1.70", "online": True, "gid": "box1"}]))
         create = mock.post(f"{base}/rules").mock(return_value=httpx.Response(200, json={"id": "rule-1", "status": "active"}))
@@ -104,6 +108,45 @@ def test_firewalla_link_creates_paused_rule(hub, people, home_client):
         assert r.status_code == 200, r.text
         assert resume.called
         assert hub.timers.pending("network.restore")
+
+
+@pytest.mark.asyncio
+async def test_firewalla_only_reads_the_thomas_creek_box(hub):
+    hub.config.firewalla.enabled = True
+    hub.config.firewalla.msp_domain = "box.example.invalid"
+    hub.vault.set("firewalla.msp_token", "fw-token")
+    fw = hub.firewalla
+    base = "https://box.example.invalid/v2"
+    boxes = [{"gid": "other", "name": "Office"}, {"gid": "tc", "name": "140 thomas"}]
+    with respx.mock() as mock:
+        mock.get(f"{base}/boxes").mock(return_value=httpx.Response(200, json=boxes))
+        devs = mock.get(f"{base}/devices").mock(return_value=httpx.Response(200, json=[
+            {"id": "AA:00:00:00:00:01", "name": "iPad", "gid": "tc"}, {"id": "AA:00:00:00:00:02", "name": "Desk", "gid": "other"}]))
+        rules = mock.get(f"{base}/rules").mock(return_value=httpx.Response(200, json={"results": [
+            {"id": "r1", "gid": "tc"}, {"id": "r2", "gid": "other"}]}))
+        alarms = mock.get(f"{base}/alarms").mock(return_value=httpx.Response(200, json={"results": [
+            {"aid": 1, "gid": "tc"}, {"aid": 2, "gid": "other"}]}))
+        assert [d["name"] for d in await fw.devices()] == ["iPad"]
+        assert [r["id"] for r in await fw.rules()] == ["r1"]
+        assert [a["aid"] for a in await fw.alarms()] == [1]
+        assert devs.calls[0].request.url.params["box"] == "tc"
+        assert rules.calls[0].request.url.params["query"] == "box.id:tc"
+        assert alarms.calls[0].request.url.params["query"] == "box.id:tc"
+        assert fw.health()["box"] == "140 thomas"
+
+        # A gid works too; a name that matches nothing is an error, not every box.
+        fw._box = None
+        hub.config.firewalla.box = "other"
+        assert await fw.gid() == "other"
+        fw._box = None
+        hub.config.firewalla.box = "Cabin"
+        with pytest.raises(AdapterError, match="Office, 140 thomas"):
+            await fw.devices()
+
+        # With one box in the account it is used whatever it's called.
+        fw._box = None
+        mock.get(f"{base}/boxes").mock(return_value=httpx.Response(200, json=boxes[:1]))
+        assert await fw.gid() == "other"
 
 
 def test_activity_category_filter(people, home_client):
