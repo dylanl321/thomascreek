@@ -78,8 +78,31 @@ APPS: list[dict[str, Any]] = [
     {"id": "spotify", "name": "Spotify", "kid": False, "android": "com.spotify.tv.android", "aliases": ["spotify"]},
     {"id": "apple_tv_app", "name": "Apple TV", "kid": False, "android": "com.apple.atve.androidtv.appletv",
      "aliases": ["tv", "apple tv", "apple tv+"]},
+    # The family's live TV: TREX on the Android boxes, UHF on the Apple TVs. TREX is sideloaded, so its package
+    # name is learned the first time it's seen open on any box (see learn()), or set in extra.app_packages.
+    {"id": "live_tv", "name": "TREX / UHF", "kid": False, "android": None, "android_name": "TREX",
+     "learn": r"trex", "aliases": ["trex", "uhf", "uhf love your iptv", "trex uhf"]},
 ]
-ANDROID_APPS = [{"id": a["android"], "name": a["name"], "kid": a["kid"]} for a in APPS]
+# Packages for catalog apps that aren't in an app store: {app id: package}, learned or configured.
+LEARNED: dict[str, str] = {}
+
+
+def android_package(a: dict[str, Any]) -> str | None:
+    return a.get("android") or LEARNED.get(a["id"])
+
+
+def learn(app_ids: Any) -> bool:
+    """Remember the package of a sideloaded catalog app (TREX) from what the boxes report as open."""
+    new = False
+    for pkg in app_ids:
+        if not isinstance(pkg, str) or not re.fullmatch(r"[a-zA-Z][\w]*(\.[\w]+)+", pkg):
+            continue
+        for a in APPS:
+            if a.get("learn") and LEARNED.get(a["id"]) != pkg and re.search(a["learn"], pkg, re.I):
+                LEARNED[a["id"]] = pkg
+                new = True
+    return new
+ANDROID_APPS = [{"id": a["android"], "name": a["name"], "kid": a["kid"]} for a in APPS if a["android"]]
 _BY_ID = {a["id"]: a for a in APPS}
 _KNOWN_APPS = {a["id"]: a["name"] for a in ANDROID_APPS} | {
     "com.google.android.apps.tv.launcherx": "Home",
@@ -115,7 +138,7 @@ def catalog_app(name: str | None) -> dict[str, Any] | None:
     if name in _BY_ID:
         return _BY_ID[name]
     for a in APPS:
-        if a["android"] == name:
+        if name in (a["android"], LEARNED.get(a["id"])):
             return a
     return _BY_ALIAS.get(re.sub(r"\s+", " ", _key(name)))
 
@@ -126,6 +149,9 @@ def app_label(app: str | None) -> str | None:
         return None
     if app in _KNOWN_APPS:
         return _KNOWN_APPS[app]
+    for a in APPS:
+        if a.get("learn") and app == LEARNED.get(a["id"]):
+            return a.get("android_name") or a["name"]
     if re.fullmatch(r"[a-z][\w]*(\.[\w]+){2,}", app):
         parts = [p for p in app.split(".") if p not in ("com", "tv", "android", "app", "apps", "google", "ott",
                                                           "livingroom", "androidtv", "leanback", "atv")]
@@ -150,7 +176,8 @@ def device_apps(plat: str | None, sources: list[str]) -> list[dict[str, Any]]:
     """Apps this TV can open, as {id, name, kid, target}. The id is the same on every TV ("youtube");
     target is what this TV needs (a package name, or the name in its own source list)."""
     if plat == "androidtv_remote":
-        return [{"id": a["id"], "name": a["name"], "kid": a["kid"], "target": a["android"]} for a in APPS]
+        return [{"id": a["id"], "name": a.get("android_name") or a["name"], "kid": a["kid"], "target": pkg}
+                for a in APPS if (pkg := android_package(a))]
     out: list[dict[str, Any]] = []
     seen: set[str] = set()
     for src in sources:
@@ -161,7 +188,8 @@ def device_apps(plat: str | None, sources: list[str]) -> list[dict[str, Any]]:
         if aid in seen:
             continue
         seen.add(aid)
-        out.append({"id": aid, "name": c["name"] if c else src, "kid": bool(c and c["kid"]), "target": src})
+        name = c["name"] if c and not c.get("learn") else src  # live TV keeps the TV's own name (UHF)
+        out.append({"id": aid, "name": name, "kid": bool(c and c["kid"]), "target": src})
     return out
 
 

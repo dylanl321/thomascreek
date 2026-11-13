@@ -381,6 +381,7 @@ class HomeModel:
         before = {e for e in self.states if e.startswith("media_player.")}, \
             {e for e, st in self.states.items() if e.startswith("media_player.") and st.get("state") == "unavailable"}
         self.states = fresh
+        self._learn_apps(first)
         after = {e for e in fresh if e.startswith("media_player.")}, \
             {e for e, st in fresh.items() if e.startswith("media_player.") and st.get("state") == "unavailable"}
         if first or before != after or self.screens is None:
@@ -390,6 +391,17 @@ class HomeModel:
         for eid in changed:
             if eid in self.entity_area or eid in self.hub.config.favorites:
                 self.hub.bus.publish({"type": "device", "entity_id": eid})
+
+    def _learn_apps(self, first: bool) -> None:
+        """Sideloaded apps (TREX) have no fixed package name: remember it once any box shows it open."""
+        from . import tvremote
+
+        if first:
+            tvremote.LEARNED.update(self.hub.db.kv_get("tv.learned_apps") or {})
+            tvremote.LEARNED.update(self.hub.config.home_assistant.extra.get("app_packages") or {})
+        seen = [st.get("attributes", {}).get("app_id") for e, st in self.states.items() if e.startswith("media_player.")]
+        if tvremote.learn(seen):
+            self.hub.db.kv_set("tv.learned_apps", dict(tvremote.LEARNED))
 
     # -- shaping for one person -------------------------------------------
     def visible_areas(self, s: Subject) -> set[str] | None:
