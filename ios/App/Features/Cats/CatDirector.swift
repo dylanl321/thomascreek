@@ -5,8 +5,13 @@ import UIKit
 ///
 /// Every so often (how often is the person's setting) a random short scene plays, but only when the
 /// app is open and still: no touch for a few seconds, no sheet or keyboard up, no camera or video on
-/// screen, VoiceOver off. Touching near a cat sends it away at once. With Reduce Motion on, a cat
+/// screen, VoiceOver off. Tapping near a cat sends it away at once. With Reduce Motion on, a cat
 /// just sits by the island for a moment instead.
+///
+/// Scrolling never moves a cat or sends it away: while the page moves, every cat holds its spot on
+/// screen and the scene picks up again once the page settles. The one exception is a cat standing on
+/// the Home header art, which travels with the header (if the header has moved by the time scrolling
+/// stops, that cat slips away).
 @MainActor
 final class CatDirector {
     static let shared = CatDirector()
@@ -42,6 +47,10 @@ final class CatDirector {
     private var stayAway = 0
     private var keyboardUp = false
     private var observers: [NSObjectProtocol] = []
+    private let scrollWatch = CatScrollWatch()
+    private var scrolling = false
+    private var lastScroll = Date.distantPast
+    private var nearTouch: Task<Void, Never>?
 
     var frequency: Frequency {
         if let s = SettingsStore.shared.optionalString(SettingKey.cats), let f = Frequency(rawValue: s) { return f }
@@ -81,6 +90,8 @@ final class CatDirector {
                 MainActor.assumeIsolated { self.stop(now: true) }
             },
         ]
+        scrollWatch.onChange = { [weak self] on in self?.scrollChanged(on) }
+        watchScrolls()
         lastScene = Date().addingTimeInterval(-min(frequency.gap, 15 * 60) + Double.random(in: 25...70))  // the first visit comes fairly soon
         loop = Task { [weak self] in
             while !Task.isCancelled {
@@ -93,6 +104,21 @@ final class CatDirector {
     private var appWindow: UIWindow? {
         window?.windowScene?.windows.first { !($0 is CatWindow) && $0.isKeyWindow }
             ?? window?.windowScene?.windows.first { !($0 is CatWindow) }
+    }
+
+    // MARK: scrolling
+
+    private func watchScrolls() {
+        if let w = appWindow { scrollWatch.attach(to: w) }
+    }
+
+    private func scrollChanged(_ on: Bool) {
+        scrolling = on
+        lastScroll = Date()
+        if on { nearTouch?.cancel(); nearTouch = nil }
+        stage.hold(on)
+        // A cat standing on the header went off with it: its ground has moved, so it leaves.
+        if !on, scene != nil, stage.carriedOff { stop() }
     }
 
     // MARK: staying out of the way
@@ -115,14 +141,25 @@ final class CatDirector {
         lastTouch = Date()
         guard scene != nil else { return false }
         if stage.cat(at: point) != nil { return true }
-        if stage.near(point, within: 44) { stop() }
+        // A finger landing near a cat sends it away, unless it turns out to be a scroll (then the cat
+        // just holds still until the page settles).
+        if stage.near(point, within: 44) {
+            nearTouch?.cancel()
+            nearTouch = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(0.3))
+                guard let self, !Task.isCancelled, !self.scrolling else { return }
+                self.stop()
+            }
+        }
         return false
     }
 
     // MARK: playing
 
     private func maybePlay() {
-        guard isOn, scene == nil, calm, Date().timeIntervalSince(lastTouch) > 4,
+        watchScrolls()
+        guard isOn, scene == nil, calm, !scrolling, Date().timeIntervalSince(lastScroll) > 2,
+              Date().timeIntervalSince(lastTouch) > 4,
               Date().timeIntervalSince(lastScene) > frequency.gap * .random(in: 0.8...1.3),
               Bool.random() else { return }
         play(pick())
@@ -148,6 +185,7 @@ final class CatDirector {
         guard let window else { return }
         stage.measure(appWindow ?? window)
         stage.clear()
+        stage.freezeLedge()
         stage.playing = true
         lastPlayed = s
         scene = Task { [weak self] in
@@ -182,7 +220,7 @@ final class CatDirector {
 
     func tap(at point: CGPoint) {
         guard let a = stage.cat(at: point), let kind = a.art.cat else { return }
-        let p = a.position(at: CatStage.now)
+        let p = stage.shown(a, at: CatStage.now)
         switch kind {
         case .kiki:
             // Rolls over and purrs.
@@ -219,7 +257,7 @@ final class CatDirector {
 
     /// Waits, and gives up (ending the scene) if something else started meanwhile.
     func pause(_ s: Double) async throws {
-        try await Task.sleep(for: .seconds(s))
+        try await stage.wait(s)
         if !calm { throw CancellationError() }
     }
 
@@ -229,7 +267,7 @@ final class CatDirector {
 
     func fade(_ a: CatActor, to v: Double, _ s: Double) async throws {
         withAnimation(.easeInOut(duration: s)) { a.opacity = v }
-        try await Task.sleep(for: .seconds(s))
+        try await stage.wait(s)
     }
 
     func zzz(_ p: CGPoint) { stage.effect(.zzz, at: p) }
@@ -265,5 +303,87 @@ extension View {
     func catLedge() -> some View {
         onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).maxY } action: { CatStage.shared.registeredLedge = $0 }
             .onDisappear { CatStage.shared.registeredLedge = nil }
+    }
+}
+
+// MARK: - Noticing scrolls
+
+/// Notices any scroll in the app, from the moment a finger drags until the page has stopped gliding,
+/// without getting in its way: a pan recogniser on the app window that runs alongside everything and
+/// cancels nothing, plus a watch on the scroll view under the finger for the glide after it lifts.
+@MainActor
+final class CatScrollWatch: NSObject, UIGestureRecognizerDelegate {
+    var onChange: ((Bool) -> Void)?
+    private(set) var scrolling = false
+    private let pan = UIPanGestureRecognizer()
+    private weak var window: UIWindow?
+    private var offset: NSKeyValueObservation?
+    private var settle: Task<Void, Never>?
+    private var dragging = false
+
+    func attach(to w: UIWindow) {
+        guard window !== w else { return }
+        pan.view?.removeGestureRecognizer(pan)
+        pan.removeTarget(nil, action: nil)
+        pan.addTarget(self, action: #selector(panned(_:)))
+        pan.cancelsTouchesInView = false
+        pan.delaysTouchesBegan = false
+        pan.delaysTouchesEnded = false
+        pan.delegate = self
+        w.addGestureRecognizer(pan)
+        window = w
+    }
+
+    func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
+    func gestureRecognizer(_ g: UIGestureRecognizer, shouldRequireFailureOf other: UIGestureRecognizer) -> Bool { false }
+    func gestureRecognizer(_ g: UIGestureRecognizer, shouldBeRequiredToFailBy other: UIGestureRecognizer) -> Bool { false }
+
+    @objc private func panned(_ g: UIPanGestureRecognizer) {
+        switch g.state {
+        case .began:
+            dragging = true
+            follow(scrollView(at: g.location(in: g.view), in: g.view))
+            moved()
+        case .changed:
+            moved()
+        default:
+            dragging = false
+            settleSoon()
+        }
+    }
+
+    /// The scroll view under the finger, if any.
+    private func scrollView(at p: CGPoint, in v: UIView?) -> UIScrollView? {
+        var view = v?.hitTest(p, with: nil)
+        while let cur = view {
+            if let s = cur as? UIScrollView, s.isScrollEnabled { return s }
+            view = cur.superview
+        }
+        return nil
+    }
+
+    private func follow(_ s: UIScrollView?) {
+        offset = nil
+        guard let s else { return }
+        offset = s.observe(\.contentOffset, options: [.new]) { [weak self] _, _ in
+            MainActor.assumeIsolated { self?.moved() }
+        }
+    }
+
+    private func moved() {
+        if !scrolling { scrolling = true; onChange?(true) }
+        settleSoon()
+    }
+
+    /// Scrolling has stopped once the finger is up and the page hasn't moved for a moment.
+    private func settleSoon() {
+        settle?.cancel()
+        settle = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(220))
+            guard let self, !Task.isCancelled, !self.dragging, self.scrolling else { return }
+            self.scrolling = false
+            self.offset = nil
+            self.onChange?(false)
+        }
     }
 }
