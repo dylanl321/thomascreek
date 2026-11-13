@@ -115,17 +115,37 @@ class VpnConfig(BaseModel):
     server_key_secret: str = "wireguard.server_private_key"
 
 
+class YouTubeStarter(BaseModel):
+    """A channel suggested on the "Add from YouTube" start page until someone follows it."""
+    channel_id: str
+    name: str
+    note: str | None = None
+
+
+def _starter() -> list[YouTubeStarter]:
+    return [YouTubeStarter(channel_id=c, name=n, note=t) for c, n, t in (
+        ("UCPlwvN0w4qFSP1FllALB92w", "Numberblocks", "Counting and maths"),
+        ("UC_qs3c0ehDvZkbiEbOj6Drg", "Alphablocks", "Letters and reading"),
+        ("UCRFIPG2u1DxKLNuE3y2SjHA", "SciShow Kids", "Science"),
+        ("UC5XMF3Inoi8R9nSI8ChOsdQ", "Art for Kids Hub", "Drawing along"),
+        ("UCONtPx56PSebXJOxbFv-2jQ", "Crash Course Kids", "Science"),
+        ("UCY1kMZp36IQSyNx_9h4mpCg", "Mark Rober", "Engineering"),
+    )]
+
+
 class YouTubeConfig(BaseModel):
     """Kids' YouTube (hub/youtube.py). Files go to `dir` (default <data>/youtube); app only, not a Plex library."""
     enabled: bool = True
     dir: str | None = None
     cap_gb: float = 100
     channel_latest: int = 10      # a channel brings its newest N uploads, then each new one
+    channel_max: int = 300        # "the whole channel" brings at most this many
     playlist_max: int = 50
     max_height: int = 1080
     max_duration_s: int = 3 * 3600
     check_every_s: int = 3 * 3600
     auto_update: bool = True      # pip install -U yt-dlp once a day
+    starter: list[YouTubeStarter] = Field(default_factory=_starter)  # suggestions on the wizard's start page
 
 
 class AssistantConfig(BaseModel):

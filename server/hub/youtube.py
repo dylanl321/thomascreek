@@ -1,12 +1,18 @@
 """YouTube videos the kids add, fetched onto the NAS with yt-dlp.
 
-Someone shares a link (a video, a playlist or a channel). The hub looks it up,
-saves it as a *source*, and queues its videos:
+Someone shares a link (a video, a playlist or a channel), or finds it in the
+"Add from YouTube" wizard (search and previews are in ``yt_find.py``). The hub
+looks it up, saves it as a *source*, and queues its videos:
 
 * a video: just that one;
 * a playlist: everything in it, up to ``playlist_max``;
-* a channel: its newest ``channel_latest`` uploads (the Videos tab, so no
-  Shorts or live streams).
+* a channel: its newest ``channel_latest`` uploads, or as many as the wizard
+  asked for (``latest``, up to ``channel_max`` for "the whole channel"); the
+  Videos tab, so no Shorts or live streams;
+* hand-picked videos (kind ``picks``): the ones chosen in a preview, never followed.
+
+Each source may carry its own quality (``max_height``: 480, 720 or 1080); a
+video is fetched at the best quality any of its sources asked for.
 
 Playlists and channels that are *followed* are checked again every
 ``check_every_s`` and anything new is fetched. Live and upcoming streams, and
@@ -44,6 +50,7 @@ from urllib.parse import parse_qs, urlparse
 import httpx
 
 from .db import new_id
+from .yt_find import Finder, picture_url
 
 log = logging.getLogger("hub.youtube")
 
@@ -116,6 +123,7 @@ class YouTube:
         self.updated_at: float | None = None
         self._wake = asyncio.Event()
         self._task: asyncio.Task | None = None
+        self.find = Finder(self)
 
     @property
     def enabled(self) -> bool:
@@ -146,8 +154,8 @@ class YouTube:
             entries = [info]
         else:
             n = self.cfg.channel_latest if link["kind"] == "channel" else self.cfg.playlist_max
-            if latest:
-                n = max(n, min(int(latest), 100)) if link["kind"] == "channel" else n
+            if latest and link["kind"] == "channel":
+                n = max(1, min(int(latest), self.cfg.channel_max))
             info = json.loads(await self._run(["-J", "--flat-playlist", "--playlist-end", str(n), link["url"]], 180))
             entries = [e for e in info.get("entries") or [] if e]
         videos = [v for v in (self._entry(e) for e in entries) if v]
@@ -180,7 +188,10 @@ class YouTube:
     def blocked(self, channel_id: str | None) -> bool:
         return bool(channel_id) and self.db.one("SELECT 1 AS x FROM yt_blocked WHERE channel_id=?", [channel_id]) is not None
 
-    async def add(self, text: str, follow: bool, person_id: str, latest: int | None = None) -> dict[str, Any]:
+    async def add(self, text: str, follow: bool, person_id: str, latest: int | None = None,
+                  quality: int | None = None) -> dict[str, Any]:
+        """Add a video, playlist or channel. ``latest`` is how many of a channel's newest uploads to bring
+        (``channel_max`` for the whole channel); ``quality`` caps the height of its videos."""
         link = parse_link(text)
         info = await self.lookup(link, latest)
         if self.blocked(info["channel_id"]) or any(self.blocked(v.get("channel_id")) for v in info["videos"][:1]):
@@ -193,6 +204,8 @@ class YouTube:
                 self.db.update("yt_sources", "id", same["id"], {"follow": 1})
             if latest and latest > (same.get("latest") or 0):
                 self.db.update("yt_sources", "id", same["id"], {"latest": int(latest)})
+            if quality:
+                self.db.update("yt_sources", "id", same["id"], {"max_height": int(quality)})
             self._queue(same["id"], info["videos"])
             return self.source_out(self.db.one("SELECT * FROM yt_sources WHERE id=?", [same["id"]]))  # type: ignore[arg-type]
         sid = new_id("yts")
@@ -200,11 +213,50 @@ class YouTube:
             "id": sid, "kind": info["kind"], "url": info["url"], "yt_id": info["yt_id"], "title": info["title"],
             "channel": info["channel"], "channel_id": info["channel_id"], "thumb_url": info["thumb"],
             "added_by": person_id, "created_at": time.time(), "follow": int(follow and info["kind"] != "video"),
-            "last_checked_at": time.time(), "latest": int(latest) if latest else None})
+            "last_checked_at": time.time(), "latest": int(latest) if latest else None,
+            "max_height": int(quality) if quality else None})
         self._queue(sid, info["videos"])
         asyncio.create_task(self._save_picture(f"src-{sid}", info["thumb"]))
         self._wake.set()
         return self.source_out(self.db.one("SELECT * FROM yt_sources WHERE id=?", [sid]))  # type: ignore[arg-type]
+
+    async def add_picks(self, video_ids: list[str], person_id: str, quality: int | None = None,
+                        title: str | None = None) -> dict[str, Any]:
+        """Hand-picked videos (from a channel or playlist preview) as one source that isn't followed."""
+        ids = [v for v in dict.fromkeys(video_ids) if VIDEO_ID.match(v)][:100]
+        if not ids:
+            raise YouTubeError("Pick at least one video.")
+        videos = []
+        for vid in ids:
+            v = await self.find.video(vid)
+            if v and not self.blocked(v.get("channel_id")):
+                videos.append(v)
+        if not videos:
+            raise YouTubeError("A grown-up turned that channel off.")
+        channels = {v.get("channel_id") for v in videos}
+        one = videos[0]
+        same_channel = len(channels) == 1 and one.get("channel_id")
+        name = title or (f"{len(videos)} from {one['channel']}" if same_channel and one.get("channel") else f"{len(videos)} videos")
+        sid = new_id("yts")
+        self.db.insert("yt_sources", {
+            "id": sid, "kind": "picks", "url": f"https://www.youtube.com/channel/{one['channel_id']}" if same_channel else one.get("url") or f"https://www.youtube.com/watch?v={one['id']}",
+            "yt_id": sid, "title": name[:200], "channel": one.get("channel") if same_channel else None,
+            "channel_id": one.get("channel_id") if same_channel else None, "thumb_url": one.get("thumb"),
+            "added_by": person_id, "created_at": time.time(), "follow": 0, "last_checked_at": time.time(),
+            "latest": None, "max_height": int(quality) if quality else None})
+        self._queue(sid, videos)
+        asyncio.create_task(self._save_picture(f"src-{sid}", one.get("thumb")))
+        self._wake.set()
+        return self.source_out(self.db.one("SELECT * FROM yt_sources WHERE id=?", [sid]))  # type: ignore[arg-type]
+
+    def height_for(self, v: dict[str, Any]) -> int:
+        """The best quality any of the video's sources asked for, never above the hub's limit."""
+        hs = []
+        for sid in v.get("source_ids") or []:
+            row = self.db.one("SELECT max_height FROM yt_sources WHERE id=?", [sid])
+            if row is not None:
+                hs.append(row.get("max_height") or self.cfg.max_height)
+        return min(max(hs) if hs else self.cfg.max_height, self.cfg.max_height)
 
     def _queue(self, source_id: str, videos: list[dict[str, Any]]) -> int:
         added = 0
@@ -322,7 +374,7 @@ class YouTube:
         self.root.mkdir(parents=True, exist_ok=True)
         self.db.update("yt_videos", "id", vid, {"status": "fetching", "error": None})
         self.current = {"id": vid, "title": v["title"], "progress": 0.0}
-        h = self.cfg.max_height
+        h = self.height_for(v)
         fmt = (f"bv*[vcodec^=avc1][height<={h}]+ba[ext=m4a]/b[ext=mp4][vcodec^=avc1][height<={h}]"
                f"/bv*[height<={h}]+ba/b[height<={h}]/b")
         args = ["-f", fmt, "--merge-output-format", "mp4", "--no-playlist", "--newline", "--progress",
@@ -439,6 +491,33 @@ class YouTube:
         p = self.root / v["file"]
         return p if p.exists() else None
 
+    async def remote_picture(self, url: str) -> Path | None:
+        """A YouTube thumbnail fetched through the hub (kids' devices may not reach YouTube's image hosts)."""
+        import hashlib
+        u = picture_url(url)
+        if u is None:
+            return None
+        d = self.root / ".pictures"
+        p = d / (hashlib.sha1(u.encode()).hexdigest() + ".jpg")
+        if p.exists():
+            return p
+        d.mkdir(parents=True, exist_ok=True)
+        try:
+            async with httpx.AsyncClient(timeout=10, follow_redirects=True) as c:
+                r = await c.get(u)
+            ctype = r.headers.get("content-type", "")
+            if r.status_code != 200 or not ctype.startswith("image/"):
+                return None
+            data = r.content if ctype.startswith("image/jpeg") else await _jpeg(r.content)
+            p.write_bytes(data)
+        except Exception as exc:  # noqa: BLE001
+            log.debug("remote picture %s: %s", u, exc)
+            return None
+        files = sorted(d.glob("*.jpg"), key=lambda f: f.stat().st_mtime)
+        for f in files[:-2000]:
+            f.unlink(missing_ok=True)
+        return p
+
     def picture(self, name: str) -> Path | None:
         if not re.match(r"^(src-yts_[0-9a-f]{20}|[A-Za-z0-9_-]{11})$", name):
             return None
@@ -471,7 +550,7 @@ class YouTube:
                 "count": sum(1 for v in vids if v["status"] == "ready"),
                 "waiting": sum(1 for v in vids if v["status"] in ("queued", "fetching")),
                 "bytes": sum(v["bytes"] or 0 for v in vids if v["status"] == "ready"),
-                "last_error": s.get("last_error")}
+                "last_error": s.get("last_error"), "latest": s.get("latest"), "quality": s.get("max_height")}
 
     def summary(self) -> dict[str, Any]:
         rows = self.db.all("SELECT status, bytes FROM yt_videos")
