@@ -219,6 +219,28 @@ enum Wx {
         first ? "Today" : format(local(s, tz: tz), tz: tz, .dateTime.weekday(.abbreviated))
     }
 
+    /// When an alert applies, in the place's own time: "From Fri 9 PM until Sat 9 AM" if it hasn't started,
+    /// otherwise "Until 9 AM" (with the day when it isn't today). The bare "Until" read like a start time.
+    static func alertWhen(_ a: WxAlert, tz: String?, now: Date = .now) -> String? {
+        let zone = tz.flatMap(TimeZone.init(identifier:)) ?? .current
+        var cal = Calendar.current
+        cal.timeZone = zone
+        func say(_ d: Date) -> String {
+            let sameDay = cal.isDate(d, inSameDayAs: now)
+            let tomorrow = cal.isDate(d, inSameDayAs: now.addingTimeInterval(86_400))
+            let clock = format(d, tz: tz, .dateTime.hour().minute())
+            if sameDay { return clock }
+            if tomorrow { return "tomorrow \(clock)" }
+            return "\(format(d, tz: tz, .dateTime.weekday(.abbreviated))) \(clock)"
+        }
+        let start = a.onset.flatMap(ISO.parse)
+        let end = a.ends.flatMap(ISO.parse)
+        if let start, start.timeIntervalSince(now) > 300 {
+            return end.map { "From \(say(start)) until \(say($0))" } ?? "From \(say(start))"
+        }
+        return end.map { "In effect until \(say($0))" }
+    }
+
     static func tone(_ t: String?) -> Color {
         switch t {
         case "warm": Color(red: 0.86, green: 0.42, blue: 0.18)
@@ -386,7 +408,7 @@ struct WeatherView: View {
     @ViewBuilder private func content(_ p: WeatherPage) -> some View {
         WeatherHero(page: p)
         ForEach(p.alerts ?? []) { a in
-            Button { router.go(.weatherAlert(a.id)) } label: { AlertBanner(alert: a) }.buttonStyle(.plain)
+            Button { router.go(.weatherAlert(a.id)) } label: { AlertBanner(alert: a, tz: p.tz) }.buttonStyle(.plain)
         }
         if p.alertsOk == false {
             Text("Couldn't check for official alerts just now.").font(.footnote).foregroundStyle(Theme.dim)
@@ -465,13 +487,14 @@ struct WeatherHero: View {
 
 struct AlertBanner: View {
     let alert: WxAlert
+    var tz: String? = nil
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.white)
                 .frame(width: 30, height: 30).background(alert.color, in: RoundedRectangle(cornerRadius: 9))
             VStack(alignment: .leading, spacing: 2) {
                 Text(alert.event).font(.subheadline.weight(.semibold)).foregroundStyle(Theme.fg)
-                Text([alert.ends.map { "Until \(Wx.time($0, tz: nil))" }, alert.headline].compactMap { $0 }.joined(separator: " · "))
+                Text([Wx.alertWhen(alert, tz: tz), alert.headline].compactMap { $0 }.joined(separator: " · "))
                     .font(.caption).foregroundStyle(Theme.dim).lineLimit(3)
             }
             Spacer(minLength: 0)
@@ -698,8 +721,13 @@ struct WeatherAlertView: View {
         }
     }
 
+    /// Times read in the zone of the place the alert is for (Munich alerts in Munich time).
+    private var placeTZ: String? {
+        WeatherStore.shared.pages.values.first { $0.alerts?.contains { $0.id == alertID } == true }?.tz
+    }
+
     @ViewBuilder private func content(_ a: WxAlert) -> some View {
-        AlertBanner(alert: a).allowsHitTesting(false)
+        AlertBanner(alert: a, tz: placeTZ).allowsHitTesting(false)
         if let de = a.headlineLocal, a.source == "DWD" {
             VStack(alignment: .leading, spacing: 4) {
                 Text("ORIGINAL (GERMAN)").font(.caption.weight(.bold)).foregroundStyle(Theme.dim)
@@ -711,8 +739,8 @@ struct WeatherAlertView: View {
             InfoRow(nil, "Issued by", a.sender ?? a.source)
             if let s = a.severity { InfoRow(nil, "Severity", [s, a.certainty].compactMap { $0 }.joined(separator: " · ")) }
             if let area = a.area { InfoRow(nil, "Area", area) }
-            InfoRow(nil, "When", [a.onset.map { "From \(Wx.format(ISO.parse($0), tz: nil, .dateTime.weekday().hour().minute()))" },
-                                   a.ends.map { "until \(Wx.format(ISO.parse($0), tz: nil, .dateTime.weekday().hour().minute()))" }]
+            InfoRow(nil, "When", [a.onset.map { "From \(Wx.format(ISO.parse($0), tz: placeTZ, .dateTime.weekday().hour().minute()))" },
+                                   a.ends.map { "until \(Wx.format(ISO.parse($0), tz: placeTZ, .dateTime.weekday().hour().minute()))" }]
                 .compactMap { $0 }.joined(separator: " "))
         }
         if let d = a.description {
