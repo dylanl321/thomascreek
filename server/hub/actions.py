@@ -70,6 +70,7 @@ def hex_to_rgb(v: str) -> list[int]:
 
 VALVE_DEFAULT_MIN = 10
 SELF_APP = "thomascreek-hub"  # restarting it would cut off the request asking for it
+NAS_JOB_POLL_S = 5.0
 NAS_APP_OPS = {"start": "Start", "stop": "Stop", "restart": "Restart", "update": "Update"}
 
 
@@ -89,6 +90,7 @@ class ActionRunner:
 
     def __init__(self, hub: "Hub"):
         self.hub = hub
+        self._nas_batch: asyncio.Task | None = None
 
     def is_live(self, action: str) -> bool:
         cfg = self.hub.config.hub
@@ -299,6 +301,8 @@ class ActionRunner:
                                   confirm_param="away_ok")
             work.update(app=tgt, op=op, self=guard == "hub")
             label = f"{NAS_APP_OPS[op]} {tgt}"
+        elif action == "nas.update_all":
+            label = "Update all NAS apps"
         elif action == "nas.alert":
             if not re.fullmatch(r"[A-Za-z0-9-]{1,64}", tgt):
                 raise ActionError(400, "bad_target", "Which alert?")
@@ -356,6 +360,14 @@ class ActionRunner:
             self.hub.home.mark_nas_dirty()
             return {"start": f"Starting {app}", "stop": f"Stopping {app}", "restart": f"Restarting {app}",
                     "upgrade": f"Updating {app}", "pull": f"Pulling new images for {app}"}[kind]
+        if a == "nas.update_all":
+            apps = [x for x in await nas.apps() if x["update"] and not x["protected"]]
+            if not apps:
+                raise ActionError(409, "up_to_date", "Every app is up to date")
+            if self._nas_batch and not self._nas_batch.done():
+                raise ActionError(409, "busy", "Apps are already updating")
+            self._nas_batch = asyncio.get_running_loop().create_task(self._update_all(apps))
+            return f"Updating {len(apps)} apps one at a time. You'll get a notification when they're done."
         if a == "nas.alert":
             await nas.dismiss_alert(w["alert"])
             return "Alert dismissed"
@@ -370,6 +382,40 @@ class ActionRunner:
         job = await nas.service(w["service"], w["on"])
         w["job"] = job if isinstance(job, int) else None
         return f"{w['service'].upper()} {'starting' if w['on'] else 'stopping'}"
+
+    async def _wait_job(self, job: Any, limit_s: float = 900) -> str | None:
+        """Wait for a TrueNAS job; None when it succeeded, else a short reason."""
+        if not isinstance(job, int):
+            return None
+        end = time.time() + limit_s
+        while time.time() < end:
+            await asyncio.sleep(NAS_JOB_POLL_S)
+            j = await self.hub.truenas.job(job)
+            if j is None or j["state"] == "SUCCESS":
+                return None
+            if j["state"] in ("FAILED", "ABORTED"):
+                return (j.get("error") or j["state"].lower()).splitlines()[0][:160]
+        return "took longer than 15 minutes"
+
+    async def _update_all(self, apps: list[dict[str, Any]]) -> None:
+        nas = self.hub.truenas
+        failed: list[str] = []
+        for x in apps:
+            try:
+                why = await self._wait_job(await nas.app_op(x["name"], "upgrade" if x["update"] == "upgrade" else "pull"))
+            except Exception as exc:  # noqa: BLE001
+                why = str(exc)[:160]
+            self.hub.db.log("nas.app", "ok" if why is None else "error", target=x["name"], params={"op": "update"},
+                            detail=why, source="batch")
+            if why:
+                failed.append(x["name"])
+        self.hub.home.mark_nas_dirty()
+        ok = len(apps) - len(failed)
+        await self.hub.notify.send(
+            title=f"Updated {ok} of {len(apps)} NAS apps" if failed else f"Updated {ok} NAS apps",
+            body=("Didn't update: " + ", ".join(failed)) if failed else None,
+            cat="systems", level="maintenance" if failed else "fyi", roles=["admin"], ref="thomascreek://nas/updates",
+        )
 
     def _plan_network(self, s: Subject, action: str, person_id: str | None, params: dict[str, Any]) -> Plan:
         person = self.hub.db.person(person_id)

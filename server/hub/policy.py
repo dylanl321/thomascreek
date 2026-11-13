@@ -169,6 +169,7 @@ ACTIONS: dict[str, ActionSpec] = {
         ActionSpec("request.decide", "everyday", ("media.approve", "chores.manage", "network.manage")),
         ActionSpec("system.app_restart", "admin", ("systems",)),
         ActionSpec("nas.app", "admin", ("systems",)),
+        ActionSpec("nas.update_all", "admin", ("systems",)),
         ActionSpec("nas.alert", "admin", ("systems",)),
         ActionSpec("nas.scrub", "admin", ("systems",)),
         ActionSpec("nas.snapshot", "admin", ("systems",)),

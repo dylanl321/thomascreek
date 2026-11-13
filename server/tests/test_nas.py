@@ -73,6 +73,10 @@ class FakeTrueNAS:
                 "core.get_jobs": [{"id": 41, "method": "app.redeploy", "state": "RUNNING",
                                    "progress": {"percent": 50, "description": "Restarting"}}],
             }.get(m)
+            if m == "core.get_jobs":
+                jid = p[0][0][2]
+                result = [{"id": jid, "method": "app", "state": "RUNNING" if jid == 41 else "SUCCESS",
+                           "progress": {"percent": 50 if jid == 41 else 100, "description": "Working"}}]
             if m == "app.query":
                 result = [a for a in APPS if not p or not p[0] or a["name"] == p[0][0][2]]
             await ws.send(json.dumps({"jsonrpc": "2.0", "id": rid, "result": result}))
@@ -211,3 +215,26 @@ def test_remote_apps_warn_when_away(stub, app, away_client, people):
     body = {"action": "nas.app", "target": "nginx-proxy-manager", "params": {"op": "stop"}}
     r = dylan.secure_post("/v1/actions", body)
     assert r.status_code == 409 and r.json()["error"] == "away_warning"
+
+
+def test_update_all_skips_protected_apps_and_reports(stub, hub, fake_nas, home_client, people, monkeypatch):
+    import hub.actions as actions
+    monkeypatch.setattr(actions, "NAS_JOB_POLL_S", 0.01)
+    sent = []
+
+    async def send(**kw):
+        sent.append(kw)
+    hub.notify.send = send
+    fake_nas.calls.clear()
+    dylan = people["phones"]["Dylan"]
+    r = dylan.secure_post("/v1/actions", {"action": "nas.update_all"})
+    assert r.status_code == 200, r.text
+    assert "2 apps" in r.json()["message"]
+
+    async def wait():
+        await hub.actions._nas_batch
+    # The batch runs on the app's loop; wait for it through the test client's portal.
+    home_client.portal.call(wait)
+    ops = [(m, p[0]) for m, p in fake_nas.calls if m in ("app.upgrade", "app.pull_images", "app.redeploy")]
+    assert ops == [("app.upgrade", "plex"), ("app.pull_images", "dispatcharr")]
+    assert sent and sent[0]["title"].startswith("Updated")
