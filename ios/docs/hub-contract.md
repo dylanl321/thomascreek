@@ -268,3 +268,17 @@ The hub talks to the H2S directly on the LAN (MQTT 8883, FTPS 990, RTSPS 322). T
 - Actions (`POST /v1/actions`, target = printer id, cap `appliances`): `printer.control {command pause|resume|stop}` (stop is secure), `printer.light {on}`, `printer.speed {speed}`, `printer.temp {heater nozzle|bed|chamber, temp °C}` (max 350/120/65), `printer.print {model_id, plate, ams_mapping[], bed_leveling, timelapse}` (secure). Errors: 409 `printer_offline`, 409 `printer_busy`, 502 `upload_failed`.
 - SSE `printer` event: the full status (no per-person trimming) whenever state, job, light or active spool changes. Push (cat `printer`) to whoever started the print when it finishes, fails or pauses with an error.
 - App: `WorkshopView` (Destination `.workshop`), `PrintLibraryView` (`.printLibrary`), deep links `thomascreek://workshop`, `thomascreek://workshop/library`; `PrinterNowCard` on Home while a print is active.
+
+## NAS: TrueNAS and its apps (2026-11-13)
+
+Admin only (`systems` capability). The hub talks to TrueNAS's JSON-RPC WebSocket with the `truenas.api_key` vault entry; the app never sees it.
+
+- `GET /v1/nas` -> `{system:{hostname,version,model,cpu,cores,memory_bytes,ecc,load[],uptime_s,os_update?}, pools:[{name,healthy,status,size_bytes,used_bytes,used_pct,fragmentation,scrub:{state running|paused|finished|none,pct,errors,ended?,secs_left?},vdevs:[{type,status,disks:[{disk,status,errors}]}]}], disks:[{name,model,serial,size_bytes,type,pool}], alerts:[{id,level,text,klass,at}], apps:{total,running,crashed:[names],updates}, services:[{service,title,running,enabled}], truenas_url}`
+- `GET /v1/nas/apps` -> `{apps:[{name,state,custom,train,version,app_version,latest_version,update: "upgrade"|"images"|null,containers,links:{lan,remote},protected: "hub"|"remote"|null}]}`
+- `GET /v1/nas/apps/{name}` -> the row plus `container_details:[{id,service,image,state,ports}]`, `volumes:[{source,destination}]`, `upgrade:{to,to_app_version,changelog}?`
+- `GET /v1/nas/apps/{name}/logs?container=&tail=300` -> `{container, containers:[{id,service,state}], lines:[{t,text}]}` (TrueNAS `app.container_log_follow`, read for ~2 s)
+- `GET /v1/nas/jobs/{id}` -> `{id,state,pct,description,error}`
+- Actions (admin tier, Face ID): `nas.app {op start|stop|restart|update}` (target app; replies with `job`), `nas.update_all` (background, one at a time, skips protected apps, push at the end), `nas.alert` (target alert id), `nas.scrub {op start|pause|stop}` (target pool), `nas.snapshot` (target dataset), `nas.service {on}` (target cifs|nfs|ssh|ftp|iscsitarget|ups|snmp).
+- Guards: the hub app (`thomascreek-hub`) can't be stopped; restart/update answers first, then redeploys itself. Apps carrying remote access (nginx-proxy-manager, tailscale, cloudflare-ddns) answer 409 `away_warning` when the caller is away; resend with `params.away_ok: true`.
+- Config: `truenas.extra.links: {app: {lan, remote}}` overrides where "Open web page" goes; `truenas.extra.remote_apps` changes the remote list.
+- Push: a newly crashed app sends a `systems` notice with ref `thomascreek://nas/app/<name>`. Deep links: `thomascreek://nas`, `/nas/apps`, `/nas/updates`, `/nas/app/<name>`.
