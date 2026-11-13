@@ -114,7 +114,7 @@ class Pia:
         self.cfg = cfg
         self.vault = vault
         self._http = http
-        self._token: tuple[str, float] | None = None
+        self._token: tuple[str, float, int] | None = None
         self._regions: tuple[float, list[dict[str, Any]]] | None = None
         self._lock = asyncio.Lock()
         self._add_key = add_key or self._add_key_blocking
@@ -122,9 +122,23 @@ class Pia:
         self.last_ok: float | None = None
 
     # -- state ---------------------------------------------------------------
+    def _login(self) -> tuple[str, str, str] | None:
+        """(username, password, where): the admin page's pair first, else the one from 1Password."""
+        for u, p, where in ((self.cfg.admin_username_secret, self.cfg.admin_password_secret, "admin page"),
+                            (self.cfg.username_secret, self.cfg.password_secret, "1Password")):
+            user, pw = str(self.vault.get(u) or "").strip(), str(self.vault.get(p) or "").strip()
+            if user and pw:
+                return user, pw, where
+        return None
+
     @property
     def configured(self) -> bool:
-        return self.cfg.enabled and bool(self.vault.get(self.cfg.username_secret)) and bool(self.vault.get(self.cfg.password_secret))
+        return self.cfg.enabled and self._login() is not None
+
+    @property
+    def login_source(self) -> str | None:
+        login = self._login()
+        return login[2] if login else None
 
     def allowed(self, role: str | None) -> bool:
         return self.configured and (role in self.cfg.roles)
@@ -133,10 +147,10 @@ class Pia:
         if not self.cfg.enabled:
             return "off"
         if not self.configured:
-            return f"waiting for {self.cfg.username_secret} and {self.cfg.password_secret} in 1Password"
+            return "waiting for the PIA login (Private VPN row below, or the 1Password item PIA)"
         if self.last_error:
             return f"error: {self.last_error}"
-        return "ready" if self.last_ok else "ready (not used yet)"
+        return f"ready, login from {self.login_source}" + ("" if self.last_ok else " (not used yet)")
 
     def _client(self) -> httpx.AsyncClient:
         if self._http is None:
@@ -145,14 +159,15 @@ class Pia:
 
     # -- token ---------------------------------------------------------------
     async def token(self, force: bool = False) -> str:
-        if not self.configured:
-            raise PiaError("the PIA login is not in 1Password yet")
-        if not force and self._token and time.time() - self._token[1] < TOKEN_RENEW_S:
+        login = self._login() if self.cfg.enabled else None
+        if login is None:
+            raise PiaError("the PIA login isn't on the hub yet")
+        user, pw, _ = login
+        # A changed login (saved on the admin page) drops the old token.
+        stamp = hash((user, pw))
+        if not force and self._token and self._token[2] == stamp and time.time() - self._token[1] < TOKEN_RENEW_S:
             return self._token[0]
-        res = await self._client().post(TOKEN_URL, data={
-            "username": str(self.vault.get(self.cfg.username_secret)).strip(),
-            "password": str(self.vault.get(self.cfg.password_secret)).strip(),
-        })
+        res = await self._client().post(TOKEN_URL, data={"username": user, "password": pw})
         tok = None
         try:
             tok = res.json().get("token")
@@ -161,7 +176,8 @@ class Pia:
         if res.status_code != 200 or not tok:
             self.last_error = f"PIA refused the login (HTTP {res.status_code})"
             raise PiaError(self.last_error)
-        self._token = (tok, time.time())
+        self._token = (tok, time.time(), stamp)
+        self.last_error = None
         return tok
 
     # -- regions -------------------------------------------------------------

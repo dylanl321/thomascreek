@@ -134,3 +134,32 @@ def test_login_refused_is_reported(hub, people, home_client):
 def test_pia_root_loads():
     ctx = _ca_context()
     assert any("Private Internet Access" in str(c.get("subject")) for c in ctx.get_ca_certs())
+
+
+@respx.mock
+def test_admin_page_login_wins_over_1password(hub, people, home_client):
+    _setup(hub)  # 1Password copy: p1234567 / hunter2
+    hub.vault.set("vpn.pia.admin_username", "p7654321")
+    hub.vault.set("vpn.pia.admin_password", "typed-in")
+    sent = []
+
+    def token(req):
+        sent.append(req.content.decode())
+        return httpx.Response(200, json={"token": "tok-admin"})
+
+    respx.post(TOKEN_URL).mock(side_effect=token)
+    respx.get(hub_serverlist()).mock(return_value=httpx.Response(200, text=SERVERLIST))
+    r = home_client.post("/v1/vpn/config", json={"exit": "private", "wg_public_key": wg_pub()},
+                         headers=people["phones"]["Dylan"].h)
+    assert r.status_code == 200, r.text
+    assert "p7654321" in sent[0] and "typed-in" in sent[0] and "hunter2" not in sent[0]
+    assert "admin page" in hub.pia.status()
+    # Only half of the admin pair saved: fall back to 1Password.
+    hub.vault.delete("vpn.pia.admin_password")
+    assert hub.pia.login_source == "1Password"
+
+
+def test_admin_page_alone_is_enough(hub, people, home_client):
+    hub.vault.set("vpn.pia.admin_username", "p7654321")
+    hub.vault.set("vpn.pia.admin_password", "typed-in")
+    assert hub.pia.configured and hub.pia.login_source == "admin page"

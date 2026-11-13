@@ -67,6 +67,8 @@ DESCRIPTIONS = {
     "trek.mcp_client_secret": "TREK machine client secret (for changing trips)",
     "anthropic.api_key": "Claude API key for the Ask Thomas Creek assistant",
     "youtube.api_key": "YouTube Data API key (optional: channel video counts in the add wizard)",
+    "vpn.pia.admin_username": "PIA username (Private VPN)",
+    "vpn.pia.admin_password": "PIA password (Private VPN)",
     "appstore.auth_key_p8": "App Store Connect API key (.p8 file), for spotting new app builds",
     "appstore.key_id": "App Store Connect API key ID",
     "appstore.issuer_id": "App Store Connect issuer ID",
@@ -343,6 +345,12 @@ SECTIONS: list[dict[str, Any]] = [
     ]},
     {"title": "Homebox", "always": True, "optional": True, "fields": [
         ("homebox.password", "Homebox password", "text", "Optional: the password of the Homebox account the hub signs in as."),
+    ]},
+    {"title": "Private VPN (PIA)", "always": True, "optional": True, "fields": [
+        ("vpn.pia.admin_username", "PIA username", "text",
+         "The app's Private VPN button. Your Private Internet Access username (it starts with p, e.g. p1234567). "
+         "Used first; the 1Password item PIA is only used when this is empty."),
+        ("vpn.pia.admin_password", "PIA password", "text", "The password for that PIA account."),
     ]},
     {"title": "1Password", "always": True, "optional": True, "fields": [
         ("onepassword.service_account_token", "Service account token", "text",

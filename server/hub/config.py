@@ -107,6 +107,10 @@ class ApnsConfig(BaseModel):
 class PiaConfig(BaseModel):
     """The app's "Private" VPN button: Private Internet Access over WireGuard (hub/vpn_pia.py)."""
     enabled: bool = True          # still needs the two 1Password items below before it shows in the app
+    # Typed in on the hub admin page; used first when both are saved.
+    admin_username_secret: str = "vpn.pia.admin_username"
+    admin_password_secret: str = "vpn.pia.admin_password"
+    # Copied from the 1Password item "PIA" (onepassword.refs); the fallback.
     username_secret: str = "vpn.pia.username"
     password_secret: str = "vpn.pia.password"
     roles: list[str] = Field(default_factory=lambda: ["admin", "adult"])
