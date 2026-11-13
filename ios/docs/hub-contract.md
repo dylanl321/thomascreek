@@ -405,4 +405,6 @@ The TV app, with its bearer: `GET /v1/tv/update` then `GET /v1/tv/apk`. Check `s
 
 A TV that is waiting shows a QR of `thomascreek://tv/{code}`. Opening that URL presents Approve TV, which calls `POST /v1/tvapp/approve` `{code}`. The pending enroll body is `{status:"pending", code, approve_url}` and `approve_url` is that same URL.
 
+`GET /v1/art/{kind}/{key}?size=` serves a cached image (`logo`, `poster`, `backdrop`, `still`) with an ETag and `Cache-Control: private, max-age=604800`. `size` is `s`, `m`, `l`, `original`, or `w342`. Guide and library rows add `logo_url` on channels and `poster_url` / `backdrop_url` on programmes, shows and movies. Episode rows add `still_url`. Those paths are what the guide, shows and search screens load. A 404 means that image is not available; the rest of the row still stands.
+
 `GET /v1/tv/plex` → `{continue, on_deck, recent}`. Each item has `poster_url` (fetch with the bearer) and `deep_link` plus `package` (`com.plexapp.android`) so the TV app can open Plex on that title. Kids' tokens only get allowed ratings.

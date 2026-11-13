@@ -24,6 +24,7 @@ struct TVGuideChannel: Decodable, Identifiable {
     var name: String
     var number: Int?
     var logo: String?
+    var logoUrl: String?
     var now: TVProgramme?
     var next: TVProgramme?
     var programmes: [TVProgramme]?
@@ -36,6 +37,8 @@ struct TVProgramme: Decodable, Hashable {
     var subtitle: String?
     var desc: String?
     var icon: String?
+    var posterUrl: String?
+    var backdropUrl: String?
     var catchup: Bool?
     var channelKey: String?
     var channelName: String?
@@ -47,11 +50,13 @@ struct TVShow: Decodable, Identifiable {
     var id: String
     var name: String
     var cover: String?
+    var posterUrl: String?
     var year: String?
     var genre: String?
     var category: String?
     var plot: String?
     var backdrop: String?
+    var backdropUrl: String?
     var seasons: [TVSeason]?
     var durationS: Int?
 }
@@ -65,6 +70,7 @@ struct TVEpisode: Decodable, Identifiable {
     var number: Int?
     var title: String?
     var still: String?
+    var stillUrl: String?
     var durationS: Int?
 }
 struct TVLibrarySearch: Decodable {
@@ -134,7 +140,7 @@ struct TVGuideView: View {
             ForEach(guide) { channel in
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(spacing: 10) {
-                        TVArt(url: channel.logo, symbol: "tv")
+                        TVArt(url: channel.logoUrl ?? channel.logo, symbol: "tv")
                         VStack(alignment: .leading, spacing: 2) {
                             Text(channel.name).font(.headline)
                             if let now = channel.now {
@@ -170,6 +176,7 @@ struct TVGuideView: View {
                 start: item.catchup == true && !live ? item.start : nil)
         } label: {
             HStack {
+                TVArt(url: item.posterUrl ?? item.backdropUrl ?? item.icon, symbol: "film").frame(width: 36, height: 36)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(item.title).font(.subheadline.weight(.semibold)).foregroundStyle(Theme.fg).lineLimit(1)
                     Text(live ? "On now" : (item.catchup == true ? "Start over · \(clock(item.start))" : clock(item.start)))
@@ -190,7 +197,7 @@ struct TVGuideView: View {
                     ForEach(items) { item in
                         Button { open(item) } label: {
                             VStack(alignment: .leading, spacing: 6) {
-                                TVArt(url: item.cover, symbol: "film")
+                                TVArt(url: item.posterUrl ?? item.cover ?? item.backdropUrl ?? item.backdrop, symbol: "film")
                                     .frame(maxWidth: .infinity).frame(height: 150)
                                 Text(item.name).font(.caption.weight(.semibold)).lineLimit(2).foregroundStyle(Theme.fg)
                             }
@@ -209,7 +216,7 @@ struct TVGuideView: View {
                 ForEach(channels) { channel in
                     Button { play = TVPlayRequest(title: channel.now?.title ?? channel.name, channelKey: channel.key) } label: {
                         HStack {
-                            TVArt(url: channel.logo, symbol: "tv")
+                            TVArt(url: channel.logoUrl ?? channel.logo, symbol: "tv")
                             Text(channel.name).foregroundStyle(Theme.fg)
                             Spacer()
                             Image(systemName: "play.tv").foregroundStyle(Theme.accent)
@@ -225,10 +232,13 @@ struct TVGuideView: View {
                         play = TVPlayRequest(title: item.title, kind: item.catchup == true ? "catchup" : "live",
                                              channelKey: item.channelKey, start: item.catchup == true ? item.start : nil)
                     } label: {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(item.title).font(.subheadline.weight(.semibold)).foregroundStyle(Theme.fg)
-                            Text([item.channelName, clock(item.start)].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "))
-                                .font(.caption).foregroundStyle(Theme.dim)
+                        HStack(spacing: 10) {
+                            TVArt(url: item.posterUrl ?? item.backdropUrl ?? item.icon, symbol: "film").frame(width: 36, height: 36)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(item.title).font(.subheadline.weight(.semibold)).foregroundStyle(Theme.fg)
+                                Text([item.channelName, clock(item.start)].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "))
+                                    .font(.caption).foregroundStyle(Theme.dim)
+                            }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }
@@ -278,7 +288,7 @@ struct TVSeriesView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 if let show {
-                    header(show.name, show.plot, show.cover ?? show.backdrop)
+                    header(show.name, show.plot, show.posterUrl ?? show.cover ?? show.backdropUrl ?? show.backdrop)
                     ForEach(show.seasons ?? []) { season in
                         SectionHeader("Season \(season.number)")
                         ForEach(season.episodes) { episode in
@@ -287,7 +297,7 @@ struct TVSeriesView: View {
                                                      seriesId: show.id, episodeId: episode.id)
                             } label: {
                                 HStack(spacing: 10) {
-                                    TVArt(url: episode.still ?? show.cover, symbol: "film")
+                                    TVArt(url: episode.stillUrl ?? episode.still ?? show.posterUrl ?? show.cover, symbol: "film")
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text(episode.title ?? "Episode").font(.subheadline.weight(.semibold)).foregroundStyle(Theme.fg)
                                         if let n = episode.number { Text("Episode \(n)").font(.caption).foregroundStyle(Theme.dim) }
@@ -328,7 +338,7 @@ struct TVMovieView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 if let movie {
-                    header(movie.name, movie.plot, movie.cover ?? movie.backdrop)
+                    header(movie.name, movie.plot, movie.posterUrl ?? movie.cover ?? movie.backdropUrl ?? movie.backdrop)
                     Button { play = TVPlayRequest(title: movie.name, kind: "movie", movieId: movie.id) } label: {
                         Label("Play on a TV", systemImage: "play.tv").font(.headline).frame(maxWidth: .infinity, minHeight: 48)
                     }
@@ -429,11 +439,7 @@ private struct TVArt: View {
     var url: String?
     var symbol: String
     var body: some View {
-        Group {
-            if let url, let u = URL(string: url) {
-                AsyncImage(url: u) { image in image.resizable().scaledToFill() } placeholder: { placeholder }
-            } else { placeholder }
-        }
+        HubImage(path: url) { placeholder }
         .frame(width: 56, height: 56)
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }

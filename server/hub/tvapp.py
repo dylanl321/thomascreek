@@ -1036,7 +1036,10 @@ class TvApp:
                 continue
             if kids_only and not row.get("kids"):
                 continue
-            rows.append(public_channel(row))
+            shown = public_channel(row)
+            art = getattr(self, "artwork", None)
+            shown["logo_url"] = art.public_url("logo", shown["key"]) if art is not None else None
+            rows.append(shown)
         rows.sort(key=lambda row: (row["number"] is None, row["number"] or 0, row["name"].casefold()))
         return {"version": doc["version"], "channels": rows}
 

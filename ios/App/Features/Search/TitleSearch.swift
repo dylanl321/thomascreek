@@ -86,9 +86,7 @@ struct TitleResultCard: View {
 
     private var art: some View {
         Group {
-            if let posterUrl = card.posterUrl, let url = URL(string: posterUrl), posterUrl.hasPrefix("http") {
-                AsyncImage(url: url) { image in image.resizable().scaledToFill() } placeholder: { Color.clear }
-            } else {
+            HubImage(path: card.posterUrl) {
                 Image(systemName: card.kind == "channel" ? "tv" : "film").foregroundStyle(Theme.dim)
             }
         }

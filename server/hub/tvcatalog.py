@@ -23,6 +23,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 
+from .artwork import programme_key
 from .home import iso
 from .tvapp import TvAppError
 from .tvlineup import LineupError, clean_logo, public_channel
@@ -152,6 +153,52 @@ class TvCatalog:
                 out[str(row["key"])] = row
         return out
 
+    def _art(self, kind: str, key: str | None) -> str | None:
+        art = getattr(self, "artwork", None)
+        if art is None or not key:
+            return None
+        return art.public_url(kind, key)
+
+    def _with_title_art(self, row: dict[str, Any], *, show: bool) -> dict[str, Any]:
+        out = dict(row)
+        ident = out.get("id")
+        out["poster_url"] = self._art("poster", ident)
+        out["backdrop_url"] = self._art("backdrop", ident)
+        art = getattr(self, "artwork", None)
+        if art is not None and ident:
+            art.remember(ident, title=out.get("name"), year=out.get("year"), kind="tv" if show else "movie")
+        return out
+
+    def _with_programme_art(self, view: dict[str, Any]) -> dict[str, Any]:
+        art = getattr(self, "artwork", None)
+        title = str(view.get("title") or "")
+        key = programme_key(title) if art is not None and title else None
+        if art is not None and key:
+            art.remember(key, title=title, kind="tv")
+        view["poster_url"] = art.public_url("poster", key) if art is not None and key else None
+        view["backdrop_url"] = art.public_url("backdrop", key) if art is not None and key else None
+        return view
+
+    def _present_series(self, record: dict[str, Any]) -> dict[str, Any]:
+        out = self._with_title_art(_public_series(record), show=True)
+        seasons = []
+        art = getattr(self, "artwork", None)
+        for season in out.get("seasons") or []:
+            episodes = []
+            for episode in season.get("episodes") or []:
+                item = dict(episode)
+                item["still_url"] = self._art("still", item.get("id"))
+                if art is not None and item.get("id"):
+                    art.remember(item["id"], series=out.get("name"), title=out.get("name"),
+                                 season=item.get("season"), number=item.get("number"), kind="episode")
+                episodes.append(item)
+            seasons.append({"number": season.get("number"), "episodes": episodes})
+        out["seasons"] = seasons
+        return out
+
+    def _present_movie(self, record: dict[str, Any]) -> dict[str, Any]:
+        return self._with_title_art(_public_movie(record, detail=True), show=False)
+
     def _is_kids(self, category: str | None) -> bool:
         if not category:
             return False
@@ -248,7 +295,8 @@ class TvCatalog:
                 shown.append(item)
                 details["episodes"][eid] = {
                     "id": eid, "series_id": series_id, "title": item["title"], "kids": kids,
-                    "series_name": known.get("name"), "fetched_at": time.time(),
+                    "series_name": known.get("name"), "season": season_no, "number": item["number"],
+                    "fetched_at": time.time(),
                 }
             shown.sort(key=lambda item: (item["number"] is None, item["number"] or 0))
             if shown:
@@ -264,7 +312,7 @@ class TvCatalog:
         }
         details["series"][series_id] = record
         self._write_details(details)
-        return _public_series(record)
+        return self._present_series(record)
 
     def store_movie(self, payload: dict[str, Any], movie_id: str) -> dict[str, Any]:
         info = payload.get("info") if isinstance(payload.get("info"), dict) else {}
@@ -283,7 +331,7 @@ class TvCatalog:
         details = self._details()
         details["movies"][movie_id] = record
         self._write_details(details)
-        return _public_movie(record, detail=True)
+        return self._present_movie(record)
 
     # -- fetch -----------------------------------------------------------------------------------------------------
     async def ensure(self) -> dict[str, Any]:
@@ -346,7 +394,7 @@ class TvCatalog:
     async def fetch_series(self, series_id: str) -> dict[str, Any]:
         cached = self._details()["series"].get(series_id)
         if cached and time.time() - float(cached.get("fetched_at") or 0) < DETAIL_TTL_S:
-            return _public_series(cached)
+            return self._present_series(cached)
         server, user, password = self._login()
         part = series_id.split(":")[-1]
         async with httpx.AsyncClient(timeout=45, follow_redirects=False, transport=self._transport) as client:
@@ -365,7 +413,7 @@ class TvCatalog:
     async def fetch_movie(self, movie_id: str) -> dict[str, Any]:
         cached = self._details()["movies"].get(movie_id)
         if cached and time.time() - float(cached.get("fetched_at") or 0) < DETAIL_TTL_S:
-            return _public_movie(cached, detail=True)
+            return self._present_movie(cached)
         server, user, password = self._login()
         part = movie_id.split(":")[-1]
         async with httpx.AsyncClient(timeout=45, follow_redirects=False, transport=self._transport) as client:
@@ -403,6 +451,7 @@ class TvCatalog:
             public = {key: shown[key] for key in ("key", "name", "number", "group", "logo", "kids")}
             if shown.get("catchup_days"):
                 public["catchup_days"] = shown["catchup_days"]
+            public["logo_url"] = self._art("logo", shown["key"])
             rows.append(public)
             seen.add(shown["key"])
         for key, over in self._overlay().items():
@@ -410,7 +459,9 @@ class TvCatalog:
                 continue
             if kids_only and not over.get("kids"):
                 continue
-            rows.append(public_channel(over))
+            extra = public_channel(over)
+            extra["logo_url"] = self._art("logo", extra["key"])
+            rows.append(extra)
         rows.sort(key=lambda row: (row.get("number") is None, row.get("number") or 0, str(row.get("name") or "").casefold()))
         return {"version": int(doc.get("fetched_at") or 0), "channels": rows}
 
@@ -451,7 +502,7 @@ class TvCatalog:
             nxt = None
             for item in (doc.get("guide") or {}).get(shown["key"]) or []:
                 begins, finishes = float(item["start_ts"]), float(item["end_ts"])
-                view = _programme(item, shown, now)
+                view = self._with_programme_art(_programme(item, shown, now))
                 if begins <= now < finishes and current is None:
                     current = view
                 elif begins >= now and nxt is None:
@@ -461,7 +512,8 @@ class TvCatalog:
             if channel or programmes or current:
                 wanted.append({
                     "key": shown["key"], "name": shown["name"], "number": shown["number"],
-                    "group": shown["group"], "logo": shown["logo"], "kids": shown["kids"],
+                    "group": shown["group"], "logo": shown["logo"], "logo_url": self._art("logo", shown["key"]),
+                    "kids": shown["kids"],
                     "catchup_days": shown["catchup_days"] or None, "now": current, "next": nxt,
                     "programmes": programmes[:MAX_PROGRAMMES],
                 })
@@ -490,7 +542,8 @@ class TvCatalog:
             item = dict(row)
             item["kids"] = kids
             item.pop("category_id", None)
-            rows.append(_public_movie(item) if kind == "movies" else _public_series_row(item))
+            shown = _public_movie(item) if kind == "movies" else _public_series_row(item)
+            rows.append(self._with_title_art(shown, show=kind != "movies"))
         rows.sort(key=lambda item: str(item.get("name") or "").casefold())
         label = "movies" if kind == "movies" else "series"
         return {"categories": sorted(names), label: rows[:limit]}
@@ -527,11 +580,13 @@ class TvCatalog:
             if shown is None or (kids_only and not shown["kids"]):
                 continue
             if needle in str(shown["name"]).casefold():
-                channels.append({key: shown[key] for key in ("key", "name", "number", "group", "logo", "kids")})
+                card = {key: shown[key] for key in ("key", "name", "number", "group", "logo", "kids")}
+                card["logo_url"] = self._art("logo", shown["key"])
+                channels.append(card)
             for item in (doc.get("guide") or {}).get(shown["key"]) or []:
                 title = str(item.get("title") or "")
                 if needle in title.casefold() or needle in str(item.get("subtitle") or "").casefold():
-                    view = _programme(item, shown, now)
+                    view = self._with_programme_art(_programme(item, shown, now))
                     view["channel_key"] = shown["key"]
                     view["channel_name"] = shown["name"]
                     programmes.append(view)

@@ -442,7 +442,7 @@ Channel keys never contain a URL or a password. Xtream puts the password in the 
 
 ```json
 {"version":1710000000,"channels":[
-  {"key":"xc:thomas-creek:44102","name":"CNN","number":202,"group":"News","logo":"https://img.example/cnn.png","kids":false,"catchup_days":2}
+  {"key":"xc:thomas-creek:44102","name":"CNN","number":202,"group":"News","logo":"https://img.example/cnn.png","logo_url":"/v1/art/logo/xc:thomas-creek:44102","kids":false,"catchup_days":2}
 ]}
 ```
 
@@ -622,9 +622,11 @@ A kids profile also has `"kids_categories":["Kids"]`. `304` has an empty body wh
 
 ```json
 {"version":1710000000,"channels":[
-  {"key":"xc:thomas-creek:44102","name":"CNN","number":202,"group":"News","logo":"https://img.example/cnn.png","kids":false,"catchup_days":2}
+  {"key":"xc:thomas-creek:44102","name":"CNN","number":202,"group":"News","logo":"https://img.example/cnn.png","logo_url":"/v1/art/logo/xc:thomas-creek:44102","kids":false,"catchup_days":2}
 ]}
 ```
+
+`logo` is the provider image when it has no credentials in it. `logo_url` is the hub's cached logo. `GET /v1/art/logo/{key}` serves that file.
 
 `GET /v1/tv/guide?start=<unix>&end=<unix>&channel=<key>`
 
@@ -632,8 +634,9 @@ A kids profile also has `"kids_categories":["Kids"]`. `304` has an empty body wh
 {"from":"2026-11-13T19:00:00+00:00","to":"2026-11-14T02:00:00+00:00","channels":[
   {"key":"xc:thomas-creek:10","name":"CNN","number":20,"group":"News","logo":"https://img.example/cnn.png",
    "kids":false,"catchup_days":2,
-   "now":{"start":"2026-11-13T20:00:00+00:00","end":"2026-11-13T21:00:00+00:00","title":"Newsroom","subtitle":null,"desc":"The hour.","icon":null,"catchup":true,"catchup_until":"2026-11-15T20:00:00+00:00"},
-   "next":{"start":"2026-11-13T21:00:00+00:00","end":"2026-11-13T22:00:00+00:00","title":"Tonight","subtitle":null,"desc":null,"icon":null,"catchup":false,"catchup_until":null},
+   "logo_url":"/v1/art/logo/xc:thomas-creek:10",
+   "now":{"start":"2026-11-13T20:00:00+00:00","end":"2026-11-13T21:00:00+00:00","title":"Newsroom","subtitle":null,"desc":"The hour.","icon":null,"catchup":true,"catchup_until":"2026-11-15T20:00:00+00:00","poster_url":"/v1/art/poster/prog:0b49a5b26ac1e2d3739f","backdrop_url":"/v1/art/backdrop/prog:0b49a5b26ac1e2d3739f"},
+   "next":{"start":"2026-11-13T21:00:00+00:00","end":"2026-11-13T22:00:00+00:00","title":"Tonight","subtitle":null,"desc":null,"icon":null,"catchup":false,"catchup_until":null,"poster_url":"/v1/art/poster/prog:21f95957753554805ce6","backdrop_url":"/v1/art/backdrop/prog:21f95957753554805ce6"},
    "programmes":[]}
 ]}
 ```
@@ -642,7 +645,7 @@ A kids profile also has `"kids_categories":["Kids"]`. `304` has an empty body wh
 
 ```json
 {"categories":["Kids"],"series":[
-  {"id":"series:thomas-creek:12","name":"Bluey","cover":"https://img.example/bluey.jpg","year":2018,"genre":"Kids","rating":"TV-Y","category":"Kids","kids":true}
+  {"id":"series:thomas-creek:12","name":"Bluey","cover":"https://img.example/bluey.jpg","year":2018,"genre":"Kids","rating":"TV-Y","category":"Kids","kids":true,"poster_url":"/v1/art/poster/series:thomas-creek:12","backdrop_url":"/v1/art/backdrop/series:thomas-creek:12"}
 ]}
 ```
 
@@ -650,8 +653,9 @@ A kids profile also has `"kids_categories":["Kids"]`. `304` has an empty body wh
 
 ```json
 {"id":"series:thomas-creek:12","name":"Bluey","cover":"https://img.example/bluey.jpg","year":2018,"genre":"Kids","rating":"TV-Y","category":"Kids","kids":true,
+ "poster_url":"/v1/art/poster/series:thomas-creek:12","backdrop_url":"/v1/art/backdrop/series:thomas-creek:12",
  "plot":"A puppy.","backdrop":null,"seasons":[
-  {"number":1,"episodes":[{"id":"ep:thomas-creek:555","season":1,"number":1,"title":"Keepy Uppy","plot":null,"still":null,"duration_s":420}]}
+  {"number":1,"episodes":[{"id":"ep:thomas-creek:555","season":1,"number":1,"title":"Keepy Uppy","plot":null,"still":null,"still_url":"/v1/art/still/ep:thomas-creek:555","duration_s":420}]}
 ]}
 ```
 
@@ -659,19 +663,19 @@ A kids profile also has `"kids_categories":["Kids"]`. `304` has an empty body wh
 
 ```json
 {"categories":["Movies"],"movies":[
-  {"id":"vod:thomas-creek:99","name":"The Matrix","cover":null,"year":1999,"genre":"Action","rating":"R","category":"Movies","kids":false}
+  {"id":"vod:thomas-creek:99","name":"The Matrix","cover":null,"year":1999,"genre":"Action","rating":"R","category":"Movies","kids":false,"poster_url":"/v1/art/poster/vod:thomas-creek:99","backdrop_url":"/v1/art/backdrop/vod:thomas-creek:99"}
 ]}
 ```
 
 ```json
-{"id":"vod:thomas-creek:99","name":"The Matrix","cover":null,"year":1999,"genre":"Action","rating":"R","category":"Movies","kids":false,"plot":"A hacker.","backdrop":null,"duration_s":8160}
+{"id":"vod:thomas-creek:99","name":"The Matrix","cover":null,"year":1999,"genre":"Action","rating":"R","category":"Movies","kids":false,"poster_url":"/v1/art/poster/vod:thomas-creek:99","backdrop_url":"/v1/art/backdrop/vod:thomas-creek:99","plot":"A hacker.","backdrop":null,"duration_s":8160}
 ```
 
 `GET /v1/tv/library/search?q=news`
 
 ```json
-{"q":"news","channels":[{"key":"xc:thomas-creek:10","name":"CNN","number":20,"group":"News","logo":null,"kids":false}],
- "programmes":[{"start":"2026-11-13T20:00:00+00:00","end":"2026-11-13T21:00:00+00:00","title":"Newsroom","subtitle":null,"desc":null,"icon":null,"catchup":true,"catchup_until":"2026-11-15T20:00:00+00:00","channel_key":"xc:thomas-creek:10","channel_name":"CNN"}],
+{"q":"news","channels":[{"key":"xc:thomas-creek:10","name":"CNN","number":20,"group":"News","logo":null,"logo_url":"/v1/art/logo/xc:thomas-creek:10","kids":false}],
+ "programmes":[{"start":"2026-11-13T20:00:00+00:00","end":"2026-11-13T21:00:00+00:00","title":"Newsroom","subtitle":null,"desc":null,"icon":null,"catchup":true,"catchup_until":"2026-11-15T20:00:00+00:00","poster_url":"/v1/art/poster/prog:0b49a5b26ac1e2d3739f","backdrop_url":"/v1/art/backdrop/prog:0b49a5b26ac1e2d3739f","channel_key":"xc:thomas-creek:10","channel_name":"CNN"}],
  "series":[],"movies":[]}
 ```
 
@@ -752,6 +756,10 @@ Phones receive now-playing as `tv`, not `tv_command`:
 ```
 
 `GET /v1/home` with a TV bearer is the existing home snapshot, limited to that TV's room. Lights and scenes in the room are included. Locks, the garage and cameras are not offered to a TV.
+
+`GET /v1/art/{kind}/{key}?size=m` with a TV or phone bearer that can watch. `kind` is `logo`, `poster`, `backdrop` or `still`. The body is the image. `ETag` is the quoted sha256 of those bytes. `Cache-Control` is `private, max-age=604800`. `If-None-Match` returns `304`. `size` is `s`, `m` (w342), `l` (w780), `original`, or `w92` / `w154` / `w185` / `w342` / `w500` / `w780`. A missing TMDB or fanart.tv key leaves posters and backdrops empty (`404`); channel logos still resolve. Episode stills use TVmaze and need no key.
+
+Channel logos are chosen in this order: the iptv-org logo for the iptv-org id or tvg-id, then a file in tv-logo/tv-logos, then the provider logo. The index refreshes weekly. A background pass fills logos for the lineup and posters for programmes in the next 24 hours.
 
 `GET /v1/tv/apps` with a TV bearer. `allowed` is always present. A kids profile, and any child or guest using the TV, gets the kid apps from the household catalog. An adult profile gets every catalog app that has an Android package, including those kid apps.
 

@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from .actions import ActionRunner
+from .artwork import Artwork
 from .assistant import Assistant
 from .alerts import Alerts
 from .adapters.cameras import Frigate
@@ -102,6 +103,11 @@ class Hub:
 
         self.tv_catalog = TvCatalog(vault, db, data)
         self.tv_catalog.kids_categories = self.tv_app.kids_categories
+        self.artwork = Artwork(vault, data / "art", tmdb_secret=config.artwork.tmdb_key_secret,
+                               fanart_secret=config.artwork.fanart_key_secret)
+        self.artwork.catalog = self.tv_catalog
+        self.tv_catalog.artwork = self.artwork
+        self.tv_app.artwork = self.artwork
         self.alerts = Alerts(self)
         self.actions = ActionRunner(self)
         self.timers = Timers(self)
@@ -276,6 +282,8 @@ class Hub:
         self._prober = asyncio.create_task(self._probe_services())
         self.app_update.start()
         self.tv_app.start()
+        if self.config.artwork.enabled:
+            self.artwork.start()
 
     async def probe_once(self) -> None:
         """Touch each enabled service so the status page shows a real answer, not "never checked"."""
