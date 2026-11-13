@@ -549,6 +549,8 @@ struct ActivityEntry: Codable, Hashable, Identifiable {
     var t: Double
     var who: String?
     var personId: String?
+    /// What the row opens (thomascreek://device/lock.front_door, /doors, /person/<id>).
+    var ref: String?
     var action: String?
     var target: String?
     var outcome: String?

@@ -25,8 +25,19 @@ extension Destination {
         if home?.cameras?.contains(where: { $0.id == t }) == true { return .camera(t) }
         if home?.room(t) != nil { return .room(t) }
         if t.hasPrefix("weather") { return .weather }
-        if t.hasPrefix("climate.") { return .climate }
-        return nil
+        // Things Home Assistant logs that aren't on a screen of their own.
+        let domain = t.split(separator: ".").first.map(String.init) ?? ""
+        switch domain {
+        case "climate": return .climate
+        case "lock", "cover", "binary_sensor", "alarm_control_panel": return .doors
+        case "camera":
+            let id = String(t.dropFirst(7))
+            return home?.cameras?.contains(where: { $0.id == id }) == true ? .camera(id) : .cameras
+        case "person":
+            return forPerson(named: String(t.dropFirst(7)).replacingOccurrences(of: "_", with: " "))
+        case "valve": return .outdoor
+        default: return nil
+        }
     }
 
     /// A person by first name, as calendar events and chore lists name them.

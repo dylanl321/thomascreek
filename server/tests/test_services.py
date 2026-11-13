@@ -516,6 +516,7 @@ def test_activity_merges_home_assistant_logbook(hub, people, home_client):
     assert [i["detail"] for i in b["items"]] == ["Front door was unlocked"]
     item = b["items"][0]
     assert isinstance(item["id"], str) and isinstance(item["t"], float) and item["source"] == "home"
+    assert item["ref"] == "thomascreek://device/lock.front_door"  # the row opens the lock
 
 
 def test_drop_folder_takes_house_model(hub, tmp_path, monkeypatch):

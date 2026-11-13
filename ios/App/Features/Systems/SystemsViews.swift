@@ -83,7 +83,7 @@ struct ActivityView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 // The row opens what was acted on; a long press also offers the person who did it.
-                .links(to: Destination.forTarget(e.target) ?? e.personId.map { .person($0) }, e.what, container: true)
+                .modifier(ActivityRowLink(entry: e))
                 .contextMenu {
                     if let d = Destination.forTarget(e.target), router.allows(d) {
                         Button("Open \(ActivityEntry.thing(e.target ?? ""))", systemImage: "arrow.up.forward") { router.follow(d) }
@@ -323,6 +323,19 @@ struct LinkDevicesSheet: View {
                 store.show("Added to \(kid.name)")
                 await done(); dismiss()
             } catch { store.show(error.localizedDescription, isError: true) }
+        }
+    }
+}
+
+/// An Activity row opens what it's about: the hub's `ref` when it sent one, else the device, camera or
+/// person the app recognises from the target.
+private struct ActivityRowLink: ViewModifier {
+    let entry: ActivityEntry
+    func body(content: Content) -> some View {
+        if entry.ref != nil {
+            content.links(ref: entry.ref, entry.what, container: true)
+        } else {
+            content.links(to: Destination.forTarget(entry.target) ?? entry.personId.map { .person($0) }, entry.what, container: true)
         }
     }
 }
