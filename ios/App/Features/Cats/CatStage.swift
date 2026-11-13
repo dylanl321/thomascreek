@@ -122,9 +122,18 @@ final class CatStage {
         return CGPoint(x: p.x, y: p.y + ride)
     }
 
-    /// A cat on the header was carried away with it by a scroll; its scene can't carry on from there.
-    var carriedOff: Bool {
-        abs(ride) > 8 && actors.contains { onLedge($0, $0.position(at: clock)) }
+    /// Cats on the header that a scroll carried away with it slip out of sight (their ground has
+    /// moved). Any other cat in the scene stays and carries on. Returns false when no cat is left
+    /// showing, so the scene can end.
+    func dropCarried() -> Bool {
+        if abs(ride) > 8 {
+            let now = clock
+            for a in actors where a.opacity > 0 && onLedge(a, a.position(at: now)) {
+                a.tappable = false
+                withAnimation(.easeOut(duration: 0.4)) { a.opacity = 0 }
+            }
+        }
+        return actors.contains { $0.art.cat != nil && $0.tappable && $0.opacity > 0.3 }
     }
 
     // MARK: clock
@@ -223,7 +232,7 @@ final class CatStage {
     func near(_ point: CGPoint, within d: CGFloat) -> Bool {
         let now = Self.now
         return actors.contains { a in
-            a.art.cat != nil && CGRect(origin: shown(a, at: now), size: a.size).insetBy(dx: -d, dy: -d).contains(point)
+            a.art.cat != nil && a.opacity > 0.3 && CGRect(origin: shown(a, at: now), size: a.size).insetBy(dx: -d, dy: -d).contains(point)
         }
     }
 }

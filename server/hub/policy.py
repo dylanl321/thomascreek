@@ -31,7 +31,7 @@ ALL_CAPABILITIES = (
     "holiday.full", "holiday.looks", "holiday.pick", "family.edit", "family.view",
     "shopping.add", "chores.manage", "chores.do", "inventory.edit", "inventory.search",
     "appliances", "network.manage", "network.ask", "systems", "people", "activity",
-    "trips.view", "trips.plan", "guests", "remotes.setup",
+    "trips.view", "trips.plan", "guests", "remotes.setup", "home.layout",
 )
 
 ROLE_CAPABILITIES: dict[str, frozenset[str]] = {
@@ -276,9 +276,15 @@ class Policy:
             return Decision(False, tier, "needs a grown-up", ask_parent=True)
 
         clamp: dict[str, Any] = {}
-        if action == "climate.set" and "climate.all" not in caps and "target_temp" in params:
-            t = float(params["target_temp"])
-            clamp["target_temp"] = min(max(t, self.climate_min), self.climate_max)
+        if action == "climate.set" and "climate.all" not in caps:
+            for key in ("target_temp", "target_low", "target_high"):
+                if key in params:
+                    try:
+                        clamp[key] = min(max(float(params[key]), self.climate_min), self.climate_max)
+                    except (TypeError, ValueError):
+                        pass
+            if "target_low" in clamp and "target_high" in clamp and clamp["target_low"] >= clamp["target_high"]:
+                clamp["target_low"] = clamp["target_high"] - 2
         return Decision(True, tier, why, clamp=clamp)
 
     def _in_own_scope(self, s: Subject, action: str, target: Target, now: datetime) -> bool:

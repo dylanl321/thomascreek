@@ -11,6 +11,12 @@ struct HouseView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 sections
+                if store.me?.can(.climateAll) == true, !thermostats.isEmpty {
+                    SectionHeader("Thermostats", live: true)
+                    LazyVGrid(columns: grid, spacing: 10) {
+                        ForEach(thermostats) { DeviceTile(device: $0) }
+                    }
+                }
                 ForEach(store.home?.floors ?? []) { floor in
                     SectionHeader(floor.name, live: true)
                     LazyVGrid(columns: grid, spacing: 10) {
@@ -58,7 +64,15 @@ struct HouseView: View {
             if !(h?.printers?.isEmpty ?? true) {
                 SectionTile(symbol: "printer.fill", title: "Workshop", detail: printersLine) { router.go(.workshop) }
             }
+            if me?.can(.homeLayout) == true {
+                SectionTile(symbol: "eye.slash", title: "Hidden devices", detail: "Clean up, set up rooms") { router.go(.hiddenDevices) }
+            }
         }
+    }
+
+    /// Each thermostat on House itself; a tap opens its history with the controls on top.
+    private var thermostats: [DeviceItem] {
+        (store.home?.devices(kind: .climate) ?? []).filter { $0.available != false && $0["available"]?.bool != false }
     }
 
     private var climateLine: String {
@@ -72,8 +86,13 @@ struct HouseView: View {
     }
     private var doorsLine: String { doorsOpen == 0 ? "All closed" : "\(doorsOpen) open" }
     private var appliancesLine: String {
-        let on = (store.home?.devices ?? []).filter { [.oven, .vacuum, .shower].contains($0.kind) && $0.isOn }.count
-        return on == 0 ? "All off" : "\(on) on"
+        let list = store.home?.appliances ?? []
+        if let open = list.first(where: { $0.doorOpen == true }) { return "\(open.name) door open" }
+        let on = list.filter { $0.running == true }.count
+            + (store.home?.devices(kind: .shower) ?? []).filter(\.isOn).count
+        if on > 0 { return "\(on) running" }
+        if list.isEmpty { return "None yet" }
+        return list.allSatisfy { !$0.isAvailable } ? "Not connected" : "All off"
     }
     private var printersLine: String {
         let list = store.home?.printers ?? []
@@ -125,8 +144,13 @@ struct RoomDetailView: View {
         let climate = devices.filter { $0.kind == .climate && ($0.available != false && $0["available"]?.bool != false) }
         let media = devices.filter { [.media, .speaker].contains($0.kind) }
         let other = devices.filter { ![.light, .fan, .switch, .climate, .media, .speaker, .camera].contains($0.kind) }
+        let scenes = room?.scenes ?? []
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
+                if !scenes.isEmpty {
+                    SectionHeader("Scenes")
+                    RoomScenesRow(scenes: scenes)
+                }
                 if !lights.isEmpty {
                     SectionHeader(title: "Lights", live: true) {
                         let anyOn = lights.contains { $0.isOn && $0.kind == .light }
@@ -157,7 +181,7 @@ struct RoomDetailView: View {
                         ForEach(other) { DeviceTile(device: $0) }
                     }
                 }
-                if devices.isEmpty { EmptyCard(symbol: "lightbulb.slash", title: "Nothing to control here yet") }
+                if devices.isEmpty && scenes.isEmpty { EmptyCard(symbol: "lightbulb.slash", title: "Nothing to control here yet") }
             }
             .screen()
         }
@@ -166,6 +190,11 @@ struct RoomDetailView: View {
         .toolbar {
             if let room {
                 ToolbarItem(placement: .primaryAction) { StarButton(kind: .room, id: room.id, name: room.name) }
+                if store.me?.can(.homeLayout) == true {
+                    ToolbarItem(placement: .primaryAction) {
+                        Button("Edit") { Router.shared.go(.roomEdit(room.id)) }
+                    }
+                }
             }
         }
     }

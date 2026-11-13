@@ -232,6 +232,71 @@ URGENT_EVENTS = ("tornado warning", "flash flood warning", "extreme wind warning
                  "hurricane warning", "storm surge warning", "flash flood emergency")
 
 
+# Words that stay in capitals (or keep their own case) when shouting NWS text is turned into sentences.
+KEEP_CASE = {w.lower(): w for w in (
+    "AM PM EST EDT CST CDT MST MDT PST PDT AKST AKDT HST UTC NWS NOAA US I II III "
+    "Monday Tuesday Wednesday Thursday Friday Saturday Sunday "
+    "January February March April May June July August September October November December "
+    "Jan Feb Mar Apr Jun Jul Aug Sep Sept Oct Nov Dec").split()}
+
+
+def sentence_case(text: str | None, names: str | None = None) -> str | None:
+    """NWS writes headlines and bodies in capitals. Turn shouting into sentences; leave normal text alone.
+    `names` (the alert's area and sender, already in normal case) gives place names their capitals back."""
+    if not text:
+        return text
+    keep = dict(KEEP_CASE)
+    for w in re.findall(r"[A-Za-z][A-Za-z'-]+", names or ""):
+        if w != w.lower():
+            keep.setdefault(w.lower(), w)
+    letters = [c for c in text if c.isalpha()]
+    if not letters or sum(c.isupper() for c in letters) / len(letters) < 0.7:
+        return text
+    out, start = [], True
+    for tok in re.split(r"(\s+)", text.lower()):
+        if not tok or tok.isspace():
+            out.append(tok)
+            if tok and "\n\n" in tok:
+                start = True
+            continue
+        core = re.sub(r"[^a-z.'-]", "", tok).strip(".")
+        for part in core.split("..."):
+            if part in keep:
+                tok = tok.replace(part, keep[part], 1)
+        if core in ("a.m", "p.m"):
+            tok = tok.upper()
+        if start:
+            i = next((i for i, c in enumerate(tok) if c.isalpha()), None)
+            if i is not None:
+                tok = tok[:i] + tok[i].upper() + tok[i + 1:]
+                start = False
+        if "..." in tok[:-3]:  # "* What...sub-freezing": NWS uses ... as a colon
+            a, _, b = tok.partition("...")
+            i = next((i for i, c in enumerate(b) if c.isalpha()), None)
+            if i is not None:
+                tok = f"{a}...{b[:i]}{b[i].upper()}{b[i + 1:]}"
+        if re.search(r"[.!?](\W*)$", tok) and not re.search(r"\b(a\.m|p\.m|[a-z])\.$", tok.lower()):
+            start = True
+        out.append(tok)
+    return re.sub(r"national weather service", "National Weather Service", "".join(out), flags=re.I)
+
+
+def _when(s: str | None) -> datetime | None:
+    if not s:
+        return None
+    try:
+        d = datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
+
+
+def live(alerts: list[dict[str, Any]] | None, now: datetime | None = None) -> list[dict[str, Any]]:
+    """Drop alerts whose end time has passed (a cached or slow feed can still list them)."""
+    now = now or datetime.now(timezone.utc)
+    return [a for a in alerts or [] if (e := _when(a.get("ends"))) is None or e > now]
+
+
 def shape_nws_alerts(raw: dict[str, Any]) -> list[dict[str, Any]]:
     out = []
     for f in raw.get("features") or []:
@@ -244,15 +309,16 @@ def shape_nws_alerts(raw: dict[str, Any]) -> list[dict[str, Any]]:
         if geom and geom.get("type") == "Polygon":
             poly = [[round(x, 4), round(y, 4)] for x, y in (geom.get("coordinates") or [[]])[0]][:400]
         params = p.get("parameters") or {}
+        names = f"{p.get('areaDesc') or ''} {p.get('senderName') or ''}"
         out.append({
             "id": p.get("id") or f.get("id"), "source": "NWS", "event": ev, "level": nws_level(ev, p.get("severity")),
             "severity": p.get("severity"), "certainty": p.get("certainty"), "urgency": p.get("urgency"),
             "urgent": ev.lower() in URGENT_EVENTS or p.get("severity") == "Extreme",
-            "headline": ((params.get("NWSheadline") or [None])[0]) or p.get("headline"),
+            "headline": sentence_case(((params.get("NWSheadline") or [None])[0]) or p.get("headline"), names),
             "area": p.get("areaDesc"), "sender": p.get("senderName") or "National Weather Service",
             "sent": p.get("sent"), "onset": p.get("onset") or p.get("effective"), "ends": p.get("ends") or p.get("expires"),
-            "description": (p.get("description") or "").strip() or None,
-            "instruction": (p.get("instruction") or "").strip() or None,
+            "description": sentence_case((p.get("description") or "").strip() or None, names),
+            "instruction": sentence_case((p.get("instruction") or "").strip() or None, names),
             "update": p.get("messageType") == "Update",
             "replaces": [r.get("identifier") for r in p.get("references") or [] if r.get("identifier")],
             "polygon": poly,
@@ -791,7 +857,7 @@ class Forecasts:
             return {"place": p, "error": f"The forecast service didn't answer ({type(exc).__name__}).",
                     "places": self.places()}
         got = await asyncio.gather(*jobs)
-        alerts, air = got[0], got[1]
+        alerts, air = (live(got[0]) if got[0] is not None else None), got[1]
         outlook, radar = (got[2], got[3]) if not child else ([], None)
         periods = got[-1] if pt and pt.get("forecast") else []
         if periods:
@@ -845,7 +911,7 @@ class Forecasts:
             return []
         pt = await self.nws_point(*home)
         country = "US" if pt else "DE" if self.in_germany(*home) else "other"
-        return await self.alerts(home[0], home[1], country)
+        return live(await self.alerts(home[0], home[1], country))
 
     def _home_loc(self) -> tuple[float, float] | None:
         h = getattr(self.hub.smart.weather, "_latlon", None)
@@ -857,7 +923,7 @@ class Forecasts:
         if not loc:
             return []
         hit = self._c.get(f"alerts:{loc[0]:.3f},{loc[1]:.3f}")
-        return hit[1] if hit and time.time() - hit[0] < 1800 else []
+        return live(hit[1]) if hit and time.time() - hit[0] < 1800 else []
 
     async def warm_home(self) -> None:
         """Keep the house's forecast fresh so Home and the Weather page show the same numbers."""
@@ -977,7 +1043,7 @@ class AlertWatch:
                         la, lo = round(loc[0], 2), round(loc[1], 2)
                         pt = await self.fc.nws_point(la, lo)
                         country = "US" if pt else "DE" if self.fc.in_germany(la, lo) else "other"
-                        batches.append(("trip", t["name"], await self.fc.alerts(la, lo, country)))
+                        batches.append(("trip", t["name"], live(await self.fc.alerts(la, lo, country))))
                 except Exception as exc:  # noqa: BLE001
                     log.info("trip alerts: %s", exc)
         sent = self._sent()

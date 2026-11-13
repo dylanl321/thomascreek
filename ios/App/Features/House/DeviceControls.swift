@@ -93,6 +93,7 @@ struct DeviceTile: View {
                 store.perform("light.set", target: device.id, params: ["on": true, "brightness": 25]) { $0.state["on"] = .bool(true); $0.state["brightness"] = .number(25) }
             }
         }
+        HideForEveryoneButton(deviceID: device.id, name: device.name)
     }
 
     /// Start a zone for a set time (the hub turns it off), or stop it with nil.
@@ -270,7 +271,24 @@ struct ClimateCard: View {
     /// The history screen shows the card itself, so it hides the row that opens it.
     var showsHistory = true
     @State private var pending: Double?
+    @State private var pendingLow: Double?
+    @State private var pendingHigh: Double?
     @State private var send: Task<Void, Never>?
+
+    /// Auto (heat_cool) holds a range, so it gets a heat-to and a cool-to control instead of one target.
+    private var holdsRange: Bool {
+        device["hvac"]?.string == "heat_cool" && device["targetLow"]?.double != nil && device["targetHigh"]?.double != nil
+    }
+    /// Thermostats that report a low/high pair call their Auto mode heat_cool in Home Assistant.
+    private var autoMode: String { device["targetLow"]?.double != nil || device["targetHigh"]?.double != nil ? "heat_cool" : "auto" }
+
+    private static func modeName(_ m: String?) -> String {
+        switch m {
+        case "heat_cool", "auto", nil: "Auto"
+        case "fan_only": "Fan"
+        case let m?: m.capitalized
+        }
+    }
 
     var body: some View {
         let target = pending ?? device["targetTemp"]?.double ?? 70
@@ -288,16 +306,23 @@ struct ClimateCard: View {
             }
             if store.me?.can(.climateAll) == true || store.me?.can(.climateOwnRoom) == true || store.role == .guest {
                 HStack(spacing: 12) {
-                    step(-1, target)
-                    Text("\(Int(target))°").font(.title2.weight(.bold).monospacedDigit()).frame(minWidth: 60)
-                    step(1, target)
+                    if holdsRange {
+                        let low = pendingLow ?? device["targetLow"]?.double ?? 68
+                        let high = pendingHigh ?? device["targetHigh"]?.double ?? 76
+                        rangeStepper("Heat to", value: low, tint: .orange) { v in if v <= high - 2 { sendRange(v, high) } }
+                        rangeStepper("Cool to", value: high, tint: .blue) { v in if v >= low + 2 { sendRange(low, v) } }
+                    } else if device["hvac"]?.string != "off" {
+                        step(-1, target)
+                        Text("\(Int(target))°").font(.title2.weight(.bold).monospacedDigit()).frame(minWidth: 60)
+                        step(1, target)
+                    }
                     Spacer()
                     Menu {
-                        ForEach(["heat", "cool", "auto", "off"], id: \.self) { m in
-                            Button(m.replacingOccurrences(of: "_", with: "/").capitalized) { store.perform("climate.set", target: device.id, params: ["hvac": m]) { $0.state["hvac"] = .string(m) } }
+                        ForEach(["heat", "cool", autoMode, "off"], id: \.self) { m in
+                            Button(Self.modeName(m)) { store.perform("climate.set", target: device.id, params: ["hvac": m]) { $0.state["hvac"] = .string(m) } }
                         }
                     } label: {
-                        Label((device["hvac"]?.string ?? "auto").replacingOccurrences(of: "_", with: "/").capitalized, systemImage: "slider.horizontal.3")
+                        Label(Self.modeName(device["hvac"]?.string), systemImage: "slider.horizontal.3")
                             .font(.subheadline.weight(.semibold))
                     }
                 }
@@ -317,6 +342,43 @@ struct ClimateCard: View {
             }
         }
         .card()
+    }
+
+    /// "Heat to 65°" with − and +; each change waits for the taps to settle, then sends both ends together.
+    private func rangeStepper(_ title: String, value: Double, tint: Color, _ change: @escaping (Double) -> Void) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title).font(.caption.weight(.semibold)).foregroundStyle(tint)
+            HStack(spacing: 6) {
+                smallStep("minus", "\(title) down") { change(value - 1) }
+                Text("\(Int(value))°").font(.title3.weight(.bold).monospacedDigit()).frame(minWidth: 40)
+                smallStep("plus", "\(title) up") { change(value + 1) }
+            }
+        }
+    }
+
+    private func smallStep(_ symbol: String, _ label: String, _ tap: @escaping () -> Void) -> some View {
+        Button(action: tap) {
+            Image(systemName: symbol).font(.subheadline.weight(.bold))
+                .frame(width: 36, height: 36).background(Theme.card2, in: Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+    }
+
+    private func sendRange(_ low: Double, _ high: Double) {
+        pendingLow = low
+        pendingHigh = high
+        send?.cancel()
+        send = Task {
+            try? await Task.sleep(for: .milliseconds(900))
+            guard !Task.isCancelled else { return }
+            store.perform("climate.set", target: device.id, params: ["target_low": low, "target_high": high]) {
+                $0.state["targetLow"] = .number(low); $0.state["targetHigh"] = .number(high)
+                $0.state["targetTemp"] = .number(((low + high) / 2 * 10).rounded() / 10)
+            }
+            pendingLow = nil
+            pendingHigh = nil
+        }
     }
 
     private func step(_ delta: Double, _ current: Double) -> some View {

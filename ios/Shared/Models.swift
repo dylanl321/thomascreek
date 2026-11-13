@@ -178,6 +178,7 @@ enum Capability: String {
     case tripsView = "trips.view", tripsPlan = "trips.plan"
     case guests
     case remotesSetup = "remotes.setup"
+    case homeLayout = "home.layout"     // hide devices for everyone, set up rooms (admin)
 }
 
 // MARK: - The house snapshot (GET /v1/home)
@@ -199,6 +200,8 @@ struct HomeSnapshot: Codable, Hashable {
     var smart: [SmartCard]?
     /// 3D printers (the workshop), when this person may see them.
     var printers: [PrinterSummary]?
+    /// Real appliances (fridge, ovens, dishwasher, washer, dryer, vacuum), one per device, for people with "appliances".
+    var appliances: [Appliance]?
 
     struct HouseStatus: Codable, Hashable {
         var level: String
@@ -242,6 +245,37 @@ struct Room: Codable, Hashable, Identifiable {
     var summary: String?
     var favorite: Bool?
     var deviceIds: [String]
+    /// The room's Home Assistant scenes this person may run, in the room's saved order.
+    var scenes: [RoomScene]?
+}
+
+struct RoomScene: Codable, Hashable, Identifiable {
+    var id: String
+    var name: String
+    var icon: String?
+    /// Only in the room editor.
+    var hidden: Bool?
+}
+
+/// One real appliance: Home Assistant splits each into many sensors; the hub folds them into one card.
+struct Appliance: Codable, Hashable, Identifiable {
+    var id: String
+    var type: String
+    var name: String
+    var symbol: String?
+    var roomId: String?
+    var status: String?
+    var running: Bool?
+    var available: Bool?
+    var doorOpen: Bool?
+    var parts: [Part]?
+    /// The oven entity, for appliances the Kitchen page can drive.
+    var ovenId: String?
+    var maker: String?
+    var model: String?
+    var hidden: Bool?
+    struct Part: Codable, Hashable, Identifiable { var id: String; var name: String; var value: String }
+    var isAvailable: Bool { available ?? true }
 }
 
 enum DeviceKind: String, Codable {
@@ -549,6 +583,8 @@ struct ActivityEntry: Codable, Hashable, Identifiable {
     var t: Double
     var who: String?
     var personId: String?
+    /// What the row opens (thomascreek://device/lock.front_door, /doors, /person/<id>).
+    var ref: String?
     var action: String?
     var target: String?
     var outcome: String?

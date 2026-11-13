@@ -83,9 +83,13 @@ def kind_for(state: dict[str, Any]) -> str | None:
     if domain == "switch" and is_irrigation_zone(state):
         return "valve"
     if domain == "water_heater":
+        from .catalog import is_fridge
         from .kitchen import is_oven
 
-        return "oven" if is_oven(state) else "shower"
+        if is_oven(state):
+            return "oven"
+        # GE reports the fridge and freezer as water heaters: they live on the Appliances page, not as showers.
+        return None if is_fridge(state) else "shower"
     return DOMAIN_KIND.get(domain)
 
 
@@ -215,6 +219,18 @@ class HomeModel:
         self.entity_area: dict[str, str] = {}
         # media_player -> {"remote": remote entity or None, "platform": integration}
         self.media_links: dict[str, dict[str, Any]] = {}
+        # Home Assistant's device registry: device id -> {name, manufacturer, model, integration, entities}
+        self.ha_devices: dict[str, dict[str, Any]] = {}
+        self.entity_device: dict[str, str] = {}
+        self.platforms: dict[str, str] = {}
+        # Rooms as Home Assistant has them, before the layout's moves and borrowed TV rooms.
+        self.ha_area: dict[str, str] | None = None
+        self.base_areas: dict[str, dict[str, Any]] = {}
+        # One media player per real TV or box; None until worked out (then every player is listed).
+        self.screens: set[str] | None = None
+        from .catalog import HomeLayout
+
+        self.layout = HomeLayout(hub)
         self.systems: dict[str, Any] | None = None
         self.dinner: dict[str, Any] | None = None
         self.calendar: list[dict[str, Any]] = []
@@ -285,6 +301,11 @@ class HomeModel:
         areas = await self.hub.ha.areas()
         floors = await self.hub.ha.floors()
         links = await self.hub.ha.media_links()
+        reg = await self.hub.ha.devices()
+        if reg.get("devices"):
+            self.ha_devices = {d["id"]: d for d in reg["devices"] if d.get("id")}
+            self.entity_device = {e: d["id"] for d in reg["devices"] for e in d.get("entities") or []}
+            self.platforms = {p[0]: p[1] for p in reg.get("platforms") or [] if isinstance(p, list) and len(p) == 2}
         extra = self.hub.config.home_assistant.extra.get("remotes", {})
         self.media_links = {m["entity_id"]: {"remote": extra.get(m["entity_id"]) or m.get("remote"),
                                              "platform": m.get("platform")} for m in links if m.get("entity_id")}
@@ -309,6 +330,37 @@ class HomeModel:
             for e in o.entities:
                 self.entity_area[e] = area_id
         self.floors = floors or self.hub.config.floors
+        self.base_areas = {k: dict(v) for k, v in self.areas.items()}
+        self.ha_area = dict(self.entity_area)
+        self.recompute()
+
+    def recompute(self) -> None:
+        """Apply the TV picks and the admin's layout (moves, room names and icons) to the raw HA rooms."""
+        from .catalog import pick_screens
+
+        if self.ha_area is None:
+            self.ha_area = dict(self.entity_area)
+            self.base_areas = {k: dict(v) for k, v in self.areas.items()}
+        ea = dict(self.ha_area)
+        keep = {p["tv_device"] for p in self.hub.db.people() if p.get("tv_device")}
+        keep |= {e for e in self.hub.config.favorites if e.startswith("media_player.")}
+        keep &= set(self.states)
+        if self.states:
+            self.screens, borrowed = pick_screens(self.states, self.platforms, self.entity_device, self.ha_devices,
+                                                  ea, keep)
+            for e, a in borrowed.items():
+                if a in self.base_areas:
+                    ea.setdefault(e, a)
+        for e, a in self.layout.moves.items():
+            if a in self.base_areas:
+                ea[e] = a
+        self.entity_area = ea
+        areas = {}
+        for k, v in self.base_areas.items():
+            r = self.layout.room(k)
+            areas[k] = {**v, "name": r.get("name") or v["name"], "symbol": r.get("symbol") or v["symbol"],
+                        "hidden": bool(r.get("hidden"))}
+        self.areas = areas
 
     async def _refresh_slow(self) -> None:
         if self.hub.truenas.enabled:
@@ -337,7 +389,13 @@ class HomeModel:
         changed = [eid for eid, s in fresh.items()
                    if eid in self.states and (self.states[eid].get("last_updated") != s.get("last_updated"))]
         first = not self.states
+        before = {e for e in self.states if e.startswith("media_player.")}, \
+            {e for e, st in self.states.items() if e.startswith("media_player.") and st.get("state") == "unavailable"}
         self.states = fresh
+        after = {e for e in fresh if e.startswith("media_player.")}, \
+            {e for e, st in fresh.items() if e.startswith("media_player.") and st.get("state") == "unavailable"}
+        if first or before != after or self.screens is None:
+            self.recompute()
         if first:
             return
         for eid in changed:
@@ -351,12 +409,24 @@ class HomeModel:
             return None
         return set(s.areas) | set(s.shared_areas)
 
-    def device(self, eid: str, s: Subject) -> dict[str, Any] | None:
+    def listed(self, eid: str, s: Subject | None = None) -> bool:
+        """False for devices the admin hid and for media players that aren't the chosen copy of a TV."""
+        if eid in self.layout.hidden:
+            return False
+        if eid.startswith("media_player.") and self.screens is not None and eid not in self.screens:
+            st = self.states.get(eid) or {}
+            if "group_members" not in st.get("attributes", {}) and not (s and s.tv_device == eid):
+                return False
+        return True
+
+    def device(self, eid: str, s: Subject, include_hidden: bool = False) -> dict[str, Any] | None:
         st = self.states.get(eid)
         if st is None:
             return None
         kind = kind_for(st)
         if kind is None:
+            return None
+        if not self.listed(eid, s) and not (include_hidden and eid in self.layout.hidden):
             return None
         area = self.entity_area.get(eid)
         vis = self.visible_areas(s)
@@ -376,7 +446,7 @@ class HomeModel:
             left = self.hub.actions.valve_remaining(eid)
             if left is not None:
                 state["remaining_s"] = left
-        return {
+        out = {
             "id": eid,
             "kind": kind,
             "name": st.get("attributes", {}).get("friendly_name", eid),
@@ -386,6 +456,9 @@ class HomeModel:
             "available": st.get("state") not in ("unavailable", "unknown"),
             "actions": actions,
         }
+        if include_hidden:
+            out["hidden"] = eid in self.layout.hidden
+        return out
 
     def snapshot(self, s: Subject) -> dict[str, Any]:
         cfg = self.hub.config
@@ -397,13 +470,17 @@ class HomeModel:
         for a in self.areas.values():
             if vis is not None and a["id"] not in vis:
                 continue
+            if a.get("hidden"):
+                continue
             in_room = [d for d in devices if d["room_id"] == a["id"]]
-            if not in_room:
+            scenes = self.scenes(a["id"], s)
+            if not in_room and not scenes:
                 continue
             rooms.append({
                 "id": a["id"], "name": a["name"], "floor_id": a["floor_id"], "symbol": a["symbol"],
                 "summary": self._summary(in_room), "favorite": a["id"] in starred,
-                "device_ids": [d["id"] for d in in_room],
+                "device_ids": self.layout.order(a["id"], [d["id"] for d in in_room]),
+                "scenes": scenes,
             })
         room_ids = {r["id"] for r in rooms}
         floors = [{"id": f["id"], "name": f["name"], "room_ids": [r["id"] for r in rooms if r["floor_id"] == f["id"]]}
@@ -453,11 +530,63 @@ class HomeModel:
             "weather": self._weather_now(s),
             "smart": self._smart_cards(s),
         }
+        if policy.has(s, "appliances"):
+            snap["appliances"] = self.appliances()
         if self.hub.workshop.enabled and (policy.has(s, "appliances") or s.role == "child"):
             snap["printers"] = self.hub.workshop.summaries()
         if policy.has(s, "systems"):
             snap["systems"] = self.systems_card()
         return snap
+
+    def scenes(self, area_id: str, s: Subject, include_hidden: bool = False) -> list[dict[str, Any]]:
+        """The room's Home Assistant scenes this person may run, in the room's saved order."""
+        out = []
+        hidden = self.layout.hidden
+        for eid, ar in self.entity_area.items():
+            if ar != area_id or not eid.startswith("scene.") or eid not in self.states:
+                continue
+            if eid in hidden and not include_hidden:
+                continue
+            st = self.states[eid]
+            if st.get("state") == "unavailable":
+                continue
+            if not self.hub.policy.decide(s, "scene.run", Target(entity_id=eid, area=area_id, kind="scene"), {}).allowed:
+                continue
+            item = {"id": eid, "name": st.get("attributes", {}).get("friendly_name") or eid,
+                    "icon": st.get("attributes", {}).get("icon")}
+            if include_hidden:
+                item["hidden"] = eid in hidden
+            out.append(item)
+        order = self.layout.order(area_id, [x["id"] for x in out])
+        by = {x["id"]: x for x in out}
+        return [by[e] for e in order]
+
+    def appliances(self, include_hidden: bool = False) -> list[dict[str, Any]]:
+        """One card per real appliance (fridge, ovens, dishwasher, washer, dryer, vacuum, steam shower)."""
+        from .catalog import appliance_card, appliance_type
+
+        devs = self.ha_devices
+        if not devs:  # no device registry: each appliance entity stands on its own
+            devs = {e: {"id": e, "name": st.get("attributes", {}).get("friendly_name"), "entities": [e]}
+                    for e, st in self.states.items() if e.startswith(("water_heater.", "vacuum."))}
+        hidden = self.layout.hidden
+        cards = []
+        for d in devs.values():
+            kind = appliance_type(d, self.states)
+            if kind is None:
+                continue
+            key = f"device:{d['id']}" if self.ha_devices else d["id"]
+            if key in hidden and not include_hidden:
+                continue
+            area = next((self.entity_area[e] for e in d.get("entities") or [] if e in self.entity_area), None)
+            card = appliance_card(d, kind, self.states, area)
+            card["id"] = key
+            if include_hidden:
+                card["hidden"] = key in hidden
+            cards.append(card)
+        order = {"oven": 0, "fridge": 1, "dishwasher": 2, "microwave": 3, "washer": 4, "dryer": 5, "vacuum": 6}
+        cards.sort(key=lambda c: (not c["available"], order.get(c["type"], 9), c["name"]))
+        return cards
 
     def _smart_cards(self, s: Subject) -> list[dict[str, Any]]:
         # Suggestions must never take Home down with them.

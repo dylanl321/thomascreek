@@ -15,6 +15,7 @@ enum Destination: Hashable {
     case remote(String), music, watch, requests, pipeline, askMedia, mediaTitle(String), mediaRequest(String)
     case kidsIPads                      // what's on the kids' iPads; send them shows
     case tvSetup                        // find and add TVs and boxes for everyone's remote
+    case roomEdit(String), hiddenDevices  // admin: set up a room; devices hidden for everyone and clean-up
     case calendar, meals, recipe(String), shopping, chores, inventory
     case kitchen(String?), dinners, recipes
     case trips, trip(Int), tripDay(Int, String)
@@ -127,6 +128,7 @@ final class Router {
         switch d {
         case .weather, .weatherPlace, .weatherAlert, .weatherRadar, .weatherOutlook, .today: return true
         case .climate: return !kid && store.role != .guest
+        case .climateHistory: return me?.can(.climateAll) == true || me?.can(.climateOwnRoom) == true
         case .device(let id):
             guard let dev = store.home?.device(id) else { return false }
             return !kid && store.role != .guest && Self.deviceAllowed(dev, me)

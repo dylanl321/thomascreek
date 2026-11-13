@@ -30,6 +30,8 @@ struct DevicePage: View {
                     row("Inside", "\(Int(t.rounded()))° · \(ClimateText.summary(d))", symbol: "thermometer.medium")
                         .links(to: .climate, "Climate")
                 }
+                row("History", "Temperature, set points and run times", symbol: "chart.xyaxis.line")
+                    .links(to: .climateHistory(d.id), "History")
                 outside
             case .valve:
                 outside
@@ -46,6 +48,13 @@ struct DevicePage: View {
             }
         } header: {
             Text("Connected")
+        }
+        if store.me?.can(.homeLayout) == true {
+            Section {
+                HideForEveryoneButton(deviceID: d.id, name: d.name)
+            } footer: {
+                Text("Hidden devices still work for modes, automations and Ask. Unhide from House › Hidden devices.")
+            }
         }
     }
 

@@ -313,10 +313,22 @@ def for_child(trip: dict[str, Any]) -> dict[str, Any]:
     return t
 
 
+def nice_name(n: Any) -> Any:
+    """TREK shows usernames ("lauren"); people want "Lauren". Names with capitals of their own stay as they are."""
+    if not isinstance(n, str) or n != n.lower():
+        return n
+    return " ".join(w[:1].upper() + w[1:] for w in n.split(" "))
+
+
+def travellers(items: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    return [{**t, "name": nice_name(t.get("name"))} for t in items or []]
+
+
 def detail(raw: dict[str, Any], today: date, child: bool) -> dict[str, Any]:
     out = {**summary(raw, today)}
     for key in ("days", "accommodations", "travellers", "unplanned_places", "unscheduled_reservations"):
         out[key] = raw.get(key) or []
+    out["travellers"] = travellers(out["travellers"])
     out["today"] = today.isoformat() if out["status"] == "now" else None
     return for_child(out) if child else out
 
