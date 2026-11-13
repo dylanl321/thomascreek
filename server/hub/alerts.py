@@ -61,10 +61,10 @@ DEFAULT_PREFS: dict[str, Any] = {
     "away_doors": False,    # an outside door opens while nobody is home
     "entities": {},         # extra Home Assistant entities -> bool
     "automations": True,    # alerts sent by Home Assistant automations
-    # Firewalla alarms about the house network (Dylan only).
-    "network": {"new_device": True, "security": True, "internet": True, "vpn": False, "offline": False},
-    # Firewalla alarms about the kids' devices (parents).
-    "kids": {"adult": True, "bedtime": True, "gaming": False, "video": False, "bandwidth": False},
+    # Firewalla alarms about the house network (Dylan only). No push unless switched on; History keeps them.
+    "network": {"new_device": False, "security": False, "internet": False, "vpn": False, "offline": False},
+    # Firewalla alarms about the kids' devices (parents). Off by default too.
+    "kids": {"adult": False, "bedtime": False, "gaming": False, "video": False, "bandwidth": False},
     # Official weather alerts (NWS at home, DWD on a trip in Germany). Grown-ups only; on by default.
     "weather": {"warnings": True, "watches": True, "advisories": False, "trips": True},
     "quiet": {"on": False, "from": "22:00", "to": "06:30", "ring_urgent": True},
@@ -631,7 +631,31 @@ class Alerts:
         await push_ready(self.hub)
 
     # -- background --------------------------------------------------------
+    def firewalla_push_off_once(self) -> int:
+        """Firewalla pushes used to default on, and saved prefs carry those old defaults. Turn them off
+        once for everyone (Dylan, 2026-11-13); anyone can switch them back on afterwards."""
+        if self.hub.db.kv_get("alerts.firewalla_off_v1"):
+            return 0
+        n = 0
+        for row in self.hub.db.all("SELECT person_id, prefs FROM alert_prefs"):
+            prefs = row["prefs"] if isinstance(row["prefs"], dict) else json.loads(row["prefs"] or "{}")
+            changed = False
+            for k in ("network", "kids"):
+                if isinstance(prefs.get(k), dict) and any(prefs[k].values()):
+                    prefs[k] = {kk: False for kk in prefs[k]}
+                    changed = True
+            if changed:
+                self.hub.db.execute("UPDATE alert_prefs SET prefs=?, updated_at=? WHERE person_id=?",
+                                    [json.dumps(prefs), time.time(), row["person_id"]])
+                n += 1
+        self.hub.db.kv_set("alerts.firewalla_off_v1", True)
+        return n
+
     def start(self) -> None:
+        try:
+            self.firewalla_push_off_once()
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Firewalla default-off migration: %s", exc)
         if self.hub.ha.enabled and self._ws_task is None:
             self._ws_task = asyncio.create_task(self._listen())
         if self._tick_task is None:
