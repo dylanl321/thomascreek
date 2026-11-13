@@ -92,6 +92,10 @@ class Hub:
         self.bambu_cloud = BambuCloud(self)
         self.workshop = Workshop(self, config.printers, data / "printers")
         self.smart = Smart(self)
+        from .forecast import AlertWatch, Forecasts
+
+        self.forecasts = Forecasts(self, data / "radar")
+        self.wx_watch = AlertWatch(self.forecasts)
         self.settings = PersonSettings(self)
         self.assistant = Assistant(self)
         self.household = Household(self)
@@ -313,6 +317,7 @@ class Hub:
         await self.kitchen.stop()
         await self.workshop.stop()
         await self.smart.stop()
+        await self.forecasts.close()
         await self.alerts.stop()
         await self.household.stop()
         await self.onepassword.stop()

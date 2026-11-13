@@ -195,6 +195,10 @@ struct DestinationView: View {
         case .guestPasses: GuestPassesView()
         case .bedtimes: BedtimesView()
         case .feedback: FeedbackListView()
+        case .weather: WeatherView()
+        case .weatherAlert(let id): WeatherAlertView(alertID: id)
+        case .weatherRadar: WeatherRadarView()
+        case .weatherOutlook: WeatherOutlookView()
         }
     }
 }

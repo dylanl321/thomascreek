@@ -20,6 +20,7 @@ enum Destination: Hashable {
     case systems, storage, activity, people, kidNet, vpnPool, hubWeb, youtube
     case nasApps(String?), nasApp(String), nasLogs(String, String?), nasUpdates, nasSettings
     case today, leaving, intercom, guestPasses, bedtimes, feedback
+    case weather, weatherAlert(String), weatherRadar, weatherOutlook
 }
 
 @MainActor
@@ -165,6 +166,14 @@ final class Router {
         case "vpnpool": show(.systems, .vpnPool)
         case "downloads": showOffline = true
         case "today": show(.home, .today)
+        case "weather":
+            // thomascreek://weather, /weather/alert/<id> (pushes and the warning card), /weather/radar, /weather/outlook
+            let sub = parts.count > 1 ? parts[1] : ""
+            if kid { show(.home, .weather) }
+            else if sub == "alert", parts.count > 2 { tab = .home; paths[.home] = [.weather, .weatherAlert(parts[2...].joined(separator: "/"))] }
+            else if sub == "radar" { tab = .home; paths[.home] = [.weather, .weatherRadar] }
+            else if sub == "outlook" { tab = .home; paths[.home] = [.weather, .weatherOutlook] }
+            else { show(.home, .weather) }
         case "leaving", "lastout": if !kid { show(.home, .leaving) }
         case "intercom", "announce": if !kid { show(.family, .intercom) }
         case "guests", "guestpass": if !kid { show(.family, .guestPasses) }

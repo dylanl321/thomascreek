@@ -201,13 +201,14 @@ final class SettingsStore {
 
 /// The sections a grown-up's Home can show, in their default order. Each person can reorder and hide them.
 enum HomeSection: String, CaseIterable, Identifiable {
-    case whosHome = "whos_home", rightNow = "rightnow", status, favorites, modes, kids, playing, printer, cameras, holiday, trip, today, systems
+    case whosHome = "whos_home", rightNow = "rightnow", weather, status, favorites, modes, kids, playing, printer, cameras, holiday, trip, today, systems
 
     var id: String { rawValue }
     var title: String {
         switch self {
         case .whosHome: "Who's home"
         case .rightNow: "Right now"
+        case .weather: "Weather"
         case .printer: "3D printer"
         case .status: "House status"
         case .favorites: "Favorites"
@@ -225,6 +226,7 @@ enum HomeSection: String, CaseIterable, Identifiable {
         switch self {
         case .whosHome: "person.2.fill"
         case .rightNow: "sparkles"
+        case .weather: "cloud.sun.fill"
         case .printer: "printer.fill"
         case .status: "checkmark.shield.fill"
         case .favorites: "star.fill"

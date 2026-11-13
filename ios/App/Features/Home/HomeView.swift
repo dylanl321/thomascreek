@@ -57,6 +57,7 @@ struct HomeView: View {
         switch s {
         case .whosHome: WhosHomeRow()
         case .rightNow: RightNowSection()
+        case .weather: HomeWeatherCard()
         case .status:
             if !store.reachable {
                 // Everyone sees the offline strip; Dylan also gets the likely cause.
