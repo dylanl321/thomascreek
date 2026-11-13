@@ -238,3 +238,12 @@ def test_update_all_skips_protected_apps_and_reports(stub, hub, fake_nas, home_c
     ops = [(m, p[0]) for m, p in fake_nas.calls if m in ("app.upgrade", "app.pull_images", "app.redeploy")]
     assert ops == [("app.upgrade", "plex"), ("app.pull_images", "dispatcharr")]
     assert sent and sent[0]["title"].startswith("Updated")
+
+
+def test_log_lines_lose_terminal_codes_but_keep_their_colour():
+    from hub.adapters.truenas import clean_log_line
+    assert clean_log_line("\x1b[1;31mboom\x1b[0m\n") == ("boom", "error")
+    assert clean_log_line("\x1b[33mslow disk\x1b[0m") == ("slow disk", "warn")
+    assert clean_log_line("\x1b[32mINFO\x1b[0m started\r") == ("INFO started", None)
+    assert clean_log_line("2026 WARNING: low space") == ("2026 WARNING: low space", "warn")
+    assert clean_log_line("ok, 0 errors") == ("ok, 0 errors", None)
