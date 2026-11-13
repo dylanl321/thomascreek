@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 from ..crypto import CryptoError, confirm_message, new_nonce, verify_signature
 from ..policy import Subject
 from ..state import Hub
+from ..tvapp import TvAppError
 
 NONCE_TTL_S = 120
 
@@ -76,6 +77,8 @@ def caller(request: Request, h: Hub = Depends(hub), *, allow_cookie: bool = Fals
         claims = h.tokens.verify(token)
     except CryptoError:
         raise error(401, "unauthorized", "Token expired") from None
+    if claims.get("kind") == "tv":
+        return _tv_caller(request, h, claims)
     device = h.db.device(claims["sub"])
     if device is None or device["status"] == "revoked":
         raise error(401, "revoked", "This device was removed from the house")
@@ -97,6 +100,22 @@ def caller(request: Request, h: Hub = Depends(hub), *, allow_cookie: bool = Fals
     if request.method not in ("GET", "HEAD", "OPTIONS") and not request.url.path.startswith(PREVIEW_WRITES):
         raise error(403, "preview_only", f"Viewing as {person['name']}: nothing in the house changes", preview=True)
     return Caller(viewed, device, ip, viewer=subject)
+
+
+def _tv_caller(request: Request, h: Hub, claims: dict[str, Any]) -> Caller:
+    """A TV bearer. The role is rebuilt from the TV record, and the call has to be at home."""
+    if request.headers.get(VIEW_AS_HEADER):
+        raise error(403, "forbidden", "A TV can't view as someone else")
+    ip = caller_ip(request, h)
+    if not h.is_home(ip):
+        raise error(403, "not_home", "The TV app talks to the hub only on the home network")
+    if not claims.get("key") or not claims.get("tv"):
+        raise error(401, "unauthorized", "Sign in from the TV again")
+    try:
+        subject, device = h.tv_app.session(str(claims["tv"]), claims.get("per") or None, str(claims["key"]))
+    except TvAppError as exc:
+        raise error(exc.status, exc.code, exc.message) from None
+    return Caller(subject, device, ip)
 
 
 def issue_nonce(h: Hub, device_id: str) -> str:

@@ -75,6 +75,11 @@ class Subject:
     at_home: bool = False
     device_id: str | None = None
     name: str | None = None
+    # A TV signed in with POST /v1/tv/token. It has no biometric key, so secure
+    # and admin tiers, locks, the garage and cameras are refused even if a
+    # grant or a role would otherwise allow them.
+    tv: bool = False
+    tv_id: str | None = None
 
     @property
     def is_child_like(self) -> bool:
@@ -150,6 +155,9 @@ ACTIONS: dict[str, ActionSpec] = {
         ActionSpec("media.command", "everyday", ("media.all",), ("media.own_tv",)),
         ActionSpec("media.volume", "everyday", ("media.all",), ("media.own_tv",)),
         ActionSpec("media.play", "everyday", ("media.all",), ("media.own_tv",)),
+        # Tune the Thomas Creek TV app. Power and volume stay on media.command / media.volume.
+        ActionSpec("tv.play", "everyday", ("media.all",), ("media.own_tv",), askable=True),
+        ActionSpec("tv.stop", "everyday", ("media.all",), ("media.own_tv",), askable=True),
         ActionSpec("speaker.group", "everyday", ("media.all",)),
         ActionSpec("announce", "everyday", ("family.edit",)),
         ActionSpec("valve.run", "everyday", ("appliances",)),
@@ -252,6 +260,11 @@ class Policy:
                 return Decision(False, "secure", "doors are not allowed for this person")
             tier = "secure"
 
+        # A TV has no Face ID key. Locks, the garage and cameras are refused
+        # here, not only by the missing capability, so a grant cannot widen them.
+        if s.tv and (tier in ("secure", "admin") or action in ("camera.view", "lock.set", "garage.set")):
+            return Decision(False, tier, "a TV can't do that")
+
         # Explicit denies win over everything.
         for rule in s.denies:
             if "action" in rule and _rule_matches(rule, action, target, now):
@@ -295,6 +308,13 @@ class Policy:
         return Decision(True, tier, why, clamp=clamp)
 
     def _in_own_scope(self, s: Subject, action: str, target: Target, now: datetime) -> bool:
+        # Tuning a channel is the TV's own room or the child's own set, never a
+        # shared room. media.command (volume, remote keys) still follows the
+        # shared-room rules below.
+        if action in ("tv.play", "tv.stop"):
+            if s.tv_device and target.entity_id == s.tv_device:
+                return True
+            return bool(target.area and target.area in s.areas)
         if action.startswith("media.") and s.tv_device and target.entity_id == s.tv_device:
             return True
         if target.area is None:

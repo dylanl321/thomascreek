@@ -8052,6 +8052,431 @@
     }
    }
   },
+  "/v1/tvapp/lineup": {
+   "put": {
+    "tags": [
+     "tvapp"
+    ],
+    "summary": "Put Lineup",
+    "description": "Replace the channel lineup every TV and phone reads.",
+    "operationId": "put_lineup_v1_tvapp_lineup_put",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/LineupIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Put Lineup V1 Tvapp Lineup Put"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/tvapp/discover": {
+   "get": {
+    "tags": [
+     "tvapp"
+    ],
+    "summary": "Discover",
+    "description": "Android TVs advertising wireless debugging. Empty when none answer; type an address instead.",
+    "operationId": "discover_v1_tvapp_discover_get",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Discover V1 Tvapp Discover Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/tvapp/setup": {
+   "post": {
+    "tags": [
+     "tvapp"
+    ],
+    "summary": "Setup",
+    "description": "Install Thomas Creek TV. mode adb uses debugging. mode non-adb returns a short download link instead.",
+    "operationId": "setup_v1_tvapp_setup_post",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/SetupIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Setup V1 Tvapp Setup Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/tvapp/setup/code/{code}": {
+   "get": {
+    "tags": [
+     "tvapp"
+    ],
+    "summary": "Setup By Code",
+    "description": "Status for a TV that is installing without debugging.",
+    "operationId": "setup_by_code_v1_tvapp_setup_code__code__get",
+    "parameters": [
+     {
+      "name": "code",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Code"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Setup By Code V1 Tvapp Setup Code  Code  Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/tvapp/approve": {
+   "post": {
+    "tags": [
+     "tvapp"
+    ],
+    "summary": "Approve",
+    "description": "Approve the TV that is showing this code. Nothing is typed on the TV.",
+    "operationId": "approve_v1_tvapp_approve_post",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ApproveIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Approve V1 Tvapp Approve Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/tvapp/setup/{ip}": {
+   "get": {
+    "tags": [
+     "tvapp"
+    ],
+    "summary": "Setup Status",
+    "description": "Where setup is, and the one thing the person may still need to do on the TV.",
+    "operationId": "setup_status_v1_tvapp_setup__ip__get",
+    "parameters": [
+     {
+      "name": "ip",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Ip"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Setup Status V1 Tvapp Setup  Ip  Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/tvapp/setup/{ip}/rollback-home": {
+   "post": {
+    "tags": [
+     "tvapp"
+    ],
+    "summary": "Rollback Home",
+    "description": "Put the previous launcher back. Thomas Creek TV stays installed.",
+    "operationId": "rollback_home_v1_tvapp_setup__ip__rollback_home_post",
+    "parameters": [
+     {
+      "name": "ip",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Ip"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Rollback Home V1 Tvapp Setup  Ip  Rollback Home Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/tvapp/catalog/refresh": {
+   "post": {
+    "tags": [
+     "tvapp"
+    ],
+    "summary": "Refresh Catalog",
+    "description": "Download the provider's channels, guide, series and movies again.",
+    "operationId": "refresh_catalog_v1_tvapp_catalog_refresh_post",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Refresh Catalog V1 Tvapp Catalog Refresh Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/v1/tv/enroll": {
    "post": {
     "tags": [
@@ -8097,12 +8522,188 @@
     }
    }
   },
+  "/v1/tv/apk/{code}": {
+   "get": {
+    "tags": [
+     "tvapp"
+    ],
+    "summary": "Apk By Code",
+    "description": "The signed APK, for Downloader or a browser on the home network. The code expires.",
+    "operationId": "apk_by_code_v1_tv_apk__code__get",
+    "parameters": [
+     {
+      "name": "code",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Code"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/tv/apk": {
+   "get": {
+    "tags": [
+     "tvapp"
+    ],
+    "summary": "Apk For Tv",
+    "description": "The signed APK for a TV that already has a token, so it can hand the file to PackageInstaller.",
+    "operationId": "apk_for_tv_v1_tv_apk_get",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/tv/apps": {
+   "get": {
+    "tags": [
+     "tvapp"
+    ],
+    "summary": "Tv Apps",
+    "description": "Packages this TV may put on its home screen. Kids get the kid apps; adults get the household catalog.",
+    "operationId": "tv_apps_v1_tv_apps_get",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Tv Apps V1 Tv Apps Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/tv/update": {
+   "get": {
+    "tags": [
+     "tvapp"
+    ],
+    "summary": "Tv Update",
+    "description": "Version, sha256 and signer pin for the APK at GET /v1/tv/apk. The TV checks both before installing.",
+    "operationId": "tv_update_v1_tv_update_get",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Tv Update V1 Tv Update Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/v1/tv/config": {
    "post": {
     "tags": [
      "tvapp"
     ],
     "summary": "Tv Config",
+    "description": "Signed config. Send If-None-Match to get 304 when nothing the TV caches has changed.",
     "operationId": "tv_config_v1_tv_config_post",
     "requestBody": {
      "content": {
@@ -8121,10 +8722,899 @@
       "description": "Successful Response",
       "content": {
        "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/tv/token": {
+   "post": {
+    "tags": [
+     "tvapp"
+    ],
+    "summary": "Tv Token",
+    "description": "Exchange the TV's device-key signature for a short-lived bearer.\n\nThe signature covers `tvtoken:<install_id>:<ts>` or, when narrowing to a\nperson, `tvtoken:<install_id>:<ts>:<person_id>`. The same timestamp cannot\nbe reused. The bearer lasts as long as a phone token and never carries a\nbiometric key, so locks, the garage and cameras stay refused.",
+    "operationId": "tv_token_v1_tv_token_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/TokenIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
         "schema": {
          "additionalProperties": true,
          "type": "object",
-         "title": "Response Tv Config V1 Tv Config Post"
+         "title": "Response Tv Token V1 Tv Token Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/tv/state": {
+   "post": {
+    "tags": [
+     "tvapp"
+    ],
+    "summary": "Tv State",
+    "description": "Now playing and a health heartbeat. Phones see a `tv` event.",
+    "operationId": "tv_state_v1_tv_state_post",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/StateIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Tv State V1 Tv State Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/tv/lineup": {
+   "get": {
+    "tags": [
+     "tvapp"
+    ],
+    "summary": "Tv Lineup",
+    "description": "Channels with stable keys. A child, a guest and a kids' TV only get kids' channels.",
+    "operationId": "tv_lineup_v1_tv_lineup_get",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/tv/commands": {
+   "get": {
+    "tags": [
+     "tvapp"
+    ],
+    "summary": "Tv Commands",
+    "description": "Long-poll for tv.play and tv.stop. The same commands also arrive as SSE `tv_command`.",
+    "operationId": "tv_commands_v1_tv_commands_get",
+    "parameters": [
+     {
+      "name": "timeout",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "number",
+       "default": 20,
+       "title": "Timeout"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Tv Commands V1 Tv Commands Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/tv/commands/ack": {
+   "post": {
+    "tags": [
+     "tvapp"
+    ],
+    "summary": "Tv Commands Ack",
+    "description": "Drop commands the TV has applied. Unacked commands stay until they expire (2 minutes).",
+    "operationId": "tv_commands_ack_v1_tv_commands_ack_post",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/AckIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Tv Commands Ack V1 Tv Commands Ack Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/tv/players": {
+   "get": {
+    "tags": [
+     "tv"
+    ],
+    "summary": "Players",
+    "description": "TVs this person may send a title to, with what's on now.",
+    "operationId": "players_v1_tv_players_get",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Players V1 Tv Players Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/tv/guide": {
+   "get": {
+    "tags": [
+     "tv"
+    ],
+    "summary": "Guide",
+    "description": "Now, next and the programmes in a window. `start` and `end` are unix seconds.",
+    "operationId": "guide_v1_tv_guide_get",
+    "parameters": [
+     {
+      "name": "start",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "number"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Start"
+      }
+     },
+     {
+      "name": "end",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "number"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "End"
+      }
+     },
+     {
+      "name": "channel",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Channel"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Guide V1 Tv Guide Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/tv/series": {
+   "get": {
+    "tags": [
+     "tv"
+    ],
+    "summary": "Series",
+    "description": "Series in the provider library.",
+    "operationId": "series_v1_tv_series_get",
+    "parameters": [
+     {
+      "name": "q",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Q"
+      }
+     },
+     {
+      "name": "category",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Category"
+      }
+     },
+     {
+      "name": "limit",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "default": 60,
+       "title": "Limit"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Series V1 Tv Series Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/tv/series/{series_id}": {
+   "get": {
+    "tags": [
+     "tv"
+    ],
+    "summary": "One Series",
+    "description": "Seasons and episodes for one series. The id is `series:<source>:<id>`.",
+    "operationId": "one_series_v1_tv_series__series_id__get",
+    "parameters": [
+     {
+      "name": "series_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Series Id"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response One Series V1 Tv Series  Series Id  Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/tv/movies": {
+   "get": {
+    "tags": [
+     "tv"
+    ],
+    "summary": "Movies",
+    "description": "Movies in the provider library.",
+    "operationId": "movies_v1_tv_movies_get",
+    "parameters": [
+     {
+      "name": "q",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Q"
+      }
+     },
+     {
+      "name": "category",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Category"
+      }
+     },
+     {
+      "name": "limit",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "default": 60,
+       "title": "Limit"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Movies V1 Tv Movies Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/tv/movies/{movie_id}": {
+   "get": {
+    "tags": [
+     "tv"
+    ],
+    "summary": "One Movie",
+    "description": "One movie, including artwork and the plot. The id is `vod:<source>:<id>`.",
+    "operationId": "one_movie_v1_tv_movies__movie_id__get",
+    "parameters": [
+     {
+      "name": "movie_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Movie Id"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response One Movie V1 Tv Movies  Movie Id  Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/tv/library/search": {
+   "get": {
+    "tags": [
+     "tv"
+    ],
+    "summary": "Library Search",
+    "description": "Channels, programmes in the cached guide, series and movies matching these words.",
+    "operationId": "library_search_v1_tv_library_search_get",
+    "parameters": [
+     {
+      "name": "q",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Q"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Library Search V1 Tv Library Search Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/tv/plex": {
+   "get": {
+    "tags": [
+     "tv"
+    ],
+    "summary": "Tv Plex",
+    "description": "Continue watching, on deck and recently added, for the TV app's Plex row. Art is a hub path.",
+    "operationId": "tv_plex_v1_tv_plex_get",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Tv Plex V1 Tv Plex Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/titles/search": {
+   "get": {
+    "tags": [
+     "titles"
+    ],
+    "summary": "Title Search",
+    "description": "Films and shows from Plex, the TV providers and TMDB, one card each.",
+    "operationId": "title_search_v1_titles_search_get",
+    "parameters": [
+     {
+      "name": "q",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "default": "",
+       "title": "Q"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Title Search V1 Titles Search Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/titles/request": {
+   "post": {
+    "tags": [
+     "titles"
+    ],
+    "summary": "Title Request",
+    "description": "Ask Jellyseerr for a title. A child's ask waits for a parent.",
+    "operationId": "title_request_v1_titles_request_post",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/RequestIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Title Request V1 Titles Request Post"
         }
        }
       }
@@ -12884,6 +14374,20 @@
  },
  "components": {
   "schemas": {
+   "AckIn": {
+    "properties": {
+     "ids": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "maxItems": 20,
+      "title": "Ids"
+     }
+    },
+    "type": "object",
+    "title": "AckIn"
+   },
    "ActionBody": {
     "properties": {
      "action": {
@@ -13046,6 +14550,43 @@
     },
     "type": "object",
     "title": "AddBody"
+   },
+   "ApproveIn": {
+    "properties": {
+     "code": {
+      "type": "string",
+      "maxLength": 8,
+      "title": "Code"
+     },
+     "room": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 40
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Room"
+     },
+     "profile": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Profile"
+     }
+    },
+    "type": "object",
+    "required": [
+     "code"
+    ],
+    "title": "ApproveIn"
    },
    "AskParent": {
     "properties": {
@@ -13359,6 +14900,125 @@
      "device_id"
     ],
     "title": "ChallengeBody"
+   },
+   "ChannelIn": {
+    "properties": {
+     "name": {
+      "type": "string",
+      "maxLength": 80,
+      "title": "Name"
+     },
+     "number": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Number"
+     },
+     "group": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 40
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Group"
+     },
+     "logo": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 300
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Logo"
+     },
+     "kids": {
+      "type": "boolean",
+      "title": "Kids",
+      "default": false
+     },
+     "hidden": {
+      "type": "boolean",
+      "title": "Hidden",
+      "default": false
+     },
+     "key": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 140
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Key"
+     },
+     "source": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 40
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Source"
+     },
+     "stream_id": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 80
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Stream Id"
+     },
+     "tvg_id": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 80
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Tvg Id"
+     },
+     "iptv_org": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 80
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Iptv Org"
+     }
+    },
+    "type": "object",
+    "required": [
+     "name"
+    ],
+    "title": "ChannelIn"
    },
    "CodeBody": {
     "properties": {
@@ -13746,6 +15406,70 @@
     "type": "object",
     "title": "HTTPValidationError"
    },
+   "HealthIn": {
+    "properties": {
+     "app_version": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 40
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "App Version"
+     },
+     "profile": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 20
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Profile"
+     },
+     "epg_age_s": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Epg Age S"
+     },
+     "last_error": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 300
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Last Error"
+     },
+     "home_crashes": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Home Crashes"
+     }
+    },
+    "type": "object",
+    "title": "HealthIn"
+   },
    "Holding": {
     "properties": {
      "item_id": {
@@ -13992,6 +15716,23 @@
     },
     "type": "object",
     "title": "LanguageBody"
+   },
+   "LineupIn": {
+    "properties": {
+     "channels": {
+      "items": {
+       "$ref": "#/components/schemas/ChannelIn"
+      },
+      "type": "array",
+      "maxItems": 5000,
+      "title": "Channels"
+     }
+    },
+    "type": "object",
+    "required": [
+     "channels"
+    ],
+    "title": "LineupIn"
    },
    "LinkBody": {
     "properties": {
@@ -14510,6 +16251,59 @@
     ],
     "title": "PlayBody"
    },
+   "PlayingIn": {
+    "properties": {
+     "channel_key": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 140
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Channel Key"
+     },
+     "title": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 120
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Title"
+     },
+     "name": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 80
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Name"
+     },
+     "number": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Number"
+     }
+    },
+    "type": "object",
+    "title": "PlayingIn"
+   },
    "PoolBody": {
     "properties": {
      "config": {
@@ -14944,6 +16738,20 @@
     "type": "object",
     "title": "RequestBody"
    },
+   "RequestIn": {
+    "properties": {
+     "media_id": {
+      "type": "string",
+      "maxLength": 40,
+      "title": "Media Id"
+     }
+    },
+    "type": "object",
+    "required": [
+     "media_id"
+    ],
+    "title": "RequestIn"
+   },
    "SendBody": {
     "properties": {
      "person_ids": {
@@ -15043,6 +16851,86 @@
     ],
     "title": "SendBody"
    },
+   "SetupIn": {
+    "properties": {
+     "ip": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 64
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Ip"
+     },
+     "name": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 80
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Name"
+     },
+     "room": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 40
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Room"
+     },
+     "profile": {
+      "type": "string",
+      "title": "Profile",
+      "default": "adult"
+     },
+     "pairing_port": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Pairing Port"
+     },
+     "pairing_code": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 8
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Pairing Code"
+     },
+     "home": {
+      "type": "boolean",
+      "title": "Home",
+      "default": false
+     },
+     "mode": {
+      "type": "string",
+      "title": "Mode",
+      "default": "adb"
+     }
+    },
+    "type": "object",
+    "title": "SetupIn"
+   },
    "ShopBody": {
     "properties": {
      "list_id": {
@@ -15132,6 +17020,72 @@
     "type": "object",
     "title": "SourcesBody"
    },
+   "StateIn": {
+    "properties": {
+     "playing": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/PlayingIn"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "foreground": {
+      "type": "boolean",
+      "title": "Foreground",
+      "default": true
+     },
+     "health": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/HealthIn"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "command_id": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 48
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Command Id"
+     },
+     "command_ok": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Command Ok"
+     },
+     "command_error": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 300
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Command Error"
+     }
+    },
+    "type": "object",
+    "title": "StateIn"
+   },
    "SyncBody": {
     "properties": {
      "person_id": {
@@ -15171,6 +17125,43 @@
      "signature"
     ],
     "title": "TokenBody"
+   },
+   "TokenIn": {
+    "properties": {
+     "install_id": {
+      "type": "string",
+      "maxLength": 64,
+      "title": "Install Id"
+     },
+     "ts": {
+      "type": "integer",
+      "title": "Ts"
+     },
+     "signature": {
+      "type": "string",
+      "maxLength": 200,
+      "title": "Signature"
+     },
+     "person_id": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 40
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Person Id"
+     }
+    },
+    "type": "object",
+    "required": [
+     "install_id",
+     "ts",
+     "signature"
+    ],
+    "title": "TokenIn"
    },
    "ToolCall": {
     "properties": {

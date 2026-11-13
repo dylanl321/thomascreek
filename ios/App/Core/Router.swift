@@ -15,6 +15,8 @@ enum Destination: Hashable {
     case remote(String), music, watch, requests, pipeline, askMedia, mediaTitle(String), mediaRequest(String)
     case kidsIPads                      // what's on the kids' iPads; send them shows
     case tvSetup                        // find and add TVs and boxes for everyone's remote
+    case tvGuide                        // live guide, series and movies, played on a house TV
+    case tvSeries(String), tvMovie(String)
     case roomEdit(String), hiddenDevices  // admin: set up a room; devices hidden for everyone and clean-up
     case calendar, meals, recipe(String), shopping, chores, inventory
     case kitchen(String?), dinners, recipes
@@ -48,6 +50,8 @@ final class Router {
     var searchQuery: String?
     /// Opens "Add from YouTube", prefilled with this link ("" for an empty box).
     var youtubeAdd: String?
+    /// `thomascreek://tv/{code}` from the QR a TV shows while it waits to be approved.
+    var tvApprove: String?
 
     /// Ask Thomas Creek, the quick chat and voice panel.
     var showAssistant = false
@@ -143,6 +147,7 @@ final class Router {
         case .people, .feedback, .vpnPool, .hubWeb: return store.role == .admin
         case .trips, .trip, .tripDay: return me?.can(.tripsView) == true
         case .recipe, .recipes, .meals, .dinners: return true
+        case .tvGuide, .tvSeries, .tvMovie: return me?.can(.mediaAll) == true || me?.can(.mediaOwnTV) == true
         case .calendar, .shopping, .inventory, .chores: return !kid && store.role != .guest
         case .kidNet: return me?.can(.networkManage) == true
         default: return !kid && store.role != .guest
@@ -165,7 +170,7 @@ final class Router {
     func reset() {
         paths = [:]; tab = .home
         showInbox = false; showProfile = false; showVPN = false; showOffline = false; showSearch = false; showAssistant = false
-        showEditHome = false; showViewAs = false; youtubeAdd = nil
+        showEditHome = false; showViewAs = false; youtubeAdd = nil; tvApprove = nil
     }
 
     /// thomascreek://room/kitchen, thomascreek://inbox, christmaslights://show ...
@@ -201,6 +206,7 @@ final class Router {
             let tab: AppTab = kid ? .home : .family
             show(tab, id.map { Destination.trip($0) } ?? (kid ? nil : Destination.trips))
         case "requests": kid ? show(.watch) : show(.media, .requests)
+        case "guide": show(kid ? .watch : .media, .tvGuide)
         case "media":
             // thomascreek://media/requests/123 (the "ready to watch" push), thomascreek://media/ask
             let t: AppTab = kid ? .watch : .media
@@ -231,6 +237,10 @@ final class Router {
         case "view-as": if role == .admin { showProfile = true }
         case "search": startSearch(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "q" }?.value)
         case "tvs": if role == .admin || role == .adult { show(.media, .tvSetup) } else { show(.home) }
+        case "tv":
+            // thomascreek://tv/{code}: the QR on a TV that is waiting to be approved.
+            let code = parts.count > 1 ? parts[1] : ""
+            if !code.isEmpty { tvApprove = code }
         case "remote": if parts.count > 1, !kid { show(.media, .remote(parts[1])) } else if kid { show(.myRoom) }
         case "climate":
             // thomascreek://climate, /climate/<entity_id> (one thermostat's history)

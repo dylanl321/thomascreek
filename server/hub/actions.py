@@ -14,11 +14,13 @@ import logging
 import re
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 from .adapters.base import AdapterError
-from .home import kind_for
+from .home import iso, kind_for
 from .policy import TIERS, Decision, Subject, Target
+from .tvapp import TvAppError
 
 if TYPE_CHECKING:
     from .state import Hub
@@ -109,6 +111,8 @@ class ActionRunner:
             target = Target(entity_id=target_id, area=home.entity_area.get(target_id), kind="scene")
             d = self.hub.policy.decide(s, action, target, params)
             return Plan(action, target, params, d, [("scene", "turn_on", {"entity_id": target_id})], label=target_id)
+        if action in ("tv.play", "tv.stop"):
+            return self._plan_tv(s, action, target_id, params)
         if action in ("network.pause", "network.grant"):
             return self._plan_network(s, action, target_id, params)
         if action == "announce":
@@ -145,6 +149,86 @@ class ActionRunner:
             if action in ("media.command", "media.play", "media.volume"):
                 plan.calls = self._with_tv(action, target_id, p, plan.calls)  # type: ignore[arg-type]
         return plan
+
+    def _plan_tv(self, s: Subject, action: str, target_id: str | None, params: dict[str, Any]) -> Plan:
+        """Hand a title to the Thomas Creek TV app. The TV already has the provider login from config."""
+        allowed = {"kind", "channel_key", "start", "movie_id", "series_id", "episode_id", "resume", "title"}
+        if action == "tv.stop":
+            allowed = set()
+        if set(params) - allowed:
+            raise ActionError(400, "bad_params", "Unknown parameter")
+        if not target_id:
+            raise ActionError(400, "bad_target", "Name the TV")
+        try:
+            install_id, tv = self.hub.tv_app.resolve(str(target_id))
+        except TvAppError as exc:
+            raise ActionError(exc.status, exc.code, exc.message) from None
+        if tv.get("status") == "revoked":
+            raise ActionError(403, "revoked", "That TV was removed")
+        if tv.get("status") != "approved":
+            raise ActionError(403, "pending", "That TV isn't approved yet")
+        command: dict[str, Any] = {"action": "stop" if action == "tv.stop" else "play"}
+        if action == "tv.play":
+            command.update(self._play_command(s, tv, params))
+        target = Target(entity_id=tv.get("media_entity") or install_id, area=tv.get("room"), kind="tv")
+        decision = self.hub.policy.decide(s, action, target, params)
+        return Plan(action, target, params, decision,
+                    custom={"tv_command": True, "install_id": install_id, "command": command},
+                    label=str(tv.get("name") or "the TV"))
+
+    def _play_command(self, s: Subject, tv: dict[str, Any], params: dict[str, Any]) -> dict[str, Any]:
+        kind = str(params.get("kind") or "").strip() or _play_kind(params)
+        if kind not in ("live", "catchup", "movie", "episode"):
+            raise ActionError(400, "bad_params", "kind is live, catchup, movie or episode")
+        title = params.get("title")
+        if title is not None and not isinstance(title, str):
+            raise ActionError(400, "bad_params", "title must be text")
+        resume = _resume(params.get("resume"))
+        kids_lock = tv.get("profile") == "kids" or s.is_child_like
+        if kind in ("live", "catchup"):
+            try:
+                channel = _channel_for(self.hub, str(params.get("channel_key") or ""))
+            except TvAppError as exc:
+                raise ActionError(exc.status, exc.code, exc.message) from None
+            if kids_lock and not channel.get("kids"):
+                raise ActionError(403, "forbidden", "That channel isn't for this TV", ask_parent=s.is_child_like)
+            command: dict[str, Any] = {
+                "kind": kind, "channel_key": channel["key"], "name": channel.get("name"),
+                "number": channel.get("number"), "title": (title or "").strip()[:120] or None,
+            }
+            if kind == "catchup":
+                start = _parse_start(params.get("start"))
+                days = int(channel.get("catchup_days") or 0)
+                now = time.time()
+                if days <= 0 or start > now or start < now - days * 86400:
+                    raise ActionError(400, "bad_params", "That showing isn't available to start over")
+                command["start"] = iso(start)
+            if resume is not None:
+                command["resume"] = resume
+            return command
+        if kind == "movie":
+            item = self.hub.tv_catalog.movie(str(params.get("movie_id") or ""))
+            if item is None:
+                raise ActionError(404, "not_found", "That movie isn't in the library")
+            if kids_lock and not item.get("kids"):
+                raise ActionError(403, "forbidden", "That movie isn't for this TV", ask_parent=s.is_child_like)
+            command = {"kind": "movie", "movie_id": item["id"], "name": item.get("name"),
+                       "title": (title or item.get("name") or "").strip()[:120] or None}
+        else:
+            episode = self.hub.tv_catalog.episode(str(params.get("episode_id") or ""))
+            if episode is None:
+                raise ActionError(404, "not_found", "That episode isn't in the library")
+            if kids_lock and not episode.get("kids"):
+                raise ActionError(403, "forbidden", "That episode isn't for this TV", ask_parent=s.is_child_like)
+            series_id = str(params.get("series_id") or episode.get("series_id") or "")
+            if params.get("series_id") and params.get("series_id") != episode.get("series_id"):
+                raise ActionError(400, "bad_params", "That episode isn't part of that series")
+            command = {"kind": "episode", "episode_id": episode["id"], "series_id": series_id or None,
+                       "name": episode.get("series_name") or episode.get("title"),
+                       "title": (title or episode.get("title") or "").strip()[:120] or None}
+        if resume is not None:
+            command["resume"] = resume
+        return command
 
     pause = staticmethod(asyncio.sleep)  # tests make TV recovery waits instant
 
@@ -691,6 +775,8 @@ class ActionRunner:
         out: dict[str, Any] = {"ok": True, "message": msg, "dry_run": not live}
         if isinstance(plan.custom, dict) and plan.custom.get("job"):
             out["job"] = plan.custom["job"]
+        if isinstance(plan.custom, dict) and plan.custom.get("command_id"):
+            out["command_id"] = plan.custom["command_id"]
         return out
 
     def _oven_message(self, plan: Plan) -> str:
@@ -701,7 +787,18 @@ class ActionRunner:
         temp = f" {p['temp']}°" if p.get("temp") else ""
         return f"{label}: {p.get('mode') or 'Bake'}{temp}. You'll get a notice when it's hot."
 
+    def _deliver_tv(self, plan: Plan) -> str:
+        info = plan.custom
+        command = self.hub.tv_app.enqueue_command(info["install_id"], info["command"])
+        info["command_id"] = command["id"]
+        self.hub.bus.publish({"type": "tv_command", "data": command}, device_id=f"tv:{info['install_id']}")
+        if plan.action == "tv.stop":
+            return f"Told {plan.label} to stop"
+        return f"Told {plan.label} to play {command.get('name') or command.get('title') or 'that'}"
+
     async def _run_custom(self, s: Subject, plan: Plan) -> str:
+        if isinstance(plan.custom, dict) and plan.custom.get("tv_command"):
+            return self._deliver_tv(plan)
         if plan.action.startswith("printer."):
             return await self._run_printer(s, plan)
         if isinstance(plan.custom, dict) and "nas" in plan.custom:
@@ -746,3 +843,63 @@ class ActionRunner:
 
 def _safe(params: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in params.items() if not k.startswith("_")}
+
+
+def _play_kind(params: dict[str, Any]) -> str:
+    if params.get("episode_id"):
+        return "episode"
+    if params.get("movie_id"):
+        return "movie"
+    if params.get("channel_key") and params.get("start") is not None:
+        return "catchup"
+    if params.get("channel_key"):
+        return "live"
+    raise ActionError(400, "bad_params", "Say what to play: a channel, a catch-up start, a movie or an episode")
+
+
+def _resume(value: object) -> int | None:
+    if value is None:
+        return None
+    try:
+        seconds = int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        raise ActionError(400, "bad_params", "resume is a number of seconds") from None
+    if not 0 <= seconds <= 24 * 3600:
+        raise ActionError(400, "bad_params", "resume is too far into the title")
+    return seconds
+
+
+def _parse_start(value: object) -> float:
+    if isinstance(value, bool) or value is None:
+        raise ActionError(400, "bad_params", "start is when the programme began")
+    if isinstance(value, (int, float)):
+        return float(value)
+    text = str(value).strip()
+    if text.isdigit():
+        return float(text)
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        raise ActionError(400, "bad_params", "start is when the programme began") from None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.timestamp()
+
+
+def _channel_for(hub: "Hub", key: str) -> dict[str, Any]:
+    try:
+        row = hub.tv_app.require_channel(key)
+    except TvAppError as exc:
+        if exc.code != "not_found":
+            raise
+        row = None
+    else:
+        # The stored lineup wins for name and kids, but catch-up days come from the provider.
+        extra = hub.tv_catalog.channel(key) or {}
+        if extra.get("catchup_days") and not row.get("catchup_days"):
+            row = {**row, "catchup_days": extra["catchup_days"]}
+        return row
+    found = hub.tv_catalog.channel(key)
+    if found is None:
+        raise TvAppError(404, "not_found", "That channel isn't in the lineup")
+    return found

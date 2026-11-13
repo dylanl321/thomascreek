@@ -405,7 +405,9 @@ class HomeModel:
 
     # -- shaping for one person -------------------------------------------
     def visible_areas(self, s: Subject) -> set[str] | None:
-        """None means every area."""
+        """None means every area. A TV is always limited to the room it was given."""
+        if s.tv:
+            return set(s.areas) | set(s.shared_areas)
         if s.role in ("admin", "adult", "tablet"):
             return None
         return set(s.areas) | set(s.shared_areas)
