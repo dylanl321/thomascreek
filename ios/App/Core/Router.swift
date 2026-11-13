@@ -14,6 +14,7 @@ enum Destination: Hashable {
     case holiday, holidayControllers, house3D
     case remote(String), music, watch, requests, pipeline, askMedia, mediaTitle(String), mediaRequest(String)
     case kidsIPads                      // what's on the kids' iPads; send them shows
+    case tvSetup                        // find and add TVs and boxes for everyone's remote
     case calendar, meals, recipe(String), shopping, chores, inventory
     case kitchen(String?), dinners, recipes
     case trips, trip(Int), tripDay(Int, String)
@@ -156,6 +157,7 @@ final class Router {
         case "favorites", "edit-home": if !kid { show(.home) }; showEditHome = true
         case "view-as": if role == .admin { showProfile = true }
         case "search": startSearch(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "q" }?.value)
+        case "tvs": if role == .admin || role == .adult { show(.media, .tvSetup) } else { show(.home) }
         case "remote": if parts.count > 1, !kid { show(.media, .remote(parts[1])) } else if kid { show(.myRoom) }
         case "climate": kid ? show(.myRoom) : show(.house, .climate)
         case "music": if !kid { show(.media, .music) }
