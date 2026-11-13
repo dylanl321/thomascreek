@@ -308,6 +308,7 @@ Hub: `hub/forecast.py`, `routes/weather.py`. Free sources only, fetched and cach
 - `GET /v1/climate/{entity_id}/history?range=6h|24h|3d|7d` (default 24h). 404 when the person can't see that thermostat on Home.
 - Reply: `{entity_id, name, unit ("°F"|"°C"), range, start, end, points [{t, temp?, humidity?}], setpoints [{t, heat?, cool?, target?}], runs [{start, end, action: heating|cooling|fan|drying|…}], modes [{start, end, mode}], outdoor [{t, temp}], reports_action, summary {heating_s, cooling_s, fan_s, heating_cycles, cooling_cycles, temp_min?, temp_max?, temp_avg?, humidity_now?, humidity_min?, humidity_max?}}`.
 - Times are Unix seconds. `temp: null` is a gap (thermostat unavailable). Set points are steps: each holds until the next. Auto holds `heat` (low) and `cool` (high); Heat/Cool hold one; `target` only for an Auto thermostat with a single set point. `reports_action: false` means the thermostat never says when it runs, so there are no run bands. The line and set points run on to `end`.
+- `climate.set` also takes `{target_low, target_high}` (both together, low < high) for a thermostat in Auto (`heat_cool`); sent as HA `set_temperature` with `target_temp_low`/`target_temp_high`. Children's values are clamped like `target_temp`.
 - App: `Destination.climateHistory(id)` (`ClimateHistoryView`), embeddable `ClimateHistorySection(deviceID:)`; deep link `thomascreek://climate/<entity_id>`.
 
 ## TVs and boxes: find and add for the remote (2026-11-13)

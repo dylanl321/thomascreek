@@ -98,3 +98,24 @@ def test_history_hidden_from_a_child_outside_their_rooms(hub, people, home_clien
     hub.home.entity_area["climate.theo_room"] = "kitchen_private"
     theo = people["phones"]["Theo"]
     assert home_client.get("/v1/climate/climate.theo_room/history", headers=theo.h).status_code == 404
+
+
+def _act(client, phone, params):
+    import json
+
+    body = {"action": "climate.set", "target": "climate.theo_room", "params": params}
+    raw = json.dumps(body).encode()
+    return client.post("/v1/actions", content=raw, headers={**phone.h, "content-type": "application/json"})
+
+
+def test_auto_range_sets_both_set_points(hub, people, home_client):
+    hub.config.hub.dry_run = False
+    dylan, theo = people["phones"]["Dylan"], people["phones"]["Theo"]
+    assert _act(home_client, dylan, {"target_low": 65, "target_high": 77}).status_code == 200
+    assert hub.calls[-1] == ("climate", "set_temperature",
+                             {"entity_id": "climate.theo_room", "target_temp_low": 65.0, "target_temp_high": 77.0})
+    assert _act(home_client, dylan, {"target_low": 70}).status_code == 400
+    assert _act(home_client, dylan, {"target_low": 75, "target_high": 72}).status_code == 400
+    # A child's range is kept inside the allowed band, and stays a range.
+    assert _act(home_client, theo, {"target_low": 60, "target_high": 85}).status_code == 200
+    assert hub.calls[-1][2]["target_temp_low"] == 66.0 and hub.calls[-1][2]["target_temp_high"] == 74.0

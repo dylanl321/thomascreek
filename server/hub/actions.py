@@ -169,7 +169,16 @@ class ActionRunner:
                 if p["hvac"] not in ("heat", "cool", "off", "auto", "heat_cool"):
                     raise ActionError(400, "bad_params", "hvac must be heat, cool, auto or off")
                 calls.append(("climate", "set_hvac_mode", {**t, "hvac_mode": p["hvac"]}))
-            if "target_temp" in p:
+            if "target_low" in p or "target_high" in p:
+                # Auto (heat_cool) holds a range: Home Assistant wants both ends in one call.
+                try:
+                    low, high = float(p["target_low"]), float(p["target_high"])
+                except (KeyError, TypeError, ValueError):
+                    raise ActionError(400, "bad_params", "target_low and target_high go together") from None
+                if low >= high:
+                    raise ActionError(400, "bad_params", "Heat to must be below cool to")
+                calls.append(("climate", "set_temperature", {**t, "target_temp_low": low, "target_temp_high": high}))
+            elif "target_temp" in p:
                 calls.append(("climate", "set_temperature", {**t, "temperature": float(p["target_temp"])}))
             return calls
         if action == "lock.set":
