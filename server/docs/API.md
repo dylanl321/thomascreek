@@ -537,6 +537,34 @@ Existing `/v1/tvapp` routes, plus `PATCH /v1/tvapp/tvs/{id}` `{room?, media_enti
 
 A programme that can be started over also has `catchup_until` (ISO), the end of the archive window.
 
+## Setting up a TV
+
+The person turns on Developer options and network debugging once. Wireless debugging on Android 11 and Google TV also shows a pairing code and a port.
+
+`GET /v1/tvapp/discover` (`systems`) → `{devices:[{ip, name, connect_port?, pairing_port?}], hint?}`. This is `adb mdns services`. An empty list means type the address.
+
+`POST /v1/tvapp/setup` `{ip, name?, room?, profile?, pairing_port?, pairing_code?, home?}`. Safe to run again: a box that already has this build is not reinstalled. `home: true` runs `cmd package set-home-activity` and leaves the stock launcher enabled. Fire TV is installed but not made Home, and `warning` says so. `needs_allow` means the TV is showing the debugging prompt.
+
+`GET /v1/tvapp/setup/{ip}` is the same status, for the phone to show progress. `you_do` is the one line for the person at the TV. `steps` is `done`, `current`, `todo`, `failed` or `skipped`.
+
+`POST /v1/tvapp/setup/{ip}/rollback-home` puts the previous launcher back. The app also reports `health.home_crashes`; two or more rolls the home screen back by itself. Boxes set up here only take automatic updates between 1am and 6am, and never while the app is on screen. After a reboot the hub reconnects; if the TV asks for Allow again, the status goes back to `needs_allow`.
+
+The first time the app opens it enrolls on its own. A box the hub added is approved immediately, with the room from setup.
+
+## Plex row for the TV
+
+`GET /v1/tv/plex` with a TV or phone bearer that can watch media.
+
+```json
+{"continue":[{
+  "id":"9","title":"Bluey: Keepy Uppy","year":2018,"kind":"episode","rating":"TV-Y",
+  "poster_url":"/v1/media/art?path=…","summary":"…","show":"Bluey","season":1,"episode":2,
+  "deep_link":"plex://preplay?metadataKey=/library/metadata/9&server=MACHINE","package":"com.plexapp.android"
+}],"on_deck":[],"recent":[]}
+```
+
+`continue` is in progress, `on_deck` is the next episode not started, `recent` is newly added. Artwork is a hub path fetched with the bearer. `deep_link` opens the Plex app at that item. A kids' TV only gets allowed ratings. There is no Plex token in the payload.
+
 ## Universal title search
 
 `GET /v1/titles/search?q=` (at least two letters). One card per title across Plex, the IPTV lineup and guide, and TMDB (Jellyseerr, which is what asks Sonarr and Radarr). The same title is one card: matched on TMDB id, then IMDb, then TVDB, then the cleaned name and year.

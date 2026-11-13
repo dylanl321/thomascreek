@@ -128,6 +128,8 @@ struct TVSetupView: View {
                     .background(Theme.card, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
                 }
 
+                TvAppSetupCard()
+
                 SectionHeader("Add by address")
                 VStack(alignment: .leading, spacing: 10) {
                     Picker("Kind", selection: $addressKind) {
@@ -169,6 +171,115 @@ struct TVSetupView: View {
         defer { loading = false }
         do {
             list = try await HubClient.shared.get("/v1/remotes", fresh ? ["fresh": "1"] : [:])
+            problem = nil
+        } catch {
+            problem = error.localizedDescription
+        }
+    }
+}
+
+// MARK: - Thomas Creek TV on the box
+
+struct TvDiscover: Decodable { var devices: [TvAdbDevice]; var hint: String? }
+struct TvAdbDevice: Decodable, Identifiable {
+    var ip: String
+    var name: String?
+    var pairingPort: Int?
+    var id: String { ip }
+}
+struct TvSetupStatus: Decodable {
+    var ip: String?
+    var phase: String
+    var message: String?
+    var youDo: String?
+    var warning: String?
+    var steps: [TvSetupStep]
+}
+struct TvSetupStep: Decodable, Identifiable { var id: String; var title: String; var state: String }
+
+/// Installs Thomas Creek TV once debugging is on. The hub says the one thing left to do on the TV.
+private struct TvAppSetupCard: View {
+    @State private var ip = ""
+    @State private var port = ""
+    @State private var code = ""
+    @State private var home = false
+    @State private var found: [TvAdbDevice] = []
+    @State private var status: TvSetupStatus?
+    @State private var busy = false
+    @State private var problem: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            SectionHeader("Thomas Creek TV")
+            Text("On the TV, turn on Developer options and network debugging once. Wireless debugging on a Google TV also shows a pairing code.")
+                .font(.caption).foregroundStyle(Theme.dim)
+            if !found.isEmpty {
+                ForEach(found) { device in
+                    Button(device.name ?? device.ip) {
+                        ip = device.ip
+                        if let port = device.pairingPort { self.port = String(port) }
+                    }
+                    .buttonStyle(.bordered).controlSize(.small)
+                }
+            }
+            TextField("TV address", text: $ip).keyboardType(.decimalPad).textFieldStyle(.roundedBorder)
+            HStack {
+                TextField("Pairing port", text: $port).keyboardType(.numberPad).textFieldStyle(.roundedBorder)
+                TextField("Code", text: $code).textInputAutocapitalization(.characters).textFieldStyle(.roundedBorder)
+            }
+            Toggle("Make it the home screen", isOn: $home).font(.subheadline)
+            Button(busy ? "Working…" : "Set up") { Task { await start() } }
+                .buttonStyle(.borderedProminent).disabled(busy || ip.count < 7)
+            if let problem {
+                Text(problem).font(.caption).foregroundStyle(Theme.warn)
+            }
+            if let status {
+                if let you = status.youDo, !you.isEmpty {
+                    Label(you, systemImage: "hand.tap.fill").font(.subheadline.weight(.semibold)).foregroundStyle(Theme.accent)
+                }
+                if let message = status.message { Text(message).font(.caption).foregroundStyle(Theme.dim) }
+                if let warning = status.warning { Text(warning).font(.caption).foregroundStyle(Theme.warn) }
+                ForEach(status.steps) { step in
+                    HStack {
+                        Image(systemName: symbol(step.state)).foregroundStyle(color(step.state))
+                        Text(step.title).font(.caption)
+                    }
+                }
+            }
+        }
+        .card()
+        .task { await look() }
+    }
+
+    private func symbol(_ state: String) -> String {
+        switch state {
+        case "done": "checkmark.circle.fill"
+        case "current": "circle.dotted"
+        case "failed": "exclamationmark.circle.fill"
+        case "skipped": "minus.circle"
+        default: "circle"
+        }
+    }
+
+    private func color(_ state: String) -> Color {
+        switch state {
+        case "done": Theme.accent
+        case "failed": Theme.warn
+        default: Theme.dim
+        }
+    }
+
+    private func look() async {
+        if let page: TvDiscover = try? await HubClient.shared.get("/v1/tvapp/discover") { found = page.devices }
+    }
+
+    private func start() async {
+        busy = true
+        defer { busy = false }
+        var body: [String: Any] = ["ip": ip.trimmingCharacters(in: .whitespaces), "home": home]
+        if let n = Int(port), !code.isEmpty { body["pairing_port"] = n; body["pairing_code"] = code }
+        do {
+            status = try await HubClient.shared.post("/v1/tvapp/setup", body, as: TvSetupStatus.self)
             problem = nil
         } catch {
             problem = error.localizedDescription

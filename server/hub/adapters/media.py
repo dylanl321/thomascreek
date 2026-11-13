@@ -46,6 +46,10 @@ class Plex(Adapter):
         data = await self.get_json("/library/onDeck")
         return [self._item(m) for m in data.get("MediaContainer", {}).get("Metadata", [])]
 
+    async def recently_added(self, limit: int = 20) -> list[dict[str, Any]]:
+        data = await self.get_json("/library/recentlyAdded", params={"X-Plex-Container-Size": limit})
+        return [self._item(m) for m in data.get("MediaContainer", {}).get("Metadata", [])][:limit]
+
     async def search(self, q: str, limit: int = 30) -> list[dict[str, Any]]:
         data = await self.get_json("/hubs/search", params={"query": q, "limit": limit})
         out: list[dict[str, Any]] = []

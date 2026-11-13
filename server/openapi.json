@@ -8108,6 +8108,218 @@
     }
    }
   },
+  "/v1/tvapp/discover": {
+   "get": {
+    "tags": [
+     "tvapp"
+    ],
+    "summary": "Discover",
+    "description": "Android TVs advertising wireless debugging. Empty when none answer; type an address instead.",
+    "operationId": "discover_v1_tvapp_discover_get",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Discover V1 Tvapp Discover Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/tvapp/setup": {
+   "post": {
+    "tags": [
+     "tvapp"
+    ],
+    "summary": "Setup",
+    "description": "Install Thomas Creek TV on a box that already has network debugging on. Safe to run again.",
+    "operationId": "setup_v1_tvapp_setup_post",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/SetupIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Setup V1 Tvapp Setup Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/tvapp/setup/{ip}": {
+   "get": {
+    "tags": [
+     "tvapp"
+    ],
+    "summary": "Setup Status",
+    "description": "Where setup is, and the one thing the person may still need to do on the TV.",
+    "operationId": "setup_status_v1_tvapp_setup__ip__get",
+    "parameters": [
+     {
+      "name": "ip",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Ip"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Setup Status V1 Tvapp Setup  Ip  Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/tvapp/setup/{ip}/rollback-home": {
+   "post": {
+    "tags": [
+     "tvapp"
+    ],
+    "summary": "Rollback Home",
+    "description": "Put the previous launcher back. Thomas Creek TV stays installed.",
+    "operationId": "rollback_home_v1_tvapp_setup__ip__rollback_home_post",
+    "parameters": [
+     {
+      "name": "ip",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Ip"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Rollback Home V1 Tvapp Setup  Ip  Rollback Home Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/v1/tvapp/catalog/refresh": {
    "post": {
     "tags": [
@@ -8959,6 +9171,52 @@
          "type": "object",
          "additionalProperties": true,
          "title": "Response Library Search V1 Tv Library Search Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/tv/plex": {
+   "get": {
+    "tags": [
+     "tv"
+    ],
+    "summary": "Tv Plex",
+    "description": "Continue watching, on deck and recently added, for the TV app's Plex row. Art is a hub path.",
+    "operationId": "tv_plex_v1_tv_plex_get",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Tv Plex V1 Tv Plex Get"
         }
        }
       }
@@ -14873,6 +15131,17 @@
        }
       ],
       "title": "Last Error"
+     },
+     "home_crashes": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Home Crashes"
      }
     },
     "type": "object",
@@ -16258,6 +16527,77 @@
      "ref"
     ],
     "title": "SendBody"
+   },
+   "SetupIn": {
+    "properties": {
+     "ip": {
+      "type": "string",
+      "maxLength": 64,
+      "title": "Ip"
+     },
+     "name": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 80
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Name"
+     },
+     "room": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 40
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Room"
+     },
+     "profile": {
+      "type": "string",
+      "title": "Profile",
+      "default": "adult"
+     },
+     "pairing_port": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Pairing Port"
+     },
+     "pairing_code": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 8
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Pairing Code"
+     },
+     "home": {
+      "type": "boolean",
+      "title": "Home",
+      "default": false
+     }
+    },
+    "type": "object",
+    "required": [
+     "ip"
+    ],
+    "title": "SetupIn"
    },
    "ShopBody": {
     "properties": {

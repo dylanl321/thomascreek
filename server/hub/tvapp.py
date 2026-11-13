@@ -280,6 +280,42 @@ class Adb:
     async def install(self, serial: str, apk: Path) -> AdbResult:
         return await self.run(["-s", serial, "install", "-r", str(apk)], 300)
 
+    async def pair(self, host_port: str, code: str) -> AdbResult:
+        """Android 11+ wireless debugging: `adb pair ip:port code`."""
+        return await self.run(["pair", host_port, code], 30)
+
+    async def props(self, serial: str) -> dict[str, str]:
+        r = await self.run(["-s", serial, "shell", "getprop"], 15)
+        out: dict[str, str] = {}
+        for line in r.out.splitlines():
+            m = re.match(r"\[([^\]]+)\]: \[([^\]]*)\]", line.strip())
+            if m:
+                out[m.group(1)] = m.group(2)
+        return out
+
+    async def grant_overlay(self, serial: str, package: str) -> AdbResult:
+        return await self.run(["-s", serial, "shell", "appops", "set", package, "SYSTEM_ALERT_WINDOW", "allow"], 15)
+
+    async def grant(self, serial: str, package: str, permission: str) -> AdbResult:
+        return await self.run(["-s", serial, "shell", "pm", "grant", package, permission], 15)
+
+    async def current_home(self, serial: str) -> str | None:
+        r = await self.run(["-s", serial, "shell", "cmd", "package", "resolve-activity", "--brief",
+                            "-a", "android.intent.action.MAIN", "-c", "android.intent.category.HOME"], 15)
+        for line in r.out.splitlines():
+            line = line.strip()
+            if "/" in line and " " not in line:
+                return line
+        return None
+
+    async def set_home(self, serial: str, component: str) -> AdbResult:
+        """Points Home at component. Does not disable the previous launcher."""
+        return await self.run(["-s", serial, "shell", "cmd", "package", "set-home-activity", component], 20)
+
+    async def mdns(self) -> str:
+        r = await self.run(["mdns", "services"], 8)
+        return r.out
+
 
 # -- the manager -----------------------------------------------------------------------------------------------------------
 
@@ -508,6 +544,8 @@ class TvApp:
             if not box.get("auto"):
                 continue
             try:
+                if box.get("overnight_only") and not self.in_update_window():
+                    continue
                 cur = await self.refresh_box(ip)
                 if cur.get("state") == "ok" and (cur.get("installed") or 0) < int(latest["versionCode"]):
                     await self.install(ip)
@@ -515,6 +553,16 @@ class TvApp:
                 log.info("tvapp: %s: %s", ip, exc.message)
             except Exception as exc:  # noqa: BLE001
                 log.warning("tvapp: %s: %s", ip, exc)
+
+    def in_update_window(self, moment: Any | None = None) -> bool:
+        """Automatic installs run from 1am to 6am in the house timezone. A manual install does not wait."""
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+
+        if moment is None:
+            clock = getattr(self, "now", None)
+            moment = clock() if clock else datetime.now(ZoneInfo("America/New_York"))
+        return 1 <= moment.hour < 6
 
     # -- TVs and their source ------------------------------------------------------------------------------------------
     def tvs(self) -> dict[str, dict[str, Any]]:
@@ -576,6 +624,8 @@ class TvApp:
         if tv["status"] == "pending" and box is not None:
             # An admin added this box for the TV app already: that is the approval.
             tv.update(status="approved", profile=box.get("profile") or "adult", approved_at=time.time(), approved_by="box")
+            if box.get("room") and not tv.get("room"):
+                tv["room"] = box["room"]
         elif tv["status"] == "pending" and install_id not in tvs:
             newly_pending = True
         tvs[install_id] = tv
@@ -1058,6 +1108,9 @@ class TvApp:
                 if self.vault.has(TOKEN_SECRET):
                     await self.check()
                 await self.update_all()
+                from .tvsetup import reconcile
+
+                await reconcile(self)
             except asyncio.CancelledError:
                 raise
             except TvAppError as exc:

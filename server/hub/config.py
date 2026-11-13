@@ -198,6 +198,8 @@ class TvAppConfig(BaseModel):
     package: str = "me.dlewis.thomascreek.tv"
     adb_port: int = 5555
     check_minutes: int = 360
+    # Component set as the home screen when someone asks. Stock launcher stays enabled.
+    home_activity: str = "me.dlewis.thomascreek.tv/com.ipvio.stream.MainActivity"
 
 
 class PrinterEntry(BaseModel):

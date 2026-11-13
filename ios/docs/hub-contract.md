@@ -390,3 +390,9 @@ Each `titles[]` card is one film or show. `offers[].label` is the line to show (
 `request.status` is `waiting`, `requested`, `downloading`, `available`, or null. `can_request` shows Request. `ask_parent` means the button says "Ask a grown-up" and `POST /v1/titles/request {media_id}` waits for `POST /v1/requests/{id}/approve` instead of calling Jellyseerr itself.
 
 The search sheet shows these cards above the other groups (`TitleResultCard`). The TV app uses the same GET.
+
+## TV app setup and the Plex row (2026-11-13)
+
+On TVs and boxes, under Thomas Creek TV: `GET /v1/tvapp/discover`, `POST /v1/tvapp/setup`, `GET /v1/tvapp/setup/{ip}`. Show `you_do` as the instruction, then `steps`. `needs_allow` means tap Allow on the TV and run setup again. `warning` is the Fire TV note. `POST /v1/tvapp/setup/{ip}/rollback-home` undoes the home screen.
+
+`GET /v1/tv/plex` → `{continue, on_deck, recent}`. Each item has `poster_url` (fetch with the bearer) and `deep_link` plus `package` (`com.plexapp.android`) so the TV app can open Plex on that title. Kids' tokens only get allowed ratings.

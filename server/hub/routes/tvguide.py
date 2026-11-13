@@ -12,10 +12,12 @@ from typing import Any
 
 from fastapi import APIRouter, Depends
 
+from ..adapters.base import AdapterError
 from ..policy import Target
 from ..state import Hub
 from ..tvapp import TvAppError
 from .deps import Caller, caller, error, hub, need
+from .media import _filter, _watch_cap
 
 router = APIRouter(prefix="/v1/tv", tags=["tv"])
 
@@ -126,6 +128,42 @@ async def library_search(q: str, c: Caller = Depends(caller), h: Hub = Depends(h
         raise error(400, "bad_request", "Type at least two letters")
     await _ready(h)
     return h.tv_catalog.search(q, kids_only=kids)
+
+
+def _plex_item(item: dict[str, Any], machine: str | None) -> dict[str, Any]:
+    link = f"plex://preplay?metadataKey=/library/metadata/{item['id']}"
+    if machine:
+        link += f"&server={machine}"
+    return {
+        "id": item["id"], "title": item.get("title"), "year": item.get("year"), "kind": item.get("kind"),
+        "poster_url": item.get("poster_url"), "summary": item.get("summary"), "show": item.get("show"),
+        "season": item.get("season"), "episode": item.get("episode"), "rating": item.get("rating"),
+        "deep_link": link, "package": "com.plexapp.android",
+    }
+
+
+@router.get("/plex")
+async def tv_plex(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """Continue watching, on deck and recently added, for the TV app's Plex row. Art is a hub path."""
+    _watch_cap(h, c)
+    if not h.plex.enabled:
+        raise error(503, "unavailable", "Plex isn't set up")
+    try:
+        try:
+            machine = await h.plex.identity()
+        except AdapterError:
+            machine = None
+        deck = await h.plex.continue_watching()
+        recent = await h.plex.recently_added()
+    except AdapterError as exc:
+        raise error(503, "unavailable", str(exc)) from None
+    continuing = [row for row in deck if row.get("view_offset_s")]
+    on_deck = [row for row in deck if not row.get("view_offset_s")]
+
+    def rows(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return [_plex_item(row, machine) for row in _filter(h, c, items)]
+
+    return {"continue": rows(continuing), "on_deck": rows(on_deck), "recent": rows(recent)}
 
 
 def _limit(limit: int) -> int:

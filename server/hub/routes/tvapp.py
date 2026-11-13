@@ -188,6 +188,67 @@ async def put_lineup(body: LineupIn, c: Caller = Depends(caller), h: Hub = Depen
     return lineup
 
 
+class SetupIn(BaseModel):
+    ip: str = Field(max_length=64)
+    name: str | None = Field(default=None, max_length=80)
+    room: str | None = Field(default=None, max_length=40)
+    profile: str = "adult"
+    pairing_port: int | None = None
+    pairing_code: str | None = Field(default=None, max_length=8)
+    home: bool = False
+
+
+@router.get("/discover")
+async def discover(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """Android TVs advertising wireless debugging. Empty when none answer; type an address instead."""
+    need(h, c, "systems")
+    from ..tvsetup import Setup
+
+    return await Setup(h.tv_app).discover()
+
+
+@router.post("/setup")
+async def setup(body: SetupIn, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """Install Thomas Creek TV on a box that already has network debugging on. Safe to run again."""
+    need(h, c, "systems")
+    from ..tvsetup import Setup
+
+    try:
+        out = await Setup(h.tv_app).run(body.ip, name=body.name, room=body.room, profile=body.profile,
+                                        pairing_port=body.pairing_port, pairing_code=body.pairing_code, home=body.home)
+    except TvAppError as exc:
+        raise _err(exc) from None
+    _log(h, c, "tvapp.setup", body.ip)
+    return out
+
+
+@router.get("/setup/{ip}")
+async def setup_status(ip: str, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """Where setup is, and the one thing the person may still need to do on the TV."""
+    need(h, c, "systems")
+    from ..tvsetup import status_of
+
+    try:
+        box = h.tv_app.boxes().get(clean_ip(ip))
+    except TvAppError as exc:
+        raise _err(exc) from None
+    if box is None:
+        raise error(404, "not_found", "That box isn't on the list")
+    return status_of(dict(box, ip=clean_ip(ip)))
+
+
+@router.post("/setup/{ip}/rollback-home")
+async def rollback_home(ip: str, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """Put the previous launcher back. Thomas Creek TV stays installed."""
+    need(h, c, "systems")
+    from ..tvsetup import Setup
+
+    try:
+        return await Setup(h.tv_app).rollback_home(ip)
+    except TvAppError as exc:
+        raise _err(exc) from None
+
+
 @router.post("/catalog/refresh")
 async def refresh_catalog(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
     """Download the provider's channels, guide, series and movies again."""
@@ -284,6 +345,7 @@ class HealthIn(BaseModel):
     profile: str | None = Field(default=None, max_length=20)
     epg_age_s: int | None = None
     last_error: str | None = Field(default=None, max_length=300)
+    home_crashes: int | None = None
 
 
 class StateIn(BaseModel):
@@ -304,6 +366,15 @@ async def tv_state(body: StateIn, c: Caller = Depends(caller), h: Hub = Depends(
     except TvAppError as exc:
         raise _err(exc) from None
     h.bus.publish({"type": "tv", "data": data})
+    crashes = body.health.home_crashes if body.health else None
+    if crashes is not None and crashes >= 2:
+        from ..tvsetup import Setup
+
+        ip = (h.tv_app.tvs().get(install_id) or {}).get("ip")
+        try:
+            await Setup(h.tv_app).note_crashes(ip, crashes)
+        except TvAppError:
+            pass
     return {"ok": True}
 
 
