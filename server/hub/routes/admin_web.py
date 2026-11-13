@@ -24,7 +24,8 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from pydantic import BaseModel, Field
 
-from .. import __version__, testkeys
+from .. import __version__, bambu_cloud, testkeys
+from ..bambu_cloud import token_expiry
 from ..crypto import CryptoError
 from ..onepassword import NAME_RE
 from ..state import Hub
@@ -285,8 +286,9 @@ SECTIONS: list[dict[str, Any]] = [
     ]},
     {"title": "3D printer (Bambu H2S)", "service": "printers", "fields": [
         ("printer.h2s.access_code", "Access code", "text",
-         "On the printer: Settings, Network (the gear, then the Wi-Fi page). Turn on LAN Only and Developer Mode first; "
-         "the 8-character Access Code is shown there."),
+         "On the printer: Settings, Network (the gear, then the Wi-Fi page): the 8-character Access Code. "
+         "Works with LAN Only off (watch only). Turn on LAN Only and Developer Mode there for full control; "
+         "the hub notices by itself. Not needed if you sign in to the Bambu account below."),
         ("printer.h2s.serial", "Serial number", "text",
          "On the printer: Settings, Device (or the sticker on the back). It starts with 09."),
         ("printer.h2s.host", "IP address", "text",
@@ -366,6 +368,42 @@ def _field_html(h: Hub, csrf: str, name: str, label: str, kind: str, note: str) 
 <input type=hidden name=csrf value={csrf}><input type=hidden name=name value='{e(name)}'>{inp}<button>{'Replace' if have else 'Save'}</button></form>{remove}</div></div></details>"""
 
 
+BAMBU_KEYS = {bambu_cloud.TOKEN, bambu_cloud.REFRESH, bambu_cloud.UID}
+
+
+def _bambu_html(h: Hub, csrf: str) -> str:
+    """Sign in to the Bambu account: watch the printer without LAN Only mode."""
+    e = html.escape
+    c = h.bambu_cloud
+    hid = f"<input type=hidden name=csrf value={csrf}>"
+    note = ("Optional. Lets the hub watch the printer through Bambu's cloud when it can't reach it on the home "
+            "network, and fills in the serial number and access code. The password is used once to sign in and "
+            "isn't kept. Bambu then emails a 6-digit code (or asks for your authenticator code).")
+    if c.signed_in:
+        names = ", ".join(f"{d.get('name') or d.get('dev_id')}" for d in c.devices) or "no printers listed yet"
+        exp = token_expiry(c.token)
+        until = time.strftime("%b %-d", time.localtime(exp)) if exp else "?"
+        body = (f"<div class=dim>Signed in. Printers on the account: {e(names)}. Renews by itself (good until {e(until)})."
+                f"{' ' + e(c.last_error) if c.last_error else ''}</div><div class=factions>"
+                f"<form method=post action=/admin/bambu/sign-out class=inline>{hid}<button class=ghost "
+                f"onclick=\"return confirm('Sign the hub out of the Bambu account?')\">Sign out</button></form></div>")
+        badge = "<span class=pill-ok>Signed in</span>"
+    elif c.waiting_for:
+        what = ("the 6-digit code Bambu just emailed" if c.waiting_for == "code"
+                else "the 6-digit code from your authenticator app")
+        body = (f"<div class=dim>Enter {what}.</div><div class=factions><form method=post action=/admin/bambu/code "
+                f"class=fform>{hid}<input name=code inputmode=numeric autocomplete=one-time-code pattern='[0-9 ]{{6,7}}' "
+                f"placeholder='123456' required><button>Sign in</button></form></div>")
+        badge = "<span class=pill-miss>Waiting for code</span>"
+    else:
+        body = (f"<div class=dim>{e(note)}</div><div class=factions><form method=post action=/admin/bambu/sign-in "
+                f"class=fform>{hid}<input type=email name=email placeholder='Bambu account email' autocomplete=off required>"
+                f"<input type=password name=password placeholder='Password' autocomplete=off required>"
+                f"<button>Next</button></form></div>")
+        badge = "<span class=pill-miss>Not signed in</span>"
+    return f"<details class=key><summary><span>Bambu account (optional)</span>{badge}</summary><div class=kbody>{body}</div></details>"
+
+
 def _sections_html(h: Hub, csrf: str) -> str:
     e = html.escape
     out = []
@@ -373,6 +411,8 @@ def _sections_html(h: Hub, csrf: str) -> str:
         if not _section_on(h, sec):
             continue
         fields = "".join(_field_html(h, csrf, *f) for f in sec["fields"])
+        if sec.get("service") == "printers":
+            fields += _bambu_html(h, csrf)
         opt = " <span class=dim>(optional)</span>" if sec.get("optional") else ""
         out.append(f"<h3>{e(sec['title'])}{opt}</h3><div class=card>{fields}</div>")
     # VPN: the Firewalla client files.
@@ -404,7 +444,7 @@ A file named after someone in the hub (LAUREN.conf) is kept for that person; the
 <input type=hidden name=csrf value={csrf}><input type=file name=file accept=".json,application/json" required>
 <button>{'Replace' if have_model else 'Save'}</button></form></div></div></details></div>""")
     # Anything else in the vault the sections don't cover.
-    known = {f[0] for sec in SECTIONS for f in sec["fields"]} | NEVER_EDIT
+    known = {f[0] for sec in SECTIONS for f in sec["fields"]} | NEVER_EDIT | BAMBU_KEYS
     extra = [n for n in sorted(h.vault.names()) if n not in known and not n.startswith(h.config.vpn.pool_prefix)]
     rows = "".join(f"<div class=row><code>{e(n)}</code><form method=post action=/admin/secrets/delete class=inline>"
                    f"<input type=hidden name=csrf value={csrf}><input type=hidden name=name value='{e(n)}'>"
@@ -660,6 +700,48 @@ async def delete_secret(request: Request, h: Hub = Depends(hub)) -> Response:
         h.vpn._pool = None
     h.db.log("admin.secret_delete", "ok", person_id=claims.get("per"), device_id=claims.get("dev"), target=name, source="web")
     return _back(f"Removed {name}.")
+
+
+@pages.post("/admin/bambu/sign-in")
+async def bambu_sign_in(request: Request, h: Hub = Depends(hub)) -> Response:
+    claims, form = await _form_session(request, h)
+    try:
+        step = await h.bambu_cloud.start(str(form.get("email") or ""), str(form.get("password") or ""))
+    except bambu_cloud.CloudError as exc:
+        return _back(f"Bambu sign-in: {exc.message}")
+    except Exception as exc:  # noqa: BLE001
+        return _back(f"Couldn't reach Bambu: {str(exc)[:120]}")
+    if step == "done":
+        _bambu_done(h, claims)
+        return _back("Signed in to the Bambu account.")
+    return _back("Bambu emailed a 6-digit code. Enter it under 3D printer, Bambu account." if step == "code"
+                 else "Enter the code from your authenticator app under 3D printer, Bambu account.")
+
+
+@pages.post("/admin/bambu/code")
+async def bambu_code(request: Request, h: Hub = Depends(hub)) -> Response:
+    claims, form = await _form_session(request, h)
+    try:
+        await h.bambu_cloud.finish(str(form.get("code") or ""))
+    except bambu_cloud.CloudError as exc:
+        return _back(f"Bambu sign-in: {exc.message}")
+    except Exception as exc:  # noqa: BLE001
+        return _back(f"Couldn't reach Bambu: {str(exc)[:120]}")
+    _bambu_done(h, claims)
+    n = len(h.bambu_cloud.devices)
+    return _back(f"Signed in to the Bambu account ({n} printer{'s' if n != 1 else ''} on it).")
+
+
+def _bambu_done(h: Hub, claims: dict[str, Any]) -> None:
+    h.db.log("admin.bambu_sign_in", "ok", person_id=claims.get("per"), device_id=claims.get("dev"), source="web")
+
+
+@pages.post("/admin/bambu/sign-out")
+async def bambu_sign_out(request: Request, h: Hub = Depends(hub)) -> Response:
+    claims, _ = await _form_session(request, h)
+    h.bambu_cloud.sign_out()
+    h.db.log("admin.bambu_sign_out", "ok", person_id=claims.get("per"), device_id=claims.get("dev"), source="web")
+    return _back("Signed the hub out of the Bambu account.")
 
 
 @pages.post("/admin/logout")

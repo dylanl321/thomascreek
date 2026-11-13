@@ -52,6 +52,12 @@ struct PrinterStatus: Codable, Hashable, Identifiable {
     var activeSlot: Int?
     var error: PrinterFault?
     var actions: [String]?
+    /// "full" (pause, stop, heat, print) or "watch" (status and the light only, until the printer is in
+    /// LAN Only mode with Developer Mode on). Older hubs leave it out: treat that as full.
+    var control: String?
+    /// "lan" or "cloud" (through the Bambu account) while connected.
+    var via: String?
+    var watchReason: String?
     /// Only on the small Home stage: the summary's colour when there's no AMS detail.
     var summaryColor: String? = nil
 
@@ -59,7 +65,11 @@ struct PrinterStatus: Codable, Hashable, Identifiable {
 
     var trays: [AMSTray] { (ams ?? []).flatMap(\.trays) }
     var activeTray: AMSTray? { trays.first { $0.slot == activeSlot } }
-    var canControl: Bool { !(actions ?? []).isEmpty }
+    /// This person may use the printer's controls at all (grown-ups).
+    var mayControl: Bool { !(actions ?? []).isEmpty }
+    /// ...and the printer accepts them right now.
+    var canControl: Bool { mayControl && control != "watch" }
+    var watchOnly: Bool { control == "watch" && online == true }
     var busy: Bool { ["printing", "paused", "preparing"].contains(state) }
     var fraction: Double {
         switch state {
@@ -255,7 +265,10 @@ struct WorkshopView: View {
         }
         .padding(.horizontal, 2)
 
-        if p.canControl { controls(p) }
+        if p.mayControl {
+            if p.watchOnly { watchCard(p) }
+            controls(p)
+        }
 
         SectionHeader(title: "Camera") { MoreButton("Full screen") { fullCamera = true } }
         Button { fullCamera = true } label: {
@@ -289,10 +302,10 @@ struct WorkshopView: View {
         HStack(spacing: 8) {
             let paused = p.state == "paused"
             ControlTile(title: paused ? "Resume" : "Pause", symbol: paused ? "play.fill" : "pause.fill", on: false,
-                        enabled: p.state == "printing" || paused) {
+                        enabled: p.canControl && (p.state == "printing" || paused)) {
                 run(p, "printer.control", ["command": paused ? "resume" : "pause"], confirm: nil)
             }
-            ControlTile(title: "Stop", symbol: "stop.fill", on: false, enabled: p.busy, tint: Theme.crit) { confirmStop = true }
+            ControlTile(title: "Stop", symbol: "stop.fill", on: false, enabled: p.canControl && p.busy, tint: Theme.crit) { confirmStop = true }
             ControlTile(title: "Light", symbol: p.light == true ? "lightbulb.fill" : "lightbulb", on: p.light == true, enabled: true) {
                 run(p, "printer.light", ["on": !(p.light ?? false)], confirm: nil)
             }
@@ -305,16 +318,33 @@ struct WorkshopView: View {
             } label: {
                 ControlTileLabel(title: PrinterText.speedTitle(p.speed), symbol: "gauge.with.dots.needle.67percent", on: false, tint: Theme.fg)
             }
-            .disabled(!p.busy)
-            .opacity(p.busy ? 1 : 0.4)
+            .disabled(!(p.canControl && p.busy))
+            .opacity(p.canControl && p.busy ? 1 : 0.4)
         }
         .disabled(busy)
+    }
+
+    /// Watching works; Bambu only lets other apps pause, stop, heat and print in LAN Only + Developer Mode.
+    private func watchCard(_ p: PrinterStatus) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            IconBadge(symbol: "eye.fill", color: Theme.accent, size: 34)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Watching only").font(.subheadline.weight(.semibold))
+                Text(p.via == "cloud"
+                     ? "Seen through your Bambu account. Pause and stop in Bambu Handy; the light works here. Controls appear by themselves once the printer is in LAN Only mode with Developer Mode on."
+                     : "Pause and stop in Bambu Handy; the light works here. Controls appear by themselves once the printer is in LAN Only mode with Developer Mode on (Settings, Network).")
+                    .font(.footnote).foregroundStyle(Theme.dim)
+            }
+            Spacer(minLength: 0)
+        }
+        .card(color: Theme.accent.opacity(0.10))
+        .accessibilityElement(children: .combine)
     }
 
     private func setupCard(_ p: PrinterStatus) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Label("Finish setting up the \(p.name)", systemImage: "wrench.and.screwdriver.fill").font(.headline)
-            Text("On the printer, open Settings, Network: turn on LAN Only, then Developer Mode. Then add its access code, serial number and IP address on the hub's web page (Systems, Hub web page).")
+            Text("On the hub's web page (Systems, Hub web page), under 3D printer: add the printer's access code, serial number and IP address (Settings, Network on the printer), or sign in to your Bambu account. LAN Only isn't needed to watch; turn it on with Developer Mode for full control.")
                 .font(.footnote).foregroundStyle(Theme.dim)
             if store.role == .admin {
                 Button("Open the hub web page") { router.show(.systems, .hubWeb) }.buttonStyle(.bordered)
