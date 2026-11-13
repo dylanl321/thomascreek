@@ -8013,6 +8013,299 @@
     }
    }
   },
+  "/v1/youtube/start": {
+   "get": {
+    "tags": [
+     "youtube"
+    ],
+    "summary": "Start",
+    "description": "The wizard's first page: what the family added lately, and channels worth a look.",
+    "operationId": "start_v1_youtube_start_get",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Start V1 Youtube Start Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/youtube/search": {
+   "get": {
+    "tags": [
+     "youtube"
+    ],
+    "summary": "Search",
+    "description": "Channels, playlists and videos on YouTube. Kids get the same search (Dylan, 2026-11-13); blocked channels never show.",
+    "operationId": "search_v1_youtube_search_get",
+    "parameters": [
+     {
+      "name": "q",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "minLength": 1,
+       "maxLength": 100,
+       "title": "Q"
+      }
+     },
+     {
+      "name": "kind",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "enum": [
+        "all",
+        "channel",
+        "playlist",
+        "video"
+       ],
+       "type": "string",
+       "default": "all",
+       "title": "Kind"
+      }
+     },
+     {
+      "name": "limit",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "maximum": 30,
+       "minimum": 1,
+       "default": 8,
+       "title": "Limit"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Search V1 Youtube Search Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/youtube/channel/{channel_id}": {
+   "get": {
+    "tags": [
+     "youtube"
+    ],
+    "summary": "Channel",
+    "description": "A channel before adding it: picture, subscribers, recent uploads and its playlists.",
+    "operationId": "channel_v1_youtube_channel__channel_id__get",
+    "parameters": [
+     {
+      "name": "channel_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Channel Id"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Channel V1 Youtube Channel  Channel Id  Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/youtube/playlist/{playlist_id}": {
+   "get": {
+    "tags": [
+     "youtube"
+    ],
+    "summary": "Playlist",
+    "operationId": "playlist_v1_youtube_playlist__playlist_id__get",
+    "parameters": [
+     {
+      "name": "playlist_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Playlist Id"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Playlist V1 Youtube Playlist  Playlist Id  Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/youtube/thumb": {
+   "get": {
+    "tags": [
+     "youtube"
+    ],
+    "summary": "Thumb",
+    "description": "A YouTube picture through the hub, so it shows on devices that can't reach YouTube.",
+    "operationId": "thumb_v1_youtube_thumb_get",
+    "parameters": [
+     {
+      "name": "u",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "minLength": 10,
+       "maxLength": 600,
+       "title": "U"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/v1/youtube/sources/{source_id}": {
    "post": {
     "tags": [
@@ -10598,21 +10891,86 @@
    "AddBody": {
     "properties": {
      "url": {
-      "type": "string",
-      "maxLength": 500,
-      "minLength": 5,
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 500,
+        "minLength": 5
+       },
+       {
+        "type": "null"
+       }
+      ],
       "title": "Url"
      },
      "follow": {
       "type": "boolean",
       "title": "Follow",
       "default": true
+     },
+     "latest": {
+      "anyOf": [
+       {
+        "type": "integer",
+        "maximum": 50.0,
+        "minimum": 1.0
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Latest"
+     },
+     "whole": {
+      "type": "boolean",
+      "title": "Whole",
+      "default": false
+     },
+     "video_ids": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "type": "array",
+        "maxItems": 100
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Video Ids"
+     },
+     "title": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 200
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Title"
+     },
+     "quality": {
+      "anyOf": [
+       {
+        "type": "integer",
+        "enum": [
+         480,
+         720,
+         1080
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Quality"
      }
     },
     "type": "object",
-    "required": [
-     "url"
-    ],
     "title": "AddBody"
    },
    "AskParent": {

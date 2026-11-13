@@ -155,3 +155,182 @@ def test_trim_removes_oldest_watched_first(yt, people, hub):
     hub.db.update("yt_videos", "id", "vid00000002", {"watched_at": 5})
     assert yt.trim() == 1
     assert yt.video("vid00000002")["status"] == "trimmed"
+
+
+# -- the "Add from YouTube" wizard --------------------------------------------------------------
+
+BLUEY = "UCVzLLZkDuFGAE2BGdBuBNBg"
+EXTRAS = "UCMQWLGi9gIrwVuSw8pnKYgg"
+
+
+def _search_pages(url, n):
+    """What yt-dlp's flat search and channel pages look like (trimmed from a real run, 2026-11-13)."""
+    avatar = [{"url": "//yt3.ggpht.com/abc=s88", "width": 88, "height": 88}, {"url": "//yt3.ggpht.com/abc=s176", "width": 176, "height": 176}]
+    thumbs = [{"url": "https://i.ytimg.com/vi/x/hq720.jpg", "width": 360, "height": 202}]
+    vid = lambda i, **kw: {"_type": "url", "ie_key": "Youtube", "id": f"blu{i:08d}", "title": f"Bluey {i}", "duration": 400 + i,
+                           "view_count": 1000 * i, "channel_id": BLUEY, "channel": "Bluey - Official Channel", "thumbnails": thumbs, **kw}
+    if "sp=EgIQAg" in url:
+        return {"entries": [
+            {"id": BLUEY, "ie_key": "YoutubeTab", "channel": "Bluey - Official Channel", "channel_id": BLUEY, "title": "Bluey - Official Channel",
+             "uploader_id": "@BlueyOfficialChannel", "channel_follower_count": 15000000, "channel_is_verified": True, "thumbnails": avatar},
+            {"id": EXTRAS, "ie_key": "YoutubeTab", "channel": "Bluey Extras Official", "channel_id": EXTRAS, "title": "Bluey Extras Official",
+             "channel_follower_count": 69100, "thumbnails": avatar}]}
+    if "sp=EgIQAw" in url:
+        return {"entries": [{"id": "PLbluey000000001", "title": "Bluey Full Episodes", "channel": "Bluey - Official Channel",
+                             "channel_id": BLUEY, "thumbnails": thumbs, "ie_key": "YoutubeTab"}]}
+    if "sp=EgIQAQ" in url:
+        return {"entries": [vid(1, live_status="is_live", duration=None), vid(2)]}
+    if url.endswith("/videos"):
+        return {"channel": "Bluey - Official Channel", "channel_id": BLUEY, "channel_follower_count": 15000000, "channel_is_verified": True,
+                "uploader_id": "@BlueyOfficialChannel", "description": "Bluey is a Blue Heeler puppy.",
+                "thumbnails": [{"url": "https://yt3.googleusercontent.com/banner=w1138", "width": 1138, "height": 188},
+                               {"url": "https://yt3.googleusercontent.com/av=s900", "width": 900, "height": 900}],
+                "entries": [vid(i) for i in range(3, 3 + min(n, 6))]}
+    if url.endswith("/playlists"):
+        return {"entries": [{"id": "PLbluey000000001", "title": "Bluey Full Episodes", "thumbnails": thumbs}]}
+    if "playlist?list=" in url:
+        return {"title": "Bluey Full Episodes", "channel": "Bluey - Official Channel", "channel_id": BLUEY, "entries": [vid(i) for i in range(20, 24)]}
+    raise AssertionError(url)
+
+
+@pytest.fixture
+def finder(yt, monkeypatch):
+    calls = []
+
+    async def flat(url, n, timeout=60):
+        calls.append(url)
+        return _search_pages(url, n)
+    monkeypatch.setattr(yt.find, "_flat", flat)
+    yt.find.calls = calls
+    return yt.find
+
+
+def test_search_finds_all_three_kinds_and_kids_can_search(finder, people, hub):
+    theo = people["phones"]["Theo"]
+    r = theo.client.get("/v1/youtube/search", params={"q": "bluey"}, headers=theo.h)
+    assert r.status_code == 200, r.text
+    out = r.json()
+    ch = out["channels"][0]
+    assert ch["id"] == BLUEY and ch["followers"] == 15000000 and ch["verified"] is True and ch["handle"] == "@BlueyOfficialChannel"
+    assert ch["picture"] == "https://yt3.ggpht.com/abc=s176" and ch["following"] is False and ch["saved"] == 0
+    assert out["playlists"][0]["id"] == "PLbluey000000001"
+    assert [v["id"] for v in out["videos"]] == ["blu00000002"], "live streams are left out"
+    # Cached: a second search doesn't run yt-dlp again.
+    n = len(finder.calls)
+    theo.client.get("/v1/youtube/search", params={"q": "bluey"}, headers=theo.h)
+    assert len(finder.calls) == n
+    only = theo.client.get("/v1/youtube/search", params={"q": "bluey", "kind": "channel"}, headers=theo.h).json()
+    assert only["playlists"] == [] and len(only["channels"]) == 2
+
+
+def test_search_hides_blocked_channels_and_marks_what_we_have(finder, people, hub):
+    dylan = people["phones"]["Dylan"]
+    assert dylan.client.post("/v1/youtube/block", json={"channel_id": EXTRAS, "name": "Extras"}, headers=dylan.h).status_code == 200
+    hub.db.insert("yt_sources", {"id": "yts_00000000000000000001", "kind": "channel", "url": f"https://www.youtube.com/channel/{BLUEY}/videos",
+                                 "yt_id": BLUEY, "title": "Bluey", "channel_id": BLUEY, "created_at": 1.0, "follow": 1})
+    out = dylan.client.get("/v1/youtube/search", params={"q": "bluey"}, headers=dylan.h).json()
+    assert [c["id"] for c in out["channels"]] == [BLUEY]
+    assert out["channels"][0]["following"] is True and out["channels"][0]["source_id"] == "yts_00000000000000000001"
+
+
+def test_channel_preview_has_recent_uploads_and_playlists(finder, people):
+    theo = people["phones"]["Theo"]
+    r = theo.client.get(f"/v1/youtube/channel/{BLUEY}", headers=theo.h)
+    assert r.status_code == 200, r.text
+    out = r.json()
+    assert out["channel"]["banner"].endswith("banner=w1138") and out["channel"]["picture"].endswith("av=s900")
+    assert out["channel"]["description"].startswith("Bluey") and out["channel"]["videos"] is None  # no API key
+    assert len(out["recent"]) == 6 and out["recent"][0]["views"] == 3000
+    assert out["playlists"][0]["channel_id"] == BLUEY
+    assert theo.client.get("/v1/youtube/channel/not-a-channel", headers=theo.h).status_code == 400
+    pl = theo.client.get("/v1/youtube/playlist/PLbluey000000001", headers=theo.h).json()
+    assert pl["playlist"]["count"] == 4 and len(pl["videos"]) == 4
+
+
+def test_pick_videos_from_a_preview_and_quality(finder, people, hub, yt):
+    dylan = people["phones"]["Dylan"]
+    dylan.client.get(f"/v1/youtube/channel/{BLUEY}", headers=dylan.h)
+    r = dylan.client.post("/v1/youtube", json={"video_ids": ["blu00000003", "blu00000005"], "quality": 720}, headers=dylan.h)
+    assert r.status_code == 200, r.text
+    src = r.json()
+    assert src["kind"] == "picks" and src["follow"] is False and src["waiting"] == 2 and src["quality"] == 720
+    assert src["title"] == "2 from Bluey - Official Channel"
+    v = hub.db.one("SELECT * FROM yt_videos WHERE id='blu00000003'")
+    assert v["channel_id"] == BLUEY and yt.height_for(v) == 720
+    # Following can't be switched on for hand-picked videos.
+    assert dylan.client.post(f"/v1/youtube/sources/{src['id']}", json={"follow": True}, headers=dylan.h).json()["follow"] is False
+    # The same video in a 1080p source is fetched at 1080p.
+    r = dylan.client.post("/v1/youtube", json={"url": "https://www.youtube.com/@MarkRober", "quality": 1080}, headers=dylan.h)
+    assert r.status_code == 200
+    hub.db.update("yt_videos", "id", "blu00000003", {"source_ids": [src["id"], r.json()["id"]]})
+    assert yt.height_for(hub.db.one("SELECT * FROM yt_videos WHERE id='blu00000003'")) == 1080
+    assert dylan.client.post("/v1/youtube", json={"quality": 720}, headers=dylan.h).status_code == 400
+
+
+def test_newest_n_and_whole_channel(yt, people, hub, monkeypatch):
+    seen = {}
+    real = yt.lookup
+
+    async def lookup(link, latest=None):
+        seen["latest"] = latest
+        return await real(link, latest)
+    monkeypatch.setattr(yt, "lookup", lookup)
+    dylan = people["phones"]["Dylan"]
+    r = dylan.client.post("/v1/youtube", json={"url": "https://www.youtube.com/@MarkRober", "latest": 5}, headers=dylan.h)
+    assert r.status_code == 200 and seen["latest"] == 5 and r.json()["latest"] == 5
+    r = dylan.client.post("/v1/youtube", json={"url": "https://www.youtube.com/@MarkRober", "whole": True}, headers=dylan.h)
+    assert seen["latest"] == hub.config.youtube.channel_max and r.json()["latest"] == hub.config.youtube.channel_max
+
+
+def test_lookup_asks_for_exactly_the_newest_n(hub, tmp_path, monkeypatch):
+    y = YouTube(hub, tmp_path / "yt")
+    asked = []
+
+    async def run(args, timeout=120):
+        asked.append(args)
+        return '{"entries": [], "channel": "x", "title": "x"}'
+    monkeypatch.setattr(y, "_run", run)
+    link = parse_link("https://www.youtube.com/@MarkRober")
+    asyncio.run(y.lookup(link, latest=3))
+    asyncio.run(y.lookup(link, latest=9999))
+    asyncio.run(y.lookup(link))
+    ends = [a[a.index("--playlist-end") + 1] for a in asked]
+    assert ends == ["3", str(hub.config.youtube.channel_max), str(hub.config.youtube.channel_latest)]
+
+
+def test_start_page_recent_and_suggested(finder, people, hub):
+    theo = people["phones"]["Theo"]
+    for i in range(3):
+        hub.db.insert("yt_videos", {"id": f"num{i:08d}", "source_ids": [], "title": f"N{i}", "channel": "Numberblocks Fan",
+                                    "channel_id": "UCnumfan0000000000000000", "status": "ready", "added_at": 1.0})
+    out = theo.client.get("/v1/youtube/start", headers=theo.h).json()
+    assert out["suggested"][0]["id"] == "UCnumfan0000000000000000" and out["suggested"][0]["reason"] == "3 of its videos are saved"
+    assert any(s["title"] == "Numberblocks" for s in out["suggested"]) and out["api_key"] is False
+    theo.client.post("/v1/youtube", json={"url": "https://www.youtube.com/@MarkRober"}, headers=theo.h)
+    out = theo.client.get("/v1/youtube/start", headers=theo.h).json()
+    assert out["recent"][0]["title"] == "Mark Rober"
+
+
+def test_thumb_proxy_only_fetches_youtube_pictures(yt, people):
+    theo = people["phones"]["Theo"]
+    assert theo.client.get("/v1/youtube/thumb", params={"u": "https://evil.example.com/x.jpg"}, headers=theo.h).status_code == 404
+    from hub.yt_find import picture_url
+    assert picture_url("//yt3.ggpht.com/a=s88") == "https://yt3.ggpht.com/a=s88"
+    assert picture_url("http://i.ytimg.com/vi/x.jpg") is None
+
+
+def test_api_key_adds_video_counts(finder, people, hub):
+    import httpx
+    import respx
+    hub.vault.set("youtube.api_key", "test-key")
+    with respx.mock(assert_all_called=True) as mock:
+        route = mock.get("https://www.googleapis.com/youtube/v3/channels").mock(
+            return_value=httpx.Response(200, json={"items": [{"id": BLUEY, "statistics": {"videoCount": "1120"}}]}))
+        dylan = people["phones"]["Dylan"]
+        out = dylan.client.get("/v1/youtube/search", params={"q": "bluey", "kind": "channel"}, headers=dylan.h).json()
+        assert out["channels"][0]["videos"] == 1120 and out["channels"][1]["videos"] is None
+        assert route.calls[0].request.url.params["key"] == "test-key"
+    with respx.mock() as mock:
+        mock.get("https://www.googleapis.com/youtube/v3/channels").mock(return_value=httpx.Response(403, json={}))
+        out = dylan.client.get(f"/v1/youtube/channel/{BLUEY}", headers=dylan.h).json()
+        assert out["channel"]["videos"] is None, "a quota error falls back quietly"
