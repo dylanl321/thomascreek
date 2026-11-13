@@ -584,6 +584,7 @@ def _status_page(h: Hub, claims: dict[str, Any], flash: str | None, new_key: str
 <h2>Hub</h2><div class=card>
 <div class=row><div>Push notifications</div><div class=dim>{e(push)}</div></div>
 <div class=row><div>VPN</div><div class=dim>{e(vpn)}</div></div>
+<div class=row><div>Private VPN (PIA)</div><div class=dim>{e(h.pia.status())} · {e(', '.join(h.config.vpn.pia.roles))}</div></div>
 <div class=row><div>Devices</div><div class=dim>{e(dev)}</div></div>
 <div class=row><div>TLS pin</div><div class=dim><code>{e(pin or '')}</code></div></div></div>
 {_app_update_html(h, csrf)}

@@ -12,6 +12,7 @@ All JSON is snake_case. Times are ISO 8601 strings unless noted.
 
 ## VPN
 - `POST /v1/vpn/config {wg_public_key}` (app generates the key pair; private key never leaves the phone).
+- `GET /v1/vpn/exits` and `POST /v1/vpn/config {exit:"private", wg_public_key, region}` for the Private (PIA) button; see server/docs/API.md.
 - Reply: `{interface:{addresses:[..], dns:[..]}, peer:{public_key, endpoint, allowed_ips:[..], persistent_keepalive}, home_ssids:[..]}`. App sets on-demand: connect when not on a home SSID.
 
 ## Snapshot `GET /v1/home`

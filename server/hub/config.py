@@ -100,6 +100,17 @@ class ApnsConfig(BaseModel):
     topic: str = "me.dlewis.thomascreek"
 
 
+class PiaConfig(BaseModel):
+    """The app's "Private" VPN button: Private Internet Access over WireGuard (hub/vpn_pia.py)."""
+    enabled: bool = True          # still needs the two 1Password items below before it shows in the app
+    username_secret: str = "vpn.pia.username"
+    password_secret: str = "vpn.pia.password"
+    roles: list[str] = Field(default_factory=lambda: ["admin", "adult"])
+    serverlist_url: str = "https://serverlist.piaservers.net/vpninfo/servers/v6"
+    regions_cache_s: int = 6 * 3600
+    default_region: str = "us_chicago"  # used only when the app sends no region
+
+
 class VpnConfig(BaseModel):
     provider: str = "none"  # "none" | "wg-cli" | "pool"
     # provider "pool": WireGuard client configs made on another server (Firewalla),
@@ -113,6 +124,7 @@ class VpnConfig(BaseModel):
     home_ssids: list[str] = Field(default_factory=list)
     persistent_keepalive: int = 25
     server_key_secret: str = "wireguard.server_private_key"
+    pia: PiaConfig = Field(default_factory=PiaConfig)
 
 
 class YouTubeStarter(BaseModel):

@@ -34,6 +34,7 @@ final class Router {
     /// A WireGuard .conf handed to the app (Files or the Firewalla share sheet); admins add it to the hub's pool.
     var vpnImport: URL?
     var showProfile = false
+    var showVPN = false
     /// Storage and downloads (from the offline strip).
     var showOffline = false
     var showSearch = false
@@ -89,7 +90,7 @@ final class Router {
     /// Back to Home with nothing open (starting or ending "View as": the tabs change underneath).
     func reset() {
         paths = [:]; tab = .home
-        showInbox = false; showProfile = false; showOffline = false; showSearch = false; showAssistant = false
+        showInbox = false; showProfile = false; showVPN = false; showOffline = false; showSearch = false; showAssistant = false
         showEditHome = false; showViewAs = false; youtubeAdd = nil
     }
 
@@ -151,6 +152,7 @@ final class Router {
         case "people", "devices": show(role == .admin ? .systems : .home, role == .admin ? .people : nil); if role != .admin { showProfile = true }
         case "activity": show(.systems, .activity)
         case "settings", "profile": showProfile = true
+        case "vpn": if !kid { showVPN = true }
         case "favorites", "edit-home": if !kid { show(.home) }; showEditHome = true
         case "view-as": if role == .admin { showProfile = true }
         case "search": startSearch(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "q" }?.value)

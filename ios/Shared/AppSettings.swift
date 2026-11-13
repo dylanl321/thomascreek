@@ -75,6 +75,11 @@ enum AppSettings {
         get { defaults.string(forKey: "vpnMode") ?? "off" }
         set { defaults.set(newValue, forKey: "vpnMode") }
     }
+    /// Where the VPN goes: "home" (the Firewalla, default) or "private" (PIA through the hub).
+    static var vpnExit: String {
+        get { defaults.string(forKey: "vpnExit") ?? "home" }
+        set { defaults.set(newValue, forKey: "vpnExit") }
+    }
     /// Quality picked last time, offered first next time.
     static var downloadQuality: String {
         get { defaults.string(forKey: "downloadQuality") ?? "original" }
