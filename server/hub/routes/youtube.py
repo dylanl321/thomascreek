@@ -1,15 +1,17 @@
-"""Kids' YouTube: add a link, list what's saved, parents remove or block (see hub/youtube.py)."""
+"""Kids' YouTube: find and add (the wizard), list what's saved, parents remove or block (see hub/youtube.py, hub/yt_find.py)."""
 
 from __future__ import annotations
 
-from typing import Any
+import asyncio
+from typing import Any, Literal
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from ..state import Hub
 from ..youtube import YouTubeError, parse_link
+from ..yt_find import picture_from_token
 from .deps import Caller, caller, error, hub
 
 router = APIRouter(prefix="/v1/youtube", tags=["youtube"])
@@ -62,9 +64,71 @@ async def preview(url: str, c: Caller = Depends(caller), h: Hub = Depends(hub)) 
             "followable": info["kind"] != "video"}
 
 
+# -- the "Add from YouTube" wizard ------------------------------------------------
+
+@router.get("/start")
+async def start(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """The wizard's first page: what the family added lately, and channels worth a look."""
+    _can_watch(h, c)
+    out = h.youtube.find.start()
+    missing = [s["id"] for s in out["suggested"] if not s.get("picture")]
+    if missing:
+        asyncio.create_task(h.youtube.find.warm(missing))
+    return out
+
+
+@router.get("/search")
+async def search(q: str = Query(min_length=1, max_length=100), kind: Literal["all", "channel", "playlist", "video"] = "all",
+                 limit: int = Query(8, ge=1, le=30), c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """Channels, playlists and videos on YouTube. Kids get the same search (Dylan, 2026-11-13); blocked channels never show."""
+    _can_watch(h, c)
+    return await h.youtube.find.search(q, kind, limit)
+
+
+@router.get("/channel/{channel_id}")
+async def channel(channel_id: str, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """A channel before adding it: picture, subscribers, recent uploads and its playlists."""
+    _can_watch(h, c)
+    try:
+        out = await h.youtube.find.channel(channel_id)
+    except YouTubeError as exc:
+        raise error(400, "bad_link", str(exc)) from None
+    if out["blocked"] and c.subject.role not in PARENTS:
+        raise error(403, "blocked", "A grown-up turned that channel off.")
+    return out
+
+
+@router.get("/playlist/{playlist_id}")
+async def playlist(playlist_id: str, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    _can_watch(h, c)
+    try:
+        out = await h.youtube.find.playlist(playlist_id)
+    except YouTubeError as exc:
+        raise error(400, "bad_link", str(exc)) from None
+    if out["blocked"] and c.subject.role not in PARENTS:
+        raise error(403, "blocked", "A grown-up turned that channel off.")
+    return out
+
+
+@router.get("/thumb/{token}")
+async def thumb(token: str, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> FileResponse:
+    """A YouTube picture through the hub (search results, previews), for devices that can't reach YouTube."""
+    url = picture_from_token(token) if len(token) < 800 else None
+    p = await h.youtube.remote_picture(url) if url else None
+    if p is None:
+        raise error(404, "not_found", "No picture")
+    return FileResponse(p, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=604800"})
+
+
 class AddBody(BaseModel):
-    url: str = Field(min_length=5, max_length=500)
+    url: str | None = Field(default=None, min_length=5, max_length=500)
     follow: bool = True
+    # The wizard's choices; all optional so a pasted link works as before.
+    latest: int | None = Field(default=None, ge=1, le=50)       # a channel's newest N
+    whole: bool = False                                           # the whole channel (up to channel_max)
+    video_ids: list[str] | None = Field(default=None, max_length=100)  # hand-picked videos
+    title: str | None = Field(default=None, max_length=200)      # a name for hand-picked videos
+    quality: Literal[480, 720, 1080] | None = None
 
 
 @router.post("")
@@ -74,14 +138,20 @@ async def add(body: AddBody, c: Caller = Depends(caller), h: Hub = Depends(hub))
     if s.role not in ADDERS or not s.person_id:
         raise error(403, "forbidden", "Not available")
     try:
-        src = await h.youtube.add(body.url, body.follow, s.person_id)
+        if body.video_ids:
+            src = await h.youtube.add_picks(body.video_ids, s.person_id, body.quality, body.title)
+        elif body.url:
+            latest = h.youtube.cfg.channel_max if body.whole else body.latest
+            src = await h.youtube.add(body.url, body.follow, s.person_id, latest=latest, quality=body.quality)
+        else:
+            raise YouTubeError("Share a video, a playlist or a channel.")
     except YouTubeError as exc:
         raise error(400, "bad_link", str(exc)) from None
     h.db.log("youtube.add", "ok", person_id=s.person_id, device_id=c.device["id"], target=src["id"],
              params={"title": src["title"], "kind": src["kind"], "url": src["url"]})
     # No approval step (Dylan, 2026-11-12): parents just hear about it.
     who = (h.db.person(s.person_id) or {}).get("name", "Someone")
-    kind = {"channel": "channel", "playlist": "playlist"}.get(src["kind"], "video")
+    kind = {"channel": "channel", "playlist": "playlist", "picks": "videos"}.get(src["kind"], "video")
     await h.notify.send(roles=PARENTS, level="fyi", cat="media", title=f"{who} added {src['title']}",
                         body=f"YouTube {kind}", ref="thomascreek://youtube", exclude_person=s.person_id)
     return src
@@ -99,7 +169,7 @@ async def set_follow(source_id: str, body: FollowBody, c: Caller = Depends(calle
         raise error(404, "not_found", "Not found")
     if c.subject.role not in PARENTS and src["added_by"] != c.subject.person_id:
         raise error(403, "forbidden", "Ask a grown-up", ask_parent=True)
-    h.db.update("yt_sources", "id", source_id, {"follow": int(body.follow and src["kind"] != "video")})
+    h.db.update("yt_sources", "id", source_id, {"follow": int(body.follow and src["kind"] in ("channel", "playlist"))})
     return h.youtube.source_out(h.db.one("SELECT * FROM yt_sources WHERE id=?", [source_id]))  # type: ignore[arg-type]
 
 
