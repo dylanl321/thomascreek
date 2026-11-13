@@ -281,6 +281,7 @@ ADDED_COLUMNS = [
     ("devices", "kind", "TEXT NOT NULL DEFAULT 'phone'"),   # phone | test (a simulator joined with a test key)
     ("devices", "test_key_id", "TEXT"),
     ("yt_sources", "latest", "INTEGER"),   # a channel sent to the kids' iPads: how many newest videos to keep
+    ("yt_sources", "max_height", "INTEGER"),  # quality picked in the wizard (480/720/1080); NULL = the hub's max_height
 ]
 
 JSON_COLUMNS = {"holdings", "source_ids", "areas", "shared_areas", "grants", "denies", "prefs", "activity", "actions", "payload", "params"}
