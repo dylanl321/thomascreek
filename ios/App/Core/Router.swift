@@ -13,10 +13,11 @@ enum Destination: Hashable {
     case climate, doors, cameras, camera(String), cameraEvent(String), appliances, outdoor, workshop
     case holiday, holidayControllers, house3D
     case remote(String), music, watch, requests, pipeline, askMedia, mediaTitle(String), mediaRequest(String)
+    case kidsIPads                      // what's on the kids' iPads; send them shows
     case calendar, meals, recipe(String), shopping, chores, inventory
     case kitchen(String?), dinners, recipes
     case trips, trip(Int), tripDay(Int, String)
-    case systems, storage, activity, people, kidNet, vpnPool, hubWeb, youtube, kidsIPads
+    case systems, storage, activity, people, kidNet, vpnPool, hubWeb, youtube
 }
 
 @MainActor

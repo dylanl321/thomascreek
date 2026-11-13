@@ -110,6 +110,7 @@ struct DestinationView: View {
         case .watch: WatchView()
         case .requests: RequestsView()
         case .pipeline: PipelineView()
+        case .kidsIPads: KidsIPadsView()
         case .askMedia: AskMediaView()
         case .mediaTitle(let id): MediaTitleView(mediaId: id)
         case .mediaRequest(let id): MediaRequestView(requestID: id)
@@ -132,7 +133,6 @@ struct DestinationView: View {
         case .vpnPool: VPNPoolView()
         case .hubWeb: HubWebPageView()
         case .youtube: YouTubeManageView()
-        case .kidsIPads: KidsIPadsView()
         }
     }
 }
