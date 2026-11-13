@@ -370,6 +370,7 @@ class HomeModel:
     def snapshot(self, s: Subject) -> dict[str, Any]:
         cfg = self.hub.config
         policy = self.hub.policy
+        starred = set(self.hub.settings.favorite_ids(s, "room"))
         devices = [d for eid in self.states if (d := self.device(eid, s)) is not None and d["room_id"]]
         vis = self.visible_areas(s)
         rooms = []
@@ -381,7 +382,7 @@ class HomeModel:
                 continue
             rooms.append({
                 "id": a["id"], "name": a["name"], "floor_id": a["floor_id"], "symbol": a["symbol"],
-                "summary": self._summary(in_room), "favorite": a["id"] in cfg.favorites,
+                "summary": self._summary(in_room), "favorite": a["id"] in starred,
                 "device_ids": [d["id"] for d in in_room],
             })
         room_ids = {r["id"] for r in rooms}

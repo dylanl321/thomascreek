@@ -25,9 +25,7 @@ struct MediaView: View {
                         SectionTile(symbol: "plus.circle.fill", title: "Ask for something", detail: "Movies and shows") { router.go(.askMedia) }
                     }
                 }
-                if store.me?.can(.pipeline) == true {
-                    SectionTile(symbol: "server.rack", title: "Pipeline", detail: "Server downloads") { router.go(.pipeline) }
-                }
+                MyShowsRow()
                 let moving = requests.filter { ["downloading", "searching"].contains($0.status) }.prefix(4)
                 if !moving.isEmpty {
                     SectionHeader("On the way", live: true)
@@ -401,12 +399,16 @@ struct PlayOnSheet: View {
                     DownloadButton(item: item)
                 } footer: { Text("Downloads play here, with no connection.") }
                 Section("Play on") {
-                    ForEach(store.home?.devices(kind: .media) ?? []) { tv in
+                    ForEach(tvs) { tv in
                         Button {
                             store.play(item, on: tv)
+                            // The TV someone picks becomes their usual one, on every device they use.
+                            if tv.id != usual { SettingsStore.shared.set(SettingKey.playOn, tv.id) }
                             dismiss()
                         } label: {
-                            Label(tv.name, systemImage: "tv")
+                            LabeledContent {
+                                if tv.id == usual { Text("Your usual").font(.caption) }
+                            } label: { Label(tv.name, systemImage: "tv") }
                         }
                     }
                 }
@@ -415,6 +417,39 @@ struct PlayOnSheet: View {
             .toolbar { Button("Done") { dismiss() } }
         }
         .presentationDetents([.medium, .large])
+    }
+
+    private var usual: String? { SettingsStore.shared.optionalString(SettingKey.playOn) }
+    private var tvs: [DeviceItem] {
+        let all = store.home?.devices(kind: .media) ?? []
+        return all.filter { $0.id == usual } + all.filter { $0.id != usual }
+    }
+}
+
+/// Shows and movies this person starred, on every device they use. Long-press to remove.
+struct MyShowsRow: View {
+    @Environment(Router.self) private var router
+    var body: some View {
+        let mine = SettingsStore.shared.favorites(.media)
+        if !mine.isEmpty {
+            SectionHeader("My shows")
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    ForEach(mine) { f in
+                        Button { router.go(.mediaTitle(f.id)) } label: {
+                            VStack(alignment: .leading, spacing: 4) {
+                                PosterArt(url: f.image, title: f.title).frame(width: 96)
+                                Text(f.title ?? "").font(.caption.weight(.semibold)).foregroundStyle(Theme.fg).lineLimit(1)
+                            }
+                            .frame(width: 96)
+                        }
+                        .buttonStyle(.plain)
+                        .favoriteMenu(.media, f.id, name: f.title ?? "this", label: f)
+                    }
+                }
+            }
+            .scrollClipDisabled()
+        }
     }
 }
 

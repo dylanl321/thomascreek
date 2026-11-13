@@ -136,7 +136,12 @@ struct Me: Codable, Hashable {
     var dryRun: Bool?
     var child: ChildInfo?
     var guest: GuestInfo?
+    /// Bumped by the hub whenever this person's settings or favorites change (on any of their devices).
+    var settingsVersion: Int?
+    /// Set while Dylan is looking at the app as someone else ("View as").
+    var preview: PreviewInfo?
 
+    struct PreviewInfo: Codable, Hashable { var personId: String?; var by: String? }
     struct DeviceInfo: Codable, Hashable { var id: String; var name: String?; var status: String? }
     struct ChildInfo: Codable, Hashable {
         var roomId: String?
@@ -737,6 +742,8 @@ extension Me {
         dryRun = try c.decodeIfPresent(Bool.self, forKey: .dryRun)
         child = try c.decodeIfPresent(ChildInfo.self, forKey: .child)
         guest = try c.decodeIfPresent(GuestInfo.self, forKey: .guest)
+        settingsVersion = try c.decodeIfPresent(Int.self, forKey: .settingsVersion)
+        preview = try c.decodeIfPresent(PreviewInfo.self, forKey: .preview)
     }
 }
 

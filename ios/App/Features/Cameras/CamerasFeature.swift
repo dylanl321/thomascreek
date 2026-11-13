@@ -257,6 +257,9 @@ struct CameraView: View {
             ToolbarItem(placement: .primaryAction) {
                 Button { reload += 1 } label: { Image(systemName: "arrow.clockwise") }.accessibilityLabel("Reload live view")
             }
+            if let cam {
+                ToolbarItem(placement: .primaryAction) { StarButton(kind: .camera, id: cam.id, name: cam.name) }
+            }
         }
         .fullScreenCover(isPresented: $fullScreen) {
             ZStack(alignment: .topTrailing) {

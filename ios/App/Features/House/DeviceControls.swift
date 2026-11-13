@@ -75,6 +75,7 @@ struct DeviceTile: View {
     }
 
     @ViewBuilder private var menu: some View {
+        FavoriteMenuItem(kind: .device, id: device.id, name: device.name)
         if device.kind == .light || store.role == .admin {
             Button("Details", systemImage: "slider.horizontal.3") { detail = true }
         }

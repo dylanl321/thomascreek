@@ -13,56 +13,13 @@ struct HomeView: View {
             VStack(alignment: .leading, spacing: 12) {
                 HeroHeader(title: greeting(me?.firstName), subtitle: dateLine, show3D: true)
                 VPNNotice()
-                RightNowSection()
-                if !store.reachable {
-                    // Everyone sees the offline strip; Dylan also gets the likely cause.
-                    if store.role == .admin { OfflineCard() }
-                } else { StatusBlock() }
-
-                if let modes = home?.modes, !modes.isEmpty {
-                    SectionHeader("Modes")
-                    ModesRow(modes: modes)
+                ForEach(sections) { section($0) }
+                if !store.reachable, store.role == .admin, !sections.contains(.status) { OfflineCard() }
+                Button { router.showEditHome = true } label: {
+                    Label("Edit Home", systemImage: "slider.horizontal.3").font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity).padding(.vertical, 12)
                 }
-
-                if me?.can(.networkManage) == true, !kids.isEmpty {
-                    SectionHeader(title: "Kids online") { MoreButton("Manage") { router.go(.kidNet) } }
-                    KidsOnlineRow(kids: kids)
-                }
-
-                let favs = store.favoriteRooms
-                if !favs.isEmpty {
-                    SectionHeader(title: "Favorites", live: true) { MoreButton("All rooms") { router.show(.house) } }
-                    LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
-                        ForEach(favs) { RoomTile(room: $0) }
-                    }
-                }
-
-                if let np = home?.nowPlaying?.first {
-                    SectionHeader("Now playing", live: true)
-                    HouseNowPlayingCard(item: np)
-                }
-
-                if me?.can(.cameras) == true, !(home?.cameras?.isEmpty ?? true) {
-                    SectionHeader(title: "Recent at the cameras") { MoreButton { router.show(.house, .cameras) } }
-                    RecentEventsStrip(events: store.recentEvents)
-                }
-
-                if store.holidaySeason, me?.can(.holidayLooks) == true || me?.can(.holidayFull) == true {
-                    SectionHeader("Tonight's show")
-                    HolidayHomeCard()
-                }
-
-                if me?.can(.tripsView) == true { NextTripCard() }
-
-                if let today = home?.today {
-                    SectionHeader(title: "Today") { MoreButton("Calendar") { router.show(.family, .calendar) } }
-                    TodayCard(today: today)
-                }
-
-                if me?.can(.systems) == true, let sys = home?.systems {
-                    SectionHeader(title: "Systems") { MoreButton { router.show(.systems) } }
-                    SystemsStrip(systems: sys)
-                }
+                .buttonStyle(.plain).foregroundStyle(Theme.accent).padding(.top, 4)
             }
             .screen()
         }
@@ -76,6 +33,75 @@ struct HomeView: View {
 
     private func loadTrips(force: Bool = false) async {
         if me?.can(.tripsView) == true { await TripStore.shared.load(force: force) }
+    }
+
+    /// What this person can see on Home, in the default order; `SettingsStore` applies their own order.
+    static func sections(for me: Me?) -> [HomeSection] {
+        HomeSection.allCases.filter { s in
+            switch s {
+            case .whosHome: false  // arrives with the family-usability work
+            case .printer: false  // arrives with the printers work (PR #34): then `me?.can(.appliances) == true`
+            case .kids: me?.can(.networkManage) == true
+            case .cameras: me?.can(.cameras) == true
+            case .holiday: me?.can(.holidayLooks) == true || me?.can(.holidayFull) == true
+            case .trip: me?.can(.tripsView) == true
+            case .systems: me?.can(.systems) == true
+            default: true
+            }
+        }
+    }
+
+    private var sections: [HomeSection] { SettingsStore.shared.homeSections(default: Self.sections(for: me)) }
+
+    @ViewBuilder private func section(_ s: HomeSection) -> some View {
+        switch s {
+        case .whosHome: EmptyView()
+        case .rightNow: RightNowSection()
+        case .status:
+            if !store.reachable {
+                // Everyone sees the offline strip; Dylan also gets the likely cause.
+                if store.role == .admin { OfflineCard() }
+            } else { StatusBlock() }
+        case .favorites: FavoritesSection()
+        case .modes:
+            if let modes = home?.modes, !modes.isEmpty {
+                SectionHeader("Modes")
+                ModesRow(modes: modes)
+            }
+        case .kids:
+            if !kids.isEmpty {
+                SectionHeader(title: "Kids online") { MoreButton("Manage") { router.go(.kidNet) } }
+                KidsOnlineRow(kids: kids)
+            }
+        case .playing:
+            if let np = home?.nowPlaying?.first {
+                SectionHeader("Now playing", live: true)
+                HouseNowPlayingCard(item: np)
+            }
+        // Printers (PR #34): `ForEach(home?.activePrinters ?? []) { PrinterNowCard(printer: $0) }`
+        case .printer: EmptyView()
+        case .cameras:
+            if !(home?.cameras?.isEmpty ?? true) {
+                SectionHeader(title: "Recent at the cameras") { MoreButton { router.show(.house, .cameras) } }
+                RecentEventsStrip(events: store.recentEvents)
+            }
+        case .holiday:
+            if store.holidaySeason {
+                SectionHeader("Tonight's show")
+                HolidayHomeCard()
+            }
+        case .trip: NextTripCard()
+        case .today:
+            if let today = home?.today {
+                SectionHeader(title: "Today") { MoreButton("Calendar") { router.show(.family, .calendar) } }
+                TodayCard(today: today)
+            }
+        case .systems:
+            if let sys = home?.systems {
+                SectionHeader(title: "Systems") { MoreButton { router.show(.systems) } }
+                SystemsStrip(systems: sys)
+            }
+        }
     }
 
     private var kids: [Person] { (home?.people ?? []).filter { $0.role == .child } }
@@ -257,6 +283,7 @@ struct ModesRow: View {
                         .background(Theme.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                     }
                     .buttonStyle(.plain)
+                    .favoriteMenu(.mode, m.id, name: m.name)
                 }
             }
         }
@@ -274,6 +301,7 @@ struct RoomTile: View {
                   detail: room.summary ?? (n > 0 ? "\(n) light\(n == 1 ? "" : "s") on" : "Lights off"), on: n > 0) {
             router.go(.room(room.id))
         }
+        .favoriteMenu(.room, room.id, name: room.name)
     }
 }
 
@@ -384,6 +412,8 @@ struct CameraThumb: View {
 }
 
 struct TodayCard: View {
+    /// Room for "10:30 AM" at the person's text size, so times never wrap.
+    @ScaledMetric(relativeTo: .subheadline) private var timeWidth: CGFloat = 70
     @Environment(Router.self) private var router
     let today: Today
     var body: some View {
@@ -391,7 +421,7 @@ struct TodayCard: View {
             ForEach((today.events ?? []).sorted { ($0.isAllDay ? 0 : 1, ISO.parse($0.start) ?? .distantFuture) < ($1.isAllDay ? 0 : 1, ISO.parse($1.start) ?? .distantFuture) }, id: \.stableID) { e in
                 HStack(alignment: .top, spacing: 12) {
                     Text(e.isAllDay ? "All day" : clock(e.start)).font(.subheadline.monospacedDigit()).foregroundStyle(Theme.dim)
-                        .frame(width: 70, alignment: .leading)
+                        .lineLimit(1).minimumScaleFactor(0.7).frame(width: timeWidth, alignment: .leading)
                     VStack(alignment: .leading, spacing: 1) {
                         Text(e.title).font(.subheadline.weight(.medium))
                         if let w = e.who { Text(w).font(.caption).foregroundStyle(Theme.dim) }
