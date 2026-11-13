@@ -456,3 +456,23 @@ def test_refresh_reads_the_provider_without_echoing_the_password(hub, people):
     lineup = dylan.client.get("/v1/tv/lineup", headers=dylan.h)
     assert lineup.json()["channels"][0]["key"] == "xc:thomas-creek:10"
     assert PASSWORD not in lineup.text
+
+
+def test_apps_are_filtered_by_profile(hub, home_client, people, away_client):
+    from hub.tvremote import allowed_packages
+
+    adult, kid = Key(), Key()
+    clock = Clock()
+    _enroll(home_client, adult, TV_ID, "Living room")
+    _enroll(home_client, kid, KID_TV, "Theo's TV")
+    hub.tv_app.set_tv(TV_ID, status="approved", profile="adult", room="living_room")
+    hub.tv_app.set_tv(KID_TV, status="approved", profile="kids", room="theo_room")
+    grown = home_client.get("/v1/tv/apps", headers=_auth(_token(home_client, adult, clock)["access_token"]))
+    child = home_client.get("/v1/tv/apps", headers=_auth(_token(home_client, kid, clock, KID_TV)["access_token"]))
+    assert grown.status_code == 200 and grown.json() == {"allowed": allowed_packages(kids=False)}
+    assert child.status_code == 200 and child.json() == {"allowed": allowed_packages(kids=True)}
+    assert "com.plexapp.android" in child.json()["allowed"]
+    assert "com.amazon.amazonvideo.livingroom" not in child.json()["allowed"]
+    assert "com.amazon.amazonvideo.livingroom" in grown.json()["allowed"]
+    assert people["phones"]["Dylan"].client.get("/v1/tv/apps", headers=people["phones"]["Dylan"].h).status_code == 403
+    assert away_client.get("/v1/tv/apps", headers=_auth(_token(home_client, adult, clock)["access_token"])).status_code == 403

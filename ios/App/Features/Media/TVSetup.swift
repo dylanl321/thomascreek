@@ -211,6 +211,56 @@ struct HubTv: Decodable, Identifiable {
     var room: String?
 }
 
+struct TvApproveLink: Identifiable {
+    var code: String
+    var id: String { code }
+}
+
+/// Opened from the QR a TV shows (`thomascreek://tv/{code}`). Approving uses the code; nothing is typed on the TV.
+struct ApproveTvSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let code: String
+    @State private var busy = false
+    @State private var approved: HubTv?
+    @State private var problem: String?
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("The TV is showing this code. Approving it lets that TV pull its source. Nothing is typed on the TV.")
+                    .font(.subheadline).foregroundStyle(Theme.dim)
+                Text(code).font(.largeTitle.monospaced()).frame(maxWidth: .infinity)
+                if let approved {
+                    Text("\(approved.name ?? "The TV") is approved\(approved.mode == "non-adb" ? ", without debugging" : "").")
+                        .font(.subheadline.weight(.semibold)).foregroundStyle(Theme.accent)
+                }
+                if let problem {
+                    Text(problem).font(.caption).foregroundStyle(Theme.warn)
+                }
+                Button(busy ? "Approving…" : "Approve") { Task { await approve() } }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(busy || approved != nil)
+                Spacer()
+            }
+            .padding(20)
+            .navigationTitle("Approve TV")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
+        }
+    }
+
+    private func approve() async {
+        busy = true
+        defer { busy = false }
+        do {
+            approved = try await HubClient.shared.post("/v1/tvapp/approve", ["code": code], as: HubTv.self)
+            problem = nil
+        } catch {
+            problem = error.localizedDescription
+        }
+    }
+}
+
 /// Installs Thomas Creek TV once debugging is on. The hub says the one thing left to do on the TV.
 private struct TvAppSetupCard: View {
     @State private var ip = ""

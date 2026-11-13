@@ -18,6 +18,7 @@ POST   /v1/tv/enroll                     {install_id, name, model?, app_version?
 GET    /v1/tv/apk/{code}                 home network, the signed APK for a short install code
 GET    /v1/tv/update                     bearer, version, sha256 and signer pin
 GET    /v1/tv/apk                        bearer, the signed APK for PackageInstaller
+GET    /v1/tv/apps                       bearer, {allowed:[packages]} for this profile
 POST   /v1/tv/config                     {install_id, ts, signature}  ETag / 304
 POST   /v1/tv/token                      {install_id, ts, signature, person_id?} -> bearer
 GET    /v1/tv/lineup                     bearer, phones and TVs
@@ -40,6 +41,7 @@ from pydantic import BaseModel, Field
 from ..home import iso
 from ..state import Hub
 from ..tvapp import TvAppError, clean_ip
+from ..tvremote import allowed_packages
 from .deps import Caller, caller, caller_ip, error, hub, need
 
 router = APIRouter(prefix="/v1/tvapp", tags=["tvapp"])
@@ -351,6 +353,15 @@ async def apk_for_tv(request: Request, c: Caller = Depends(caller), h: Hub = Dep
     except TvAppError as exc:
         raise _err(exc) from None
     return FileResponse(path, media_type="application/vnd.android.package-archive", filename=path.name)
+
+
+@tv_router.get("/apps")
+async def tv_apps(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """Packages this TV may put on its home screen. Kids get the kid apps; adults get the household catalog."""
+    _own_tv(c)
+    tv = h.tv_app.tvs().get(c.subject.tv_id or "") or {}
+    kids = tv.get("profile") == "kids" or c.subject.is_child_like
+    return {"allowed": allowed_packages(kids=kids)}
 
 
 @tv_router.get("/update")

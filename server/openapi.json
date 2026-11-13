@@ -8605,6 +8605,52 @@
     }
    }
   },
+  "/v1/tv/apps": {
+   "get": {
+    "tags": [
+     "tvapp"
+    ],
+    "summary": "Tv Apps",
+    "description": "Packages this TV may put on its home screen. Kids get the kid apps; adults get the household catalog.",
+    "operationId": "tv_apps_v1_tv_apps_get",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Tv Apps V1 Tv Apps Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/v1/tv/update": {
    "get": {
     "tags": [

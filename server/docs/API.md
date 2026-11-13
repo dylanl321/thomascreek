@@ -575,6 +575,212 @@ The first time the app opens it enrolls on its own. A box the hub added is appro
 
 `continue` is in progress, `on_deck` is the next episode not started, `recent` is newly added. Artwork is a hub path fetched with the bearer. `deep_link` opens the Plex app at that item. A kids' TV only gets allowed ratings. There is no Plex token in the payload.
 
+## TV contract
+
+This is the wire format the TV app tests against. Names here are the ones the hub sends. A pending enroll is `code` and `approve_url`, and `approve_url` is exactly `thomascreek://tv/{code}`. The update manifest uses `signer_sha256` and `apk_path`. A Plex row uses `poster_url` and `deep_link`. Clients ignore fields they don't know.
+
+`POST /v1/tv/enroll` `{install_id, name, model?, app_version?, public_key, code?}`. While the TV is waiting:
+
+```json
+{"status":"pending","profile":"adult","mode":"non-adb","code":"K7NP3Q","approve_url":"thomascreek://tv/K7NP3Q"}
+```
+
+`code` and `approve_url` are present on every pending response. The TV shows `code` and a QR of `approve_url`. The phone opens that URL. Approved, including when `code` was a valid install link:
+
+```json
+{"status":"approved","profile":"kids","mode":"adb"}
+```
+
+`POST /v1/tv/config` `{install_id, ts, signature}` over `tvconfig:<install_id>:<ts>`. Pending is exactly `{"status":"pending"}`. Approved:
+
+```json
+{"status":"approved","version":3,"name":"Living room","profile":"adult","room":"living_room","media_entity":null,
+ "playlists":[{"type":"xtream","name":"Thomas Creek","server":"http://iptv.example:8080","username":"household","password":"s3cret"}],
+ "epg_url":null,"lineup_version":12,"theme":null}
+```
+
+A kids profile also has `"kids_categories":["Kids"]`. `304` has an empty body when `If-None-Match` matches the `ETag`.
+
+`POST /v1/tv/token` `{install_id, ts, signature, person_id?}` over `tvtoken:<install_id>:<ts>` or `tvtoken:<install_id>:<ts>:<person_id>`:
+
+```json
+{"access_token":"eyJ…","token_type":"bearer","expires_at":"2026-11-13T21:30:00+00:00","expires_in":900,
+ "role":"tablet","profile":"adult","room":"living_room","person":null,
+ "capabilities":["climate.own_room","family.view","lights.own_room","media.own_tv"],
+ "tv":{"id":"tv_office_0123456789","name":"Living room"}}
+```
+
+`POST /v1/tv/state` with the bearer. Response is `{"ok":true}`.
+
+```json
+{"playing":{"channel_key":"xc:thomas-creek:10","title":"Newsroom","name":"CNN","number":20},
+ "foreground":true,"health":{"app_version":"1.4.1","profile":"adult","epg_age_s":120,"last_error":null,"home_crashes":0},
+ "command_id":"tvc_ab12","command_ok":true,"command_error":null}
+```
+
+`GET /v1/tv/lineup`
+
+```json
+{"version":1710000000,"channels":[
+  {"key":"xc:thomas-creek:44102","name":"CNN","number":202,"group":"News","logo":"https://img.example/cnn.png","kids":false,"catchup_days":2}
+]}
+```
+
+`GET /v1/tv/guide?start=<unix>&end=<unix>&channel=<key>`
+
+```json
+{"from":"2026-11-13T19:00:00+00:00","to":"2026-11-14T02:00:00+00:00","channels":[
+  {"key":"xc:thomas-creek:10","name":"CNN","number":20,"group":"News","logo":"https://img.example/cnn.png",
+   "kids":false,"catchup_days":2,
+   "now":{"start":"2026-11-13T20:00:00+00:00","end":"2026-11-13T21:00:00+00:00","title":"Newsroom","subtitle":null,"desc":"The hour.","icon":null,"catchup":true,"catchup_until":"2026-11-15T20:00:00+00:00"},
+   "next":{"start":"2026-11-13T21:00:00+00:00","end":"2026-11-13T22:00:00+00:00","title":"Tonight","subtitle":null,"desc":null,"icon":null,"catchup":false,"catchup_until":null},
+   "programmes":[]}
+]}
+```
+
+`GET /v1/tv/series?q=&category=&limit=`
+
+```json
+{"categories":["Kids"],"series":[
+  {"id":"series:thomas-creek:12","name":"Bluey","cover":"https://img.example/bluey.jpg","year":2018,"genre":"Kids","rating":"TV-Y","category":"Kids","kids":true}
+]}
+```
+
+`GET /v1/tv/series/series:thomas-creek:12` is that object plus `plot`, `backdrop`, and `seasons`.
+
+```json
+{"id":"series:thomas-creek:12","name":"Bluey","cover":"https://img.example/bluey.jpg","year":2018,"genre":"Kids","rating":"TV-Y","category":"Kids","kids":true,
+ "plot":"A puppy.","backdrop":null,"seasons":[
+  {"number":1,"episodes":[{"id":"ep:thomas-creek:555","season":1,"number":1,"title":"Keepy Uppy","plot":null,"still":null,"duration_s":420}]}
+]}
+```
+
+`GET /v1/tv/movies` and `GET /v1/tv/movies/vod:thomas-creek:99`:
+
+```json
+{"categories":["Movies"],"movies":[
+  {"id":"vod:thomas-creek:99","name":"The Matrix","cover":null,"year":1999,"genre":"Action","rating":"R","category":"Movies","kids":false}
+]}
+```
+
+```json
+{"id":"vod:thomas-creek:99","name":"The Matrix","cover":null,"year":1999,"genre":"Action","rating":"R","category":"Movies","kids":false,"plot":"A hacker.","backdrop":null,"duration_s":8160}
+```
+
+`GET /v1/tv/library/search?q=news`
+
+```json
+{"q":"news","channels":[{"key":"xc:thomas-creek:10","name":"CNN","number":20,"group":"News","logo":null,"kids":false}],
+ "programmes":[{"start":"2026-11-13T20:00:00+00:00","end":"2026-11-13T21:00:00+00:00","title":"Newsroom","subtitle":null,"desc":null,"icon":null,"catchup":true,"catchup_until":"2026-11-15T20:00:00+00:00","channel_key":"xc:thomas-creek:10","channel_name":"CNN"}],
+ "series":[],"movies":[]}
+```
+
+`GET /v1/tv/players`
+
+```json
+{"tvs":[
+  {"id":"tv_office_0123456789","name":"Living room","room":"living_room","room_name":"Living Room",
+   "profile":"adult","media_entity":null,"online":true,
+   "playing":{"channel_key":"xc:thomas-creek:10","title":"Newsroom","name":"CNN","number":20},
+   "last_command":{"id":"tvc_ab12","ok":true,"error":null}}
+]}
+```
+
+`POST /v1/actions` request, then the response when the action is live:
+
+```json
+{"action":"tv.play","target":"tv_office_0123456789","params":{"kind":"live","channel_key":"xc:thomas-creek:10","title":"Newsroom","resume":0}}
+```
+
+```json
+{"ok":true,"message":"Told Living room to play Newsroom","dry_run":false,"command_id":"tvc_ab12"}
+```
+
+`tv.stop` sends `"action":"tv.stop"` and `"params":{}`. `action` inside the delivered command is `play` or `stop`, not `tv.play`.
+
+`GET /v1/tv/commands?timeout=20` and `POST /v1/tv/commands/ack` `{"ids":["tvc_ab12"]}`:
+
+```json
+{"commands":[
+  {"id":"tvc_ab12","install_id":"tv_office_0123456789","action":"play","at":"2026-11-13T21:00:00+00:00",
+   "kind":"live","channel_key":"xc:thomas-creek:10","name":"CNN","number":20,"title":"Newsroom","resume":0}
+]}
+```
+
+```json
+{"acked":1}
+```
+
+`GET /v1/events` is `text/event-stream`. Each event is `event: <type>` and one `data:` line, which is the whole object below. Hello, then a command, a light, an inbox notice, and a snapshot:
+
+```json
+{"type":"hello","data":{"role":"tablet","kind":"tv","tv":"tv_office_0123456789"}}
+```
+
+```json
+{"type":"tv_command","data":{"id":"tvc_ab12","install_id":"tv_office_0123456789","action":"play","at":"2026-11-13T21:00:00+00:00","kind":"catchup","channel_key":"xc:thomas-creek:10","name":"CNN","title":"Newsroom","start":"2026-11-13T20:00:00+00:00","resume":30}}
+```
+
+```json
+{"type":"tv_command","data":{"id":"tvc_ab13","install_id":"tv_office_0123456789","action":"play","at":"2026-11-13T21:01:00+00:00","kind":"movie","movie_id":"vod:thomas-creek:99","name":"The Matrix","title":"The Matrix","resume":600}}
+```
+
+```json
+{"type":"tv_command","data":{"id":"tvc_ab14","install_id":"tv_office_0123456789","action":"play","at":"2026-11-13T21:02:00+00:00","kind":"episode","episode_id":"ep:thomas-creek:555","series_id":"series:thomas-creek:12","name":"Bluey","title":"Keepy Uppy","resume":15}}
+```
+
+```json
+{"type":"tv_command","data":{"id":"tvc_ab15","install_id":"tv_office_0123456789","action":"stop","at":"2026-11-13T21:03:00+00:00"}}
+```
+
+```json
+{"type":"device","data":{"id":"light.living_room","kind":"light","name":"Living room","room_id":"living_room","state":{"on":true},"updated_at":"2026-11-13T21:00:00+00:00","available":true,"actions":["light.set"]}}
+```
+
+```json
+{"type":"inbox","data":{"level":"act_now","cat":"doorbell","title":"Someone is at the door","body":"Front door","ref":null}}
+```
+
+```json
+{"type":"snapshot","data":{}}
+```
+
+Phones receive now-playing as `tv`, not `tv_command`:
+
+```json
+{"type":"tv","data":{"id":"tv_office_0123456789","name":"Living room","room":"living_room","profile":"adult","media_entity":null,"foreground":true,"playing":{"title":"Newsroom","name":"CNN","channel_key":"xc:thomas-creek:10","number":20},"at":"2026-11-13T21:00:00+00:00","command":{"id":"tvc_ab12","ok":true,"error":null}}}
+```
+
+`GET /v1/home` with a TV bearer is the existing home snapshot, limited to that TV's room. Lights and scenes in the room are included. Locks, the garage and cameras are not offered to a TV.
+
+`GET /v1/tv/apps` with a TV bearer. `allowed` is always present. A kids profile, and any child or guest using the TV, gets the kid apps from the household catalog. An adult profile gets every catalog app that has an Android package, including those kid apps.
+
+```json
+{"allowed":["com.google.android.youtube.tvkids","com.netflix.ninja","com.plexapp.android","com.disney.disneyplus","com.pbs.kids.pbskidsvideo"]}
+```
+
+```json
+{"allowed":["com.google.android.youtube.tv","com.google.android.youtube.tvkids","com.netflix.ninja","com.plexapp.android","com.disney.disneyplus","com.pbs.kids.pbskidsvideo","com.amazon.amazonvideo.livingroom","com.wbd.stream","com.hulu.livingroomplus","com.spotify.tv.android","com.apple.atve.androidtv.appletv"]}
+```
+
+`GET /v1/tv/update` and `GET /v1/tv/apk` use the TV bearer. The file download is the bytes of the APK. The manifest:
+
+```json
+{"version_code":602,"version_name":"1.4.1-tc.2","sha256":"abc","signer_sha256":"deadbeef",
+ "apk_path":"/v1/tv/apk","package":"me.dlewis.thomascreek.tv","notes":null,
+ "install":"Download the APK with this TV's bearer, check sha256 and signer_sha256, then hand the file to PackageInstaller. The person confirms on the TV."}
+```
+
+`GET /v1/tv/plex`
+
+```json
+{"continue":[{
+  "id":"9","title":"Bluey: Keepy Uppy","year":2018,"kind":"episode","rating":"TV-Y",
+  "poster_url":"/v1/media/art?path=%2Flibrary%2Fbluey","summary":"A game.","show":"Bluey","season":1,"episode":2,
+  "deep_link":"plex://preplay?metadataKey=/library/metadata/9&server=MACHINE","package":"com.plexapp.android"
+}],"on_deck":[],"recent":[]}
+```
+
 ## Universal title search
 
 `GET /v1/titles/search?q=` (at least two letters). One card per title across Plex, the IPTV lineup and guide, and TMDB (Jellyseerr, which is what asks Sonarr and Radarr). The same title is one card: matched on TMDB id, then IMDb, then TVDB, then the cleaned name and year.

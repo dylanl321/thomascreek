@@ -50,6 +50,8 @@ final class Router {
     var searchQuery: String?
     /// Opens "Add from YouTube", prefilled with this link ("" for an empty box).
     var youtubeAdd: String?
+    /// `thomascreek://tv/{code}` from the QR a TV shows while it waits to be approved.
+    var tvApprove: String?
 
     /// Ask Thomas Creek, the quick chat and voice panel.
     var showAssistant = false
@@ -168,7 +170,7 @@ final class Router {
     func reset() {
         paths = [:]; tab = .home
         showInbox = false; showProfile = false; showVPN = false; showOffline = false; showSearch = false; showAssistant = false
-        showEditHome = false; showViewAs = false; youtubeAdd = nil
+        showEditHome = false; showViewAs = false; youtubeAdd = nil; tvApprove = nil
     }
 
     /// thomascreek://room/kitchen, thomascreek://inbox, christmaslights://show ...
@@ -235,6 +237,10 @@ final class Router {
         case "view-as": if role == .admin { showProfile = true }
         case "search": startSearch(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "q" }?.value)
         case "tvs": if role == .admin || role == .adult { show(.media, .tvSetup) } else { show(.home) }
+        case "tv":
+            // thomascreek://tv/{code}: the QR on a TV that is waiting to be approved.
+            let code = parts.count > 1 ? parts[1] : ""
+            if !code.isEmpty { tvApprove = code }
         case "remote": if parts.count > 1, !kid { show(.media, .remote(parts[1])) } else if kid { show(.myRoom) }
         case "climate":
             // thomascreek://climate, /climate/<entity_id> (one thermostat's history)

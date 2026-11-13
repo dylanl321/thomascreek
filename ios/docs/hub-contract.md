@@ -399,6 +399,10 @@ On TVs and boxes, under Thomas Creek TV: `GET /v1/tvapp/discover`, `POST /v1/tva
 
 Without debugging, `POST /v1/tvapp/setup` `{mode: "non-adb", name?, room?, profile?}` returns `install.url` and `install.code`. Show the URL, a QR of that URL, and the code. `GET /v1/tvapp/setup/code/{code}` refreshes it. A pending TV includes `approve_code`; `POST /v1/tvapp/approve` `{code}` lets it in.
 
-The TV app, with its bearer: `GET /v1/tv/update` then `GET /v1/tv/apk`. Check `sha256` and `signer_sha256` before `PackageInstaller`. The person confirms the install on the TV.
+The TV app, with its bearer: `GET /v1/tv/update` then `GET /v1/tv/apk`. Check `sha256` and `signer_sha256` before `PackageInstaller`. The manifest's download path is `apk_path`. The person confirms the install on the TV.
+
+`GET /v1/tv/apps` → `{allowed:[package names]}`. A kids profile gets the kid apps. An adult profile gets the household list. The field is always present.
+
+A TV that is waiting shows a QR of `thomascreek://tv/{code}`. Opening that URL presents Approve TV, which calls `POST /v1/tvapp/approve` `{code}`. The pending enroll body is `{status:"pending", code, approve_url}` and `approve_url` is that same URL.
 
 `GET /v1/tv/plex` → `{continue, on_deck, recent}`. Each item has `poster_url` (fetch with the bearer) and `deep_link` plus `package` (`com.plexapp.android`) so the TV app can open Plex on that title. Kids' tokens only get allowed ratings.

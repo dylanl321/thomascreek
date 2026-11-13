@@ -262,7 +262,7 @@ def test_tv_waits_for_approval_then_gets_its_source(hub, home_client, people):
                                                 "public_key": key.pub})
     body = r.json()
     assert r.status_code == 200 and body["status"] == "pending" and body["profile"] == "adult"
-    assert len(body["code"]) == 6 and body["approve_url"].endswith("/" + body["code"])
+    assert len(body["code"]) == 6 and body["approve_url"] == f"thomascreek://tv/{body['code']}"
     assert _config(home_client, key).json() == {"status": "pending"}
 
     dylan = people["phones"]["Dylan"]
