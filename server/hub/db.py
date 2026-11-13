@@ -193,6 +193,39 @@ SCHEMA = [
         revoked_at REAL,
         last_used_at REAL
     )""",
+    # Films, shows and YouTube a grown-up sent to someone's iPad (hub/sends.py).
+    """
+    CREATE TABLE IF NOT EXISTS sends (
+        id TEXT PRIMARY KEY,
+        person_id TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        ref TEXT NOT NULL,
+        title TEXT NOT NULL,
+        poster_url TEXT,
+        scope TEXT NOT NULL DEFAULT 'one',
+        count INTEGER,
+        season INTEGER,
+        quality TEXT NOT NULL DEFAULT 'high',
+        created_by TEXT,
+        created_at REAL NOT NULL,
+        last_error TEXT
+    )""",
+    """
+    CREATE TABLE IF NOT EXISTS send_devices (
+        device_id TEXT PRIMARY KEY,
+        person_id TEXT,
+        holdings TEXT NOT NULL DEFAULT '[]',
+        free_bytes INTEGER,
+        total_bytes INTEGER,
+        reported_at REAL NOT NULL
+    )""",
+    """
+    CREATE TABLE IF NOT EXISTS send_watched (
+        person_id TEXT NOT NULL,
+        item_id TEXT NOT NULL,
+        watched_at REAL NOT NULL,
+        PRIMARY KEY (person_id, item_id)
+    )""",
     """
     CREATE TABLE IF NOT EXISTS hub_kv (
         key TEXT PRIMARY KEY,
@@ -205,9 +238,10 @@ SCHEMA = [
 ADDED_COLUMNS = [
     ("devices", "kind", "TEXT NOT NULL DEFAULT 'phone'"),   # phone | test (a simulator joined with a test key)
     ("devices", "test_key_id", "TEXT"),
+    ("yt_sources", "latest", "INTEGER"),   # a channel sent to the kids' iPads: how many newest videos to keep
 ]
 
-JSON_COLUMNS = {"source_ids", "areas", "shared_areas", "grants", "denies", "prefs", "activity", "actions", "payload", "params"}
+JSON_COLUMNS = {"holdings", "source_ids", "areas", "shared_areas", "grants", "denies", "prefs", "activity", "actions", "payload", "params"}
 
 
 def new_id(prefix: str) -> str:
