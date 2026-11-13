@@ -478,7 +478,7 @@ def _app_update_html(h: Hub, csrf: str) -> str:
     s = au.settings()
     latest = info["latest_build"]
     if latest:
-        where = "from TestFlight" if info["source"] == "testflight" else "set by hand"
+        where = {"testflight": "from TestFlight", "phone": "seen on a phone"}.get(info["source"], "set by hand")
         head = (f"{e(info['latest_version'])} ({latest})" if info["latest_version"] else f"build {latest}") + f" {where}"
     else:
         head = "not known yet"
@@ -486,7 +486,8 @@ def _app_update_html(h: Hub, csrf: str) -> str:
         check = (f"App Store Connect: {e(au.last_error)}" if au.last_error
                  else f"Checks App Store Connect every {h.config.app_update.check_minutes} min, last {_ago(au.last_check)}.")
     else:
-        check = "Add the App Store Connect key under Keys and files so the hub spots new builds by itself, or type the build below."
+        check = ("No App Store Connect key, so the hub learns new builds when the first phone installs one. "
+                 "Add the key under Keys and files to hear the moment TestFlight has it, or type the build below.")
     rows, behind = [], 0
     for d in h.db.all("SELECT d.name, d.app_version, d.last_seen_at, d.kind, p.name AS person FROM devices d "
                       "LEFT JOIN people p ON p.id = d.person_id WHERE d.status='active' ORDER BY d.last_seen_at DESC"):

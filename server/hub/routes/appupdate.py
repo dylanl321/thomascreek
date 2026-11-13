@@ -17,14 +17,17 @@ router = APIRouter(prefix="/v1/app", tags=["meta"])
 @router.get("/update")
 async def app_update(request: Request, build: int | None = Query(default=None, ge=0, le=10_000_000),
                      version: str | None = Query(default=None, max_length=20),
+                     channel: str | None = Query(default=None, max_length=20),
                      h: Hub = Depends(hub)) -> dict[str, Any]:
     """The newest build TestFlight has, and the oldest build still allowed.
 
     No sign-in needed (a phone that is still pending, or was just reset, must still hear
     about a required update). When a signed-in phone sends its own `build`, the hub
-    remembers it so the web page can show who hasn't updated.
+    remembers it so the web page can show who hasn't updated. A real phone on a TestFlight
+    install that is newer than anything known also tells the hub that build is out, so the
+    others hear about it even without the App Store Connect key. `channel` is how the app was
+    installed (testflight, appstore, xcode, simulator); builds older than 25 don't send it.
     """
-    info = h.app_update.info()
     if build is not None:
         token = _token_from(request, False)
         if token:
@@ -32,9 +35,30 @@ async def app_update(request: Request, build: int | None = Query(default=None, g
                 claims = h.tokens.verify(token)
                 h.db.update("devices", "id", claims["sub"],
                             {"app_version": f"{version} ({build})" if version else str(build), "last_seen_at": time.time()})
+                dev = h.db.device(claims["sub"]) or {}
+                if _real_install(dev, channel):
+                    h.app_update.learn(build, version)
             except (CryptoError, KeyError):
                 pass
+    info = h.app_update.info()
+    if build is not None:
         latest = info["latest_build"]
         info["update_available"] = bool(latest and latest > build)
         info["update_required"] = bool(info["min_build"] and build < info["min_build"])
     return info
+
+
+# uname() machine names a Simulator reports instead of "iPhone17,2".
+_SIMULATOR_MODELS = {"arm64", "x86_64", "i386"}
+
+
+def _real_install(dev: dict[str, Any], channel: str | None) -> bool:
+    """A family phone running a TestFlight (or App Store) install, not a Simulator or an Xcode build."""
+    if dev.get("status") != "active" or dev.get("kind") == "test" or dev.get("test_key_id"):
+        return False
+    if (dev.get("model") or "") in _SIMULATOR_MODELS:
+        return False
+    if channel is not None:
+        return channel in ("testflight", "appstore")
+    # Builds before 25 don't say how they were installed. Xcode builds register for sandbox push.
+    return dev.get("apns_env") != "sandbox"
