@@ -17,6 +17,7 @@ looking each one up again.
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import logging
 import re
@@ -52,6 +53,21 @@ def picture_url(url: str | None) -> str | None:
     return url if url.startswith("https://") and host in PICTURE_HOSTS else None
 
 
+def picture_path(url: str | None) -> str | None:
+    """A YouTube picture as a hub path (/v1/youtube/thumb/<token>), so devices fetch it through the hub."""
+    u = picture_url(url)
+    if u is None:
+        return None
+    return "/v1/youtube/thumb/" + base64.urlsafe_b64encode(u.encode()).decode().rstrip("=")
+
+
+def picture_from_token(token: str) -> str | None:
+    try:
+        return picture_url(base64.urlsafe_b64decode(token + "=" * (-len(token) % 4)).decode())
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def _best(thumbs: list[dict[str, Any]], square: bool = False, max_w: int = 900) -> str | None:
     ts = [t for t in thumbs or [] if t.get("url")]
     if square:
@@ -59,14 +75,14 @@ def _best(thumbs: list[dict[str, Any]], square: bool = False, max_w: int = 900) 
         ts = sq or [t for t in ts if t.get("id") == "avatar_uncropped"] or ts
     sized = [t for t in ts if (t.get("width") or 0) <= max_w]
     pick = max(sized, key=lambda t: t.get("width") or 0) if sized else (ts[-1] if ts else None)
-    return picture_url(pick["url"]) if pick else None
+    return picture_path(pick["url"]) if pick else None
 
 
 def _banner(thumbs: list[dict[str, Any]]) -> str | None:
     wide = [t for t in thumbs or [] if t.get("url") and t.get("width") and t.get("height") and t["width"] > 3 * t["height"]]
     if not wide:
         return None
-    return picture_url(min(wide, key=lambda t: abs(t["width"] - 1138))["url"])
+    return picture_path(min(wide, key=lambda t: abs(t["width"] - 1138))["url"])
 
 
 class Finder:
@@ -145,7 +161,7 @@ class Finder:
         if k == "channel":
             item["saved"] = have["saved"].get(item["id"], 0)
         if k == "video":
-            item["saved"] = item["id"] in have["video_ids"]
+            item["have"] = item["id"] in have["video_ids"]
         return item
 
     # -- turning yt-dlp entries into results ---------------------------------
@@ -174,9 +190,9 @@ class Finder:
         ch = channel or {}
         v = {"kind": "video", "id": base["id"], "title": base["title"], "channel": base.get("channel") or ch.get("title"),
              "channel_id": base.get("channel_id") or ch.get("id"), "duration_s": base.get("duration_s"),
-             "views": e.get("view_count"), "picture": _best(e.get("thumbnails") or []) or base.get("thumb"),
+             "views": e.get("view_count"), "picture": _best(e.get("thumbnails") or []) or picture_path(base.get("thumb")),
              "url": f"https://www.youtube.com/watch?v={base['id']}"}
-        self.seen[v["id"]] = {**base, "channel": v["channel"], "channel_id": v["channel_id"], "thumb": v["picture"]}
+        self.seen[v["id"]] = {**base, "channel": v["channel"], "channel_id": v["channel_id"]}
         if len(self.seen) > 5000:
             for k in list(self.seen)[:1000]:
                 self.seen.pop(k, None)

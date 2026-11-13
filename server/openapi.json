@@ -8253,24 +8253,22 @@
     }
    }
   },
-  "/v1/youtube/thumb": {
+  "/v1/youtube/thumb/{token}": {
    "get": {
     "tags": [
      "youtube"
     ],
     "summary": "Thumb",
-    "description": "A YouTube picture through the hub, so it shows on devices that can't reach YouTube.",
-    "operationId": "thumb_v1_youtube_thumb_get",
+    "description": "A YouTube picture through the hub (search results, previews), for devices that can't reach YouTube.",
+    "operationId": "thumb_v1_youtube_thumb__token__get",
     "parameters": [
      {
-      "name": "u",
-      "in": "query",
+      "name": "token",
+      "in": "path",
       "required": true,
       "schema": {
        "type": "string",
-       "minLength": 10,
-       "maxLength": 600,
-       "title": "U"
+       "title": "Token"
       }
      },
      {

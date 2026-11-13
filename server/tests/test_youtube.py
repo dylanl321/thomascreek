@@ -193,6 +193,12 @@ def _search_pages(url, n):
     raise AssertionError(url)
 
 
+def _url(path):
+    from hub.yt_find import picture_from_token
+    assert path.startswith("/v1/youtube/thumb/")
+    return picture_from_token(path.rsplit("/", 1)[1])
+
+
 @pytest.fixture
 def finder(yt, monkeypatch):
     calls = []
@@ -212,7 +218,7 @@ def test_search_finds_all_three_kinds_and_kids_can_search(finder, people, hub):
     out = r.json()
     ch = out["channels"][0]
     assert ch["id"] == BLUEY and ch["followers"] == 15000000 and ch["verified"] is True and ch["handle"] == "@BlueyOfficialChannel"
-    assert ch["picture"] == "https://yt3.ggpht.com/abc=s176" and ch["following"] is False and ch["saved"] == 0
+    assert _url(ch["picture"]) == "https://yt3.ggpht.com/abc=s176" and ch["following"] is False and ch["saved"] == 0
     assert out["playlists"][0]["id"] == "PLbluey000000001"
     assert [v["id"] for v in out["videos"]] == ["blu00000002"], "live streams are left out"
     # Cached: a second search doesn't run yt-dlp again.
@@ -238,7 +244,7 @@ def test_channel_preview_has_recent_uploads_and_playlists(finder, people):
     r = theo.client.get(f"/v1/youtube/channel/{BLUEY}", headers=theo.h)
     assert r.status_code == 200, r.text
     out = r.json()
-    assert out["channel"]["banner"].endswith("banner=w1138") and out["channel"]["picture"].endswith("av=s900")
+    assert _url(out["channel"]["banner"]).endswith("banner=w1138") and _url(out["channel"]["picture"]).endswith("av=s900")
     assert out["channel"]["description"].startswith("Bluey") and out["channel"]["videos"] is None  # no API key
     assert len(out["recent"]) == 6 and out["recent"][0]["views"] == 3000
     assert out["playlists"][0]["channel_id"] == BLUEY
@@ -313,8 +319,12 @@ def test_start_page_recent_and_suggested(finder, people, hub):
 
 def test_thumb_proxy_only_fetches_youtube_pictures(yt, people):
     theo = people["phones"]["Theo"]
-    assert theo.client.get("/v1/youtube/thumb", params={"u": "https://evil.example.com/x.jpg"}, headers=theo.h).status_code == 404
-    from hub.yt_find import picture_url
+    import base64
+    bad = base64.urlsafe_b64encode(b"https://evil.example.com/x.jpg").decode().rstrip("=")
+    assert theo.client.get(f"/v1/youtube/thumb/{bad}", headers=theo.h).status_code == 404
+    assert theo.client.get("/v1/youtube/thumb/%%%", headers=theo.h).status_code == 404
+    from hub.yt_find import picture_path, picture_url
+    assert _url(picture_path("https://i.ytimg.com/vi/abc/hq720.jpg?sqp=x&rs=y")) == "https://i.ytimg.com/vi/abc/hq720.jpg?sqp=x&rs=y"
     assert picture_url("//yt3.ggpht.com/a=s88") == "https://yt3.ggpht.com/a=s88"
     assert picture_url("http://i.ytimg.com/vi/x.jpg") is None
 
@@ -334,3 +344,14 @@ def test_api_key_adds_video_counts(finder, people, hub):
         mock.get("https://www.googleapis.com/youtube/v3/channels").mock(return_value=httpx.Response(403, json={}))
         out = dylan.client.get(f"/v1/youtube/channel/{BLUEY}", headers=dylan.h).json()
         assert out["channel"]["videos"] is None, "a quota error falls back quietly"
+
+
+def test_hand_picked_videos_can_go_to_the_ipads_without_following(finder, people, hub):
+    dylan = people["phones"]["Dylan"]
+    dylan.client.get(f"/v1/youtube/channel/{BLUEY}", headers=dylan.h)
+    src = dylan.client.post("/v1/youtube", json={"video_ids": ["blu00000003", "blu00000004"]}, headers=dylan.h).json()
+    kid = next(p for p in hub.db.all("SELECT * FROM people") if p["name"] == "Theo")
+    r = dylan.client.post("/v1/sends", json={"person_ids": [kid["id"]], "kind": "youtube", "ref": src["id"], "title": src["title"], "count": 2},
+                          headers=dylan.h)
+    assert r.status_code == 200, r.text
+    assert hub.db.one("SELECT follow FROM yt_sources WHERE id=?", [src["id"]])["follow"] == 0

@@ -191,7 +191,7 @@ async def create(body: SendBody, c: Caller = Depends(caller), h: Hub = Depends(h
             if src_row is None:
                 raise error(404, "not_found", "That channel isn't on the hub")
             # Keep checking it, and look far enough back for the number asked for.
-            vals: dict[str, Any] = {"follow": 1} if src_row["kind"] != "video" else {}
+            vals: dict[str, Any] = {"follow": 1} if src_row["kind"] in ("channel", "playlist") else {}
             if count > (src_row.get("latest") or 0):
                 vals["latest"] = count
             h.db.update("yt_sources", "id", ref, vals)

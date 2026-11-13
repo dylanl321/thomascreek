@@ -21,8 +21,8 @@ struct YTSource: Codable, Identifiable, Hashable {
     var bytes: Int64?
     var lastError: String?
 
-    var kindLabel: String { ["channel": "Channel", "playlist": "Playlist"][kind] ?? "Video" }
-    var symbol: String { ["channel": "person.crop.square.fill", "playlist": "list.bullet.rectangle.fill"][kind] ?? "play.rectangle.fill" }
+    var kindLabel: String { ["channel": "Channel", "playlist": "Playlist", "picks": "Picked videos"][kind] ?? "Video" }
+    var symbol: String { ["channel": "person.crop.square.fill", "playlist": "list.bullet.rectangle.fill", "picks": "checklist"][kind] ?? "play.rectangle.fill" }
 }
 
 struct YTVideo: Codable, Identifiable, Hashable {

@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 from ..state import Hub
 from ..youtube import YouTubeError, parse_link
+from ..yt_find import picture_from_token
 from .deps import Caller, caller, error, hub
 
 router = APIRouter(prefix="/v1/youtube", tags=["youtube"])
@@ -109,10 +110,11 @@ async def playlist(playlist_id: str, c: Caller = Depends(caller), h: Hub = Depen
     return out
 
 
-@router.get("/thumb")
-async def thumb(u: str = Query(min_length=10, max_length=600), c: Caller = Depends(caller), h: Hub = Depends(hub)) -> FileResponse:
-    """A YouTube picture through the hub, so it shows on devices that can't reach YouTube."""
-    p = await h.youtube.remote_picture(u)
+@router.get("/thumb/{token}")
+async def thumb(token: str, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> FileResponse:
+    """A YouTube picture through the hub (search results, previews), for devices that can't reach YouTube."""
+    url = picture_from_token(token) if len(token) < 800 else None
+    p = await h.youtube.remote_picture(url) if url else None
     if p is None:
         raise error(404, "not_found", "No picture")
     return FileResponse(p, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=604800"})
