@@ -224,3 +224,93 @@ def test_tv_app_routes_are_admin_only(people):
     body = r.json()
     assert body["package"] == "me.dlewis.thomascreek.tv" and body["boxes"] == [] and body["token_set"] is False
     assert avery.client.get("/v1/tvapp", headers=avery.h).status_code == 403
+
+
+# -- TVs asking for their source ---------------------------------------------------------------------------------------
+
+import base64  # noqa: E402
+import time  # noqa: E402
+
+from cryptography.hazmat.primitives import hashes, serialization  # noqa: E402
+from cryptography.hazmat.primitives.asymmetric import ec  # noqa: E402
+
+
+class TvKey:
+    def __init__(self):
+        self.key = ec.generate_private_key(ec.SECP256R1())
+        self.pub = base64.b64encode(self.key.public_key().public_bytes(
+            serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)).decode()
+
+    def sign(self, install_id: str, ts: int) -> str:
+        return base64.b64encode(self.key.sign(f"tvconfig:{install_id}:{ts}".encode(), ec.ECDSA(hashes.SHA256()))).decode()
+
+
+TV_ID = "tv_0123456789abcdef"
+
+
+def _config(client, key: TvKey, ts: int | None = None, install_id: str = TV_ID):
+    ts = int(time.time()) if ts is None else ts
+    return client.post("/v1/tv/config", json={"install_id": install_id, "ts": ts, "signature": key.sign(install_id, ts)})
+
+
+def test_tv_waits_for_approval_then_gets_its_source(hub, home_client, people):
+    hub.vault.set("iptv.xtream_server", "http://iptv.example:8080")
+    hub.vault.set("iptv.xtream_username", "household")
+    hub.vault.set("iptv.xtream_password", "s3cret")
+    key = TvKey()
+    r = home_client.post("/v1/tv/enroll", json={"install_id": TV_ID, "name": "Office TV", "model": "onn 4K",
+                                                "public_key": key.pub})
+    assert r.status_code == 200 and r.json() == {"status": "pending", "profile": "adult"}
+    assert _config(home_client, key).json() == {"status": "pending"}
+
+    dylan = people["phones"]["Dylan"]
+    tvs = dylan.client.get("/v1/tvapp", headers=dylan.h).json()["tvs"]
+    assert [t["id"] for t in tvs] == [TV_ID] and "public_key" in tvs[0]
+    assert dylan.client.patch(f"/v1/tvapp/tvs/{TV_ID}", json={"status": "approved"}, headers=dylan.h).status_code == 200
+
+    cfg = _config(home_client, key).json()
+    assert cfg["status"] == "approved" and cfg["profile"] == "adult"
+    assert cfg["playlists"] == [{"type": "xtream", "name": "Thomas Creek", "server": "http://iptv.example:8080",
+                                 "username": "household", "password": "s3cret"}]
+
+
+def test_tv_on_an_added_box_is_approved_with_the_box_profile(hub, home_client):
+    hub.tv_app.db.kv_set("tvapp.boxes", {"192.168.1.50": {"name": "Theo's TV", "auto": True, "profile": "kids"}})
+    hub.tv_app.set_kids_categories(["Kids", "Cartoons", "Kids"])
+    hub.vault.set("iptv.m3u_url", "http://iptv.example/list.m3u")
+    key = TvKey()
+    r = home_client.post("/v1/tv/enroll", json={"install_id": TV_ID, "name": "Theo's TV", "public_key": key.pub})
+    assert r.json() == {"status": "approved", "profile": "kids"}
+    cfg = _config(home_client, key).json()
+    assert cfg["profile"] == "kids" and cfg["kids_categories"] == ["Kids", "Cartoons"]
+    assert cfg["playlists"][0]["type"] == "m3u"
+
+
+def test_config_needs_the_tvs_own_fresh_signature(hub, home_client):
+    key, other = TvKey(), TvKey()
+    home_client.post("/v1/tv/enroll", json={"install_id": TV_ID, "name": "TV", "public_key": key.pub})
+    hub.tv_app.set_tv(TV_ID, status="approved")
+    assert _config(home_client, other).status_code == 401
+    assert _config(home_client, key, ts=int(time.time()) - 3600).status_code == 400
+    # The same id can't be taken over with another key.
+    r = home_client.post("/v1/tv/enroll", json={"install_id": TV_ID, "name": "TV", "public_key": other.pub})
+    assert r.status_code == 409
+    hub.tv_app.set_tv(TV_ID, status="revoked")
+    assert _config(home_client, key).status_code == 403
+
+
+def test_tv_endpoints_are_home_network_only(away_client):
+    key = TvKey()
+    r = away_client.post("/v1/tv/enroll", json={"install_id": TV_ID, "name": "TV", "public_key": key.pub})
+    assert r.status_code == 403
+    assert _config(away_client, key).status_code == 403
+
+
+def test_overview_never_shows_iptv_secrets(hub, people):
+    hub.vault.set("iptv.xtream_server", "http://iptv.example:8080")
+    hub.vault.set("iptv.xtream_username", "household")
+    hub.vault.set("iptv.xtream_password", "s3cret")
+    dylan = people["phones"]["Dylan"]
+    body = dylan.client.get("/v1/tvapp", headers=dylan.h)
+    assert body.json()["source"] == {"kind": "xtream", "epg": False}
+    assert "s3cret" not in body.text and "household" not in body.text

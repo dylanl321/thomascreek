@@ -113,7 +113,7 @@ def build_app(hub: Hub | None = None, *, start_background: bool = True) -> FastA
 
     app.include_router(sends_routes.router)  # films and shows sent to the kids' iPads
     for r in (auth.router, alerts.router, home.router, people.router, media_requests.router, media.router, family.router, trips.router, network.router,
-              cameras.router, kitchen.router, nas.router, printers.router, remotes.router, tvapp.router, layout.router, recipes.router, search.router, lights.router, appupdate.router, lights.pages, admin_web.api, admin_web.pages,
+              cameras.router, kitchen.router, nas.router, printers.router, remotes.router, tvapp.router, tvapp.tv_router, layout.router, recipes.router, search.router, lights.router, appupdate.router, lights.pages, admin_web.api, admin_web.pages,
               assistant.router, youtube.router, smart.router, weather.router, climate.router, me.router, household.router, household.pages):
         app.include_router(r)
     return app

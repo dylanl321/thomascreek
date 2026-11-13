@@ -76,6 +76,11 @@ DESCRIPTIONS = {
     "printer.h2s.serial": "Bambu H2S serial number",
     "printer.h2s.host": "Bambu H2S IP address",
     "github.tv_app_token": "GitHub token for downloading Thomas Creek TV builds",
+    "iptv.xtream_server": "IPTV Xtream server address",
+    "iptv.xtream_username": "IPTV Xtream username",
+    "iptv.xtream_password": "IPTV Xtream password",
+    "iptv.m3u_url": "IPTV M3U playlist address",
+    "iptv.epg_url": "IPTV TV guide (XMLTV) address",
 }
 APPSTORE_KEYS = ("appstore.auth_key_p8", "appstore.key_id", "appstore.issuer_id")
 NEVER_EDIT = {"wireguard.server_private_key"}
@@ -349,6 +354,12 @@ SECTIONS: list[dict[str, Any]] = [
          "github.com, Settings, Developer settings, Fine-grained tokens, Generate new token: only the "
          "dylanl321/thomascreek-tv repository, permission Contents read-only. The hub uses it to download new "
          "builds of the TV app from the repo's releases."),
+        ("iptv.xtream_server", "Xtream server", "text",
+         "From your IPTV provider, e.g. http://example.tv:8080. Fill in the three Xtream rows, or the M3U row."),
+        ("iptv.xtream_username", "Xtream username", "text", "From your IPTV provider."),
+        ("iptv.xtream_password", "Xtream password", "text", "From your IPTV provider."),
+        ("iptv.m3u_url", "M3U playlist address", "text", "Only if your provider gave you an M3U link instead of an Xtream login."),
+        ("iptv.epg_url", "TV guide address (XMLTV)", "text", "Optional. Xtream providers usually include the guide already."),
     ]},
     {"title": "Homebox", "always": True, "optional": True, "fields": [
         ("homebox.password", "Homebox password", "text", "Optional: the password of the Homebox account the hub signs in as."),

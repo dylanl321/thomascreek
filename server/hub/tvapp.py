@@ -19,6 +19,14 @@ How it reaches the TVs
   (tick "Always allow from this computer"). The hub's ADB key lives under the data dir (adb/.android/adbkey).
   A box with auto-update on gets a new build within one check interval, but never while the app is on screen.
 
+How a TV gets its source (no typing on a remote)
+  On first start the app makes a P-256 key in the Android keystore and calls POST /v1/tv/enroll from the home
+  network with an install id, its name and the public key. A TV whose IP is a box an admin already added is
+  approved at once with that box's profile; any other TV waits for an admin (the hub sends a notice). The app then
+  calls POST /v1/tv/config with a signature over "tvconfig:<install id>:<unix time>" and gets the IPTV source
+  (vault keys iptv.*), the guide address and its profile (adult or kids, with the kids' category list). Changing a
+  source on the hub reaches every TV on its next config call. Revoking a TV stops that at once.
+
 Nothing is installed on a box that an admin hasn't added. Downgrades aren't possible without losing the app's data
 (Android only allows them for debuggable apps), so there is no automatic rollback: the previous APK is kept so a
 fixed build can be re-tagged quickly.
@@ -48,6 +56,12 @@ TOKEN_SECRET = "github.tv_app_token"
 KV_SIGNER = "tvapp.signer"
 KV_BOXES = "tvapp.boxes"
 KV_LATEST = "tvapp.latest"
+KV_TVS = "tvapp.tvs"
+KV_KIDS = "tvapp.kids_categories"
+PROFILES = ("adult", "kids")
+MAX_TVS = 40
+CONFIG_SKEW_S = 300
+IPTV_SECRETS = ("iptv.xtream_server", "iptv.xtream_username", "iptv.xtream_password", "iptv.m3u_url", "iptv.epg_url")
 APK_NAME = "ThomasCreekTV.apk"
 GITHUB = "https://api.github.com"
 MAX_APK = 200 * 1024 * 1024
@@ -245,6 +259,9 @@ class TvApp:
             "last_check": self.last_check,
             "last_error": self.last_error,
             "boxes": [dict(v, ip=k) for k, v in sorted(self.boxes().items())],
+            "tvs": [dict(v, id=k) for k, v in sorted(self.tvs().items(), key=lambda kv: kv[1].get("created_at", 0))],
+            "source": self.source_summary(),
+            "kids_categories": self.kids_categories(),
         }
 
     # -- releases ----------------------------------------------------------------------------------------------------
@@ -330,11 +347,13 @@ class TvApp:
     def _serial(self, ip: str) -> str:
         return f"{ip}:{int(self.cfg.adb_port)}"
 
-    async def add_box(self, ip: str, name: str | None, auto: bool = True) -> dict[str, Any]:
+    async def add_box(self, ip: str, name: str | None, auto: bool = True, profile: str = "adult") -> dict[str, Any]:
         ip = clean_ip(ip)
+        if profile not in PROFILES:
+            raise TvAppError(400, "bad_profile", "Profile is adult or kids")
         boxes = self.boxes()
         box = boxes.get(ip, {"added_at": time.time()})
-        box.update(name=(name or box.get("name") or ip)[:80], auto=bool(auto))
+        box.update(name=(name or box.get("name") or ip)[:80], auto=bool(auto), profile=profile)
         boxes[ip] = box
         self._save_boxes(boxes)
         return await self.refresh_box(ip)
@@ -418,6 +437,130 @@ class TvApp:
                 log.info("tvapp: %s: %s", ip, exc.message)
             except Exception as exc:  # noqa: BLE001
                 log.warning("tvapp: %s: %s", ip, exc)
+
+    # -- TVs and their source ------------------------------------------------------------------------------------------
+    def tvs(self) -> dict[str, dict[str, Any]]:
+        return dict(self.db.kv_get(KV_TVS) or {})
+
+    def _save_tvs(self, tvs: dict[str, dict[str, Any]]) -> None:
+        self.db.kv_set(KV_TVS, tvs)
+
+    def kids_categories(self) -> list[str]:
+        return list(self.db.kv_get(KV_KIDS) or [])
+
+    def set_kids_categories(self, cats: list[str]) -> list[str]:
+        clean = list(dict.fromkeys(str(c).strip()[:80] for c in cats if str(c).strip()))[:200]
+        self.db.kv_set(KV_KIDS, clean)
+        return clean
+
+    def source_summary(self) -> dict[str, Any]:
+        """What kind of source is set, without any secret in it."""
+        have = {n: self.vault.has(n) for n in IPTV_SECRETS}
+        kind = "xtream" if all(have[n] for n in IPTV_SECRETS[:3]) else "m3u" if have["iptv.m3u_url"] else None
+        return {"kind": kind, "epg": have["iptv.epg_url"]}
+
+    def _source(self) -> dict[str, Any]:
+        def v(n: str) -> str:
+            return str(self.vault.get(n) or "").strip()
+
+        playlists: list[dict[str, Any]] = []
+        if v("iptv.xtream_server") and v("iptv.xtream_username") and v("iptv.xtream_password"):
+            playlists.append({"type": "xtream", "name": "Thomas Creek", "server": v("iptv.xtream_server"),
+                              "username": v("iptv.xtream_username"), "password": v("iptv.xtream_password")})
+        if v("iptv.m3u_url"):
+            playlists.append({"type": "m3u", "name": "Thomas Creek" if not playlists else "Thomas Creek M3U",
+                              "url": v("iptv.m3u_url")})
+        return {"playlists": playlists, "epg_url": v("iptv.epg_url") or None}
+
+    async def enroll(self, ip: str, install_id: str, name: str, model: str | None, app_version: str | None,
+                     public_key: str) -> dict[str, Any]:
+        from .crypto import CryptoError, normalize_public_key
+
+        if not re.fullmatch(r"[A-Za-z0-9_-]{16,64}", install_id or ""):
+            raise TvAppError(400, "bad_install_id", "install_id must be 16-64 letters, digits, - or _")
+        try:
+            pk = normalize_public_key(public_key)
+        except CryptoError as exc:
+            raise TvAppError(400, "bad_key", str(exc)) from None
+        tvs = self.tvs()
+        tv = tvs.get(install_id)
+        if tv and tv.get("public_key") != pk:
+            raise TvAppError(409, "key_mismatch", "This TV id is already used with another key. Clear the app's data and try again.")
+        if tv is None:
+            if len(tvs) >= MAX_TVS:
+                raise TvAppError(429, "too_many", "Too many TVs are registered. Remove old ones on the hub.")
+            tv = {"public_key": pk, "status": "pending", "profile": "adult", "created_at": time.time()}
+        tv.update(name=(name or "TV")[:80], model=(model or "")[:80] or None, app_version=(app_version or "")[:40] or None,
+                  ip=ip, last_seen_at=time.time())
+        box = self.boxes().get(ip)
+        newly_pending = False
+        if tv["status"] == "pending" and box is not None:
+            # An admin added this box for the TV app already: that is the approval.
+            tv.update(status="approved", profile=box.get("profile") or "adult", approved_at=time.time(), approved_by="box")
+        elif tv["status"] == "pending" and install_id not in tvs:
+            newly_pending = True
+        tvs[install_id] = tv
+        self._save_tvs(tvs)
+        self.db.log("tvapp.enroll", "ok", target=install_id, params={"name": tv["name"], "ip": ip, "status": tv["status"]},
+                    source="tv")
+        if newly_pending and self.notify:
+            await self.notify("A TV wants the TV app source", f"{tv['name']} ({ip}) is waiting. Approve it in Systems, TV app.")
+        return {"status": tv["status"], "profile": tv["profile"]}
+
+    def set_tv(self, install_id: str, *, status: str | None = None, profile: str | None = None,
+               name: str | None = None) -> dict[str, Any]:
+        tvs = self.tvs()
+        tv = tvs.get(install_id)
+        if tv is None:
+            raise TvAppError(404, "not_found", "No such TV")
+        if status is not None:
+            if status not in ("approved", "revoked", "pending"):
+                raise TvAppError(400, "bad_status", "Status is approved, revoked or pending")
+            tv["status"] = status
+            if status == "approved":
+                tv["approved_at"] = time.time()
+                tv["approved_by"] = "admin"
+        if profile is not None:
+            if profile not in PROFILES:
+                raise TvAppError(400, "bad_profile", "Profile is adult or kids")
+            tv["profile"] = profile
+        if name:
+            tv["name"] = name[:80]
+        tvs[install_id] = tv
+        self._save_tvs(tvs)
+        return dict(tv, id=install_id)
+
+    def remove_tv(self, install_id: str) -> None:
+        tvs = self.tvs()
+        if tvs.pop(install_id, None) is None:
+            raise TvAppError(404, "not_found", "No such TV")
+        self._save_tvs(tvs)
+
+    def config_for(self, install_id: str, ts: int, signature: str, ip: str | None, now: float | None = None) -> dict[str, Any]:
+        from .crypto import verify_signature
+
+        now = time.time() if now is None else now
+        tv = self.tvs().get(install_id or "")
+        if tv is None:
+            raise TvAppError(404, "unknown_tv", "This TV isn't registered. Open the app at home to register it.")
+        if abs(now - int(ts)) > CONFIG_SKEW_S:
+            raise TvAppError(400, "clock", "The TV's clock is off by more than five minutes")
+        if not verify_signature(tv["public_key"], f"tvconfig:{install_id}:{int(ts)}".encode(), signature or ""):
+            self.db.log("tvapp.config", "denied", target=install_id, detail="bad signature", source="tv")
+            raise TvAppError(401, "bad_signature", "Signature didn't match this TV")
+        if tv["status"] == "revoked":
+            raise TvAppError(403, "revoked", "This TV was removed on the hub")
+        if tv["status"] != "approved":
+            return {"status": "pending"}
+        tvs = self.tvs()
+        tvs[install_id].update(last_config_at=now, ip=ip or tv.get("ip"))
+        self._save_tvs(tvs)
+        src = self._source()
+        out: dict[str, Any] = {"status": "approved", "name": tv.get("name"), "profile": tv.get("profile", "adult"),
+                               "playlists": src["playlists"], "epg_url": src["epg_url"], "updated_at": int(now)}
+        if out["profile"] == "kids":
+            out["kids_categories"] = self.kids_categories()
+        return out
 
     # -- background ----------------------------------------------------------------------------------------------------
     def start(self) -> None:
