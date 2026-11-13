@@ -15,7 +15,7 @@ from fastapi.responses import JSONResponse
 from . import __version__
 from .config import Config, data_dir, load_config, master_key_path
 from .db import DB
-from .routes import admin_web, alerts, appupdate, assistant, auth, cameras, climate, family, home, household, kitchen, layout, lights, me, media, media_requests, nas, network, people, printers, recipes, remotes, search, smart, trips, tvapp, weather, youtube
+from .routes import admin_web, alerts, appupdate, assistant, auth, cameras, climate, family, home, household, kitchen, layout, lights, me, media, media_requests, nas, network, people, printers, recipes, remotes, search, smart, trips, tvapp, tvguide, weather, youtube
 from .routes.deps import http_error_handler
 from .state import Hub
 from .routes import sends as sends_routes
@@ -113,7 +113,7 @@ def build_app(hub: Hub | None = None, *, start_background: bool = True) -> FastA
 
     app.include_router(sends_routes.router)  # films and shows sent to the kids' iPads
     for r in (auth.router, alerts.router, home.router, people.router, media_requests.router, media.router, family.router, trips.router, network.router,
-              cameras.router, kitchen.router, nas.router, printers.router, remotes.router, tvapp.router, tvapp.tv_router, layout.router, recipes.router, search.router, lights.router, appupdate.router, lights.pages, admin_web.api, admin_web.pages,
+              cameras.router, kitchen.router, nas.router, printers.router, remotes.router, tvapp.router, tvapp.tv_router, tvguide.router, layout.router, recipes.router, search.router, lights.router, appupdate.router, lights.pages, admin_web.api, admin_web.pages,
               assistant.router, youtube.router, smart.router, weather.router, climate.router, me.router, household.router, household.pages):
         app.include_router(r)
     return app

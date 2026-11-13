@@ -316,6 +316,8 @@ struct KidWatchView: View {
         let little = store.me?.style == .little
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
+                SectionTile(symbol: "list.bullet.rectangle", title: little ? "What's on" : "TV guide",
+                            detail: little ? "Cartoons on the TV" : "Shows and movies on your TV") { router.go(.tvGuide) }
                 SentShelf(tint: little ? Theme.little : Theme.kid)
                 DownloadsEntry(tint: little ? Theme.little : Theme.kid)
                 YouTubeShelf(tint: little ? Theme.little : Theme.kid)

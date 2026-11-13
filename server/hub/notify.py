@@ -89,7 +89,26 @@ class Notifier:
             await self._push_person(p["id"], title, body, cat=cat, level=level, inbox_id=iid, ref=ref,
                                     category=push_category, silent=silent, image=image,
                                     interruption=interruption, extra=extra)
+        notice = self.tv_notice(level, cat, title, body, group_key, ref)
+        if notice and ids:
+            # One copy for every TV. No snapshot and no actions: a TV can show it, not approve it.
+            self.hub.bus.publish({"type": "inbox", "data": notice}, tvs=True)
         return ids
+
+    @staticmethod
+    def tv_notice(level: str, cat: str, title: str, body: str | None, group_key: str | None,
+                  ref: str | None) -> dict[str, Any] | None:
+        """The overlay a TV may show. Camera motion stays on the phones."""
+        text = f"{title}\n{body or ''}\n{group_key or ''}".lower()
+        if "doorbell" in text:
+            shown = "doorbell"
+        elif level == "act_now" and cat in ("house", "kitchen", "weather", "doors"):
+            shown = cat
+        elif level == "decision" and cat == "requests":
+            shown = "requests"
+        else:
+            return None
+        return {"level": level, "cat": shown, "title": title, "body": body, "ref": ref}
 
     async def _push_person(self, person_id: str, title: str, body: str | None, **kw: Any) -> None:
         apns = self.hub.apns

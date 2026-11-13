@@ -15,6 +15,8 @@ enum Destination: Hashable {
     case remote(String), music, watch, requests, pipeline, askMedia, mediaTitle(String), mediaRequest(String)
     case kidsIPads                      // what's on the kids' iPads; send them shows
     case tvSetup                        // find and add TVs and boxes for everyone's remote
+    case tvGuide                        // live guide, series and movies, played on a house TV
+    case tvSeries(String), tvMovie(String)
     case roomEdit(String), hiddenDevices  // admin: set up a room; devices hidden for everyone and clean-up
     case calendar, meals, recipe(String), shopping, chores, inventory
     case kitchen(String?), dinners, recipes
@@ -143,6 +145,7 @@ final class Router {
         case .people, .feedback, .vpnPool, .hubWeb: return store.role == .admin
         case .trips, .trip, .tripDay: return me?.can(.tripsView) == true
         case .recipe, .recipes, .meals, .dinners: return true
+        case .tvGuide, .tvSeries, .tvMovie: return me?.can(.mediaAll) == true || me?.can(.mediaOwnTV) == true
         case .calendar, .shopping, .inventory, .chores: return !kid && store.role != .guest
         case .kidNet: return me?.can(.networkManage) == true
         default: return !kid && store.role != .guest
@@ -201,6 +204,7 @@ final class Router {
             let tab: AppTab = kid ? .home : .family
             show(tab, id.map { Destination.trip($0) } ?? (kid ? nil : Destination.trips))
         case "requests": kid ? show(.watch) : show(.media, .requests)
+        case "guide": show(kid ? .watch : .media, .tvGuide)
         case "media":
             // thomascreek://media/requests/123 (the "ready to watch" push), thomascreek://media/ask
             let t: AppTab = kid ? .watch : .media

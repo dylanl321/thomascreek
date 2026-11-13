@@ -364,3 +364,19 @@ Adults and admins (`remotes.setup`). Pairing runs through Home Assistant's own s
   `PUT /v1/media/hookups/{box}` `{display_entity_id|null, input|null}` says which TV a box is plugged into and on
   which input. When the box is used, the hub turns that TV on and switches its input, sends volume to the TV, and
   turns both on or off together. The box's state carries `plugged_into {entity_id,name,input}`.
+
+## TV guide and play on a house TV (2026-11-13)
+
+The source of truth is `server/docs/API.md` (Thomas Creek TV). Shapes the iOS app now calls:
+
+- `GET /v1/tv/guide` → `{channels:[{key,name,number,logo,now,next,programmes}]}`. Programme: `{start,end,title,subtitle,desc,icon,catchup}`.
+- `GET /v1/tv/series`, `GET /v1/tv/series/<id>`, `GET /v1/tv/movies`, `GET /v1/tv/movies/<id>`, `GET /v1/tv/library/search?q=`.
+- `GET /v1/tv/players` → `{tvs:[{id,name,room,room_name,profile,online,playing,last_command}]}`. `id` is the TV install id, the `target` of `tv.play`.
+- `POST /v1/actions` `{action:"tv.play", target:<install id>, params}`. Params: `{channel_key, title?}` live; `{kind:"catchup", channel_key, start, resume?}`; `{movie_id, resume?}`; `{episode_id, series_id, resume?}`. Response adds `command_id` when the hub actually delivered it (`dry_run` means practice mode, nothing was sent).
+- SSE `tv`: `{id,name,room,playing,command?:{id,ok,error}}`. The app toasts `command`. A failure is `ok: false` and `error`.
+
+Kids only get kids' rows from the hub. The guide screen does not filter a second time.
+
+App: Media and the kids' Watch tab open `TVGuideView` (`Destination.tvGuide`, `thomascreek://guide`). A row opens `PlayOnTVSheet`, which lists `/v1/tv/players` and sends `tv.play`. Series and movie pages are `TVSeriesView` / `TVMovieView`.
+
+Follow-ups, not in this build: resume slider, a full programme grid (the guide shows now and next, not every row in the window), artwork caching, and waking the TV through `media.command` before `tv.play`. The Android TV app still has to enroll, take the token, and apply `tv_command`.

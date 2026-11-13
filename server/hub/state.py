@@ -94,6 +94,10 @@ class Hub:
                                    ref="thomascreek://tvs", group_key="tvapp")
 
         self.tv_app = TvApp(config.tv_app, vault, db, data, notify=_tv_notice)
+        from .tvcatalog import TvCatalog
+
+        self.tv_catalog = TvCatalog(vault, db, data)
+        self.tv_catalog.kids_categories = self.tv_app.kids_categories
         self.alerts = Alerts(self)
         self.actions = ActionRunner(self)
         self.timers = Timers(self)

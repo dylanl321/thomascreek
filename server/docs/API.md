@@ -89,7 +89,8 @@ Extra keys: `status.since` (when offline), `systems.services` (each connector's 
 
 `GET /v1/events` (SSE). Each event is sent as an `event: <type>` line followed by one
 `data: {"type": ..., "data": ...}` line; parsing only the `data:` lines is fine. Events: `hello`, `device` (full device object), `status`,
-`inbox` (one inbox item), `snapshot` (re-read `/v1/home`). Keepalive comment every 20 s.
+`inbox` (one inbox item), `snapshot` (re-read `/v1/home`), `tv` (what a house TV is playing; see Thomas Creek TV).
+A TV subscription also receives `tv_command`. Keepalive comment every 20 s.
 
 `POST /v1/actions {action, target, params}` -> `{ok, message, dry_run}`
 
@@ -100,6 +101,9 @@ Extra keys: `status.since` (when offline), `systems.services` (each connector's 
 `lock.set {locked}`, `garage.set {open}`, `media.command {command}`, `media.volume {volume}`,
 `speaker.group {members}`, `scene.run`, `mode.run`, `valve.run {minutes}`, `vacuum.start`,
 `shower.preheat`, `announce {text, rooms}`, `network.pause {minutes?}`, `network.grant {minutes?}`.
+
+`tv.play` and `tv.stop` tune the Thomas Creek TV app (see Thomas Creek TV). Power and volume stay on
+`media.command` / `media.volume`.
 
 `media.command` commands: `power play pause stop prev next vol_up vol_down mute`, `volume {volume:0-100}`,
 `source {source}` (one of the TV's `sources`), and the remote keys `up down left right select back home`.
@@ -377,3 +381,156 @@ All times are Unix seconds. 503 `unavailable` when HA can't answer.
 | PUT | /v1/rooms/{id}/layout | `{name?, symbol?, hidden?, order?, add?, remove?}` | add/remove move devices into/out of the room |
 
 `GET /v1/home` also gains `appliances` (one card per appliance) and `rooms[].scenes`. Stored in `hub_kv` key `home.layout`.
+
+## Thomas Creek TV (v1)
+
+One contract for the Android TV app and the iOS app. Paths stay under `/v1`. New fields can be added; clients ignore fields they don't know. A break would be a new path prefix, not a silent change to these shapes.
+
+Errors are the usual `{"error", "message"}`. TV-specific codes: `bad_signature`, `clock` (TV clock more than five minutes off), `replay` (that sign-in timestamp was already used), `revoked`, `pending`, `unknown_tv`, `not_home`, `not_a_tv`, `bad_key`, `not_set_up`.
+
+### Who is calling
+
+| Caller | How they prove it | What they can do |
+|---|---|---|
+| TV, before it has a bearer | P-256 signature over the strings below. Home network only. | Enroll, pull config, mint a token |
+| TV, after `POST /v1/tv/token` | Bearer, same audience as a phone. Re-checked on every call: revoked and key changes die immediately, not when the token expires. Home network only. | Its room's lights, scenes and climate; its own TV commands; guide filtered by profile; SSE |
+| Phone | Existing `/v1/auth/token` bearer | Guide, library, `tv.play` / `tv.stop` through the same policy as other actions |
+
+A TV token is built with `policy.Subject` and the same `TokenIssuer` as a phone (`hub.access_token_ttl_s`, 15 minutes). It has no biometric key. `decide` refuses secure and admin tiers, and also `lock.set`, `garage.set` and `camera.view`, even if a person's grants would allow them. Capability denies strip `doors`, `cameras` and every whole-house capability (`lights.all`, `climate.all`, `media.all`, …). The token keeps `lights.own_room`, `climate.own_room`, `media.own_tv` and `family.view`, and only inside the TV's room.
+
+A kids' profile is always role `child`. `person_id` on the token can only narrow (a kids' TV cannot name an adult). Person grants are not copied; person denies are. An adult TV with no person is role `tablet` limited to its room, not an admin.
+
+`GET /v1/home`, `POST /v1/actions` and `GET /v1/events` are the existing routes. A TV bearer is a normal caller with `subject.tv` set.
+
+### Device key
+
+`POST /v1/tv/enroll` `{install_id, name, model?, app_version?, public_key}` → `{status, profile}`. Unchanged. `public_key` is the same P-256 encoding as a phone (`crypto.normalize_public_key`).
+
+`POST /v1/tv/config` `{install_id, ts, signature}`. Signature is ES256 over the UTF-8 string `tvconfig:<install_id>:<ts>` (`crypto.verify_signature`). Approved body:
+
+```json
+{"status":"approved","version":3,"name":"Living room","profile":"adult","room":"living_room",
+ "media_entity":null,"playlists":[{"type":"xtream","name":"Thomas Creek","server":"…","username":"…","password":"…"}],
+ "epg_url":null,"lineup_version":12,"theme":null}
+```
+
+`profile: "kids"` also includes `kids_categories`. Pending is exactly `{"status":"pending"}`. `version` counts hub-side edits (profile, room, kids' categories, lineup). The `ETag` is a quoted sha256 of the JSON, so a vault password change still misses the cache when `version` did not move. Send `If-None-Match` to get `304` with an empty body and the same `ETag`. `Cache-Control: private, no-cache`.
+
+`POST /v1/tv/token` `{install_id, ts, signature, person_id?}`. Signature over `tvtoken:<install_id>:<ts>` or, when narrowing, `tvtoken:<install_id>:<ts>:<person_id>`. A timestamp cannot be reused.
+
+```json
+{"access_token":"…","token_type":"bearer","expires_at":"…","expires_in":900,
+ "role":"tablet","profile":"adult","room":"living_room","person":null,
+ "capabilities":["climate.own_room","family.view","lights.own_room","media.own_tv"],
+ "tv":{"id":"…","name":"Living room"}}
+```
+
+### Lineup and library
+
+Channel keys never contain a URL or a password. Xtream puts the password in the path, so v1 does not hash URLs.
+
+| Key | When |
+|---|---|
+| `iptv-org:CNN.us` | iptv-org id, preferred when the row has one |
+| `xc:thomas-creek:44102` | Xtream `stream_id`. `thomas-creek` is a household label, not the username |
+| `tvg:thomas-creek:cnn.us` | M3U `tvg-id` |
+| `vod:thomas-creek:99` | movie |
+| `series:thomas-creek:12` | series |
+| `ep:thomas-creek:555` | episode (`id` from `get_series_info`, not the episode number) |
+
+`GET /v1/tv/lineup` (bearer, `media.all` or `media.own_tv`). ETag / 304 like config.
+
+```json
+{"version":1710000000,"channels":[
+  {"key":"xc:thomas-creek:44102","name":"CNN","number":202,"group":"News","logo":"https://img.example/cnn.png","kids":false,"catchup_days":2}
+]}
+```
+
+A child, a guest and a kids' TV only receive `kids: true`. Hidden channels are omitted. Logos with a username, password or secret query are dropped. The list is the provider's live streams (cached) with the admin overlay from `PUT /v1/tvapp/lineup` (`systems`) winning on name, number, group, logo, kids and hidden. An empty cache falls back to that overlay alone.
+
+The provider snapshot is `POST /v1/tvapp/catalog/refresh` (`systems`). Reads refresh it when the list is older than six hours or the guide older than three. `409 not_set_up` when `iptv.xtream_*` is missing and there is no cache.
+
+`GET /v1/tv/guide?start=<unix>&end=<unix>&channel=<key>`
+
+```json
+{"from":"…","to":"…","channels":[
+  {"key":"xc:thomas-creek:10","name":"CNN","number":20,"group":"News","logo":"https://img.example/cnn.png",
+   "kids":false,"catchup_days":2,
+   "now":{"start":"…","end":"…","title":"Newsroom","subtitle":null,"desc":"…","icon":"https://img.example/news.jpg","catchup":true},
+   "next":{"start":"…","end":"…","title":"Tonight","subtitle":null,"desc":null,"icon":null,"catchup":false},
+   "programmes":[]}
+]}
+```
+
+Default window is from one hour ago to six hours ahead, at most 48 hours. `catchup` is true when the channel has archive days and the programme has already started inside that window (start-over of what's on now counts).
+
+`GET /v1/tv/series?q=&category=&limit=` → `{categories, series:[{id,name,cover,year,genre,rating,category,kids}]}`
+
+`GET /v1/tv/series/series:thomas-creek:12` → the same plus `plot`, `backdrop`, `seasons:[{number, episodes:[{id,season,number,title,plot,still,duration_s}]}]`.
+
+`GET /v1/tv/movies` and `GET /v1/tv/movies/vod:thomas-creek:99` are the movie equivalents (`plot`, `backdrop`, `duration_s` on the one movie).
+
+`GET /v1/tv/library/search?q=` (at least two letters) → `{q, channels, programmes, series, movies}`. Programmes are only those in the cached guide (about seven days back and 36 hours ahead), each with `channel_key` and `channel_name`.
+
+Kids' categories (`PUT /v1/tvapp/kids-categories`) are the allow-list. A kids' caller sees a channel, series or movie only when its category name matches that list, or a lineup row is marked `kids`. An empty list means a kids' caller sees nothing.
+
+### TVs a phone can target
+
+`GET /v1/tv/players`
+
+```json
+{"tvs":[
+  {"id":"<install_id>","name":"Living room","room":"living_room","room_name":"Living Room",
+   "profile":"adult","media_entity":null,"online":true,
+   "playing":{"channel_key":"xc:thomas-creek:10","title":"Newsroom","name":"CNN","number":20},
+   "last_command":{"id":"tvc_…","ok":false,"error":"no signal"}}
+]}
+```
+
+`online` means a heartbeat, token or enroll in the last two minutes. The list is the TVs `tv.stop` would allow: an adult sees every approved TV; a child sees a TV in their own room or their own `tv_device`, not a shared room.
+
+### Playing
+
+`POST /v1/actions` with `tv.play` or `tv.stop`. `target` is the install id or the linked `media_entity`. Power and volume stay on `media.command` and `media.volume`.
+
+```json
+{"action":"tv.play","target":"<install_id>","params":{"channel_key":"xc:thomas-creek:10","title":"Newsroom"}}
+{"action":"tv.play","target":"<install_id>","params":{"kind":"catchup","channel_key":"xc:thomas-creek:10","start":1710000000,"resume":30}}
+{"action":"tv.play","target":"<install_id>","params":{"movie_id":"vod:thomas-creek:99","resume":600}}
+{"action":"tv.play","target":"<install_id>","params":{"episode_id":"ep:thomas-creek:555","series_id":"series:thomas-creek:12","resume":15}}
+{"action":"tv.stop","target":"<install_id>"}
+```
+
+`kind` may be omitted: an episode id means `episode`, a movie id means `movie`, a channel plus `start` means `catchup`, a channel alone means `live`. `start` is unix seconds or an ISO time, and must fall inside the channel's catch-up days and not in the future. `resume` is seconds from 0 to 24 hours. A child, or any caller aiming at a kids' TV, can only play a kids' channel, movie or episode.
+
+The response is `{ok, message, dry_run, command_id?}`. In practice mode nothing is delivered and `command_id` is absent. Add `tv.play` and `tv.stop` to `live_actions` (or turn practice mode off) to deliver them.
+
+The TV receives the same object as SSE `tv_command` on `GET /v1/events` (hello includes `kind: "tv"` and `tv: <install_id>`), and can long-poll `GET /v1/tv/commands?timeout=20` (max 25, `0` returns immediately). Commands wait until `POST /v1/tv/commands/ack` `{ids}` or two minutes. A phone calling `/commands` gets `403 not_a_tv`. The command has no stream URL; the TV already has the provider login from config and looks the id up itself.
+
+```json
+{"id":"tvc_…","install_id":"…","action":"play","kind":"episode","episode_id":"ep:thomas-creek:555",
+ "series_id":"series:thomas-creek:12","name":"Cartoon Show","title":"Pilot","resume":15,"at":"…"}
+```
+
+The TV reports the outcome on its next `POST /v1/tv/state` (bearer):
+
+```json
+{"playing":{"channel_key":"xc:thomas-creek:10","title":"Newsroom","name":"CNN","number":20},
+ "foreground":true,
+ "health":{"app_version":"1.4.1","profile":"adult","epg_age_s":120,"last_error":null},
+ "command_id":"tvc_…","command_ok":false,"command_error":"no signal"}
+```
+
+`playing` may be null. `channel_key`, when set, must be one of the key forms above. URLs in `last_error` are replaced with `[url]`. Phones receive SSE `tv`:
+
+```json
+{"type":"tv","data":{"id":"…","name":"Living room","room":"living_room","profile":"adult",
+ "media_entity":null,"foreground":true,"playing":{"title":"Newsroom","name":"CNN","channel_key":"xc:thomas-creek:10","number":null},
+ "at":"…","command":{"id":"tvc_…","ok":false,"error":"no signal"}}}
+```
+
+`command` is present only on the heartbeat that carried the result. A child sees a `tv` event only for their own room or their own TV. A TV subscription does not receive other TVs' `tv` events, `camera_event`, or camera snapshots. It does receive doorbell and act-now house, kitchen, weather and door notices as `inbox` (display only: no `actions`, no image). An adult TV also receives `decision` / `requests`. Doorbell text is `cat: "doorbell"`.
+
+### Admin
+
+Existing `/v1/tvapp` routes, plus `PATCH /v1/tvapp/tvs/{id}` `{room?, media_entity?, status?, profile?, name?}` and `PUT /v1/tvapp/lineup` `{channels:[…]}`. `room` is an area id such as `living_room`. `media_entity` is `media_player.…`. Forgetting a TV (`DELETE`) is how a box gets a new key; revoke rejects the bearer on the next request.
