@@ -9590,6 +9590,428 @@
     }
    }
   },
+  "/v1/dvr/recordings": {
+   "post": {
+    "tags": [
+     "dvr"
+    ],
+    "summary": "Schedule",
+    "operationId": "schedule_v1_dvr_recordings_post",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ScheduleIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "201": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "get": {
+    "tags": [
+     "dvr"
+    ],
+    "summary": "List Recordings",
+    "operationId": "list_recordings_v1_dvr_recordings_get",
+    "parameters": [
+     {
+      "name": "status",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Status"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response List Recordings V1 Dvr Recordings Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/dvr/recordings/now": {
+   "post": {
+    "tags": [
+     "dvr"
+    ],
+    "summary": "Record Now",
+    "operationId": "record_now_v1_dvr_recordings_now_post",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/NowIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "201": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/dvr/rules": {
+   "post": {
+    "tags": [
+     "dvr"
+    ],
+    "summary": "Add Rule",
+    "operationId": "add_rule_v1_dvr_rules_post",
+    "parameters": [
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/RuleIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "201": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/dvr/recordings/{recording_id}": {
+   "get": {
+    "tags": [
+     "dvr"
+    ],
+    "summary": "One Recording",
+    "operationId": "one_recording_v1_dvr_recordings__recording_id__get",
+    "parameters": [
+     {
+      "name": "recording_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Recording Id"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response One Recording V1 Dvr Recordings  Recording Id  Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "delete": {
+    "tags": [
+     "dvr"
+    ],
+    "summary": "Delete Recording",
+    "operationId": "delete_recording_v1_dvr_recordings__recording_id__delete",
+    "parameters": [
+     {
+      "name": "recording_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Recording Id"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Delete Recording V1 Dvr Recordings  Recording Id  Delete"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/dvr/recordings/{recording_id}/stop": {
+   "post": {
+    "tags": [
+     "dvr"
+    ],
+    "summary": "Stop Recording",
+    "operationId": "stop_recording_v1_dvr_recordings__recording_id__stop_post",
+    "parameters": [
+     {
+      "name": "recording_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Recording Id"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Stop Recording V1 Dvr Recordings  Recording Id  Stop Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/dvr/recordings/{recording_id}/stream": {
+   "get": {
+    "tags": [
+     "dvr"
+    ],
+    "summary": "Stream",
+    "operationId": "stream_v1_dvr_recordings__recording_id__stream_get",
+    "parameters": [
+     {
+      "name": "recording_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Recording Id"
+      }
+     },
+     {
+      "name": "allow_cookie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Allow Cookie"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/v1/titles/search": {
    "get": {
     "tags": [
@@ -16019,6 +16441,37 @@
     ],
     "title": "NotifyBody"
    },
+   "NowIn": {
+    "properties": {
+     "channel_key": {
+      "type": "string",
+      "maxLength": 140,
+      "title": "Channel Key"
+     },
+     "duration_s": {
+      "type": "integer",
+      "title": "Duration S",
+      "default": 3600
+     },
+     "title": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 120
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Title"
+     }
+    },
+    "type": "object",
+    "required": [
+     "channel_key"
+    ],
+    "title": "NowIn"
+   },
    "Offer": {
     "properties": {
      "sdp": {
@@ -16821,6 +17274,97 @@
      "media_id"
     ],
     "title": "RequestIn"
+   },
+   "RuleIn": {
+    "properties": {
+     "channel_key": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 140
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Channel Key"
+     },
+     "title_match": {
+      "type": "string",
+      "maxLength": 80,
+      "title": "Title Match"
+     },
+     "new_only": {
+      "type": "boolean",
+      "title": "New Only",
+      "default": false
+     }
+    },
+    "type": "object",
+    "required": [
+     "title_match"
+    ],
+    "title": "RuleIn"
+   },
+   "ScheduleIn": {
+    "properties": {
+     "channel_key": {
+      "type": "string",
+      "maxLength": 140,
+      "title": "Channel Key"
+     },
+     "start": {
+      "type": "string",
+      "maxLength": 40,
+      "title": "Start"
+     },
+     "end": {
+      "type": "string",
+      "maxLength": 40,
+      "title": "End"
+     },
+     "title": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 120
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Title"
+     },
+     "programme_key": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 40
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Programme Key"
+     },
+     "pad_before_s": {
+      "type": "integer",
+      "title": "Pad Before S",
+      "default": 60
+     },
+     "pad_after_s": {
+      "type": "integer",
+      "title": "Pad After S",
+      "default": 180
+     }
+    },
+    "type": "object",
+    "required": [
+     "channel_key",
+     "start",
+     "end"
+    ],
+    "title": "ScheduleIn"
    },
    "SendBody": {
     "properties": {
