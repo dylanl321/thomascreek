@@ -44,6 +44,7 @@ from .kitchen import Kitchen
 from .bambu import Workshop
 from .bambu_cloud import BambuCloud
 from .timers import Timers
+from .tvfleet import sweep
 from .vault import Vault
 from .vpn import Vpn
 from .vpn_pia import Pia
@@ -318,6 +319,7 @@ class Hub:
         self.source_health.start()
         self.tv_bedtime.start()
         self._explore = asyncio.create_task(self._explore_loop())
+        self._fleet = asyncio.create_task(self._fleet_loop())
         if self.config.artwork.enabled:
             self.artwork.start()
 
@@ -334,6 +336,18 @@ class Hub:
             except Exception as exc:  # noqa: BLE001
                 log.info("explore: %s", exc)
             await asyncio.sleep(6 * 3600)
+
+    async def _fleet_loop(self) -> None:
+        """Notice a TV that has stopped checking in. A failure waits for the next pass."""
+        await asyncio.sleep(60)
+        while True:
+            try:
+                sweep(self)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # noqa: BLE001
+                log.info("fleet: %s", exc)
+            await asyncio.sleep(60)
 
     async def probe_once(self) -> None:
         """Touch each enabled service so the status page shows a real answer, not "never checked"."""
@@ -560,3 +574,5 @@ class Hub:
         await self.tv_bedtime.stop()
         if getattr(self, "_explore", None):
             self._explore.cancel()
+        if getattr(self, "_fleet", None):
+            self._fleet.cancel()
