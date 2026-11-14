@@ -56,13 +56,7 @@ struct KidHomeView: View {
             VStack(alignment: .leading, spacing: 14) {
                 header
                 if !store.reachable { KidNap() }
-                // Dinner and the next trip have their own cards on this screen.
-                RightNowSection(hide: ["my_dinner", "trip"], kid: true)
-                if !little { WhosHomeRow() }
-                HouseTVSection()
-                ForEach(store.home?.activePrinters ?? []) { PrinterNowCard(printer: $0, kid: true) }
-                if store.me?.can(.tripsView) == true { KidTripCard(little: little, color: color) }
-                if little { littleHome } else { kidHome }
+                ForEach(kidSections) { kidSection($0) }
             }
             .screen()
         }
@@ -93,8 +87,39 @@ struct KidHomeView: View {
         .padding(.top, 12)
     }
 
+    /// The parts of a child's Home. The house brain may put them in another order for the moment
+    /// (chores after school, the room at bedtime); a child never loses one, the rest follow in the usual order.
+    enum KidSection: String, CaseIterable, Identifiable {
+        case rightnow, whosHome = "whos_home", playing, printer, trip, board, actions, todo, myRoom = "my_room", dinner, holiday
+        var id: String { rawValue }
+    }
+
+    private var kidSections: [KidSection] {
+        let defaults: [KidSection] = little ? [.rightnow, .playing, .printer, .trip, .board, .actions, .dinner] : KidSection.allCases
+        guard let plan = store.home?.plan, plan.arranged, plan.home == "kid" else { return defaults }
+        let first = plan.sections.filter(\.show).compactMap { KidSection(rawValue: $0.id) }.filter(defaults.contains)
+        return first + defaults.filter { !first.contains($0) }
+    }
+
+    @ViewBuilder private func kidSection(_ s: KidSection) -> some View {
+        switch s {
+        // Dinner and the next trip have their own cards on this screen.
+        case .rightnow: RightNowSection(hide: ["my_dinner", "trip"], kid: true)
+        case .whosHome: if !little { WhosHomeRow() }
+        case .playing: HouseTVSection()
+        case .printer: ForEach(store.home?.activePrinters ?? []) { PrinterNowCard(printer: $0, kid: true) }
+        case .trip: if store.me?.can(.tripsView) == true { KidTripCard(little: little, color: color) }
+        case .board: if little { littleStars } else { kidBoard }
+        case .actions: if little { littleTiles } else { kidActions }
+        case .todo: if !little { kidTodo }
+        case .myRoom: if !little { kidRoom }
+        case .dinner: if little { littleDinner } else { kidDinner }
+        case .holiday: if !little { kidHoliday }
+        }
+    }
+
     // 9-year-old: words and pictures.
-    @ViewBuilder private var kidHome: some View {
+    @ViewBuilder private var kidBoard: some View {
         if let b = board {
             HStack(spacing: 16) {
                 ZStack {
@@ -113,27 +138,42 @@ struct KidHomeView: View {
             }
             .card()
         }
+    }
+
+    @ViewBuilder private var kidActions: some View {
         InternetChip()
         HStack(spacing: 10) {
             KidActionTile(emoji: "🙋", title: "Ask a parent", color: color) { asking = true }
             KidActionTile(emoji: "🎁", title: "Rewards", color: .orange) { router.show(.chores) }
             KidActionTile(emoji: Wx.emoji(nil), title: "Weather", color: .teal) { router.go(.weather) }
         }
+    }
+
+    @ViewBuilder private var kidTodo: some View {
         let todo = (board?.items ?? []).filter { !$0.done }
         if !todo.isEmpty {
             SectionHeader(title: "Still to do") { MoreButton("All") { router.show(.chores) } }
             ForEach(todo.prefix(3)) { c in ChoreRow(chore: c, color: color) { await done(c) } }
         }
+    }
+
+    @ViewBuilder private var kidRoom: some View {
         if let room = store.myRoom {
             SectionHeader(title: "My room") { MoreButton("More") { router.show(.myRoom) } }
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
                 ForEach((store.home?.devices(in: room) ?? []).filter { [.light, .fan].contains($0.kind) }.prefix(4)) { DeviceTile(device: $0) }
             }
         }
+    }
+
+    @ViewBuilder private var kidDinner: some View {
         if let d = store.home?.today?.dinner {
             SectionHeader("Dinner tonight")
             HStack(spacing: 12) { Text(d.emoji ?? "🍽️").font(.system(size: 40)); Text(d.title).font(Theme.kidFont(20, .semibold)) }.card()
         }
+    }
+
+    @ViewBuilder private var kidHoliday: some View {
         if store.holidaySeason {
             Button { router.go(.holiday) } label: {
                 Label("Pick tonight's light show", systemImage: "sparkles").font(Theme.kidFont(18, .semibold))
@@ -144,7 +184,7 @@ struct KidHomeView: View {
     }
 
     // 5-year-old: pictures and colour first, words second, everything can be read aloud.
-    @ViewBuilder private var littleHome: some View {
+    @ViewBuilder private var littleStars: some View {
         let stars = board?.points ?? 0
         HStack(spacing: 4) {
             ForEach(0..<10, id: \.self) { i in
@@ -152,6 +192,9 @@ struct KidHomeView: View {
             }
         }
         .frame(maxWidth: .infinity).card()
+    }
+
+    @ViewBuilder private var littleTiles: some View {
         LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
             BigPictureButton(emoji: "💡", title: "Lights", colors: [.orange, .red]) { router.show(.myRoom) }
             BigPictureButton(emoji: "📺", title: "Shows", colors: [.blue, .indigo]) { router.show(.watch) }
@@ -163,6 +206,9 @@ struct KidHomeView: View {
                 BigPictureButton(emoji: "✨", title: "Light show", colors: [.purple, Color(red: 0.23, green: 0.16, blue: 0.56)]) { router.go(.holiday) }
             }
         }
+    }
+
+    @ViewBuilder private var littleDinner: some View {
         if let d = store.home?.today?.dinner {
             SectionHeader("Dinner")
             HStack(spacing: 12) {

@@ -133,12 +133,19 @@ struct EditHomeSheet: View {
     @State private var order: [HomeSection] = []
     @State private var hidden: Set<HomeSection> = []
     @State private var favs: [FavoriteKind: [FavoriteRef]] = [:]
+    @State private var arrange = true
 
     private let kinds: [FavoriteKind] = [.room, .device, .camera, .mode]
 
     var body: some View {
         NavigationStack {
             List {
+                Section {
+                    Toggle(isOn: $arrange) { Label("Let Thomas Creek arrange Home", systemImage: "sparkles") }
+                } footer: {
+                    Text(arrange ? "Home changes with the time of day, who's home and what's going on. Your order below is a hint, and sections you hide stay hidden. Anything moved aside is under Show everything."
+                                 : "Home always shows your order below.")
+                }
                 Section {
                     ForEach(order) { s in
                         let shown = !hidden.contains(s)
@@ -201,11 +208,16 @@ struct EditHomeSheet: View {
         let shown = s.homeSections(default: available)
         order = shown + available.filter { !shown.contains($0) }
         hidden = Set(available.filter { s.isHidden($0) })
+        arrange = s.bool(SettingKey.homeAI, true)
         for k in kinds { favs[k] = s.favorites(k) }
     }
 
     private func save() {
         SettingsStore.shared.setHomeSections(order: order, hidden: hidden)
+        if arrange != SettingsStore.shared.bool(SettingKey.homeAI, true) {
+            SettingsStore.shared.set(SettingKey.homeAI, arrange)
+            HomeStore.shared.refreshSmart()  // the hub hands back the right arrangement
+        }
         for k in kinds {
             let now = (favs[k] ?? []).map(\.id)
             if now != SettingsStore.shared.favorites(k).map(\.id) { SettingsStore.shared.reorder(k, now) }

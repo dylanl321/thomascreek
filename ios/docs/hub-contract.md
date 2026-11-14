@@ -233,6 +233,24 @@ Hub config `smart:` dinner_time, dinner_lead_min, lockup_time, trash_night, bedt
 latitude/longitude (default: Home Assistant's), goodnight_mode, off_rules. Weather is Open-Meteo, falling back
 to the first `weather.*` entity.
 
+## Home arranged by the house brain (2026-11-14)
+
+`GET /v1/home` and `GET /v1/smart` carry `plan` for grown-ups (admin, adult, tablet) and children; none for guests
+or TVs. `plan = {source: "ai"|"default"|"off", home: "adult"|"kid", sections: [{id, show, note?}], cards_shown,
+why?, generated_at?}`. `smart` comes back in the plan's card order (safety cards always first).
+- Grown-up section ids are the `HomeSection` raw values; kid ids are rightnow, whos_home, playing, printer, trip,
+  board, actions, todo, my_room, dinner, holiday (the little layout: rightnow, playing, printer, trip, board,
+  actions, dinner).
+- `show: false` = tucked under "Show everything". `note` = the service behind it isn't answering; draw a one-line
+  row instead of the section. Sections the person hid in Edit Home never appear.
+- The app follows `plan` only when `source == "ai"` and the person's `home.ai` setting is on (default true);
+  otherwise its own order as before. Kids' sections are only reordered, never hidden.
+- A fresh plan arrives as `{"type":"smart"}` after the model answers (the request never waits).
+- Hub: hub/brain/layout.py (guard rails), hub/brain/layout_examples.py (example screens the model copies).
+  Config `brain.layout_enabled` (default true), `brain.layout_cooldown_min` (10). Runs are costed in `ai_runs` as
+  job `layout`; `/v1/brain/summary` has `layout {enabled, runs, cost_usd, people}`.
+- Settings: `home.ai` (bool) is new, and `home.order`/`home.hidden` now accept `weather` (it was refused before).
+
 ## Settings and favorites that follow a person, View as (2026-11-12)
 
 - `GET /v1/me/settings` → `{version, settings:{key:value}, favorites:{room|device|camera|mode|media|recipe|youtube:[{id,title?,subtitle?,image?}]}}`. Settings keys: `home.order`, `home.hidden` (section ids: whos_home, rightnow, status, favorites, modes, kids, playing, cameras, holiday, trip, today, systems), `appearance` (system/light/dark), `simple_mode`, `text_size` (standard/large/larger), `defaults.play_on|speaker|oven` (entity id or null), `cameras.layout` (grid/list), `cameras.home` (all/starred), `downloads.quality` (original/high/medium/small), `downloads.cellular`, `downloads.remove_watched`, `live_activity.auto`, plus free-form `app.*` (≤ 2 KB each).

@@ -367,6 +367,7 @@ final class HomeStore {
             guard let self, var h = self.home else { return }
             h.smart = list.cards
             if let w = list.weather { h.weather = w }
+            if let p = list.plan { h.plan = p }
             self.home = h
             self.cacheHome()
         }

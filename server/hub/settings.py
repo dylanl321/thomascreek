@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 
 FAVORITE_KINDS = ("room", "device", "camera", "mode", "media", "recipe", "youtube")
 MAX_FAVORITES = 60
-HOME_SECTIONS = ("whos_home", "rightnow", "status", "favorites", "modes", "kids", "playing", "printer", "cameras", "holiday",
+HOME_SECTIONS = ("whos_home", "rightnow", "weather", "status", "favorites", "modes", "kids", "playing", "printer", "cameras", "holiday",
                  "trip", "today", "systems")
 
 _ID = re.compile(r"^[A-Za-z0-9_.:\-/]{1,200}$")
@@ -71,6 +71,7 @@ SETTINGS: dict[str, tuple[Any, Any]] = {
     # key: (default, validator)
     "home.order": ([], _sections),
     "home.hidden": ([], _sections),
+    "home.ai": (True, _bool),          # let the house brain arrange Home (brain/layout.py)
     "appearance": ("system", _choice("system", "light", "dark")),
     "simple_mode": (False, _bool),
     "text_size": ("standard", _choice("standard", "large", "larger")),

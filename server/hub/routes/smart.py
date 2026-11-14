@@ -15,7 +15,11 @@ router = APIRouter(prefix="/v1/smart", tags=["smart"])
 
 @router.get("")
 async def smart(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
-    return {"cards": h.smart.cards(c.subject), "weather": h.smart.weather.now()}
+    plan, cards = h.home.plan_and_cards(c.subject)
+    out = {"cards": cards, "weather": h.smart.weather.now()}
+    if plan is not None:
+        out["plan"] = plan
+    return out
 
 
 class DismissBody(BaseModel):

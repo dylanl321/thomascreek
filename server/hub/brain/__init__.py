@@ -59,6 +59,9 @@ class Brain:
         self._task: asyncio.Task | None = None
         self._running: set[str] = set()
         self._load_cards()
+        from .layout import Planner
+
+        self.layout = Planner(self)
 
     # -- switches -----------------------------------------------------------
     @property
@@ -577,6 +580,9 @@ class Brain:
             "dismiss_rate": round((not_now + ignored) / cards, 3) if cards else None,
             "actions": acts, "undo_rate": round(undone / acts, 3) if acts else None,
             "auto_actions": list(self.cfg.auto_actions), "live_cards": len(self.cards), "jobs": jobs,
+            "layout": {"enabled": bool(self.cfg.layout_enabled), "runs": (by.get("layout") or {}).get("runs") or 0,
+                       "cost_usd": round((by.get("layout") or {}).get("cost") or 0, 4),
+                       "people": len(self.layout.plans)},
         }
 
     def runs(self, job: str | None = None, limit: int = 50, before: float | None = None) -> list[dict[str, Any]]:
