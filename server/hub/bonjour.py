@@ -37,7 +37,7 @@ def _lan_ip() -> str:
 
 def _txt(h: Hub) -> dict[str, str]:
     cert, _ = ensure_tls(h.config)
-    return {"api": "v1", "id": h.config.hub.id, "pin": spki_fingerprint(cert)}
+    return {"api": "v1", "id": h.config.hub.id, "pin": spki_fingerprint(cert), "pair": "/v1/tv/pair"}
 
 
 class _Avahi:

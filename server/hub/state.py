@@ -123,6 +123,9 @@ class Hub:
         from .tvbedtime import TvBedtime
 
         self.tv_bedtime = TvBedtime(self)
+        from .tvpair import TvPair
+
+        self.tv_pair = TvPair(self)
         from .ambient import Ambient
 
         self.ambient = Ambient(self)
