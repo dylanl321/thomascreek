@@ -18,7 +18,7 @@ from .deps import Caller, caller, error, hub, require_confirm
 
 # What a TV subscription is allowed to receive. Anything else (cameras, printers,
 # other people's now-playing) is dropped. Doorbell and house alerts arrive as inbox.
-_TV_EVENTS = frozenset({"device", "status", "inbox", "tv_command", "snapshot", "home_alert"})
+_TV_EVENTS = frozenset({"device", "status", "inbox", "tv_command", "snapshot", "home_alert", "bedtime"})
 _TV_ALERTS = frozenset({"house", "kitchen", "weather", "doors"})
 
 router = APIRouter(prefix="/v1", tags=["home"])
@@ -27,6 +27,14 @@ router = APIRouter(prefix="/v1", tags=["home"])
 @router.get("/home")
 async def home(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
     return h.home.snapshot(c.subject)
+
+
+def _bedtime_data(ev: dict[str, Any]) -> dict[str, Any]:
+    data = ev.get("data") or {}
+    out: dict[str, Any] = {"state": data.get("state"), "profile": data.get("profile")}
+    if data.get("minutes_left") is not None:
+        out["minutes_left"] = data["minutes_left"]
+    return out
 
 
 def shape_event(h: Hub, s: Subject, ev: dict[str, Any]) -> dict[str, Any] | None:
@@ -39,6 +47,10 @@ def shape_event(h: Hub, s: Subject, ev: dict[str, Any]) -> dict[str, Any] | None
         if s.role in ("pending", "guest"):
             return None
         return ev
+    if ev.get("type") == "bedtime" and (ev.get("data") or {}).get("state"):
+        if s.role in ("pending", "guest"):
+            return None
+        return {"type": "bedtime", "data": _bedtime_data(ev)}
     if ev.get("type") == "tv":
         return _shape_tv_watching(h, s, ev)
     if ev.get("type") == "device":
@@ -67,6 +79,14 @@ def _shape_for_tv(h: Hub, s: Subject, ev: dict[str, Any]) -> dict[str, Any] | No
         return {"type": "tv_command", "data": data}
     if kind == "home_alert":
         return ev
+    if kind == "bedtime":
+        data = ev.get("data") or {}
+        if data.get("state") not in ("warning", "locked", "unlocked"):
+            return None
+        profile = "kids" if s.is_child_like else "adult"
+        if data.get("profile") not in (None, profile):
+            return None
+        return {"type": "bedtime", "data": _bedtime_data(ev)}
     if kind == "inbox":
         data = {k: v for k, v in (ev.get("data") or {}).items()
                 if k not in ("actions", "image", "snapshot_url", "clip_url", "thumb_url")}

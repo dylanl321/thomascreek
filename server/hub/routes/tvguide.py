@@ -118,6 +118,42 @@ async def channel_health(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> 
     return h.source_health.worst()
 
 
+@router.get("/bedtime")
+async def bedtime(profile: str = "kids", c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """The rules and whether that profile is in the warning or locked right now."""
+    _media(h, c)
+    return h.tv_bedtime.status(_profile(c, profile))
+
+
+@router.put("/bedtime")
+async def put_bedtime(body: dict[str, Any], c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    if c.subject.role != "admin":
+        raise error(403, "forbidden", "Only Dylan can change this")
+    return h.tv_bedtime.update(_profile(c, str(body.get("profile") or "kids")), body)
+
+
+class BedtimeExtend(BaseModel):
+    profile: str = "kids"
+    minutes: int = Field(ge=5, le=120)
+
+
+@router.post("/bedtime/extend")
+async def extend_bedtime(body: BedtimeExtend, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """A parent adds a few minutes. A child is asked to wait."""
+    _media(h, c)
+    if c.subject.role not in ("admin", "adult"):
+        raise error(403, "forbidden", "Ask a parent", ask_parent=c.subject.is_child_like)
+    return h.tv_bedtime.extend(_profile(c, body.profile), body.minutes)
+
+
+def _profile(c: Caller, requested: str) -> str:
+    if c.subject.tv and c.subject.is_child_like:
+        return "kids"
+    if c.subject.is_child_like:
+        return "kids"
+    return "kids" if requested == "kids" else "adult"
+
+
 @router.get("/guide")
 async def guide(start: float | None = None, end: float | None = None, channel: str | None = None,
                 c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:

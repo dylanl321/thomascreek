@@ -29,6 +29,8 @@ final class HomeStore {
     var tvsLoadedAt: Date?
     /// Someone at the door, for as long as the hub said the card should stay up.
     var doorAlert: DoorNotice?
+    /// Kids' TV winding down or stopped. A parent can add time from the card.
+    var tvBedtime: TVBedtimeNotice?
     var lastUpdate: Date?
     var reachable = true
     var unreachableSince: Date?
@@ -239,6 +241,13 @@ final class HomeStore {
             show(o["message"]?.string ?? (ok ? "Playing" : "Couldn't start it"), o["tracks"]?.string, isError: !ok)
         case "hello":
             return
+        case "bedtime":
+            guard case .object(let o)? = e.data, let state = o["state"]?.string else { return }
+            let left = o["minutes_left"]?.double ?? o["minutesLeft"]?.double
+            tvBedtime = TVBedtimeNotice(state: state, profile: o["profile"]?.string ?? "kids",
+                                        minutesLeft: left.map { Int($0) })
+            if state == "warning" { UINotificationFeedbackGenerator().notificationOccurred(.warning) }
+            return
         case "home_alert":
             guard let alert = e.data.flatMap({ Self.decode(DoorNotice.self, $0) }) else { return }
             doorAlert = alert
@@ -432,6 +441,17 @@ final class HomeStore {
                 show(r.message, [r.audio, r.subtitles.map { "Subtitles: \($0)" }].compactMap { $0 }.joined(separator: " · "),
                      isError: r.ok == false)
             } catch { show(error.localizedDescription, isError: true) }
+        }
+    }
+
+    func extendBedtime(minutes: Int) async {
+        tvBedtime = TVBedtimeNotice(state: "unlocked", profile: tvBedtime?.profile ?? "kids", minutesLeft: minutes)
+        do {
+            let _: TVBedtimeRules = try await HubClient.shared.post("/v1/tv/bedtime/extend",
+                                                                    ["profile": "kids", "minutes": minutes])
+            show("Added \(minutes) minutes")
+        } catch {
+            show(error.localizedDescription)
         }
     }
 
