@@ -277,6 +277,36 @@ SCHEMA += [
     )""",
 ]
 
+# The house brain's run log (hub/brain): every background AI run and every assistant turn, with its cost.
+SCHEMA += [
+    """
+    CREATE TABLE IF NOT EXISTS ai_runs (
+        id TEXT PRIMARY KEY,
+        ts REAL NOT NULL,
+        job TEXT NOT NULL,
+        trigger TEXT,
+        input_summary TEXT,
+        input_hash TEXT,
+        model TEXT,
+        tier TEXT,
+        tokens_in INTEGER NOT NULL DEFAULT 0,
+        tokens_out INTEGER NOT NULL DEFAULT 0,
+        tokens_cached INTEGER NOT NULL DEFAULT 0,
+        cost_usd REAL NOT NULL DEFAULT 0,
+        latency_ms INTEGER,
+        decision TEXT,
+        action TEXT,
+        activity_id INTEGER,
+        card_id TEXT,
+        outcome TEXT,
+        feedback TEXT,
+        feedback_at REAL
+    )""",
+    "CREATE INDEX IF NOT EXISTS ai_runs_ts ON ai_runs(ts)",
+    "CREATE INDEX IF NOT EXISTS ai_runs_job ON ai_runs(job, ts)",
+    "CREATE INDEX IF NOT EXISTS ai_runs_card ON ai_runs(card_id)",
+]
+
 ADDED_COLUMNS = [
     ("devices", "kind", "TEXT NOT NULL DEFAULT 'phone'"),   # phone | test (a simulator joined with a test key)
     ("devices", "test_key_id", "TEXT"),
@@ -284,7 +314,7 @@ ADDED_COLUMNS = [
     ("yt_sources", "max_height", "INTEGER"),  # quality picked in the wizard (480/720/1080); NULL = the hub's max_height
 ]
 
-JSON_COLUMNS = {"holdings", "source_ids", "areas", "shared_areas", "grants", "denies", "prefs", "activity", "actions", "payload", "params"}
+JSON_COLUMNS = {"decision", "holdings", "source_ids", "areas", "shared_areas", "grants", "denies", "prefs", "activity", "actions", "payload", "params"}
 
 
 def new_id(prefix: str) -> str:

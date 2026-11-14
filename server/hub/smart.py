@@ -49,7 +49,11 @@ RULE_TITLES = {
     "show": "Holiday show", "bedtime": "Kids' bedtime", "trash": "Trash night", "lockup": "Lock up for the night",
     "media_ready": "Your request is ready", "wx_alert": "Weather warnings", "trip": "Trip coming up", "my_chores": "My chores",
     "my_bedtime": "My bedtime", "my_dinner": "What's for dinner", "my_weather": "Morning weather",
+    # House brain jobs (hub/brain/house.py): their cards carry rule "brain_<job>".
+    "brain_plain_cards": "House brain notes", "brain_left_on": "Left on, left open", "brain_briefing": "Morning briefing",
+    "brain_catch_up": "While you were out",
 }
+BRAIN_RULES = ("brain_plain_cards", "brain_left_on", "brain_briefing", "brain_catch_up")
 
 
 def hm(v: str | None, default: int) -> int:
@@ -315,6 +319,11 @@ class Smart:
                 v["strikes"].pop(rule, None)
                 muted_now = True
         self.hub.db.kv_set(self._hide_key(s.person_id), v)
+        if rule.startswith("brain_"):
+            try:
+                self.hub.brain.feedback(card_id, handled, s.person_id)
+            except Exception as exc:  # noqa: BLE001
+                log.info("brain feedback failed: %s", exc)
         self.hub.bus.publish({"type": "smart", "data": {}})
         return {"ok": True, "muted": muted_now, "rule_title": RULE_TITLES.get(rule, rule)}
 
@@ -334,7 +343,9 @@ class Smart:
     def settings(self, s: "Subject") -> dict[str, Any]:
         v = self.hidden(s.person_id)
         rules = KID_RULES if s.role == "child" else ADULT_RULES
-        names = [r.__name__.removeprefix("r_") for r in rules]
+        names = [r.__name__.removeprefix("r_") for r in rules if r is not r_brain]
+        if s.role != "child":
+            names += list(BRAIN_RULES)
         return {"muted": [{"rule": r, "title": RULE_TITLES.get(r, r)} for r in v["muted"]],
                 "rules": [{"rule": n, "title": RULE_TITLES.get(n, n)} for n in names]}
 
@@ -1045,7 +1056,15 @@ def r_my_weather(sm: Smart, c: Ctx):
                 why="Morning weather", emoji=emoji)
 
 
-ADULT_RULES = [r_wx_alert, r_oven_on, r_away_unlocked, r_away_lights, r_garage_open, r_package, r_weather_am, r_today, r_rain,
+def r_brain(sm: Smart, c: Ctx):
+    """The house brain's cards (hub/brain). Each keeps its own rule (brain_<job>) for "Not now" and muting."""
+    if c.s.role not in ("admin", "adult"):
+        return None
+    brain = getattr(sm.hub, "brain", None)
+    return brain.cards_for(sm, c) if brain else None
+
+
+ADULT_RULES = [r_brain, r_wx_alert, r_oven_on, r_away_unlocked, r_away_lights, r_garage_open, r_package, r_weather_am, r_today, r_rain,
                r_freeze, r_heat, r_kids_chores, r_dinner, r_habit, r_show, r_bedtime, r_trash, r_lockup, r_media_ready,
                r_trip]
 KID_RULES = [r_my_weather, r_my_chores, r_my_dinner, r_my_bedtime, r_media_ready, r_trip]

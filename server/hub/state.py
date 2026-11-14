@@ -161,6 +161,9 @@ class Hub:
         self.settings = PersonSettings(self)
         self.assistant = Assistant(self)
         self.household = Household(self)
+        from .brain import Brain
+
+        self.brain = Brain(self)
         self._home_nets = [ipaddress.ip_network(n, strict=False) for n in config.hub.home_networks]
         self._proxies = [ipaddress.ip_network(n, strict=False) for n in config.hub.trusted_proxies]
         self.started_at = time.time()
@@ -304,6 +307,7 @@ class Hub:
         self.smart.start()
         self.alerts.start()
         self.household.start()
+        self.brain.start()
         from .dropbox import watch
 
         self._dropbox = asyncio.create_task(watch(self.vault))
@@ -539,6 +543,7 @@ class Hub:
         await self.forecasts.close()
         await self.alerts.stop()
         await self.household.stop()
+        await self.brain.stop()
         await self.onepassword.stop()
         if getattr(self, "_dropbox", None):
             self._dropbox.cancel()

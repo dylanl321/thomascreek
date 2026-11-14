@@ -39,6 +39,7 @@ struct SystemsView: View {
                     NavigationLink(value: Destination.activity) { InfoRow("clock.arrow.circlepath", "Activity log", nil, chevron: true) }
                     NavigationLink(value: Destination.people) { InfoRow("person.2.badge.key.fill", "People and permissions", nil, chevron: true) }
                     if store.role == .admin {
+                        NavigationLink(value: Destination.houseBrain) { InfoRow("sparkles", "House brain", "Background AI: cards, spend, run log", chevron: true) }
                         NavigationLink(value: Destination.hubWeb) { InfoRow("globe", "Hub web page", "Status and keys in a browser", chevron: true) }
                     }
                 }

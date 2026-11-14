@@ -24,6 +24,7 @@ enum Destination: Hashable {
     case kitchen(String?), dinners, recipes
     case trips, trip(Int), tripDay(Int, String)
     case systems, storage, activity, people, kidNet, vpnPool, hubWeb, youtube
+    case houseBrain, brainRun(String)     // admin: the background AI's spend, jobs and run log
     case nasApps(String?), nasApp(String), nasLogs(String, String?), nasUpdates, nasSettings
     case today, leaving, intercom, guestPasses, bedtimes, feedback
     case weather, weatherAlert(String), weatherRadar, weatherOutlook
@@ -146,7 +147,7 @@ final class Router {
         case .workshop, .printLibrary: return me?.can(.appliances) == true || kid
         case .storage, .nasApps, .nasApp, .nasLogs, .nasUpdates, .nasSettings: return store.role == .admin
         case .systems, .activity: return me?.can(.systems) == true || me?.can(.activity) == true
-        case .people, .feedback, .vpnPool, .hubWeb: return store.role == .admin
+        case .people, .feedback, .vpnPool, .hubWeb, .houseBrain, .brainRun: return store.role == .admin
         case .trips, .trip, .tripDay: return me?.can(.tripsView) == true
         case .recipe, .recipes, .meals, .dinners: return true
         case .tvGuide, .tvSeries, .tvMovie: return me?.can(.mediaAll) == true || me?.can(.mediaOwnTV) == true
@@ -261,6 +262,7 @@ final class Router {
         case "kidsipads", "sends": kid ? show(.watch) : show(.media, .kidsIPads)
         case "hubweb": show(.systems, .hubWeb)
         case "vpnpool": show(.systems, .vpnPool)
+        case "brain": show(.systems, .houseBrain)
         case "downloads": showOffline = true
         case "today": show(.home, .today)
         case "weather":
