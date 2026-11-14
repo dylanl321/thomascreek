@@ -487,24 +487,56 @@ final class HomeStore {
 
     /// Start the show on another TV from the same second. The card updates before the hub answers.
     func moveTV(from: String, to: TVPlayer, title: String) {
-        let carried = houseTVs.first { $0.id == from || $0.mediaEntity == from }?.playing ?? TVPlaying(title: title)
-        if let i = houseTVs.firstIndex(where: { $0.id == from || $0.mediaEntity == from }) {
-            houseTVs[i].playing = nil
+        let before = houseTVs
+        let source = houseTVs.first { $0.id == from || $0.mediaEntity == from }
+        if source?.playing != nil {
+            if let i = houseTVs.firstIndex(where: { $0.id == from || $0.mediaEntity == from }) {
+                let carried = houseTVs[i].playing
+                houseTVs[i].playing = nil
+                if let j = houseTVs.firstIndex(where: { $0.id == to.id }) { houseTVs[j].playing = carried }
+            }
+            show("Moving \(title) to \(to.name)")
         }
-        if let j = houseTVs.firstIndex(where: { $0.id == to.id }) {
-            houseTVs[j].playing = carried
-        }
-        show("Moving \(title) to \(to.name)")
         Task {
             do {
-                let reply: TVHandoffReply = try await HubClient.shared.post("/v1/tv/handoff",
-                                                                            ["from_device": from, "to_device": to.id])
-                if reply.ok == false { show(reply.message ?? "It's still where it was") }
+                let payload = try TVHandoffBody(fromDevice: from, toDevice: to.id).json()
+                let reply: HouseHandoffReply = try await HubClient.shared.post(TVRemotePath.handoff, payload)
+                if reply.stayed {
+                    houseTVs = before
+                    show(reply.message ?? "It's still where it was")
+                }
+            } catch HubClient.HubError.unreachable {
+                houseTVs = before
+                show("Can't reach the house right now.")
+            } catch HubClient.HubError.cancelled {
+                houseTVs = before
             } catch {
-                show(error.localizedDescription)
+                houseTVs = before
+                show(calm(error))
             }
-            await loadHouseTVs()
         }
+    }
+
+    /// One remote button. Returns a sentence when it did not go through. Nil when the hub took it.
+    func press(_ body: TVRemoteBody) async -> String? {
+        do {
+            let reply: TVRemoteReply = try await HubClient.shared.post(TVRemotePath.remote, try body.json())
+            return reply.calmLine
+        } catch HubClient.HubError.unreachable {
+            return "Can't reach the house right now."
+        } catch HubClient.HubError.cancelled {
+            return nil
+        } catch {
+            return calm(error)
+        }
+    }
+
+    private func calm(_ error: Error) -> String {
+        if let hub = error as? HubClient.HubError, let line = hub.errorDescription, !line.isEmpty,
+           !line.contains("NSURL"), !line.contains("Error Domain") {
+            return line
+        }
+        return "That didn't go through."
     }
 
     /// Hand a title to a TV ("play on").

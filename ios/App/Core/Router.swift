@@ -14,7 +14,7 @@ enum Destination: Hashable {
     case dollhouse(String)
     case climate, climateHistory(String), doors, cameras, camera(String), cameraEvent(String), appliances, outdoor, workshop, printLibrary
     case holiday, holidayControllers, house3D
-    case remote(String), music, watch, requests, pipeline, askMedia, mediaTitle(String), mediaRequest(String)
+    case remote(String), houseRemote(String), music, watch, requests, pipeline, askMedia, mediaTitle(String), mediaRequest(String)
     case kidsIPads                      // what's on the kids' iPads; send them shows
     case tvSetup                        // find and add TVs and boxes for everyone's remote
     case tvGuide                        // live guide, series and movies, played on a house TV
@@ -150,6 +150,7 @@ final class Router {
         case .trips, .trip, .tripDay: return me?.can(.tripsView) == true
         case .recipe, .recipes, .meals, .dinners: return true
         case .tvGuide, .tvSeries, .tvMovie: return me?.can(.mediaAll) == true || me?.can(.mediaOwnTV) == true
+        case .houseRemote: return store.role != .guest
         case .calendar, .shopping, .inventory, .chores: return !kid && store.role != .guest
         case .kidNet: return me?.can(.networkManage) == true
         default: return !kid && store.role != .guest
