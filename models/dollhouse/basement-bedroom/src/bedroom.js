@@ -215,7 +215,7 @@ export function buildBedroom() {
       cyl(`recessed_light_${i + 1}`, g, m.bulb, 0.05, 0.05, 0.004, x, H - 0.013, z, 20).castShadow = false;
       const cone = mesh(`light_cone_recessed_${i + 1}`, new THREE.ConeGeometry(0.45, H - 0.08, 24, 1, true), coneMat, g, x, (H - 0.08) / 2 + 0.02, z, false); cone.visible = false; cone.renderOrder = 6; show.push(cone);
       decals.push(decal(`glow_recessed_${i + 1}_pool`, g, T.glow, STYLE.warm, 0.3, 1.0, 1.0, x, 0.004, z, 'up')); });
-    const lights = [[1.2, 1.2], [2.6, 3.4]].map(([x, z]) => { const s = new THREE.SpotLight(STYLE.warm, 0, 6, 1.15, 0.7, 2); s.name = `light_recessed_${x}_${z}`; s.position.set(x, H - 0.1, z); s.target.position.set(x, 0, z); g.add(s); g.add(s.target); return s; });
+    const lights = [[1.2, 1.2], [2.6, 3.4]].map(([x, z]) => { const s = new THREE.SpotLight(STYLE.warm, 0, 6, 1.15, 0.7, 2); s.name = `light_recessed_${x}_${z}`.replace(/\./g, '_'); /* no '.' in node names (USDZ) */ s.position.set(x, H - 0.1, z); s.target.position.set(x, 0, z); g.add(s); g.add(s.target); return s; });
     register('recessed_lights', { room, label: 'Recessed lights', type: 'light', group: g, emissive: [{ mat: m.bulb, on: 6 }], lights: lights.map(l => ({ light: l, on: 6 })), decals, show, anchor: new THREE.Vector3(0.75, H - 0.08, 3.65) });
   }
 

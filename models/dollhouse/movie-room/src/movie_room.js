@@ -137,7 +137,7 @@ export function buildMovieRoom() {
     const paverA = extMat('#4c5164'), paverB = extMat('#444a5c');
     E('porch_slab', extMat('#2a2e3b'), -4.5, -WT, -0.3, -0.04, -1, L + 1);
     for (let i = 0, z = -1; z < L + 1; i++, z += 0.6) for (let j = 0, x = -4.5; x < -WT; j++, x += 0.6) E(`porch_paver_${i}_${j}`, (i + j) % 2 ? paverA : paverB, x + 0.01, Math.min(x + 0.59, -WT), -0.04, -0.02, z + 0.01, z + 0.59);
-    for (const z of [0.4, 3.5, 6.6]) E(`porch_post_${z}`, extMat('#5c6380'), -2.9, -2.7, -0.02, 2.6, z, z + 0.2);
+    for (const z of [0.4, 3.5, 6.6]) E(`porch_post_${String(z).replace(".", "_")}`, extMat('#5c6380'), -2.9, -2.7, -0.02, 2.6, z, z + 0.2);
     E('porch_beam', extMat('#545b77'), -2.95, -2.65, 2.4, 2.65, -1, L + 1);
     E('porch_deck_over', extMat('#1d2130'), -3.0, -WT, 2.62, 2.75, -1, L + 1);
     E('porch_lawn', extMat('#1b2a26'), -14, -4.5, -0.06, -0.04, -6, L + 6);
@@ -157,7 +157,7 @@ export function buildMovieRoom() {
   };
   const rod = (name, parent, x0, x1, y, z0, z1) => B(name, parent, M.brass, x0, x1, y - 0.012, y + 0.012, z0, z1, 0.01);
   // flanking the fireplace (on the fireplace wall)
-  for (const [k, zc] of [[1, 2.42], [2, 4.6]]) { curtain(`fireplace_curtain_${k}`, furn, M.velvet, 0.38, H - 0.22, 0.09, (H - 0.22) / 2 + 0.02, zc, true); rod(`fireplace_curtain_rod_${k}`, furn, 0.06, 0.12, H - 0.16, zc - 0.25, zc + 0.25); }
+  for (const [k, zc] of [[1, 2.42], [2, 4.6]]) { curtain(`fireplace_curtain_${k}`, furn, M.velvet, 0.38, H - 0.22, 0.09, (H - 0.22) / 2 + 0.02, zc, true); rod(`fireplace_curtain_rod_${k}`, furn, 0.06, 0.12, H - 0.16, Math.max(zc - 0.25, k === 2 ? 4.35 : 0), Math.min(zc + 0.25, k === 1 ? 2.65 : 99)); } // rods stop at the stone surround (z 2.65 / 4.35)
   // screen-wall curtains (both sides of the screen)
   const SC = 2.7, SW = 2.5, SH = 1.4, SY0 = 0.78;
   for (const [k, xc] of [[1, SC - SW / 2 - 0.42], [2, SC + SW / 2 + 0.42]]) curtain(`screen_curtain_${k}`, furn, M.velvet, 0.62, H - 0.18, xc, (H - 0.18) / 2 + 0.01, 0.12, false, 8, 0.045);
@@ -166,7 +166,7 @@ export function buildMovieRoom() {
   // (the open rear edge; reeded-glass panels hang flat against it; full height inside, cut at 1.1 m in the dollhouse)
   { const cw = W + 0.1; const full = curtain('rear_black_curtain', furn, M.blackCurtain, cw, H - 0.04, W / 2, (H - 0.04) / 2, L + 0.12, false, 18, 0.04); io(full);
     const low = curtain('rear_black_curtain_cut', furn, M.blackCurtain, cw, CUT, W / 2, CUT / 2, L + 0.12, false, 18, 0.03); low.userData.dollhouseOnly = true;
-    rod('rear_curtain_track', furn, -0.05, W + 0.05, H - 0.03, L + 0.1, L + 0.14); }
+    /* rear_curtain_track is built with the rear string lights (it carries them), see below */ }
 
   // ---------------- screen wall: screen, console, art; right wall door
   { const g = G('projection_screen', furn);
@@ -193,15 +193,19 @@ export function buildMovieRoom() {
 
   // ---------------- river-stone fireplace (floor to ceiling), raised hearth, beam mantel, brass screen
   const FZ0 = 2.65, FZ1 = 4.35, FC = (FZ0 + FZ1) / 2, FDp = 0.45, OZ0 = FC - 0.42, OZ1 = FC + 0.42, OY0 = 0.42, OY1 = 1.12;
-  { const sm = M.stone(0.8, 1.15), topCut = [sm, sm, M.cut, sm, sm, sm];
-    B('fireplace_stone_left', fire, sm, 0, FDp, 0, H, FZ0, OZ0).material = topCut;
-    B('fireplace_stone_right', fire, sm, 0, FDp, 0, H, OZ1, FZ1).material = topCut;
-    B('fireplace_stone_over', fire, sm, 0, FDp, OY1, H, OZ0, OZ1).material = topCut;
-    B('fireplace_stone_under', fire, sm, 0, FDp, 0, OY0, OZ0, OZ1);
+  // The stone pieces are single-material boxes, 2 cm into the wall (SW0), so the surround meets the fireplace wall with no seam.
+  // (They used a 6-material array with a cream top; the app's USDZ converter drew only the first material's faces, the +X front,
+  // so in the app the stone was a bare front face floating 0.45 m off the wall. Their tops are hidden by the ceiling band.)
+  const SW0 = -0.02;
+  { const sm = M.stone(0.8, 1.15);
+    B('fireplace_stone_left', fire, sm, SW0, FDp, 0, H, FZ0, OZ0);
+    B('fireplace_stone_right', fire, sm, SW0, FDp, 0, H, OZ1, FZ1);
+    B('fireplace_stone_over', fire, sm, SW0, FDp, OY1, H, OZ0, OZ1);
+    B('fireplace_stone_under', fire, sm, SW0, FDp, 0, OY0, OZ0, OZ1);
     const hs = M.stone(1.6, 0.4);
     B('fireplace_hearth', fire, hs, FDp - 0.02, FDp + 0.48, 0, OY0 - 0.04, FZ0 - 0.2, FZ1 + 0.2, 0.02);
     B('fireplace_hearth_cap', fire, std('#8d847a', 0.8), FDp - 0.02, FDp + 0.52, OY0 - 0.04, OY0, FZ0 - 0.22, FZ1 + 0.22, 0.012);
-    B('fireplace_firebox_back', fire, M.soot, 0.0, 0.06, OY0, OY1, OZ0, OZ1);
+    B('fireplace_firebox_back', fire, M.soot, SW0, 0.06, OY0, OY1, OZ0, OZ1);
     B('fireplace_firebox_side_a', fire, M.soot, 0.0, FDp - 0.02, OY0, OY1, OZ0, OZ0 + 0.03); B('fireplace_firebox_side_b', fire, M.soot, 0.0, FDp - 0.02, OY0, OY1, OZ1 - 0.03, OZ1);
     B('fireplace_firebox_top', fire, M.soot, 0.0, FDp - 0.02, OY1 - 0.03, OY1, OZ0, OZ1); B('fireplace_firebox_floor', fire, M.soot, 0.0, FDp, OY0, OY0 + 0.01, OZ0, OZ1);
     B('fireplace_mantel_beam', fire, M.darkWood, FDp - 0.02, FDp + 0.24, 1.42, 1.62, FZ0 - 0.12, FZ1 + 0.12, 0.012);
@@ -391,7 +395,7 @@ export function buildMovieRoom() {
       cone.visible = false; cone.renderOrder = 6; show.push(cone);
       decals.push(decal(`glow_recessed_${i + 1}_pool`, g, T.glow, STYLE.warm, 0.45, 1.3, 1.3, x, fy + 0.004, z, 'up'));
     });
-    for (const [x, z] of [[2.7, 2.4], [2.7, 6.6]]) { const s = new THREE.SpotLight(STYLE.warm, 0, 7, 1.1, 0.7, 2); s.name = `light_recessed_${z}`; s.position.set(x, H - 0.1, z); s.target.position.set(x, 0, z); g.add(s); g.add(s.target); lights.push(s); }
+    for (const [x, z] of [[2.7, 2.4], [2.7, 6.6]]) { const s = new THREE.SpotLight(STYLE.warm, 0, 7, 1.1, 0.7, 2); s.name = `light_recessed_${String(z).replace('.', '_')}`; /* no '.' in node names (USDZ) */ s.position.set(x, H - 0.1, z); s.target.position.set(x, 0, z); g.add(s); g.add(s.target); lights.push(s); }
     register('recessed_lights', { room, label: 'Recessed lights', type: 'light', group: g, emissive: [{ mat: m.bulb, on: 6 }], lights: lights.map(l => ({ light: l, on: 7 })), decals, show, anchor: new THREE.Vector3(2.7, H - 0.08, 3.4) });
   }
   // fireplace: flames + hearth glow
@@ -409,16 +413,19 @@ export function buildMovieRoom() {
     const l = pl('light_fireplace', g, STYLE.fire, 0.9, 0.75, FC, 5);
     register('fireplace', { room, label: 'Fireplace', type: 'fireplace', group: g, emissive: [{ mat: emberMat, on: 3 }], lights: [{ light: l, on: 3.5 }], decals, show, anchor: new THREE.Vector3(FDp + 0.1, OY1 + 0.1, FC) });
   }
-  // rear string lights on a ceiling track along the back curtain
-  { const g = G('rear_string_lights', devGroup), m = lightMats(), decals = [], lights = [];
-    io(B('rear_track', g, M.blackMatte, 0.3, W - 0.2, H - 0.05, H - 0.02, L - 0.24, L - 0.2));
+  // rear string lights clipped to the rear curtain track (the ceiling track the black curtain hangs from).
+  // The track mesh lives in this device group so devices.json lists `rear_curtain_track` (an earlier interior-only `rear_track`
+  // was listed in devices.json but never exported, so the app could not find it).
+  { const g = G('rear_string_lights', devGroup), m = lightMats(), decals = [], lights = [], SZ = L + 0.02;
+    rod('rear_curtain_track', g, -0.05, W + 0.05, H - 0.03, L + 0.1, L + 0.14);
     const n = 22; for (let i = 0; i < n; i++) { const x = 0.4 + (W - 0.7) * i / (n - 1), sag = 0.07 * Math.sin(Math.PI * ((i % 6) / 5));
-      sphere(`light_string_bulb_${i + 1}`, g, m.bulb, 0.022, x, H - 0.12 - sag, L - 0.22).castShadow = false; }
-    const wire = new THREE.CatmullRomCurve3(Array.from({ length: 23 }, (_, i) => new THREE.Vector3(0.4 + (W - 0.7) * i / 22, H - 0.1 - 0.07 * Math.sin(Math.PI * ((i % 6) / 5)), L - 0.22)));
+      sphere(`light_string_bulb_${i + 1}`, g, m.bulb, 0.022, x, H - 0.12 - sag, SZ).castShadow = false; }
+    const wire = new THREE.CatmullRomCurve3(Array.from({ length: 23 }, (_, i) => new THREE.Vector3(0.4 + (W - 0.7) * i / 22, H - 0.1 - 0.07 * Math.sin(Math.PI * ((i % 6) / 5)), SZ)));
     mesh('rear_string_wire', new THREE.TubeGeometry(wire, 120, 0.004, 4), M.blackMatte, g, 0, 0, 0, false);
     decals.push(decal('glow_string_floor', g, T.glow, STYLE.warm, 0.35, W, 1.6, W / 2 + 0.3, 0.014, L - 0.6, 'up'));
-    for (const x of [1.4, 3.0, 4.6]) lights.push(pl(`light_string_${x}`, g, STYLE.warm, x, H - 0.3, L - 0.45, 3));
-    register('rear_string_lights', { room, label: 'Rear string lights', type: 'light', group: g, emissive: [{ mat: m.bulb, on: 6 }], lights: lights.map(l => ({ light: l, on: 0.9 })), decals, anchor: new THREE.Vector3(W / 2, H - 0.15, L - 0.22) });
+    // light names use '_' for the decimal point (light_string_1_4): the USDZ converter turns '.' into '_', so devices.json must match
+    for (const x of [1.4, 3.0, 4.6]) lights.push(pl(`light_string_${String(x).replace('.', '_')}`, g, STYLE.warm, x, H - 0.3, L - 0.45, 3));
+    register('rear_string_lights', { room, label: 'Rear string lights', type: 'light', group: g, emissive: [{ mat: m.bulb, on: 6 }], lights: lights.map(l => ({ light: l, on: 0.9 })), decals, anchor: new THREE.Vector3(W / 2, H - 0.15, SZ) });
   }
   // riser step lights
   { const g = G('riser_step_lights', devGroup), m = lightMats(), decals = [];

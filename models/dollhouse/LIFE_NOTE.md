@@ -257,3 +257,18 @@ In the app, `hub-mapping.json` should drop the `toe_kick_lights` entry. The unde
 
 ### Prop vocabulary
 `prop_catch_all_bowl` and `prop_table_runner` are new names. `check_life_names.mjs` now accepts them. The README says new clutter needs only a `prop_*` node and a line in `life.json`, and both are in the kitchen's scenes.
+
+## Changes 2026-11-14 07:59 EST (TestFlight build 39: movie-room fireplace, anchor names)
+- **Fireplace detached from its wall (app only).** The GLB transforms were fine; the stone surround's three pieces had a 6-material array, which GLTFExporter writes as one mesh with 6 primitives, and `ios/scripts/gltf_to_usdz.py` writes only `primitives[0]`. So the app drew just each stone's +X front face, a zero-thickness slab 0.45 m in front of the wall, and the hearth and mantel attached to that face looked as if they were floating. Measured in the converted USDZ: stones drawn at x = 0.450 only (before); now x = −0.020…0.450 with all six faces (they run 2 cm into the wall, so the gap is 0).
+- Fix: the stones are single-material (`movie_room.js`). Also every export now gives each mesh a single primitive (`splitMultiMaterialForExport` in `kitchen/src/life.js`, used by `common.js` and `room/src/scene.js`). The node keeps its name and main material; other materials' faces become child meshes `<name>_part_2…`. This fixes the same missing faces on walls in all four rooms (e.g. the movie room's `wall_screen` drew only its end face). New `*_part_N` names are export-only geometry; nothing references them.
+- **`rear_track` → `rear_curtain_track`.** The string lights' `mesh_nodes` listed an interior-only `rear_track` that never reached the GLB. It is removed; the lights now clip to `rear_curtain_track` (moved into the `rear_string_lights` group, same name and geometry), and the bulbs and wire sit at z = L + 0.02 along it.
+- **Node names with '.'** (the converter turns them into '_', so devices.json didn't match the USDZ):
+  - `light_recessed_2.4/6.6` → `light_recessed_2_4/6_6`
+  - `light_string_1.4/4.6` → `light_string_1_4/4_6`
+  - `porch_post_0.4/3.5/6.6` → `porch_post_0_4/3_5/6_6`
+  - kitchen `light_recessed_row_1.3/2.85/4.4` → `..._1_3/2_85/4_4`
+  - bedroom `light_recessed_1.2_1.2/2.6_3.4` → `light_recessed_1_2_1_2/2_6_3_4`
+  These are the names the USDZ already had.
+- `life.curtains` no longer lists interior-only `rear_black_curtain` (not in the GLB); `life_collect.mjs` skips no-export and interior-only nodes.
+- Fireplace curtain rods are trimmed to stop at the stone (z 2.65 / 4.35).
+- New checks: `check_devices_refs.mjs` (`npm run refs` in each folder) compares every devices.json node reference with the GLB names, catching references that are missing, renamed by USDZ or duplicated. In the movie-room folder, `tools/glb_render.mjs --app-converter` renders a GLB as the app draws it. Junction renders are `renders/fireplace_junction_*`.

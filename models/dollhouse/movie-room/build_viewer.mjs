@@ -1,5 +1,5 @@
 import fs from 'fs';
-const common = fs.readFileSync('src/common.js', 'utf8').replace(/^export /gm, '');
+const common = fs.readFileSync('src/common.js', 'utf8').replace(/^import .*life\.js';$/gm, '').replace(/^export /gm, '');
 const kitchen = fs.readFileSync('src/movie_room.js', 'utf8').replace(/^import .*$/gm, '').replace(/^export /gm, '');
 const life = fs.readFileSync('src/life.js', 'utf8').replace(/^import .*$/gm, '').replace(/^export /gm, '');
 const lifeViewer = fs.readFileSync('src/life_viewer.js', 'utf8').replace(/^export /gm, '');

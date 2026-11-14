@@ -11,6 +11,7 @@
     "export": "node render.mjs export",
     "viewer": "node build_viewer.mjs",
     "check": "node check_life_names.mjs kitchen.glb kitchen_all_on.glb",
-    "smoke": "node smoke_life.mjs . kitchen.glb kitchen_all_on.glb"
+    "smoke": "node smoke_life.mjs . kitchen.glb kitchen_all_on.glb",
+    "refs": "node check_devices_refs.mjs devices.json kitchen.glb kitchen_all_on.glb"
   }
 }

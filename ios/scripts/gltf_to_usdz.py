@@ -150,6 +150,7 @@ class Converter:
         self.materials: dict[int, Sdf.Path] = {}
         self.textures: dict[int, str] = {}
         self.appearance: dict = {"nodes": {}, "lights": {}}
+        self.primitives_written = 0
 
     def export_images(self) -> None:
         self.tex_dir.mkdir(parents=True, exist_ok=True)
@@ -216,11 +217,18 @@ class Converter:
         reader.CreateInput("st", Sdf.ValueTypeNames.Float2).ConnectToSource(st.ConnectableAPI(), "result")
         return reader
 
-    def write_mesh(self, prim_path: Sdf.Path, mesh_index: int, bind: Sdf.Path | None, double_sided: bool) -> None:
-        mesh_def = self.gltf["meshes"][mesh_index]
-        # The exporter writes one primitive per mesh. If a mesh has several, only the first is bound;
-        # this model uses one primitive each.
-        prim = mesh_def["primitives"][0]
+    def write_mesh(self, prim_path: Sdf.Path, prim: dict) -> None:
+        """One glTF primitive becomes one USD Mesh, bound to that primitive's own material.
+
+        three.js writes a mesh with a material array as one glTF mesh with one primitive per
+        material. Each primitive has its own vertex buffers, so they stay separate USD Meshes.
+        """
+        mode = prim.get("mode", 4)
+        if mode != 4:
+            raise SystemExit(f"{prim_path}: primitive mode {mode} is not triangles")
+        mat_index = prim.get("material")
+        bind = self.material(mat_index) if mat_index is not None else None
+        double_sided = bool(self.gltf["materials"][mat_index].get("doubleSided")) if mat_index is not None else False
         points = read_accessor(self.gltf, self.blob, prim["attributes"]["POSITION"])
         normals = read_accessor(self.gltf, self.blob, prim["attributes"]["NORMAL"]) if "NORMAL" in prim["attributes"] else None
         uvs = read_accessor(self.gltf, self.blob, prim["attributes"]["TEXCOORD_0"]) if "TEXCOORD_0" in prim["attributes"] else None
@@ -230,7 +238,7 @@ class Converter:
         usd_mesh.CreateFaceVertexCountsAttr(Vt.IntArray([3] * (len(indices) // 3)))
         usd_mesh.CreateFaceVertexIndicesAttr(Vt.IntArray([int(i) for i in indices]))
         usd_mesh.CreateSubdivisionSchemeAttr("none")
-        if double_sided or self.gltf["materials"][prim.get("material", 0)].get("doubleSided"):
+        if double_sided:
             usd_mesh.CreateDoubleSidedAttr(True)
         if normals:
             usd_mesh.CreateNormalsAttr(Vt.Vec3fArray([Gf.Vec3f(float(n[0]), float(n[1]), float(n[2])) for n in normals]))
@@ -320,8 +328,12 @@ def main() -> None:
         missing.append("anchors")
     if missing:
         raise SystemExit(f"USDZ is missing nodes: {missing}")
-    print(f"wrote {dst} ({dst.stat().st_size} bytes), {len(converter.appearance['nodes'])} lit nodes, "
-          f"{len(converter.appearance['lights'])} lights")
+    meshes = [p for p in opened.Traverse() if p.IsA(UsdGeom.Mesh)]
+    expected = sum(len(gltf["meshes"][n["mesh"]]["primitives"]) for n in _reachable(gltf) if "mesh" in n)
+    if len(meshes) != expected or converter.primitives_written != expected:
+        raise SystemExit(f"USDZ has {len(meshes)} meshes but the GLB scene has {expected} primitives")
+    print(f"wrote {dst} ({dst.stat().st_size} bytes), {len(meshes)} meshes (one per glTF primitive), "
+          f"{len(converter.appearance['nodes'])} lit nodes, {len(converter.appearance['lights'])} lights")
     textures = dst.parent / "textures"
     textures.mkdir(exist_ok=True)
     for child in work.iterdir():
@@ -329,6 +341,20 @@ def main() -> None:
             (textures / child.name).write_bytes(child.read_bytes())
         child.unlink()
     work.rmdir()
+
+
+def _reachable(gltf: dict) -> list[dict]:
+    """Nodes under the default scene, each once per instance (the walk below visits them the same way)."""
+    out: list[dict] = []
+
+    def visit(i: int) -> None:
+        out.append(gltf["nodes"][i])
+        for c in gltf["nodes"][i].get("children", []):
+            visit(c)
+
+    for i in gltf["scenes"][gltf.get("scene", 0)]["nodes"]:
+        visit(i)
+    return out
 
 
 def _build(self: Converter) -> None:
@@ -367,11 +393,12 @@ def _build(self: Converter) -> None:
             if light_ext is not None:
                 self.note_light(name, light_ext["light"])
         if "mesh" in node:
-            prim = self.gltf["meshes"][node["mesh"]]["primitives"][0]
-            mat_index = prim.get("material")
-            bind = self.material(mat_index) if mat_index is not None else None
-            double = bool(self.gltf["materials"][mat_index].get("doubleSided")) if mat_index is not None else False
-            self.write_mesh(path.AppendChild("mesh"), node["mesh"], bind, double)
+            # Every primitive, not just the first: a multi-material mesh (the movie-room fireplace
+            # stones had six) otherwise loses all but one material's faces. The first stays `mesh`,
+            # which is the child the app looks up; the rest are `mesh_p1`, `mesh_p2`, ...
+            for k, prim in enumerate(self.gltf["meshes"][node["mesh"]]["primitives"]):
+                self.write_mesh(path.AppendChild("mesh" if k == 0 else f"mesh_p{k}"), prim)
+                self.primitives_written += 1
         for child in node.get("children", []):
             walk(child, path)
 
