@@ -102,7 +102,7 @@ final class DollhouseSunlight {
     /// The shell's category. Cameras leave it out, so it is never drawn; lights other than the sun leave it out too.
     static let shellCategory = 1 << 5
     /// Lux-like SceneKit intensity at full sun. The studio key is 420; sun patches read clearly brighter.
-    static let peak: Double = 1600
+    static let peak: Double = 3500
 
     let light: SCNNode
     private let spec: DollhouseSunSpec
