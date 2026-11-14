@@ -23,6 +23,8 @@ struct TVPlaying: Decodable, Hashable {
     var title: String? = nil
     var name: String? = nil
     var positionS: Double? = nil
+    var posterUrl: String? = nil
+    var number: Int? = nil
     var kind: String? = nil
     var movieId: String? = nil
     var seriesId: String? = nil

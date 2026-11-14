@@ -77,6 +77,7 @@ struct HomeView: View {
                 KidsOnlineRow(kids: kids)
             }
         case .playing:
+            HouseTVSection()
             NowPlayingSection()
             UpNextStrip()
         // Printers (PR #34): `ForEach(home?.activePrinters ?? []) { PrinterNowCard(printer: $0) }`
@@ -369,15 +370,12 @@ struct NowPlayingSection: View {
     @Environment(HomeStore.self) private var store
 
     var body: some View {
-        let ha = store.home?.nowPlaying ?? []
-        let tvs = store.houseTVs.filter { tv in
-            guard let title = tv.playing?.title ?? tv.playing?.name, !title.isEmpty else { return false }
-            return !ha.contains { $0.deviceId == tv.id || $0.deviceId == tv.mediaEntity }
+        let ha = (store.home?.nowPlaying ?? []).filter { item in
+            !store.houseTVs.contains { $0.id == item.deviceId || $0.mediaEntity == item.deviceId }
         }
-        if ha.first != nil || !tvs.isEmpty {
+        if let first = ha.first {
             SectionHeader("Now playing", live: true)
-            if let first = ha.first { HouseNowPlayingCard(item: first) }
-            ForEach(tvs) { tv in TVMoveCard(tv: tv) }
+            HouseNowPlayingCard(item: first)
         }
     }
 }

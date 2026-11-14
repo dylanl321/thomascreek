@@ -35,6 +35,7 @@ struct SimpleHomeView: View {
                 }
 
                 WhosHomeRow()
+                HouseTVSection()
 
                 if !doors.isEmpty {
                     Text("Doors").font(.title2.weight(.bold)).padding(.top, 6)
