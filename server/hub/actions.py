@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
-from .adapters.base import AdapterError
+from .adapters.base import AdapterError, NoAnswer, NotConfigured, ServiceError, Unreachable
 from .home import iso, kind_for
 from .policy import TIERS, Decision, Subject, Target
 from .tvapp import TvAppError
@@ -39,11 +39,14 @@ ACTION_KINDS: dict[str, tuple[str, ...]] = {
 }
 
 MEDIA_COMMANDS = {
-    "power": ("media_player", "toggle", {}), "play": ("media_player", "media_play", {}),
+    "play": ("media_player", "media_play", {}),
     "pause": ("media_player", "media_pause", {}), "next": ("media_player", "media_next_track", {}),
     "prev": ("media_player", "media_previous_track", {}), "vol_up": ("media_player", "volume_up", {}),
     "vol_down": ("media_player", "volume_down", {}),
 }
+# Actions that fail fast, with a plain message, when Home Assistant already shows the device as unavailable.
+OFFLINE_CHECKED = frozenset({"light.set", "switch.set", "fan.set"})
+ASLEEP_STATES = ("off", "standby", "unavailable", "unknown")
 REMOTE_COMMANDS = {"up": "up", "down": "down", "left": "left", "right": "right", "select": "select",
                    "back": "back", "home": "home"}
 
@@ -142,6 +145,9 @@ class ActionRunner:
         kind = kind_for(st)
         if kind not in kinds:
             raise ActionError(400, "wrong_target", f"{action} can't be used on that device")
+        if action in OFFLINE_CHECKED and st.get("state") == "unavailable":
+            name = st.get("attributes", {}).get("friendly_name") or target_id
+            raise ActionError(409, "offline", f"{name} is offline in Home Assistant. Check it has power.")
         target = Target(entity_id=target_id, area=home.entity_area.get(target_id), kind=kind)
         d = self.hub.policy.decide(s, action, target, params)
         p = {**params, **d.clamp}
@@ -234,7 +240,7 @@ class ActionRunner:
 
     pause = staticmethod(asyncio.sleep)  # tests make TV recovery waits instant
 
-    async def _run_tv_calls(self, plan: Plan) -> None:
+    async def _run_tv_calls(self, plan: Plan) -> bool:
         """Send a TV's calls, fixing the usual problems on the way so nobody has to.
 
         - A TV that dropped its connection to Home Assistant (its remote shows "unavailable") is reconnected
@@ -251,6 +257,7 @@ class ActionRunner:
                 self.hub.config.home_assistant.extra.get("remotes", {}).get(x)
 
         checked: set[str] = set()
+        replied = False
         for dom, svc, data in plan.calls:
             x = str(data.get("entity_id") or plan.target.entity_id or "")
             remote = remote_of(x)
@@ -259,14 +266,18 @@ class ActionRunner:
                 if home.states.get(remote, {}).get("state") == "unavailable":
                     await self._reconnect_tv(remote)
             try:
-                await self.hub.ha.call_service(dom, svc, data)
+                replied |= await self._call(dom, svc, data)
+            except NoAnswer:
+                # Sent, but no answer in time: Home Assistant carries on with it, so sending it again could
+                # press the button twice.
+                raise
             except Exception as exc:  # noqa: BLE001
                 log.info("TV call %s.%s failed (%s); reconnecting and retrying", dom, svc, exc)
                 if remote:
                     await self._reconnect_tv(remote)
                 else:
                     await self.pause(1.0)
-                await self.hub.ha.call_service(dom, svc, data)
+                replied |= await self._call(dom, svc, data)
             if (dom, svc) == ("media_player", "turn_on"):
                 if remote:
                     await self.pause(1.5)
@@ -277,6 +288,18 @@ class ActionRunner:
                             log.info("wake-up through the remote failed: %s", exc)
                 elif x != plan.target.entity_id:
                     await self.pause(2.0)  # a TV that just woke ignores an input switch for a moment
+        return replied
+
+    async def _call(self, dom: str, svc: str, data: dict[str, Any]) -> bool:
+        """Call a Home Assistant service and fold the states it reports changed into the model at once.
+
+        Returns whether Home Assistant listed the changes (False when the reply had none to give).
+        """
+        reply = await self.hub.ha.call_service(dom, svc, data)
+        if not isinstance(reply, list):
+            return False
+        self.hub.home.publish_soon(self.hub.home.merge_states(reply))
+        return True
 
     async def _fresh_state(self, eid: str) -> str | None:
         try:
@@ -391,6 +414,13 @@ class ActionRunner:
             from .tvremote import ALL_KEYS, DPAD, PLAYER_KEY_SERVICES, REMOTE_KEYS, text_keys
 
             cmd = p.get("command")
+            if cmd == "power":
+                # Explicit on or off, never toggle: a retried or doubled toggle undoes itself. The app says which
+                # it wants; an older app doesn't, so the state Home Assistant last reported decides.
+                on = p.get("on")
+                if not isinstance(on, bool):
+                    on = self.hub.home.states.get(eid, {}).get("state") in ASLEEP_STATES
+                return [("media_player", "turn_on" if on else "turn_off", t)]
             if cmd in MEDIA_COMMANDS:
                 dom, svc, extra = MEDIA_COMMANDS[cmd]
                 return [(dom, svc, {**t, **extra})]
@@ -734,6 +764,10 @@ class ActionRunner:
         db = self.hub.db
         live = self.is_live(plan.action)
         detail = None
+        # Whether Home Assistant's replies listed what changed. They are folded in and sent to phones by _call;
+        # a device that reports back later arrives through the event stream. Only without a list (an older
+        # path, or a custom action) does the target's current state go out straight away as before.
+        replied = True
         try:
             if not live:
                 msg = f"Practice mode: {plan.label or plan.action} was not changed"
@@ -744,10 +778,10 @@ class ActionRunner:
                 outcome = "ok"
             else:
                 if plan.action in ("media.command", "media.play", "media.volume"):
-                    await self._run_tv_calls(plan)
+                    replied = await self._run_tv_calls(plan)
                 else:
                     for dom, svc, data in plan.calls:
-                        await self.hub.ha.call_service(dom, svc, data)
+                        replied = await self._call(dom, svc, data) and replied
                 msg = "Done"
                 outcome = "ok"
                 if plan.action == "oven.set":
@@ -776,13 +810,12 @@ class ActionRunner:
         except Exception as exc:  # noqa: BLE001
             db.log(plan.action, "error", person_id=s.person_id, device_id=s.device_id,
                    target=plan.target.entity_id, params=_safe(plan.params), detail=str(exc)[:300], source=source)
-            if plan.action.startswith("media."):
-                raise ActionError(502, "failed", f"{plan.label or 'The TV'} didn't answer, even after the hub tried to "
-                                  "reconnect. Check it's plugged in and on Wi-Fi, then try again.") from exc
-            raise ActionError(502, "failed", f"The house didn't respond: {exc}") from exc
+            status, code, message = friendly_failure(plan, exc)
+            raise ActionError(status, code, message) from exc
         db.log(plan.action, outcome, person_id=s.person_id, device_id=s.device_id,
                target=plan.target.entity_id, params=_safe(plan.params), detail=detail, source=source)
-        if live and plan.target.entity_id and not plan.action.startswith("printer."):
+        if live and plan.target.entity_id and not plan.action.startswith("printer.") and \
+                (plan.custom is not None or not replied):
             self.hub.bus.publish({"type": "device", "entity_id": plan.target.entity_id})
         await self._notice(s, plan, outcome)
         out: dict[str, Any] = {"ok": True, "message": msg, "dry_run": not live}
@@ -919,3 +952,26 @@ def _channel_for(hub: "Hub", key: str) -> dict[str, Any]:
     if found is None:
         raise TvAppError(404, "not_found", "That channel isn't in the lineup")
     return found
+
+
+def friendly_failure(plan: Plan, exc: BaseException) -> tuple[int, str, str]:
+    """Status, error code and a plain sentence for a call that failed on the way to the house."""
+    label = plan.label or ("The TV" if plan.action.startswith("media.") else "That device")
+    if isinstance(exc, NoAnswer):
+        return 504, "slow", f"{label} is slow to answer. It may still change in a moment."
+    if isinstance(exc, NotConfigured):
+        return 503, "not_configured", "Home Assistant isn't set up on the hub yet."
+    if isinstance(exc, Unreachable):
+        return 503, "ha_unreachable", "The hub can't reach Home Assistant right now. Wall switches still work."
+    if isinstance(exc, ServiceError):
+        why = exc.reason
+        if exc.status in (401, 403):
+            return 502, "ha_auth", "Home Assistant refused the hub's sign-in. Its access token needs renewing."
+        if exc.status in (400, 404):
+            return 502, "ha_rejected", f"Home Assistant didn't accept that for {label}" + (f": {why}" if why else ".")
+        return 502, "device_failed", f"{label} didn't respond" + (f" ({why})" if why else "") + \
+            ". Check it has power, then try again."
+    if plan.action.startswith("media."):
+        return 502, "failed", (f"{label} didn't answer, even after the hub tried to reconnect. Check it's plugged in "
+                               "and on Wi-Fi, then try again.")
+    return 502, "failed", f"The house didn't respond: {exc}"
