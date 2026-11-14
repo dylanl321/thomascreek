@@ -1356,6 +1356,184 @@ Phones hear one SSE event, and one push when push is configured. Repeating the p
 
 `POST /v1/tv/pair/{pair_id}/approve` `{room?, profile?, name?}` and `POST /v1/tv/pair/{pair_id}/deny` are admin. Approve answers `{"ok":true,"status":"approved"}`. Deny answers `{"ok":true,"status":"denied"}`. A second tap on an expired request answers `{"ok":false,"status":"expired"}` and does not raise. `profile` is `adult` or `kids`. `room` is an area id. The signed `POST /v1/tv/enroll` path is unchanged.
 
+### Device management
+
+The hub keeps its own picture of every Thomas Creek TV. The TV reports what it can do and how it is feeling. An admin asks it to do something over the same event stream the TV already holds open. Play and stop stay on `tv_command`. These commands are `tv_manage`. A phone does not receive them.
+
+The TV reports one capability, the strongest it actually has:
+
+| capability | What it means |
+|---|---|
+| `basic` | The app is installed. The person confirms installs. No device-owner and no root. |
+| `owner` | The app is Android device owner (`DevicePolicyManager`). |
+| `root` | The app can run a root shell. This does not imply device owner. |
+
+`platform` is `google_tv`, `android_tv`, or `unknown`.
+
+`POST /v1/tv/fleet/report` with the TV bearer, on the home network. The TV posts every 15 minutes, and right away when the capability, the foreground app, the network kind, the package hash, the temperature crossing 80°C, or the remote battery crossing 15% changes. A field the box cannot read is `null` or left out. Both mean the same.
+
+```json
+{"capability":"owner","model":"onn. 4K Streaming Box","android":"12","platform":"google_tv","app_version":"1.5.0",
+ "cpu_pct":12,"ram":{"used_mb":800,"total_mb":2048},"storage":{"used_mb":3200,"total_mb":8000},"temperature_c":48,
+ "network":{"kind":"wifi","ssid":"House","rssi_dbm":-55},"ping_ms":4,
+ "foreground":"me.dlewis.thomascreek.tv","uptime_s":86400,"remote_battery_pct":80,
+ "packages":{"hash":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","changed":false}}
+```
+
+`network.kind` is `wifi`, `ethernet`, or `none`. `ssid` and `rssi_dbm` are null on ethernet. `packages.hash` is the lowercase hex SHA-256 of the sorted package names, one per line, with no extra blank line. `changed: true` includes `"list":["com.example.app"]`. The hub stores at most one sample a minute, and always stores a sample that changes the package hash or crosses a temperature or battery line. A faster repeat still gets the answer below.
+
+```json
+{"ok":true,"need_packages":false,
+ "kill_list":["com.adups.fota","com.adups.fota.sysoper","com.fw.upgrade.sysoper","com.swe.dgbluancher"],
+ "policy":{"blocked":[],"restrict_settings":false,"hide_status_bar":false,"disable_keyguard":false},
+ "commands":[]}
+```
+
+`need_packages` is true when the hash is new and `list` was left out. The TV posts the list next, with `changed: true`. `kill_list` and `policy` are what the TV applies on this check-in, even if it missed an event. `commands` are the same objects as `tv_manage`, still waiting for an ack.
+
+`capability` must be `basic`, `owner`, or `root`. Anything else is `400` "The TV didn't say what it can do." A phone calling this route is `403` `not_a_tv`.
+
+History stays 30 days (`tv_fleet.retain_days`). Samples from the last 48 hours are kept as stored. Older ones fold to the last value in each hour. Older than the retention window is dropped.
+
+Commands travel on `GET /v1/events` as `tv_manage`, and a TV that is not holding the stream open can long-poll `GET /v1/tv/manage?timeout=20` (max 25, `0` returns what is waiting). A phone gets `403` `not_a_tv`. The TV acks with `POST /v1/tv/manage/ack`. Pending commands wait until the ack or two minutes, same as play commands.
+
+```json
+{"type":"tv_manage","data":{"id":"tvm_ab12cd34ef567890","install_id":"tv_office_0123456789","action":"reboot","params":{},"at":"2026-11-14T18:00:00+00:00"}}
+```
+
+```json
+{"id":"tvm_ab12cd34ef567890","ok":true,"detail":null}
+```
+
+A command the box cannot do is still `200`, with `"ok":false` and a `detail` sentence. The TV does not show a stack trace or an error code. An ack for a command that already finished:
+
+```json
+{"ok":false,"message":"That command has already finished."}
+```
+
+| action | Who runs it | params | When this box can't |
+|---|---|---|---|
+| `reboot` | owner, root | `{}` | "This TV can't restart itself." |
+| `restart_app` | all | `{}` | Restarts `me.dlewis.thomascreek.tv`. |
+| `install_apk` | all | `{url, sha256, version_code, version_name}` | Owner and root install with no prompt. Basic hands the file to PackageInstaller and the person confirms. `url` is a hub path (`/v1/tv/apk` or `/v1/tv/{version_code}`). The TV downloads it with its bearer and checks `sha256`. A mismatch is not installed: "That build didn't check out." |
+| `uninstall` | owner, root | `{package}` | Owner uses `DevicePolicyManager` uninstall. Root runs `pm uninstall --user 0`. Basic: "This TV can't remove apps." |
+| `disable` | owner, root | `{package}` | Owner hides it (`setApplicationHidden`). Root runs `pm disable-user --user 0`. Basic uses the same sentence as uninstall. |
+| `set_kiosk` | owner | `{on:true}` or `{on:false}` | Lock task on the launcher activity the hub already has (`tv_app.home_activity`). Off leaves lock task. Basic, and a root box that cannot lock task: "This TV can't lock the screen to the launcher." |
+| `apply_policy` | owner, root | the policy object | Basic: "This TV can't apply that policy." Root applies what the shell can, and says so in `detail` when a switch was skipped. |
+| `kill_list` | owner, root | `{packages:[…]}` | Every check-in. Root force-stops each one (`am force-stop`). Owner hides each one. Basic acks `ok: true` and does nothing. Packages that are installed come back as `hits`. |
+| `screenshot` | all | `{}` | Root takes a silent `screencap`. Owner and basic ask on screen, once: "Share this screen with the house?" If the person declines: "The screen stayed private." The TV does not ask again for that command. |
+| `show_message` | all | `{style, text}` | `style` is `fullscreen` or `toast`. `text` is plain, at most 240 characters. Fullscreen has a way to dismiss it. Toast goes away on its own. |
+| `tv_power` | best effort | `{on:true}` or `{on:false}` | HDMI-CEC or a key when the box has one. Otherwise: "This TV can't change the power." |
+| `tv_volume` | best effort | `{level:0}` to `{level:100}`, or `{delta:-1}` or `{delta:1}` | Otherwise: "This TV can't change the volume." Neither field: "Say how loud." |
+
+The hub will not send `uninstall` or `disable` for `me.dlewis.thomascreek.tv`. A kill-list ack that found something:
+
+```json
+{"id":"tvm_ab12cd34ef567890","ok":true,"detail":null,"hits":["com.adups.fota"]}
+```
+
+After a root screenshot, or after the person accepts one, the TV posts the PNG to `POST /v1/tv/fleet/screenshot?command=tvm_ab12cd34ef567890` with its bearer (`image/png`, at most 4 MB). `GET /v1/tv/fleet/{id}/screenshot` (`systems`) returns that image. A missing one is `404` "That picture isn't here."
+
+`POST /v1/tv/fleet/{id}/command` (`systems`) `{action, params}` answers `{"ok":true,"id":"tvm_ab12cd34ef567890"}` as soon as the command is waiting. The page does not wait for the ack. An unknown action is `400` "That isn't a command this TV knows." An unknown TV is `404` "That TV isn't in the house."
+
+Remote shell is root only, admin only, and home network only. It is not free-form unless the flag is on. The flag defaults off:
+
+```yaml
+tv_fleet:
+  shell: false
+  retain_days: 30
+  offline_after_min: 30
+  hot_c: 80
+  low_battery_pct: 15
+```
+
+`POST /v1/tv/fleet/{id}/shell` `{template}` queues a `shell` command. Away from home the answer is the usual `403` "The TV app talks to the hub only on the home network." A TV that is not root acks "This TV has no shell." Templates, and the only string the TV runs for each:
+
+| template | command |
+|---|---|
+| `logcat` | `logcat -d -t 200 -s ThomasCreekTV:V AndroidRuntime:E` |
+| `packages` | `pm list packages` |
+| `storage` | `df -h /data` |
+| `uptime` | `uptime` |
+| `network` | `ip -4 addr` |
+| `battery` | `dumpsys battery` |
+
+The ack carries `output` (at most 16 KiB) and `truncated` when the TV cut it. An unknown template is `400` "That isn't one of the shell commands." Free-form is `{command:"…"}`, one line, at most 200 characters. With `tv_fleet.shell` false the hub answers `{"ok":false,"message":"Shell commands are off."}` and sends nothing. Every shell request is stored: who, when, which TV, the template or the line, and whether it worked. `GET /v1/tv/fleet/audit?limit=50`:
+
+```json
+{"items":[{"at":"2026-11-14T18:00:00+00:00","who":"Dylan","id":"tv_office_0123456789","action":"shell","template":"logcat","command":null,"ok":true}]}
+```
+
+The output is not in that list and is not pushed. `GET /v1/tv/fleet/{id}/commands/tvm_ab12cd34ef567890` (`systems`) is the command plus `output` when it has one.
+
+`GET /v1/tv/fleet` (`systems`):
+
+```json
+{"devices":[{
+  "id":"tv_office_0123456789","name":"Living room","room":"living_room","online":true,
+  "capability":"owner","model":"onn. 4K Streaming Box","android":"12","platform":"google_tv","app_version":"1.5.0",
+  "health":"ok","last_seen":"2026-11-14T18:00:00+00:00",
+  "cpu_pct":12,"ram_pct":39,"storage_pct":40,"temperature_c":48,
+  "network":{"kind":"wifi","ssid":"House","rssi_dbm":-55},"ping_ms":4,
+  "foreground":"me.dlewis.thomascreek.tv","uptime_s":86400,"remote_battery_pct":80
+}]}
+```
+
+`online` is the same two-minute rule as `GET /v1/tv/players` (a heartbeat, a token, an enroll, or a fleet report). `health` is `offline` when nothing has been heard for `offline_after_min` (30), else `hot` at `hot_c` (80) or above, else `battery` at `low_battery_pct` (15) or below, else `storage` at 90% or above, else `ok`. A null temperature or battery does not raise `hot` or `battery`. An empty house is `{"devices":[]}`.
+
+`GET /v1/tv/fleet/{id}` is that object plus `packages_hash`, `packages` (the last full list), `policy`, and `last_command` (`{id, action, ok, detail, at}` or null). `GET /v1/tv/fleet/{id}/history?metric=cpu&hours=24` is the chart. `metric` is `cpu`, `ram`, `storage`, `temperature`, `ping`, or `rssi`. `ram` and `storage` points are percents. `hours` is 1 to 720, default 24.
+
+```json
+{"metric":"cpu","points":[{"t":"2026-11-14T18:00:00+00:00","v":12}]}
+```
+
+An unknown metric is `400` "That chart isn't one the hub keeps."
+
+`GET /v1/tv/fleet/kill-list` and `PUT /v1/tv/fleet/kill-list` `{packages:[…]}`. The first list, before anyone saves, is the starter set in [fleet-kill-list.md](fleet-kill-list.md). A save replaces it, including a save of `[]`. The starter set is not put back. A name that is not a package is `400` "That doesn't look like an app." `me.dlewis.thomascreek.tv` cannot be added. Saving sends `kill_list` to every owner and root TV. Basic TVs are skipped.
+
+`GET /v1/tv/fleet/policy` and `PUT /v1/tv/fleet/policy` with the policy object. Defaults are nothing blocked, settings open, status bar shown, keyguard left as the box has it (`hide_status_bar` false, `disable_keyguard` false). Saving sends `apply_policy` to every owner and root TV.
+
+`POST /v1/tv/fleet/rollout` uses a build the hub already stored (`version_code` from the Downloads page). `stage` is the install ids to offer first. `then` is `all` or omitted. `now` defaults false.
+
+```json
+{"version_code":602,"stage":["tv_office_0123456789"],"then":"all","now":false}
+```
+
+While `state` is `staging`, `GET /v1/tv/update` offers that version only to the staged TVs. Everyone else keeps the previous manifest, including `up_to_date: true` when they are already on it. Each staged TV reports on the existing `POST /v1/tv/update/health`. When every staged TV is `ok`, `state` becomes `rolling` and the rest are offered the build, still inside the silent window (`idle_only`, 01:00 to 06:00). `now: true` also queues `install_apk` immediately for whoever is being offered it (silent on owner and root, a prompt on basic). A staged report with `rollback: true` or `playback_ok: false` sets `state` to `stopped`. The rest are not offered the build. The file stays on disk. `done` means everyone who was included has reported ok. With no rollout, or once it is `done`, the newest build is offered to every TV as it is today.
+
+```json
+{"rollout":{"version_code":602,"state":"staging","now":false,
+ "stage":[{"id":"tv_office_0123456789","name":"Living room","status":"waiting"}],"rest":"held"}}
+```
+
+`status` is `waiting`, `ok`, or `stopped`. No rollout is `{"rollout":null}`. An unknown build is `404` "That build isn't on the hub."
+
+Alerts are one notice to admins (`systems`, level `fyi`), and not to the household. One per TV per kind, until that kind clears, then it can be said again. Kinds: offline ("Living room has been quiet for a while."), hot ("Living room is running hot."), battery ("Living room's remote is low."), kill ("Living room still has an app from the block list."). The name is the TV's name.
+
+The hub web page has Devices at `/admin/devices`, linked from the nav, with the same sign-in as `/admin`. The list shows online, health, capability, and app version. A TV opens charts for the last day (CPU, memory, storage, temperature, ping). The buttons are the commands above. Rollout picks a stored APK, the first rooms, then the rest. The kill list and the policy are edited there. A root TV shows the shell templates. The free-form line is on the page only when `tv_fleet.shell` is true. No TVs yet: "No TVs have checked in yet."
+
+`/admin/devices/provision` walks a factory-reset box into device owner. The app is installed first from the same `/tv` link as Downloads. Then one command:
+
+```
+adb shell dpm set-device-owner me.dlewis.thomascreek.tv/.DeviceAdminReceiver
+```
+
+That component is `me.dlewis.thomascreek.tv.DeviceAdminReceiver`. The page also shows a short script that installs the APK and runs that command. Nothing in it comes from a third party. The next fleet report should say `capability: owner`.
+
+Where the setup wizard supports QR provisioning, the page shows a QR of this JSON. The download location is the `/tv` link on the origin the browser is using. The checksum is the URL-safe base64 of the raw SHA-256 of that APK, which is what Android expects. Wi-Fi fields are typed on the page for the QR only and are not saved.
+
+```json
+{"android.app.extra.PROVISIONING_DEVICE_ADMIN_COMPONENT_NAME":"me.dlewis.thomascreek.tv/me.dlewis.thomascreek.tv.DeviceAdminReceiver",
+ "android.app.extra.PROVISIONING_DEVICE_ADMIN_PACKAGE_DOWNLOAD_LOCATION":"http://hub.example/tv",
+ "android.app.extra.PROVISIONING_DEVICE_ADMIN_PACKAGE_CHECKSUM":"<url-safe base64 of the raw sha256>",
+ "android.app.extra.PROVISIONING_SKIP_ENCRYPTION":true,
+ "android.app.extra.PROVISIONING_LEAVE_ALL_SYSTEM_APPS_ENABLED":true}
+```
+
+Google TV and Android TV do not behave the same. Device owner can be set on a factory-reset box before any account is added and before setup marks the device provisioned. Certified Google TV (Chromecast with Google TV, and many Sony and TCL sets) often has no QR screen and rejects `dpm set-device-owner` once the wizard has finished. The wizard usually wants a Google account and a network first. If debugging cannot be turned on, the page says the box will stay a normal app (`basic`). Android TV is more likely to offer the QR. A box that already has a device owner needs a factory reset before this one can be set. Root is a separate report. Kiosk lock-task is device owner only.
+
+These routes are the ones an iPhone admin screen can call later. The page and the JSON are the same.
+
 ## Universal title search
 
 `GET /v1/titles/search?q=` (at least two letters). One card per title across Plex, the IPTV lineup and guide, and TMDB (Jellyseerr, which is what asks Sonarr and Radarr). The same title is one card: matched on TMDB id, then IMDb, then TVDB, then the cleaned name and year.
