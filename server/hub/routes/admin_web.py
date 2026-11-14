@@ -235,6 +235,7 @@ details.key[open]>summary>span:first-child::before{transform:rotate(90deg)}.kbod
 form.inline{display:inline}.pill-ok,.pill-miss{font-size:12px;padding:2px 8px;border-radius:999px;white-space:nowrap}
 .pill-ok{background:color-mix(in srgb,var(--ok) 18%,transparent);color:var(--ok)}.pill-miss{background:color-mix(in srgb,var(--bad) 15%,transparent);color:var(--bad)}
 nav.nav{display:flex;gap:18px;margin:0 0 18px}nav.nav a{color:var(--dim);text-decoration:none;font-weight:650}
+.bars{display:flex;align-items:flex-end;gap:2px;height:64px;padding:8px 0}.bars i{display:block;width:6px;background:var(--acc);border-radius:2px 2px 0 0}
 nav.nav a.on{color:var(--fg)}
 .hero{font:600 40px/1.15 ui-monospace,Menlo,monospace;letter-spacing:-0.03em;word-break:break-all;margin:8px 0}
 .codebig{font:600 72px/1 ui-monospace,Menlo,monospace;letter-spacing:6px;margin:8px 0}
@@ -245,7 +246,7 @@ a.btn{display:inline-block;font:inherit;padding:7px 14px;border-radius:8px;borde
 
 
 def _nav(here: str) -> str:
-    links = (("/admin", "Hub"), ("/admin/downloads", "Downloads"))
+    links = (("/admin", "Hub"), ("/admin/devices", "Devices"), ("/admin/downloads", "Downloads"))
     return "<nav class=nav>" + "".join(
         f"<a href={href}{' class=on' if href == here else ''}>{html.escape(label)}</a>" for href, label in links) + "</nav>"
 
