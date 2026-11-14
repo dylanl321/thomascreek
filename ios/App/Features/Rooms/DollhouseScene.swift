@@ -161,22 +161,22 @@ final class DollhouseController {
     }
 
     private func addStudio(to scene: SCNScene) {
-        scene.background.contents = Self.gradient(top: 0xF1ECE4, bottom: 0xD9D0C3)
+        scene.background.contents = UIColor.clear
         scene.lightingEnvironment.contents = Self.gradient(top: 0xFFF3E3, bottom: 0x5B4636)
-        scene.lightingEnvironment.intensity = 0.28
+        scene.lightingEnvironment.intensity = 0.16
 
         let ambient = SCNNode()
         ambient.light = SCNLight()
         ambient.light?.type = .ambient
         ambient.light?.color = UIColor(hex: 0xFFF3E3)
-        ambient.light?.intensity = 700
+        ambient.light?.intensity = 260
         scene.rootNode.addChildNode(ambient)
 
         let key = SCNNode()
         key.light = SCNLight()
         key.light?.type = .directional
         key.light?.color = UIColor(hex: 0xFFF1DD)
-        key.light?.intensity = 1250
+        key.light?.intensity = 750
         key.light?.castsShadow = true
         key.light?.shadowMode = .deferred
         key.light?.shadowSampleCount = 16
@@ -198,9 +198,9 @@ final class DollhouseController {
         camera.camera?.zFar = 100
         camera.camera?.wantsHDR = true
         camera.camera?.wantsExposureAdaptation = false
-        camera.camera?.exposureOffset = 0
-        camera.camera?.bloomIntensity = 0.38
-        camera.camera?.bloomThreshold = 1
+        camera.camera?.exposureOffset = -0.6
+        camera.camera?.bloomIntensity = 0.18
+        camera.camera?.bloomThreshold = 1.3
         camera.camera?.bloomBlurRadius = 12
         camera.name = "dollhouse-camera"
         scene.rootNode.addChildNode(camera)
@@ -387,7 +387,7 @@ final class DollhouseController {
 
     /// glTF point-light intensity is candela. SceneKit's omni intensity is lumens, and the room is a miniature,
     /// so this scale keeps a shelf puck a pool of light instead of a second sun.
-    private static let lumensPerCandela: Double = 90
+    private static let lumensPerCandela: Double = 45
 }
 
 private struct Prepared {
