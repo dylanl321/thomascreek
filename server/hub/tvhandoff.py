@@ -14,6 +14,7 @@ from .actions import ActionError
 from .policy import Subject, Target
 from .state import Hub
 from .tvapp import TvAppError
+from .tvcontrol import with_artwork
 
 KV_RANK = "tv.handoff.rank"
 ONLINE_S = 120
@@ -36,7 +37,7 @@ def devices(h: Hub, subject: Subject, now: float | None = None) -> list[dict[str
             "name": tv.get("name"),
             "room": tv.get("room"),
             "online": bool(seen and now - seen < ONLINE_S),
-            "playing": tv.get("playing"),
+            "playing": with_artwork(h, tv.get("playing")),
         }
         if tv.get("media_entity"):
             row["media_entity"] = tv["media_entity"]

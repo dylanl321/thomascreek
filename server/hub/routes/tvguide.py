@@ -18,7 +18,7 @@ from ..adapters.base import AdapterError
 from ..policy import Target
 from ..state import Hub
 from ..tvapp import TvAppError
-from .. import tvhandoff
+from .. import tvcontrol, tvhandoff
 from ..upnext import shelf
 from .deps import Caller, caller, error, hub, need
 from .media import _filter, _watch_cap
@@ -78,6 +78,19 @@ async def devices(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[st
 class HandoffIn(BaseModel):
     from_device: str = Field(min_length=1, max_length=200)
     to_device: str = Field(min_length=1, max_length=200)
+
+
+@router.post("/remote")
+async def remote(body: dict[str, Any], c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """One button on the phone, sent straight to that TV's event stream."""
+    _media(h, c)
+    try:
+        result = tvcontrol.send(h, c.subject, body)
+    except tvcontrol.RemoteError as exc:
+        if exc.status == 200:
+            return {"ok": False, "message": exc.message}
+        raise error(exc.status, exc.code, exc.message) from None
+    return result
 
 
 @router.post("/handoff")
