@@ -1,5 +1,6 @@
 import SwiftUI
 import Observation
+import TVPhone
 
 /// Everything the screens show: who this phone belongs to, the live house snapshot and the inbox.
 /// Live changes arrive over the hub's event stream; the last snapshot is cached for a fast, honest start.
@@ -81,12 +82,14 @@ final class HomeStore {
         #endif
         await refreshAll()
         openStream()
+        TVPairingCenter.shared.start()
     }
 
     func enrolled(status: String) async {
         phase = status == "active" ? .ready : .pending
         await refreshAll()
         openStream()
+        TVPairingCenter.shared.start()
         PushRegistration.shared.refresh()
     }
 
@@ -97,6 +100,7 @@ final class HomeStore {
     }
 
     func wentToBackground() {
+        TVPairingCenter.shared.stop()
         SendsSync.scheduleRefresh()
         stream?.stop(); stream = nil; streamConnected = false
         poller?.cancel(); poller = nil
@@ -239,6 +243,11 @@ final class HomeStore {
             guard case .object(let o)? = e.data else { return }
             let ok = o["ok"]?.bool ?? false
             show(o["message"]?.string ?? (ok ? "Playing" : "Couldn't start it"), o["tracks"]?.string, isError: !ok)
+        case "tv_pair":
+            // One event per new TV. The banner uses it at once; the list adds the room's name.
+            guard let event = e.data.flatMap({ Self.decode(TVPairEvent.self, $0) }) else { return }
+            TVPairingCenter.shared.note(event)
+            return
         case "hello":
             return
         case "bedtime":
@@ -310,6 +319,7 @@ final class HomeStore {
         Router.shared.reset()
         await refreshAll()
         openStream()
+        TVPairingCenter.shared.start()
     }
 
     func stopPreview() async {
@@ -324,6 +334,7 @@ final class HomeStore {
         _ = who
         await refreshAll()
         openStream()
+        TVPairingCenter.shared.start()
     }
 
     // MARK: smart cards

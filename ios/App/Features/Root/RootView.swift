@@ -65,6 +65,7 @@ struct MainTabs: View {
         @Bindable var router = router
         VStack(spacing: 0) {
         PreviewBanner()
+        if store.role == .admin, store.previewing == nil { TVPairBanner() }
         TabView(selection: $router.tab) {
             switch store.role {
             case .admin, .adult, .tablet:

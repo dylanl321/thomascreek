@@ -6,6 +6,7 @@ struct ThomasCreekApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var delegate
     @State private var store = HomeStore.shared
     @State private var router = Router.shared
+    @State private var pairing = TVPairingCenter.shared
     @Environment(\.scenePhase) private var phase
 
     var body: some Scene {
@@ -13,6 +14,7 @@ struct ThomasCreekApp: App {
             RootView()
                 .environment(store)
                 .environment(router)
+                .environment(pairing)
                 .tint(Theme.accent)
                 .onChange(of: phase, initial: true) { _, p in
                     if p == .active { store.becameActive() }

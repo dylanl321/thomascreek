@@ -2,6 +2,9 @@
 # The built-in VPN (WireGuard tunnel extension) is opt-in for now, because it needs Go to build:
 #   brew install go && xcodegen --spec project-vpn.yml
 name: ThomasCreek
+packages:
+  TVPhone:
+    path: TVPhone
 options:
   deploymentTarget:
     iOS: "18.0"
@@ -95,6 +98,7 @@ targets:
     dependencies:
       - target: HomeWidgets
       - target: NotificationService
+      - package: TVPhone
   HomeWidgets:
     type: app-extension
     platform: iOS
@@ -133,6 +137,8 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: $(BUNDLE_ID).notifications
         PRODUCT_NAME: NotificationService
         SKIP_INSTALL: YES
+    dependencies:
+      - package: TVPhone
     info:
       path: NotificationService/Info.plist
       properties:
