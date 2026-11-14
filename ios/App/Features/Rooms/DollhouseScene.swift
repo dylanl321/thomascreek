@@ -28,6 +28,13 @@ final class DollhouseController {
     private var restTarget = SCNVector3Zero
     private var restFov: CGFloat = 30
     private var simulationRunning = true
+    /// Pinch and two-finger pan. Zoom is 1 (the fitted shot) to `maxZoom`, never out past the fit.
+    /// Pan slides the look-at point in the camera's own right/up plane, so the viewing angle never changes.
+    private(set) var zoom: Float = 1
+    private var panX: Float = 0
+    private var panY: Float = 0
+    private var fitRadius: Float = 3
+    static let maxZoom: Float = 2.5
 
     init(room: DollhouseRoom) { self.room = room }
 
@@ -59,16 +66,35 @@ final class DollhouseController {
         }
     }
 
+    /// Forgiving: looks through props, the cat and glow decals, walks up to the mapped device node, and
+    /// if the finger landed just beside a lamp, tries a small ring of points around it.
     func device(at point: CGPoint, in view: SCNView) -> String? {
+        if let name = deviceExactly(at: point, in: view) { return name }
+        let r: CGFloat = 16
+        let ring = [CGPoint(x: r, y: 0), CGPoint(x: -r, y: 0), CGPoint(x: 0, y: r), CGPoint(x: 0, y: -r),
+                    CGPoint(x: r, y: r), CGPoint(x: -r, y: r), CGPoint(x: r, y: -r), CGPoint(x: -r, y: -r)]
+        for offset in ring {
+            if let name = deviceExactly(at: CGPoint(x: point.x + offset.x, y: point.y + offset.y), in: view) { return name }
+        }
+        return nil
+    }
+
+    private func deviceExactly(at point: CGPoint, in view: SCNView) -> String? {
         let hits = view.hitTest(point, options: [
-            SCNHitTestOption.searchMode: SCNHitTestSearchMode.closest.rawValue
+            SCNHitTestOption.searchMode: SCNHitTestSearchMode.all.rawValue,
+            SCNHitTestOption.ignoreHiddenNodes: true
         ])
-        for hit in hits {
+        for hit in hits.prefix(8) {
             var node: SCNNode? = hit.node
+            var passThrough = false
             while let current = node {
-                if let name = current.name, let device = hitNames[name] { return device }
+                if let name = current.name {
+                    if let device = hitNames[name] { return device }
+                    if name.hasPrefix("prop_") || name.hasPrefix("pet_cat") || name.hasPrefix("glow_") { passThrough = true }
+                }
                 node = current.parent
             }
+            if !passThrough { return nil }
         }
         return nil
     }
@@ -104,10 +130,14 @@ final class DollhouseController {
         restPosition = shot.position
         restTarget = shot.target
         restFov = shot.fov
+        let dx = shot.position.x - shot.target.x, dy = shot.position.y - shot.target.y, dz = shot.position.z - shot.target.z
+        fitRadius = max(0.5, sqrt(dx * dx + dy * dy + dz * dz) * sin(Float(shot.fov) * .pi / 360) / 0.92)
+        zoom = 1
+        panX = 0
+        panY = 0
         let move = {
             camera.fieldOfView = shot.fov
-            cameraNode.position = shot.position
-            cameraNode.look(at: shot.target)
+            self.applyView()
         }
         if animated {
             SCNTransaction.begin()
@@ -481,9 +511,77 @@ extension DollhouseController: DollhouseStage {
     private func holdCamera() {
         guard let cameraNode else { return }
         cameraNode.removeAllActions()
-        cameraNode.position = restPosition
-        cameraNode.look(at: restTarget)
         cameraNode.camera?.fieldOfView = restFov
+        applyView()
+    }
+
+    // MARK: zoom and pan
+
+    /// How far the look-at point may slide: about 18% of the room's radius at the fit, more when zoomed in.
+    private var panLimit: Float { fitRadius * 0.18 * zoom }
+
+    private var basis: (dir: SCNVector3, right: SCNVector3, up: SCNVector3, distance: Float) {
+        var dir = SCNVector3(restPosition.x - restTarget.x, restPosition.y - restTarget.y, restPosition.z - restTarget.z)
+        let distance = max(0.001, sqrt(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z))
+        dir = SCNVector3(dir.x / distance, dir.y / distance, dir.z / distance)
+        // right = worldUp x dir, up = dir x right
+        var right = SCNVector3(dir.z, 0, -dir.x)
+        let rl = max(0.001, sqrt(right.x * right.x + right.z * right.z))
+        right = SCNVector3(right.x / rl, 0, right.z / rl)
+        let up = SCNVector3(dir.y * right.z - dir.z * right.y, dir.z * right.x - dir.x * right.z, dir.x * right.y - dir.y * right.x)
+        return (dir, right, up, distance)
+    }
+
+    private func applyView() {
+        guard let cameraNode else { return }
+        let b = basis
+        let target = SCNVector3(restTarget.x + b.right.x * panX + b.up.x * panY,
+                                restTarget.y + b.right.y * panX + b.up.y * panY,
+                                restTarget.z + b.right.z * panX + b.up.z * panY)
+        let distance = b.distance / zoom
+        cameraNode.position = SCNVector3(target.x + b.dir.x * distance, target.y + b.dir.y * distance, target.z + b.dir.z * distance)
+        cameraNode.look(at: target)
+    }
+
+    private func clampPan() {
+        let limit = panLimit
+        let length = sqrt(panX * panX + panY * panY)
+        if length > limit, length > 0 {
+            panX *= limit / length
+            panY *= limit / length
+        }
+    }
+
+    func setZoom(_ value: Float) {
+        zoom = min(Self.maxZoom, max(1, value))
+        clampPan()
+        applyView()
+    }
+
+    /// `dx`/`dy` are points the fingers moved; the model follows the fingers.
+    func pan(byPoints dx: CGFloat, dy: CGFloat, viewHeight: CGFloat) {
+        guard viewHeight > 0 else { return }
+        let b = basis
+        let visible = 2 * (b.distance / zoom) * tan(Float(restFov) * .pi / 360)
+        let perPoint = visible / Float(viewHeight)
+        panX -= Float(dx) * perPoint
+        panY += Float(dy) * perPoint
+        clampPan()
+        applyView()
+    }
+
+    var isZoomedOrPanned: Bool { zoom > 1.01 || abs(panX) > 0.001 || abs(panY) > 0.001 }
+
+    /// Springs back to the fitted shot.
+    func resetView(animated: Bool) {
+        zoom = 1
+        panX = 0
+        panY = 0
+        SCNTransaction.begin()
+        SCNTransaction.animationDuration = animated ? 0.45 : 0
+        SCNTransaction.animationTimingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        applyView()
+        SCNTransaction.commit()
     }
 
     private func placeWindowLight(in scene: SCNScene) {
@@ -565,6 +663,7 @@ private extension UIColor {
 struct DollhouseViewport: UIViewRepresentable {
     var controller: DollhouseController
     var onTap: (String) -> Void
+    var onLongPress: (String) -> Void = { _ in }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -574,15 +673,32 @@ struct DollhouseViewport: UIViewRepresentable {
         view.antialiasingMode = .multisampling4X
         view.autoenablesDefaultLighting = false
         view.rendersContinuously = true
+        // Never SceneKit's camera control: it orbits. Zoom and pan are our own, angle fixed.
         view.allowsCameraControl = false
-        let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.tapped(_:)))
-        view.addGestureRecognizer(tap)
+        let coordinator = context.coordinator
+
+        let pinch = UIPinchGestureRecognizer(target: coordinator, action: #selector(Coordinator.pinched(_:)))
+        let pan = UIPanGestureRecognizer(target: coordinator, action: #selector(Coordinator.panned(_:)))
+        // Two fingers, so one-finger drags stay with the page's vertical scroll.
+        pan.minimumNumberOfTouches = 2
+        pan.maximumNumberOfTouches = 2
+        // No double-tap: it would make every single tap on a light wait to see if a second one follows.
+        let tap = UITapGestureRecognizer(target: coordinator, action: #selector(Coordinator.tapped(_:)))
+        let hold = UILongPressGestureRecognizer(target: coordinator, action: #selector(Coordinator.held(_:)))
+        hold.minimumPressDuration = 0.45
+        for recognizer in [pinch, pan, tap, hold] as [UIGestureRecognizer] {
+            recognizer.delegate = coordinator
+            view.addGestureRecognizer(recognizer)
+        }
+        coordinator.pinch = pinch
+        coordinator.pan = pan
         return view
     }
 
     func updateUIView(_ view: SCNView, context: Context) {
         context.coordinator.controller = controller
         context.coordinator.onTap = onTap
+        context.coordinator.onLongPress = onLongPress
         controller.viewport = view
         if view.scene !== controller.scene {
             view.scene = controller.scene
@@ -590,12 +706,77 @@ struct DollhouseViewport: UIViewRepresentable {
         }
     }
 
-    final class Coordinator: NSObject {
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
         var controller: DollhouseController?
         var onTap: (String) -> Void = { _ in }
+        var onLongPress: (String) -> Void = { _ in }
+        weak var pinch: UIPinchGestureRecognizer?
+        weak var pan: UIPanGestureRecognizer?
+        private var startZoom: Float = 1
+        private let haptic = UIImpactFeedbackGenerator(style: .light)
+
         @objc func tapped(_ gesture: UITapGestureRecognizer) {
             guard let view = gesture.view as? SCNView, let controller else { return }
-            if let name = controller.device(at: gesture.location(in: view), in: view) { onTap(name) }
+            guard let name = controller.device(at: gesture.location(in: view), in: view) else {
+                // A tap on the room (not a device) springs a zoomed or panned view back to the fit.
+                if controller.isZoomedOrPanned { controller.resetView(animated: true) }
+                return
+            }
+            haptic.impactOccurred()
+            onTap(name)
+        }
+
+        @objc func held(_ gesture: UILongPressGestureRecognizer) {
+            guard gesture.state == .began, let view = gesture.view as? SCNView, let controller else { return }
+            guard let name = controller.device(at: gesture.location(in: view), in: view) else { return }
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            onLongPress(name)
+        }
+
+        @objc func pinched(_ gesture: UIPinchGestureRecognizer) {
+            guard let controller else { return }
+            switch gesture.state {
+            case .began:
+                startZoom = controller.zoom
+                holdPageScroll(gesture.view, true)
+            case .changed:
+                controller.setZoom(startZoom * Float(gesture.scale))
+            default:
+                holdPageScroll(gesture.view, false)
+            }
+        }
+
+        @objc func panned(_ gesture: UIPanGestureRecognizer) {
+            guard let controller, let view = gesture.view else { return }
+            switch gesture.state {
+            case .began:
+                holdPageScroll(view, true)
+            case .changed:
+                let t = gesture.translation(in: view)
+                controller.pan(byPoints: t.x, dy: t.y, viewHeight: view.bounds.height)
+                gesture.setTranslation(.zero, in: view)
+            default:
+                holdPageScroll(view, false)
+            }
+        }
+
+        /// While two fingers zoom or pan the model, the page must not scroll under them.
+        private func holdPageScroll(_ view: UIView?, _ hold: Bool) {
+            var up = view?.superview
+            while let current = up {
+                if let scroll = current as? UIScrollView, scroll.isScrollEnabled || !hold {
+                    if scroll.panGestureRecognizer.view == scroll && scroll.alwaysBounceHorizontal == false {
+                        scroll.panGestureRecognizer.isEnabled = !hold
+                        scroll.pinchGestureRecognizer?.isEnabled = !hold
+                    }
+                }
+                up = current.superview
+            }
+        }
+
+        func gestureRecognizer(_ gesture: UIGestureRecognizer,
+                               shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+            (gesture === pinch && other === pan) || (gesture === pan && other === pinch)
         }
     }
 }

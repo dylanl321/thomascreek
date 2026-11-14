@@ -27,6 +27,7 @@ private struct DollhouseRoomPage: View {
     @State private var failure: String?
     @State private var highlighted: String?
     @State private var visible = false
+    @State private var detail: DollhouseDetail?
 
     init(room: DollhouseRoom) {
         self.room = room
@@ -63,6 +64,18 @@ private struct DollhouseRoomPage: View {
             }
         }
         .background(Backdrop())
+        .sheet(item: $detail) { item in
+            if let device = room.device(item.name) {
+                ScrollView {
+                    DollhouseDeviceCard(room: room, device: device, on: isOn(device.name), highlighted: false,
+                                        set: { set(device, $0) }, choose: { setOption(device, $0) })
+                        .padding()
+                }
+                .presentationDetents([.height(300), .medium])
+                .presentationDragIndicator(.visible)
+                .presentationBackground(.ultraThinMaterial)
+            }
+        }
         .navigationTitle(room.title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -117,17 +130,22 @@ private struct DollhouseRoomPage: View {
                     if let failure {
                         ContentUnavailableView("The model didn't open", systemImage: "cube.transparent", description: Text(failure))
                     } else if loaded {
-                        DollhouseViewport(controller: controller) { name in
+                        // A tap controls the device in place (no scrolling to its row). A long press opens its
+                        // full control (brightness, options) in a sheet over the model.
+                        DollhouseViewport(controller: controller, onTap: { name in
                             if let device = room.device(name), room.isConfigured(name), room.control(for: name) != .status {
                                 set(device, !isOn(name))
+                            } else {
+                                detail = DollhouseDetail(name: name)
                             }
-                            withAnimation { proxy.scrollTo(name, anchor: .center) }
                             highlighted = name
                             Task {
                                 try? await Task.sleep(for: .seconds(1.6))
                                 if highlighted == name { highlighted = nil }
                             }
-                        }
+                        }, onLongPress: { name in
+                            detail = DollhouseDetail(name: name)
+                        })
                     } else {
                         ProgressView("Opening \(room.title)…")
                     }
@@ -152,7 +170,7 @@ private struct DollhouseRoomPage: View {
             HStack {
                 Freshness(date: store.home?.generated, live: true)
                 Spacer()
-                Text("Tap a light in the model")
+                Text("Tap a light · hold for more · pinch to zoom")
                     .font(.caption)
                     .foregroundStyle(Theme.dim)
             }
@@ -514,3 +532,8 @@ private struct AlsoInRoomCard: View {
     }
 }
 
+
+private struct DollhouseDetail: Identifiable {
+    let name: String
+    var id: String { name }
+}
