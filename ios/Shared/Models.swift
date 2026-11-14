@@ -554,6 +554,7 @@ struct Recipe: Codable, Hashable {
     var oven: OvenPlan?
     var favorite: Bool?
     var tags: [String]?
+    var sections: [String]?
     var description: String?
     var sourceUrl: String?
     var prepTime: String?

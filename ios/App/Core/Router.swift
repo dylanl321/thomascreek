@@ -22,6 +22,7 @@ enum Destination: Hashable {
     case roomEdit(String), hiddenDevices  // admin: set up a room; devices hidden for everyone and clean-up
     case calendar, meals, recipe(String), shopping, chores, inventory
     case kitchen(String?), dinners, recipes
+    case recipeSections, feasts, feast(String), shopBuilder([String])   // sections, holiday plans, one list for many meals
     case trips, trip(Int), tripDay(Int, String)
     case systems, storage, activity, people, kidNet, vpnPool, hubWeb, youtube
     case houseBrain, brainRun(String)     // admin: the background AI's spend, jobs and run log
@@ -149,7 +150,7 @@ final class Router {
         case .systems, .activity: return me?.can(.systems) == true || me?.can(.activity) == true
         case .people, .feedback, .vpnPool, .hubWeb, .houseBrain, .brainRun: return store.role == .admin
         case .trips, .trip, .tripDay: return me?.can(.tripsView) == true
-        case .recipe, .recipes, .meals, .dinners: return true
+        case .recipe, .recipes, .meals, .dinners, .recipeSections: return true
         case .tvGuide, .tvSeries, .tvMovie: return me?.can(.mediaAll) == true || me?.can(.mediaOwnTV) == true
         case .houseRemote: return store.role != .guest
         case .calendar, .shopping, .inventory, .chores: return !kid && store.role != .guest
@@ -201,6 +202,9 @@ final class Router {
         case "kitchen", "oven": kid ? show(.home) : show(.family, .kitchen(parts.count > 1 ? parts[1] : nil))
         case "dinners", "meals": kid ? show(.home) : show(.family, .meals)
         case "recipes": kid ? show(.home) : show(.family, .recipes)
+        case "sections": kid ? show(.home) : show(.family, .recipeSections)
+        case "holidays", "feasts": if !kid { show(.family, parts.count > 1 ? .feast(parts[1]) : .feasts) }
+        case "shoplist": if !kid { show(.family, .shopBuilder([])) }
         case "recipe": if parts.count > 1 { show(kid ? .home : .family, .recipe(parts[1])) }
         case "kids": if !kid { show(.family, .kidNet) }
         case "workshop", "printer", "printers":

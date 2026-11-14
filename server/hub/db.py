@@ -307,6 +307,24 @@ SCHEMA += [
     "CREATE INDEX IF NOT EXISTS ai_runs_card ON ai_runs(card_id)",
 ]
 
+# Holiday and feast plans (hub/feasts.py): Mealie has day-by-day meal plans but no named event with courses.
+SCHEMA += [
+    """
+    CREATE TABLE IF NOT EXISTS feast_plans (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        kind TEXT NOT NULL DEFAULT 'feast',
+        start_date TEXT NOT NULL,
+        end_date TEXT NOT NULL,
+        guests INTEGER NOT NULL DEFAULT 8,
+        notes TEXT,
+        courses TEXT NOT NULL DEFAULT '[]',
+        created_by TEXT,
+        created_at REAL NOT NULL,
+        updated_at REAL NOT NULL
+    )""",
+]
+
 ADDED_COLUMNS = [
     ("devices", "kind", "TEXT NOT NULL DEFAULT 'phone'"),   # phone | test (a simulator joined with a test key)
     ("devices", "test_key_id", "TEXT"),

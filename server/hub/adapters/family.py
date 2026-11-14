@@ -11,7 +11,7 @@ from typing import Any
 import httpx
 
 from ..config import ShowPlayerConfig
-from .base import Adapter, AdapterError, log
+from .base import Adapter, AdapterError, ServiceError, log
 
 FAVORITE_TAG = "Favorite"
 OVEN_TAG = "Oven"
@@ -86,12 +86,15 @@ class Mealie(Adapter):
 
     # -- recipes ---------------------------------------------------------------
     def _summary(self, r: dict[str, Any]) -> dict[str, Any]:
+        from ..feasts import sections_of
+
         rid = r.get("id")
         tags = [t.get("name") for t in (r.get("tags") or []) if t.get("name")]
+        cats = [c.get("name") for c in (r.get("recipeCategory") or []) if c.get("name")]
         return {
             "id": rid, "slug": r.get("slug"), "title": r.get("name"),
             "image_url": f"/v1/meals/image/{rid}" if rid and r.get("image") else None,
-            "total_time": r.get("totalTime"), "tags": tags,
+            "total_time": r.get("totalTime"), "tags": tags, "sections": sections_of(cats, tags),
             "favorite": FAVORITE_TAG in tags, "oven": OVEN_TAG in tags,
             "last_made": r.get("lastMade"), "rating": r.get("rating"),
         }
@@ -173,6 +176,20 @@ class Mealie(Adapter):
                                         "ingredientReferences": []} for t in fields["steps"] if str(t).strip()]
         if "tags" in fields:
             r["tags"] = await self._tag_objs(fields["tags"])
+        if "sections" in fields:
+            from ..feasts import section_name
+
+            names = []
+            for n in fields["sections"] or []:
+                n = section_name(n) or str(n).strip()[:40]
+                if n and n not in names:
+                    names.append(n)
+            r["recipeCategory"] = await self._category_objs(names)
+            # Old course tags ("Dessert", "Side") would bring a removed section back; the category is the record now.
+            old = r.get("tags") or []
+            kept = [t for t in old if not section_name(t.get("name") or "")]
+            if len(kept) != len(old):
+                r["tags"] = kept
         extras = dict(r.get("extras") or {})
         if "oven" in fields:
             for k in ("tc_oven_mode", "tc_oven_temp", "tc_oven_minutes", "tc_oven_none"):
@@ -216,6 +233,32 @@ class Mealie(Adapter):
             out.append({"id": t["id"], "name": t["name"], "slug": t["slug"]})
         return out
 
+    async def categories(self) -> list[dict[str, Any]]:
+        data = await self.get_json("/api/organizers/categories", params={"perPage": 200})
+        return [{"id": t["id"], "name": t["name"], "slug": t["slug"]} for t in data.get("items", [])]
+
+    async def _category_objs(self, names: list[str]) -> list[dict[str, Any]]:
+        existing = {t["name"].lower(): t for t in await self.categories()}
+        out = []
+        for n in names:
+            t = existing.get(n.lower())
+            if t is None:
+                made = await self.post_json("/api/organizers/categories", {"name": n})
+                t = {"id": made["id"], "name": made["name"], "slug": made["slug"]}
+                existing[n.lower()] = t
+            out.append({"id": t["id"], "name": t["name"], "slug": t["slug"]})
+        return out
+
+    async def recipe_parts(self, slug: str) -> dict[str, Any]:
+        """A recipe's ingredients as amounts, units and foods, for the merged shopping list."""
+        from ..feasts import from_mealie
+
+        r = await self.get_json(f"/api/recipes/{slug}")
+        return {"id": r.get("id"), "slug": r.get("slug") or slug, "title": r.get("name"),
+                "servings": _servings(r), "image_url": f"/v1/meals/image/{r['id']}" if r.get("id") else None,
+                "ingredients": [from_mealie(i) for i in r.get("recipeIngredient") or []
+                                if i.get("food") or i.get("note") or i.get("originalText") or i.get("display")]}
+
     async def delete(self, slug: str) -> None:
         await self.request("DELETE", f"/api/recipes/{slug}")
 
@@ -256,6 +299,32 @@ class Mealie(Adapter):
                 body["title"] = title
                 body["text"] = ""
             await self.post_json("/api/households/mealplans", body)
+
+    async def plan_add(self, day: date, recipe_id: str, meal: str = "side") -> None:
+        """Adds a meal plan entry without replacing what is there (a feast has many dishes a day)."""
+        await self.post_json("/api/households/mealplans",
+                             {"date": day.isoformat(), "entryType": meal, "recipeId": recipe_id})
+
+    async def lists(self) -> list[dict[str, Any]]:
+        data = await self.get_json("/api/households/shopping/lists", params={"perPage": 50})
+        return [{"id": sl["id"], "name": sl.get("name")} for sl in data.get("items", [])]
+
+    async def create_list(self, name: str) -> str:
+        made = await self.post_json("/api/households/shopping/lists", {"name": name[:80]})
+        return made["id"]
+
+    async def add_items(self, list_id: str, texts: list[str]) -> int:
+        """Adds many lines at once (in this order); falls back to one at a time on older Mealie."""
+        body = [{"shoppingListId": list_id, "note": t, "isFood": False, "quantity": 0, "position": i}
+                for i, t in enumerate(texts)]
+        try:
+            await self.post_json("/api/households/shopping/items/create-bulk", body)
+        except ServiceError as exc:
+            if exc.status not in (404, 405):
+                raise
+            for b in body:
+                await self.post_json("/api/households/shopping/items", b)
+        return len(body)
 
     async def add_recipe_to_list(self, list_id: str, recipe_id: str) -> None:
         await self.post_json(f"/api/households/shopping/lists/{list_id}/recipe",

@@ -53,6 +53,7 @@ struct RecipeSummary: Codable, Hashable, Identifiable {
     var favorite: Bool?
     var oven: Bool?
     var lastMade: String?
+    var sections: [String]?
 }
 
 struct RecipeList: Codable { var items: [RecipeSummary]; var total: Int? }
@@ -378,6 +379,10 @@ struct DinnersView: View {
                 Section("This week") {
                     ForEach(days) { d in row(d) }
                 }
+                Section {
+                    Button { router.go(.shopBuilder([])) } label: { Label("Shopping list for the weeks ahead", systemImage: "list.bullet.clipboard") }
+                    Button { router.go(.feasts) } label: { Label("Holidays and feasts", systemImage: "leaf.fill") }
+                }
             } else if let error {
                 EmptyCard(symbol: "fork.knife", title: "Meals aren't answering", detail: error).listRowBackground(Color.clear)
             } else { ProgressView() }
@@ -553,6 +558,7 @@ struct RecipesView: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         ChipButton(title: "All", active: tag == nil) { tag = nil }
+                        ChipButton(title: "Sections", symbol: "square.grid.2x2") { router.go(.recipeSections) }
                         if SettingsStore.shared.anyFavorites(.recipe) {
                             ChipButton(title: "My favorites", symbol: "star.fill", active: tag == Self.mine) { tag = Self.mine }
                         }
@@ -626,6 +632,8 @@ struct RecipeView: View {
     @State private var planning = false
     @State private var editing = false
     @State private var planDate = Date()
+    @State private var sectioning = false
+    @State private var addingToFeast = false
 
     private var canEdit: Bool { store.me?.capabilities.contains("family.edit") ?? false }
     private var canOven: Bool { store.me?.capabilities.contains("appliances") ?? false }
@@ -655,6 +663,16 @@ struct RecipeView: View {
                             Button { shop(r) } label: { Label("Add to Shopping", systemImage: "cart.badge.plus").frame(maxWidth: .infinity) }
                         }
                         .buttonStyle(.bordered)
+                        HStack(spacing: 10) {
+                            Button { sectioning = true } label: {
+                                Label((r.sections ?? []).isEmpty ? "Sections" : (r.sections ?? []).joined(separator: ", "), systemImage: "square.grid.2x2")
+                                    .lineLimit(1).frame(maxWidth: .infinity)
+                            }
+                            Button { addingToFeast = true } label: { Label("Add to a holiday", systemImage: "leaf").frame(maxWidth: .infinity) }
+                        }
+                        .buttonStyle(.bordered)
+                    } else if let secs = r.sections, !secs.isEmpty {
+                        HStack { ForEach(secs, id: \.self) { Pill(text: $0) } }
                     }
                     PrimaryButton(title: "Start cooking", symbol: "flame.fill", color: Theme.warn) { step = 0; cooking = true }
                     if let d = r.description, !d.isEmpty { Text(d).foregroundStyle(Theme.dim) }
@@ -689,6 +707,12 @@ struct RecipeView: View {
             }
         }
         .task { await load() }
+        .sheet(isPresented: $sectioning) {
+            if let r = recipe { SectionsSheet(slug: r.slug ?? recipeID, current: r.sections ?? []) { recipe?.sections = $0 } }
+        }
+        .sheet(isPresented: $addingToFeast) {
+            if let r = recipe { AddToFeastSheet(slug: r.slug ?? recipeID, sections: r.sections ?? []) }
+        }
         .sheet(isPresented: $settingOven) { if let r = recipe, let p = r.oven { OvenFromRecipeSheet(plan: p, recipeTitle: r.title) } }
         .sheet(isPresented: $planning) {
             NavigationStack {
