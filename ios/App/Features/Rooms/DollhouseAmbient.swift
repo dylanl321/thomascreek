@@ -14,6 +14,7 @@ final class DollhouseAmbient {
     private var curtains: Set<String> = []
     private var screens: Set<String> = []
     private var didScanCurtains = false
+    private var shimmering: [SCNMaterial] = []
     private let motion = DollhouseMotion()
 
     init(room: DollhouseRoom) { self.room = room }
@@ -74,7 +75,58 @@ final class DollhouseAmbient {
         syncSteam(stage, names: steam)
         syncDust(stage, part: part)
         syncSparkles(stage, part: part)
+        syncRiver(stage, part: part)
     }
+
+    // MARK: property
+
+    /// The property's river: slow bright ripples drifting downstream, drawn in the shader so it costs nothing on
+    /// the CPU. Night keeps a fainter, cooler glint. Off with motion (Reduce Motion, off screen, Low Power Mode).
+    private func syncRiver(_ stage: DollhouseStage, part: DollhouseDayPart) {
+        guard room.isProperty else { return }
+        if shimmering.isEmpty {
+            for name in Self.riverNodes {
+                guard let node = stage.node(named: name) else { continue }
+                node.enumerateHierarchy { child, _ in
+                    for material in child.geometry?.materials ?? [] where !shimmering.contains(where: { $0 === material }) {
+                        shimmering.append(material)
+                    }
+                }
+            }
+        }
+        let strength: Double
+        switch part {
+        case .morning: strength = 0.9
+        case .midday: strength = 1
+        case .dusk: strength = 0.8
+        case .night: strength = 0.45
+        }
+        for material in shimmering {
+            material.shaderModifiers = [.surface: Self.riverShimmer]
+            material.setValue(NSNumber(value: strength), forKey: "tcShimmer")
+        }
+    }
+
+    private func stopRiver() {
+        for material in shimmering { material.shaderModifiers = nil }
+        shimmering = []
+    }
+
+    static let riverNodes = ["river"]
+
+    /// World position from the view-space surface point; ripples run along the river (east-west, +X) and wander a
+    /// little across it. Adds a soft cool sheen, never more than a highlight, so the water stays dim like the rest.
+    static let riverShimmer = """
+    #pragma arguments
+    float tcShimmer;
+    #pragma body
+    float3 tcWorld = (scn_frame.inverseViewTransform * float4(_surface.position, 1.0)).xyz;
+    float tcTime = scn_frame.time;
+    float tcA = sin(tcWorld.x * 0.55 - tcTime * 1.1 + sin(tcWorld.z * 0.9 + tcTime * 0.35) * 1.8);
+    float tcB = sin(tcWorld.x * 1.3 + tcWorld.z * 0.6 - tcTime * 1.7);
+    float tcGlint = pow(saturate(0.5 + 0.35 * tcA + 0.15 * tcB), 5.0);
+    _surface.emission.rgb += float3(0.10, 0.17, 0.22) * tcGlint * tcShimmer;
+    """
 
     // MARK: flames, spin, curtains, screens
 
@@ -321,6 +373,7 @@ final class DollhouseAmbient {
         screens = []
         for (_, pair) in particles { Self.detach(pair) }
         particles = [:]
+        stopRiver()
     }
 
     private static let emitterName = "life-steam-emitter"

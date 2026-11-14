@@ -14,6 +14,11 @@ struct DollhouseRoom: Identifiable {
     var appearance: DollhouseAppearance
     var views: DollhouseViews?
     var life: DollhouseLifeScript?
+    /// `room` (a cutaway) or `property` (the whole lot, in metres). The property page has no climate or Advanced
+    /// screen, its rig scales to the lot, and a tap on the house opens the rooms.
+    var kind: DollhouseKind = .room
+
+    var isProperty: Bool { kind == .property }
 
     func presetIDs() -> [String] {
         let preferred = ["all_off", "all_on", "evening", "movie_night", "party", "bedtime", "reading", "laundry_running"]
@@ -159,6 +164,10 @@ struct ExtraHubDevice: Decodable, Hashable {
     var note: String?
 }
 
+enum DollhouseKind: String {
+    case room, property
+}
+
 enum DollhouseControl: String {
     case light, `switch`, media, select, status, fan
 }
@@ -207,6 +216,9 @@ enum DollhouseCatalog {
 
     static func room(_ id: String) -> DollhouseRoom? { rooms.first { $0.id == id } }
 
+    /// The cutaways, without the property overview. A tap on the house in the property view lists these.
+    static var indoorRooms: [DollhouseRoom] { rooms.filter { !$0.isProperty } }
+
     private struct Index: Decodable {
         struct Row: Decodable {
             var id: String
@@ -218,6 +230,7 @@ enum DollhouseCatalog {
             var appearance: String
             var views: DollhouseViews?
             var life: String?
+            var kind: String?
         }
         var rooms: [Row]
     }
@@ -240,7 +253,8 @@ enum DollhouseCatalog {
             }
             return DollhouseRoom(id: row.id, title: row.title, symbol: row.symbol, model: row.model,
                                  devicesName: row.devices, mappingName: row.mapping, appearanceName: row.appearance,
-                                 devices: devices, mapping: mapping, appearance: appearance, views: row.views, life: life)
+                                 devices: devices, mapping: mapping, appearance: appearance, views: row.views, life: life,
+                                 kind: row.kind.flatMap(DollhouseKind.init(rawValue:)) ?? .room)
         }
     }
 
