@@ -12,6 +12,7 @@ import time
 from typing import Any
 
 from .artwork import programme_key
+from .tvexplore import ready_items
 
 KV = "tv.watch"
 KV_RECORDINGS = "dvr.recordings"
@@ -24,6 +25,7 @@ REASONS = {
     "continue": "continue watching",
     "next": "new episode of a series you watch or record",
     "recordings": "recording ready",
+    "arrived": "ready to watch",
     "onnow": "starting now on a channel you watch",
     "trending": "trending in your history",
 }
@@ -89,11 +91,15 @@ def shelf(h: Any, profile: str, now: float | None = None) -> dict[str, Any]:
     rows = [
         _row("continue", _continue(h, history, kids), seen),
         _row("next", _next_episodes(h, history, kids), seen),
-        _row("recordings", _recordings(h, kids, now), seen),
+        _row("recordings", _recordings(h, kids, now) + _ready(h, kids), seen),
         _row("onnow", _starting(h, history, kids, now), seen),
         _row("trending", _trending(h, history, kids, now), seen),
     ]
     return {"rows": [row for row in rows if row]}
+
+
+def _ready(h: Any, kids: bool) -> list[dict[str, Any]]:
+    return ready_items(h, "kids" if kids else "adult")
 
 
 def _row(row_id: str, items: list[dict[str, Any]], seen: set[str]) -> dict[str, Any] | None:

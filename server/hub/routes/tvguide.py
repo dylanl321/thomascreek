@@ -11,6 +11,7 @@ import time
 from typing import Any
 
 from fastapi import APIRouter, Depends
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from ..actions import ActionError
@@ -18,7 +19,7 @@ from ..adapters.base import AdapterError
 from ..policy import Target
 from ..state import Hub
 from ..tvapp import TvAppError
-from .. import tvcontrol, tvhandoff
+from .. import tvcontrol, tvexplore, tvhandoff
 from ..upnext import shelf
 from .deps import Caller, caller, error, hub, need
 from .media import _filter, _watch_cap
@@ -101,6 +102,39 @@ async def handoff(body: HandoffIn, c: Caller = Depends(caller), h: Hub = Depends
         return await tvhandoff.handoff(h, c.subject, body.from_device, body.to_device)
     except ActionError as exc:
         raise error(exc.status, exc.error, exc.message, **exc.extra) from None
+
+
+@router.get("/explore")
+async def explore(profile: str | None = None, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """New, popular and acclaimed titles this house can play or ask for."""
+    kids = _media(h, c)
+    if profile == "kids" or (profile == "adult" and kids):
+        kids = True
+    return tvexplore.feed(h, "kids" if kids else "adult")
+
+
+@router.post("/explore/request")
+async def explore_request(body: dict[str, Any], c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """Ask for one title. The answer is a sentence."""
+    _media(h, c)
+    try:
+        prepared = tvexplore.ask(h, c.subject, body)
+    except tvexplore.ExploreError as exc:
+        raise error(exc.status, "bad_request", exc.message) from None
+    if prepared.get("pending_submit"):
+        return await tvexplore.submit(h, prepared)
+    return prepared
+
+
+@router.get("/explore/art/{kind}/{media}/{tmdb_id}")
+async def explore_art(kind: str, media: str, tmdb_id: str, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> Response:
+    """A cached poster, backdrop or logo. A missing file is a quiet 404."""
+    _media(h, c)
+    found = await tvexplore.cached_art(h, kind, media, tmdb_id)
+    if found is None:
+        raise error(404, "not_found", "No artwork")
+    body, mime = found
+    return Response(body, media_type=mime, headers={"Cache-Control": "private, max-age=604800"})
 
 
 @router.get("/upnext")
