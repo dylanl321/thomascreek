@@ -349,6 +349,22 @@ class HubSettings(BaseModel):
         return v
 
 
+class AmbientStream(BaseModel):
+    """One ambience Dylan assigned a channel or a direct stream to. The id is one of the curated set."""
+
+    id: str
+    channel_key: str | None = None
+    stream_url: str | None = None
+    poster_url: str | None = None
+
+
+class AmbientConfig(BaseModel):
+    """Seasonal scenes for an idle TV. The curated list works with no entries here."""
+
+    pin: str | None = None
+    streams: list[AmbientStream] = Field(default_factory=list)
+
+
 class Config(BaseModel):
     hub: HubSettings = Field(default_factory=HubSettings)
     home_assistant: ServiceConfig = Field(default_factory=lambda: ServiceConfig(token_secret="home_assistant.token"))
@@ -376,6 +392,7 @@ class Config(BaseModel):
     child_policy: ChildPolicy = Field(default_factory=ChildPolicy)
     smart: SmartConfig = Field(default_factory=SmartConfig)
     guest: GuestInfo = Field(default_factory=GuestInfo)
+    ambient: AmbientConfig = Field(default_factory=AmbientConfig)
     areas: dict[str, AreaOverride] = Field(default_factory=dict)
     floors: list[dict[str, Any]] = Field(default_factory=list)
     modes: list[ModeConfig] = Field(default_factory=list)

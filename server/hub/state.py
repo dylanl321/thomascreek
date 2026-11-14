@@ -123,6 +123,9 @@ class Hub:
         from .tvbedtime import TvBedtime
 
         self.tv_bedtime = TvBedtime(self)
+        from .ambient import Ambient
+
+        self.ambient = Ambient(self)
         self.actions = ActionRunner(self)
         self.timers = Timers(self)
         self.kitchen = Kitchen(self)

@@ -938,6 +938,23 @@ When the state becomes `locked`, the hub runs that scene if `scene.run` is a liv
 
 `POST /v1/tv/bedtime/extend` `{profile,minutes}` is a parent (admin or adult). `minutes` is 5 to 120. It adds that much time and lifts the night window for that long. A child gets `403` "Ask a parent". A warning also tells parents once, in the app.
 
+### Ambient
+
+`GET /v1/ambient?device=` for a TV or a phone that can watch. The date picks the scene. Nothing has to be configured.
+
+```json
+{"season":"autumn","holiday":null,"ambience":{"id":"leaves","title":"Autumn leaves","channel_key":"xc:thomas-creek:7","poster_url":"/v1/art/logo/xc:thomas-creek:7"},
+ "widgets":{"weather":{"temp":62,"condition":"Cloudy"},"calendar":[{"title":"Practice","start":"2026-11-14T16:00:00-05:00"}],
+  "cameras":[{"name":"Driveway","snapshot_url":"/v1/ambient/cameras/driveway.jpg"}],
+  "art":["/v1/art/poster/prog:0b49a5b26ac1e2d3739f"]}}
+```
+
+`season` is `winter`, `spring`, `summer`, or `autumn`. `holiday` is `halloween` through October, `christmas` from 1 to 26 December, or null. Winter uses Fireplace on an even day of the month and Snowfall on an odd day, except during Christmas. `ambience` has `channel_key` when a lineup channel name matches the scene, or `stream_url` when one was saved. A stream URL with a username or password is not kept. `poster_url` is omitted when there is no artwork. `widgets.weather` is null until a forecast is cached. `calendar`, `cameras`, and `art` are empty lists when there is nothing to show. Camera stills are `GET /v1/ambient/cameras/{name}.jpg` with the same bearer. A camera that doesn't answer is `404` "That camera didn't answer".
+
+The eight scenes are Fireplace, Snowfall, Christmas lights, Autumn leaves, Halloween, Spring rain, Summer beach, and Aquarium.
+
+`GET /v1/ambient/library` lists them. `PUT /v1/ambient` is admin: `{pin, device?, items:[{id, channel_key?, stream_url?, poster_url?}]}`. `pin` is one of the ids, or null to follow the date. A `device` pin applies only to that TV. The same assignments can live in the hub config under `ambient.pin` and `ambient.streams`. A saved PUT wins.
+
 ## Universal title search
 
 `GET /v1/titles/search?q=` (at least two letters). One card per title across Plex, the IPTV lineup and guide, and TMDB (Jellyseerr, which is what asks Sonarr and Radarr). The same title is one card: matched on TMDB id, then IMDb, then TVDB, then the cleaned name and year.
