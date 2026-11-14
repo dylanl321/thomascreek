@@ -567,7 +567,7 @@ class HomeModel:
             out["hidden"] = eid in self.layout.hidden
         return out
 
-    def snapshot(self, s: Subject) -> dict[str, Any]:
+    def snapshot(self, s: Subject, open_home: bool = False) -> dict[str, Any]:
         cfg = self.hub.config
         policy = self.hub.policy
         starred = set(self.hub.settings.favorite_ids(s, "room"))
@@ -621,7 +621,7 @@ class HomeModel:
         modes = [{"id": m.id, "name": m.name, "symbol": m.symbol, "active": False}
                  for m in cfg.modes if s.role in m.roles]
         month = policy.now().month
-        plan, smart = self.plan_and_cards(s)
+        plan, smart = self.plan_and_cards(s, open_home=open_home)
         snap: dict[str, Any] = {
             "generated_at": iso(time.time()),
             "status": self.status(s, devices),
@@ -698,13 +698,14 @@ class HomeModel:
         cards.sort(key=lambda c: (not c["available"], order.get(c["type"], 9), c["name"]))
         return cards
 
-    def plan_and_cards(self, s: Subject) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
-        """This person's Right-now cards and the house brain's arrangement of their Home (brain/layout.py)."""
+    def plan_and_cards(self, s: Subject, open_home: bool = False) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
+        """This person's Right-now cards and the house brain's arrangement of their Home (brain/layout.py).
+        Only `open_home` (the app's Home screen asking) may start a model call."""
         cards = self._smart_cards(s)
         brain = getattr(self.hub, "brain", None)
         if brain is None:
             return None, cards
-        return brain.layout.plan_for(s, cards)
+        return brain.layout.plan_for(s, cards, ask=open_home)
 
     def _smart_cards(self, s: Subject) -> list[dict[str, Any]]:
         # Suggestions must never take Home down with them.

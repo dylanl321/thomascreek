@@ -25,8 +25,10 @@ router = APIRouter(prefix="/v1", tags=["home"])
 
 
 @router.get("/home")
-async def home(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
-    return h.home.snapshot(c.subject)
+async def home(plan: str | None = None, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """`?plan=open` comes from the app's Home screen: only then may the house brain re-plan the layout.
+    Widgets, Siri and the assistant get the last plan without starting a model call."""
+    return h.home.snapshot(c.subject, open_home=plan == "open")
 
 
 def _bedtime_data(ev: dict[str, Any]) -> dict[str, Any]:

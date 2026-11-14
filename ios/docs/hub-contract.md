@@ -245,7 +245,12 @@ why?, generated_at?}`. `smart` comes back in the plan's card order (safety cards
   row instead of the section. Sections the person hid in Edit Home never appear.
 - The app follows `plan` only when `source == "ai"` and the person's `home.ai` setting is on (default true);
   otherwise its own order as before. Kids' sections are only reordered, never hidden.
-- A fresh plan arrives as `{"type":"smart"}` after the model answers (the request never waits).
+- A fresh plan arrives as `{"type":"smart"}` after the model answers (the request never waits). Only the Home
+  screen asks for one: it sends `?plan=open` on `/v1/home` and `/v1/smart`. Widgets, Siri and the assistant read
+  without it and get the last plan, never starting a model call.
+- `pinned: true` (Right now while a safety card is up) shows even if the person hid that section.
+- Kids: a section missing from `sections` entirely is down; leave it out. `show: false` ones follow in the usual order.
+- The example screens ride in the system prompt (cacheable); a failed model call retries after about a minute.
 - Hub: hub/brain/layout.py (guard rails), hub/brain/layout_examples.py (example screens the model copies).
   Config `brain.layout_enabled` (default true), `brain.layout_cooldown_min` (3), `brain.layout_tier` (cheap = Haiku by default; smart = Sonnet). Runs are costed in `ai_runs` as
   job `layout`; `/v1/brain/summary` has `layout {enabled, runs, cost_usd, people}`.

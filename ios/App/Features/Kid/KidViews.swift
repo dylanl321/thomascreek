@@ -98,7 +98,9 @@ struct KidHomeView: View {
         let defaults: [KidSection] = little ? [.rightnow, .playing, .printer, .trip, .board, .actions, .dinner] : KidSection.allCases
         guard let plan = store.home?.plan, plan.arranged, plan.home == "kid" else { return defaults }
         let first = plan.sections.filter(\.show).compactMap { KidSection(rawValue: $0.id) }.filter(defaults.contains)
-        return first + defaults.filter { !first.contains($0) }
+        // Ones the hub left out entirely are down (an empty board would just confuse); tucked ones follow as usual.
+        let listed = Set(plan.sections.map(\.id))
+        return first + defaults.filter { !first.contains($0) && listed.contains($0.rawValue) }
     }
 
     @ViewBuilder private func kidSection(_ s: KidSection) -> some View {

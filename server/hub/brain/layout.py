@@ -92,7 +92,7 @@ You get the situation (who: role and home type, time of day, weekday or weekend,
 - why: a few plain words on what this screen is for right now, like "Dinner and wind-down" (under 50 characters, no names).
 - unsure: true only if the situation is genuinely unclear.
 
-Base your choices on the examples. Use only ids you were given. A person's own order (prefs.order) is a strong hint for sections that matter equally. Safety cards and outages are handled after you answer, so don't worry about them. Keep a child's screen simple and about them."""
+Base your choices on the examples below (each is a situation and the screen it should get). Use only ids you were given. A person's own order (prefs.order) is a strong hint for sections that matter equally. Safety cards and outages are handled after you answer, so don't worry about them. Keep a child's screen simple and about them."""
 
 SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -105,6 +105,18 @@ SCHEMA: dict[str, Any] = {
     },
     "required": ["sections", "cards", "cards_shown", "why", "unsure"], "additionalProperties": False,
 }
+
+
+_SYSTEMS: dict[str, str] = {}
+
+
+def system_for(home: str) -> str:
+    """The instructions plus that home type's example screens. Fixed text, so the provider can cache it."""
+    if home not in _SYSTEMS:
+        ex = [{"name": e["name"], "situation": e["situation"], "screen": e["plan"]} for e in EXAMPLES
+              if e["situation"].get("home") == home]
+        _SYSTEMS[home] = SYSTEM + "\n\nExamples:\n" + json.dumps(ex, ensure_ascii=False, indent=1)
+    return _SYSTEMS[home]
 
 
 def part_of_day(now: datetime) -> str:
@@ -233,19 +245,25 @@ class Planner:
         return out
 
     @staticmethod
-    def card_key(card: dict[str, Any], seen: dict[str, int]) -> str:
-        rule = str(card.get("rule") or "card")
-        n = seen.get(rule, 0)
-        seen[rule] = n + 1
-        return rule if n == 0 else f"{rule}#{n + 1}"
+    def card_keys(cards: list[dict[str, Any]]) -> dict[str, str]:
+        """card id -> a short key for the model: the rule, numbered by card id when a rule has several, so the
+        same card keeps the same key whatever order the rules produce them in."""
+        out: dict[str, str] = {}
+        seen: dict[str, int] = {}
+        for c in sorted(cards, key=lambda c: (str(c.get("rule") or "card"), str(c.get("id")))):
+            rule = str(c.get("rule") or "card")
+            n = seen.get(rule, 0)
+            seen[rule] = n + 1
+            out[str(c.get("id"))] = rule if n == 0 else f"{rule}#{n + 1}"
+        return out
 
     def situation(self, s: "Subject", home: str, cards: list[dict[str, Any]], allowed: list[str],
                   down: dict[str, str], prefs: dict[str, Any]) -> dict[str, Any]:
         now = self.hub.policy.now()
-        seen: dict[str, int] = {}
+        keys = self.card_keys(cards)
         card_list = []
         for c in cards:
-            item = {"key": self.card_key(c, seen), "priority": int(c.get("priority") or 0)}
+            item = {"key": keys[str(c.get("id"))], "priority": int(c.get("priority") or 0)}
             if home == "adult":
                 item["title"] = str(c.get("title") or "")[:80]
             else:
@@ -272,18 +290,20 @@ class Planner:
                                     "trip_soon": (c.get("trip_days") or 99) <= 7}})
 
     # -- the plan -------------------------------------------------------------
-    def plan_for(self, s: "Subject", cards: list[dict[str, Any]]) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
-        """(plan, cards in plan order). Never waits for the model and never raises."""
+    def plan_for(self, s: "Subject", cards: list[dict[str, Any]], ask: bool = False
+                 ) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
+        """(plan, cards in plan order). Never waits for the model and never raises. Only `ask` (the app's Home
+        screen opening, not a widget, Siri or the assistant) may start a model call."""
         home = self.home_type(s)
         if home is None:
             return None, cards
         try:
-            return self._plan_for(s, home, cards)
+            return self._plan_for(s, home, cards, ask)
         except Exception as exc:  # noqa: BLE001
             log.warning("layout plan failed: %s", exc)
             return None, cards
 
-    def _plan_for(self, s: "Subject", home: str, cards: list[dict[str, Any]]):
+    def _plan_for(self, s: "Subject", home: str, cards: list[dict[str, Any]], ask: bool):
         allowed, down = self.allowed(s, home)
         prefs = self._prefs(s)
         sit = self.situation(s, home, cards, allowed, down, prefs)
@@ -291,7 +311,7 @@ class Planner:
         pid = s.person_id or ""
         cached = self.plans.get(pid)
         use_ai = prefs["ai"] and self.ai_ready()
-        if use_ai and (cached is None or cached.get("key") != key or time.time() - cached.get("at", 0) > MAX_AGE_S):
+        if ask and use_ai and (cached is None or cached.get("key") != key or time.time() - cached.get("at", 0) > MAX_AGE_S):
             self._maybe_ask(pid, s, sit, key)
         raw = cached if (use_ai and cached) else None
         return self.check(raw, s, home, sit, allowed, down, prefs, cards)
@@ -310,8 +330,8 @@ class Planner:
         tucked = [x for x in default if x not in shown]
 
         # Cards: the model's order, then the rest by priority; safety always first.
-        seen: dict[str, int] = {}
-        keyed = [(self.card_key(c, seen), c) for c in cards]
+        keys = self.card_keys(cards)
+        keyed = [(keys[str(c.get("id"))], c) for c in cards]
         order = {k: i for i, k in enumerate((raw or {}).get("cards") or [])}
         keyed.sort(key=lambda kc: (order.get(kc[0], 1000), -int(kc[1].get("priority") or 0)))
         safety = [kc for kc in keyed if kc[1].get("rule") in SAFETY_RULES or int(kc[1].get("priority") or 0) >= SAFETY_PRIORITY]
@@ -321,6 +341,8 @@ class Planner:
         n = int((raw or {}).get("cards_shown") or 3)
         n = max(1, min(5, n, len(out_cards) or 1), len(safety))
 
+        if safety and "rightnow" in allowed and "rightnow" not in shown:
+            shown.insert(0, "rightnow")
         if out_cards and "rightnow" in allowed:
             if safety:
                 shown = ["rightnow"] + [x for x in shown if x != "rightnow"]
@@ -331,9 +353,12 @@ class Planner:
 
         sections = []
         for sid in shown:
-            if sid in hidden:
+            pinned = sid == "rightnow" and bool(safety)
+            if sid in hidden and not pinned:
                 continue
             item: dict[str, Any] = {"id": sid, "show": True}
+            if pinned:
+                item["pinned"] = True  # a safety card shows even if they hid Right now
             if sid in down:
                 if home != "adult":
                     continue  # a child just doesn't see it
@@ -368,10 +393,7 @@ class Planner:
 
     async def _ask(self, pid: str, sit: dict[str, Any], key: str) -> dict[str, Any] | None:
         try:
-            payload = {"examples": [{"situation": e["situation"], "screen": e["plan"]} for e in EXAMPLES
-                                    if e["situation"].get("home") == sit["home"]],
-                       "now": sit}
-            thought = await self.brain.router.think(system=SYSTEM, payload=payload, schema=SCHEMA,
+            thought = await self.brain.router.think(system=system_for(sit["home"]), payload={"now": sit}, schema=SCHEMA,
                                                     tier="cheap" if self.cfg.layout_tier == "cheap" else "smart",
                                                     escalate=False, max_tokens=600)
             words = thought.data
@@ -386,6 +408,9 @@ class Planner:
                                decision={"plan": words, **({"fallback": thought.error} if thought.error else {})},
                                action="layout", outcome=outcome)
             if not words:
+                # Try again in a minute rather than after the whole cooldown.
+                cool = float(self.cfg.layout_cooldown_min) * 60
+                self._last_call[pid] = time.time() - max(0.0, cool - 60)
                 return None
             plan = {"key": key, "at": time.time(), "sections": [str(x) for x in words.get("sections") or []][:30],
                     "cards": [str(x) for x in words.get("cards") or []][:30],

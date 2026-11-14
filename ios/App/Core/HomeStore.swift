@@ -168,7 +168,8 @@ final class HomeStore {
 
     func loadHome() async {
         do {
-            let (h, savedAt) = try await HubClient.shared.fetch("/v1/home", as: HomeSnapshot.self)
+            // plan=open: this is the Home screen, so the hub may re-arrange it (widgets and Siri don't send it).
+            let (h, savedAt) = try await HubClient.shared.fetch("/v1/home", ["plan": "open"], as: HomeSnapshot.self)
             home = h; cacheHome()
             if savedAt == nil { markReachable(); if previewing == nil { SpotlightIndex.update(h, me: me) } } else { markUnreachable() }
             await loadHouseTVs()
@@ -363,11 +364,11 @@ final class HomeStore {
         smartTask = Task { [weak self] in
             if delay > 0 { try? await Task.sleep(for: .seconds(delay)) }
             guard !Task.isCancelled else { return }
-            guard let list: SmartList = try? await HubClient.shared.get("/v1/smart") else { return }
+            guard let list: SmartList = try? await HubClient.shared.get("/v1/smart", ["plan": "open"]) else { return }
             guard let self, var h = self.home else { return }
             h.smart = list.cards
             if let w = list.weather { h.weather = w }
-            if let p = list.plan { h.plan = p }
+            h.plan = list.plan  // nil when the hub stops sending one: back to the person's own order
             self.home = h
             self.cacheHome()
         }

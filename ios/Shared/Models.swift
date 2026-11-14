@@ -113,7 +113,8 @@ struct HomePlan: Codable, Hashable {
     var cardsShown: Int?
     var why: String?
     var generatedAt: String?
-    struct Section: Codable, Hashable { var id: String; var show: Bool; var note: String? }
+    /// `pinned`: shown whatever the person's own settings say (Right now while a safety card is up).
+    struct Section: Codable, Hashable { var id: String; var show: Bool; var note: String?; var pinned: Bool? }
 
     var arranged: Bool { source == "ai" }
     func note(_ id: String) -> String? { sections.first { $0.id == id }?.note }

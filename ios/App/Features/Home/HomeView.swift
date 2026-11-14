@@ -70,7 +70,10 @@ struct HomeView: View {
     /// The hub's arrangement when the house brain made one (and the person hasn't switched it off), else their own
     /// order. Only sections this person has and didn't hide; any the hub didn't mention keep showing.
     private var layout: (shown: [HomeSection], tucked: [HomeSection]) {
-        let mine = sections
+        // A safety card (oven left on, unlocked while away) shows even if they hid Right now.
+        let pinned = (home?.plan?.sections ?? []).filter { $0.pinned == true }
+            .compactMap { HomeSection(rawValue: $0.id) }.filter { Self.sections(for: me).contains($0) }
+        let mine = pinned + sections.filter { !pinned.contains($0) }
         guard let plan = home?.plan, plan.arranged, arrangeOn else { return (mine, []) }
         let shown = plan.sections.filter(\.show).compactMap { HomeSection(rawValue: $0.id) }.filter(mine.contains)
         let tucked = plan.sections.filter { !$0.show }.compactMap { HomeSection(rawValue: $0.id) }.filter(mine.contains)

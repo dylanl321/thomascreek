@@ -1,4 +1,4 @@
-"""Example Home screens the layout model bases its choices on (see layout.py).
+"""Example Home screens the layout model bases its choices on See layout.py.
 
 Example Home screens the layout model bases its choices on. Each has the situation (what the hub knew) and the screen it should get. Section ids are the app's; a section left out of `sections` is tucked under "Show everything". The hub still enforces permissions, safety cards and outages after the model answers.
 
