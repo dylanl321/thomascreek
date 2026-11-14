@@ -98,6 +98,10 @@ vpn:
   allowed_ips: [192.168.1.0/24]
   home_ssids: [HOME_WIFI_NAME]
 
+tv_app:
+  # Number from https://go.aftvnews.com/ for http://<hub>/tv. Leave this out until you register that address.
+  # downloader_code: "48291"
+
 child_policy:
   climate_min: 66
   climate_max: 74

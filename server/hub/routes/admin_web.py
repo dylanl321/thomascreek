@@ -230,7 +230,20 @@ details.key[open]>summary>span:first-child::before{transform:rotate(90deg)}.kbod
 .fform input[type=password]{flex:1;min-width:200px;font:13px ui-monospace,Menlo,monospace;padding:8px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--fg)}
 form.inline{display:inline}.pill-ok,.pill-miss{font-size:12px;padding:2px 8px;border-radius:999px;white-space:nowrap}
 .pill-ok{background:color-mix(in srgb,var(--ok) 18%,transparent);color:var(--ok)}.pill-miss{background:color-mix(in srgb,var(--bad) 15%,transparent);color:var(--bad)}
+nav.nav{display:flex;gap:18px;margin:0 0 18px}nav.nav a{color:var(--dim);text-decoration:none;font-weight:650}
+nav.nav a.on{color:var(--fg)}
+.hero{font:600 40px/1.15 ui-monospace,Menlo,monospace;letter-spacing:-0.03em;word-break:break-all;margin:8px 0}
+.codebig{font:600 72px/1 ui-monospace,Menlo,monospace;letter-spacing:6px;margin:8px 0}
+.qr svg{width:168px;height:168px;background:#fff;border-radius:12px}
+.dl{display:flex;gap:20px;align-items:flex-start;flex-wrap:wrap}
+a.btn{display:inline-block;font:inherit;padding:7px 14px;border-radius:8px;border:1px solid var(--acc);background:var(--acc);color:#fff;text-decoration:none}
 """
+
+
+def _nav(here: str) -> str:
+    links = (("/admin", "Hub"), ("/admin/downloads", "Downloads"))
+    return "<nav class=nav>" + "".join(
+        f"<a href={href}{' class=on' if href == here else ''}>{html.escape(label)}</a>" for href, label in links) + "</nav>"
 
 
 def _page(title: str, body: str) -> str:
@@ -604,6 +617,7 @@ def _status_page(h: Hub, claims: dict[str, Any], flash: str | None, new_key: str
     pin = getattr(h, "_tls_pin", None)
     flash_html = f"<div class=flash>{e(flash)}</div>" if flash else ""
     return _page("Thomas Creek Hub", f"""
+{_nav("/admin")}
 <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px">
 <div><h1>Thomas Creek Hub</h1><div class=dim>v{e(__version__)} · up {up // 3600} h {up % 3600 // 60} min · {'practice mode' if h.config.hub.dry_run else 'live'}</div></div>
 <form method=post action=/admin/logout><input type=hidden name=csrf value={csrf}><button class=ghost>Sign out</button></form></div>

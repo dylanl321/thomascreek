@@ -812,6 +812,29 @@ It shows only on `GET /v1/tvapp` (`systems`). A TV that has not reported is left
 
 `ok` is true only when boot, the hub, and playback are ok and the TV did not roll back.
 
+### Downloads
+
+The hub web page has a Downloads page at `/admin/downloads`, linked from the nav. It is the same sign-in as `/admin`. It lists the Thomas Creek TV builds the hub has on disk. The latest one is the build behind `GET /v1/tv/update`. Older files sit in a collapsed list. Each row has the version name, version code, date, size, sha256, and a download link. When nothing is stored the page says "No builds yet" and how to publish one.
+
+`GET /tv` on the home network, with no bearer, redirects to the latest build. `GET /tv/{version_code}` is that file, `application/vnd.android.package-archive`, named `ThomasCreekTV-{version_code}.apk`. Away from home, or when that build is not here, the response is a short page: "This link only works at home." or "No builds yet." It is not a stack trace.
+
+That `/tv` address is what gets registered at [https://go.aftvnews.com/](https://go.aftvnews.com/). The hub does not invent a numeric code. Once Dylan has registered the address, he puts the number in the hub config:
+
+```yaml
+tv_app:
+  downloader_code: "48291"
+```
+
+Digits only, 4 to 12 characters. Anything else is ignored. The Downloads page shows the number in large type after it is set, and saving it there stores the same setting. The address always points at the latest build, so the number does not change when a new APK arrives.
+
+Where a build comes from. A `tc-*` tag in `dylanl321/thomascreek-tv` publishes two release files, `ThomasCreekTV.apk` and `update.json`:
+
+```json
+{"versionCode":602,"versionName":"1.4.1-tc.2","apk":"ThomasCreekTV.apk","sha256":"<64 hex>","notes":"tc-1.4.1-tc.2"}
+```
+
+The hub downloads that release when `github.tv_app_token` is saved (the same check as `POST /v1/tvapp/check`). The same two files can be placed in the hub data folder `tvapp/inbox`, or uploaded on the Downloads page. The checksum must match, and the signing certificate must match the pin from the first build kept. A file that fails either check is not kept, and the page says so in one sentence.
+
 `GET /v1/tv/plex`
 
 ```json

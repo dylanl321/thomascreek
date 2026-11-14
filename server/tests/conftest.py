@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import copy
 import secrets
 from typing import Any
 
@@ -120,8 +121,8 @@ def config() -> Config:
 def hub(tmp_path, config) -> Hub:
     vault = Vault(tmp_path / "vault.json", secrets.token_bytes(32))
     h = Hub(config, vault, DB(tmp_path / "hub.db"))
-    h.home.states = {s["entity_id"]: s for s in STATES}
-    h.home.areas = dict(AREAS)
+    h.home.states = {s["entity_id"]: copy.deepcopy(s) for s in STATES}
+    h.home.areas = copy.deepcopy(AREAS)
     h.home.entity_area = dict(ENTITY_AREA)
     h.home.floors = [{"id": "main", "name": "Main Floor"}, {"id": "up", "name": "Upstairs"}]
     h.home.ha_ok_at = 1.0
