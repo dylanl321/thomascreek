@@ -17,6 +17,7 @@ device key. The token exchange is too. Everything after that uses the bearer:
 POST   /v1/tv/enroll                     {install_id, name, model?, app_version?, public_key, code?}
 GET    /v1/tv/apk/{code}                 home network, the signed APK for a short install code
 GET    /v1/tv/update                     bearer, version, sha256 and signer pin
+POST   /v1/tv/update/health              bearer, how a silent install went
 GET    /v1/tv/apk                        bearer, the signed APK for PackageInstaller
 GET    /v1/tv/apps                       bearer, {allowed:[packages]} for this profile
 POST   /v1/tv/config                     {install_id, ts, signature}  ETag / 304
@@ -41,6 +42,7 @@ from pydantic import BaseModel, Field
 from ..home import iso
 from ..state import Hub
 from ..tvapp import TvAppError, clean_ip
+from .. import tvupdate
 from ..tvremote import allowed_packages
 from .deps import Caller, caller, caller_ip, error, hub, need
 
@@ -365,15 +367,30 @@ async def tv_apps(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[st
 
 
 @tv_router.get("/update")
-async def tv_update(request: Request, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+async def tv_update(request: Request, current: str | None = None, c: Caller = Depends(caller),
+                    h: Hub = Depends(hub)) -> dict[str, Any]:
     """Version, sha256 and signer pin for the APK at GET /v1/tv/apk. The TV checks both before installing."""
     _home_only(request, h)
     if not c.subject.tv:
         raise error(403, "forbidden", "The TV app reads its own update")
     try:
-        return h.tv_app.update_manifest()
+        return tvupdate.manifest(h.tv_app, current)
     except TvAppError as exc:
         raise _err(exc) from None
+
+
+@tv_router.post("/update/health")
+async def tv_update_health(request: Request, body: dict[str, Any] = Body(...), c: Caller = Depends(caller),
+                           h: Hub = Depends(hub)) -> dict[str, Any]:
+    """How the silent install went. Stored for the admin view. No one is notified."""
+    _home_only(request, h)
+    if not c.subject.tv or not c.subject.tv_id:
+        raise error(403, "forbidden", "The TV app reports its own update")
+    try:
+        tvupdate.record(h.tv_app, c.subject.tv_id, body)
+    except TvAppError as exc:
+        raise _err(exc) from None
+    return {"ok": True}
 
 
 @tv_router.post("/config")
