@@ -880,6 +880,38 @@ The shelf is ranked from plays this profile has made. A profile that has not wat
 
 An item carries only the ids it has. `progress` is 0 to 1 and only present when the hub knows how long the title is. `reason` is one of `continue watching`, `new episode of a series you watch or record`, `recording ready`, `starting now on a channel you watch`, `trending in your history`. On now is a programme that started within the last 20 minutes on a channel this profile watched in the last 30 days. A finished recording is one the DVR marked `done`. Rows with nothing in them are left out. The order is continue, new episodes, recordings, on now, for you.
 
+### Channel health
+
+The provider's lineup is far too large to check channel by channel. The score comes from plays. `POST /v1/tv/playback_events` with a TV or phone bearer:
+
+```json
+{"events":[{"channel_key":"xc:thomas-creek:10","source":"thomas-creek","ok":true,"startup_ms":400,"ts":1710000000}]}
+```
+
+`source` is a short name the TV already uses for that copy of the channel. It is not a URL. An event whose source or error contains `://` is ignored. At most 40 events are kept from one call. The answer is `{"ok":true,"accepted":1}`.
+
+Each source keeps the last 12 results. `score` is how often those worked, from 0 to 1, pulled down a little when startup is slow. `last_ok` is when it last worked, or null. Five failures in a row means the source is left off the default. It stays in the list. Nothing is deleted.
+
+On `GET /v1/tv/lineup` and `GET /v1/tv/guide`, a channel that has been played gains:
+
+```json
+{"health":{"score":0.9,"last_ok":"2026-11-14T01:00:00+00:00"},
+ "sources":[
+   {"source":"thomas-creek","score":0.9,"last_ok":"2026-11-14T01:00:00+00:00","default":true},
+   {"source":"slow","score":0,"last_ok":null,"default":false}
+ ]}
+```
+
+`sources` is best first. The TV's source switcher uses the first `default: true`. A channel with no plays is unchanged.
+
+`GET /v1/tv/health` is the same sources, worst first, for the phone:
+
+```json
+{"sources":[{"channel_key":"xc:thomas-creek:10","name":"CNN","source":"slow","score":0,"last_ok":null,"default":false}]}
+```
+
+Overnight, between 1am and 6am, the hub opens a stream for favorites, channels watched in the last 30 days, and at most the 200 most played. It checks one or two at a time, never more than the provider allows, and never the rest of the lineup. A check that fails is another play result. The address is not stored and not returned.
+
 ## Universal title search
 
 `GET /v1/titles/search?q=` (at least two letters). One card per title across Plex, the IPTV lineup and guide, and TMDB (Jellyseerr, which is what asks Sonarr and Radarr). The same title is one card: matched on TMDB id, then IMDb, then TVDB, then the cleaned name and year.

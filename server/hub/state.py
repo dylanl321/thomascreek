@@ -112,6 +112,9 @@ class Hub:
         from .home_alerts import HomeAlerts
 
         self.home_alerts = HomeAlerts(self)
+        from .channelhealth import SourceHealth
+
+        self.source_health = SourceHealth(self)
         self.actions = ActionRunner(self)
         self.timers = Timers(self)
         self.kitchen = Kitchen(self)
@@ -285,6 +288,7 @@ class Hub:
         self._prober = asyncio.create_task(self._probe_services())
         self.app_update.start()
         self.tv_app.start()
+        self.source_health.start()
         if self.config.artwork.enabled:
             self.artwork.start()
 
@@ -376,3 +380,4 @@ class Hub:
         await self.apns.close()
         await self.app_update.stop()
         await self.tv_app.stop()
+        await self.source_health.stop()

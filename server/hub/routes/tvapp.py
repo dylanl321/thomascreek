@@ -490,6 +490,7 @@ async def tv_lineup(request: Request, c: Caller = Depends(caller), h: Hub = Depe
     if not (h.policy.has(c.subject, "media.all") or h.policy.has(c.subject, "media.own_tv")):
         raise error(403, "forbidden", "Not available", ask_parent=c.subject.is_child_like)
     lineup = h.tv_catalog.lineup(kids_only=c.subject.is_child_like) or h.tv_app.public_lineup(kids_only=c.subject.is_child_like)
+    h.source_health.annotate(lineup.get("channels") or [])
     return _cached(request, lineup)
 
 

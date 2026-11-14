@@ -34,6 +34,7 @@ struct ProfileView: View {
                     }
                     if store.role.isGrownUp {
                         NavigationLink { DoorAlertSettings() } label: { Label("Door on the TV", systemImage: "bell.and.waves.left.and.right") }
+                        NavigationLink { ChannelHealthList() } label: { Label("Channel health", systemImage: "antenna.radiowaves.left.and.right") }
                     }
                     if store.role != .child || store.me?.style != .little {
                         NavigationLink { AlertsView() } label: {
