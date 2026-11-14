@@ -19,11 +19,14 @@ struct DollhouseRoomView: View {
 private struct DollhouseRoomPage: View {
     @Environment(HomeStore.self) private var store
     @Environment(Router.self) private var router
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let room: DollhouseRoom
     @State private var controller: DollhouseController
     @State private var loaded = false
     @State private var failure: String?
     @State private var highlighted: String?
+    @State private var visible = false
 
     init(room: DollhouseRoom) {
         self.room = room
@@ -69,14 +72,41 @@ private struct DollhouseRoomPage: View {
         }
         .task {
             guard !loaded else { return }
+            visible = true
             controller.load()
             failure = controller.error
             loaded = true
-            controller.apply(states(), animated: false)
+            controller.setReduceMotion(reduceMotion)
+            controller.setLifeRunning(lifeRunning)
+            controller.startLife(real: states(), owned: ownedDevices(), sunrise: sunDate(store.home?.weather?.sunrise), sunset: sunDate(store.home?.weather?.sunset))
+        }
+        .onAppear {
+            visible = true
+            guard loaded else { return }
+            controller.setLifeRunning(lifeRunning)
+        }
+        .onDisappear {
+            visible = false
+            controller.setLifeRunning(false)
+        }
+        .onChange(of: scenePhase) { _, _ in
+            guard loaded else { return }
+            controller.setLifeRunning(lifeRunning)
+        }
+        .onChange(of: reduceMotion) { _, reduced in
+            controller.setReduceMotion(reduced)
+        }
+        .onChange(of: sunKey) { _, _ in
+            guard loaded else { return }
+            controller.noteSun(sunrise: sunDate(store.home?.weather?.sunrise), sunset: sunDate(store.home?.weather?.sunset))
+        }
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("NSProcessInfoPowerStateDidChange"))) { _ in
+            guard loaded else { return }
+            controller.setLifeRunning(lifeRunning)
         }
         .onChange(of: pictureKey) { _, _ in
             guard loaded else { return }
-            controller.apply(states(), animated: true)
+            controller.noteHub(real: states(), owned: ownedDevices())
         }
     }
 
@@ -178,6 +208,21 @@ private struct DollhouseRoomPage: View {
     /// Changes when a linked device or a model-only override changes, so the hero eases to the new picture.
     private var pictureKey: String {
         room.devices.devices.map { "\($0.name):\(Int((level($0.name) * 100).rounded()))" }.joined(separator: ",")
+    }
+
+    /// Motion pauses off this page, in the background, and in Low Power Mode.
+    private var lifeRunning: Bool {
+        visible && scenePhase == .active && !ProcessInfo.processInfo.isLowPowerModeEnabled
+    }
+
+    private var sunKey: String {
+        "\(store.home?.weather?.sunrise ?? "")|\(store.home?.weather?.sunset ?? "")"
+    }
+
+    private func sunDate(_ raw: String?) -> Date? { raw.flatMap(ISO.parse) }
+
+    private func ownedDevices() -> Set<String> {
+        Set(room.devices.devices.filter { room.isConfigured($0.name) }.map(\.name))
     }
 
     private func states() -> [String: Double] {

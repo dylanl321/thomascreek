@@ -64,3 +64,58 @@ The script checks that the package still contains `anchor_tv`, `tv_screen`, `glo
 5. Add an entry to `catalog.json`.
 
 The House tab grows a tile per catalog entry. The tile opens this page. Advanced on the page opens the existing room screen.
+
+## Room life
+
+Each room can have a `life.json` next to its `devices.json`, named from `catalog.json` (`"life": "LivingRoom/life.json"`). The app picks one scene at random every 45 to 120 seconds, weighted by the time of day, and does not repeat the scene that is already showing. The crossfade is about 2 seconds. A scene only changes the model: props, the cat, steam, and devices that are not linked to the hub. It never calls the hub.
+
+A linked device always wins. If `hub-mapping.json` has an entity id, that device's real level is what the model shows, and the scene's number for it is ignored. `while_on` lists device names that, when the hub says one of them is on, pull that scene forward. The living-room TV does this for Picture on. The washer and dryer do it for Laundry day. Until an id is filled in, `while_on` does not lock, and the scene can still appear on its own so the room has something to do.
+
+```json
+{
+  "spots": {
+    "sofa": { "position": [-4.5, 0.54, 1.92], "yaw": -2.0 }
+  },
+  "scenes": [
+    {
+      "id": "cat_nap",
+      "title": "Cat napping",
+      "weights": { "morning": 1.1, "midday": 1.6, "dusk": 0.8, "night": 1.3 },
+      "devices": { "fireplace": 1 },
+      "props": ["prop_throw_blanket", "prop_open_book"],
+      "steam": ["prop_mug"],
+      "while_on": ["tv"],
+      "cat": { "activity": "sleep", "spot": "sofa" }
+    }
+  ]
+}
+```
+
+`weights` is morning, midday, dusk, and night. A missing part counts as 1. `0` keeps the scene out of the random draw. `devices` is a 0...1 level for model-only devices (a null id in the hub mapping). `props` and `steam` are node names. A name that is not in the USDZ is skipped. `spots` are where `pet_cat` can stand: `position` is the group's world position in metres, `yaw` is radians. The cat's head is the group's local +X.
+
+`cat.activity` is `sleep`, `sit`, `walk`, or `stretch`. `spot` is one place. `path` is a walk (`["sofa", "rug"]`) and the cat curls up at the end. `walk` uses the path. The other activities use `spot`.
+
+Daylight uses the hub weather `sunrise` and `sunset` when they are for today. Otherwise it estimates a northern-hemisphere day. Morning is warm, midday is the neutral studio colour already in the app, dusk is golden, and night is a cool window with the same key and ambient brightness as now (ambient 260, key 750, environment 0.16, exposure −0.6). Only the hue changes, plus a small window fill.
+
+Motion pauses when the page is off screen, the app is in the background, or Low Power Mode is on. Reduce Motion keeps the scene and the lights and skips the drift, the phone tilt, the walks, and the looping effects.
+
+## Node names for Model Generator
+
+The app looks these up by name and skips anything missing. New clutter only needs a `prop_*` node and a line in `life.json`.
+
+| What | Node name |
+| --- | --- |
+| Cat root | `pet_cat` |
+| Fallback mesh, direct children of the root | `pet_cat_body`, `pet_cat_head`, `pet_cat_tail`, `pet_cat_tail_tip_white`, `pet_cat_ear_left`, `pet_cat_ear_right`, `pet_cat_ear_inner_left`, `pet_cat_ear_inner_right` |
+| Pose groups, used automatically when present | `pet_cat_pose_sleep`, `pet_cat_pose_sit`, `pet_cat_pose_stretch`, `pet_cat_pose_walk` or `pet_cat_pose_walk_1`, `pet_cat_pose_walk_2`, … |
+| Flames | `fire_flame_1` … and the light `light_fireplace` |
+| Fan blades | `ceiling_fan_blades` (spins on Y) |
+| Washer / dryer drum | `washer_drum`, `dryer_drum`, or the glow `glow_washer_drum` / `glow_dryer_drum` (spins on Z, door facing local +Z) |
+| Screens | `tv_screen`, `screen_surface` |
+| Curtains | a mesh whose name contains `curtain` and not `rod`, `track`, or `light` |
+| Window dust | a mesh whose name contains both `window` and `glass`, or `skylight_diffuser` |
+| Steam | the names in that scene's `steam` list. Put the mesh on the mug or kettle, not on a group at the room origin |
+| Night sparkles | one mesh at the lamp, not the group at the room origin: `table_lamp_shade`, `table_lamp_booth_shade`, `table_lamp_1_shade`, `table_lamp_2_shade`, `dresser_lamp_shade`, `sconce_left_shade`, `sconce_right_shade`, `sconce_left_bulb_1`, `sconce_right_bulb_1`, `chandelier_bulb_1`, `chandelier_lower_bulb_1`, `dining_pendant_bulb`, `flower_light_head`, `flower_light_bloom_1`, `prop_lamp` |
+| Lived-in clutter | `prop_throw_blanket`, `prop_open_book`, `prop_mug`, `prop_kettle`, `prop_toy`, `prop_mail`, `prop_dishes`, `prop_cutting_board`, `prop_shoes`, `prop_laundry_basket`, `prop_detergent`, `prop_popcorn_bowl`, `prop_drink` |
+
+Pose groups and `prop_*` nodes can start hidden. The app fades them. A drum or a curtain whose pivot is the object's centre sways or spins around that centre, so keep the pivot on the fan hub, the drum axle, or the curtain heading.

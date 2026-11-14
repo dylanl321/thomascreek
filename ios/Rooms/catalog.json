@@ -8,6 +8,7 @@
       "devices": "LivingRoom/devices.json",
       "mapping": "LivingRoom/hub-mapping.json",
       "appearance": "LivingRoom/appearance.json",
+      "life": "LivingRoom/life.json",
       "views": {
         "dollhouse": { "position": [-8.4, 6.9, 8.6], "target": [-1.75, 0.95, 1.8], "fov": 30 },
         "close": { "position": [-6.6, 4.6, 6.9], "target": [-1.6, 1.15, 1.6], "fov": 30 },
@@ -22,6 +23,7 @@
       "devices": "Kitchen/devices.json",
       "mapping": "Kitchen/hub-mapping.json",
       "appearance": "Kitchen/appearance.json",
+      "life": "Kitchen/life.json",
       "views": {
         "dollhouse": { "position": [-15.6, 10.9, 12.6], "target": [-2.3, 0.5, 5.0], "fov": 30 },
         "close": { "position": [-9.9, 7.4, 12.0], "target": [-1.9, 0.8, 4.0], "fov": 31 },
@@ -36,6 +38,7 @@
       "devices": "MovieRoom/devices.json",
       "mapping": "MovieRoom/hub-mapping.json",
       "appearance": "MovieRoom/appearance.json",
+      "life": "MovieRoom/life.json",
       "views": {
         "dollhouse": { "position": [10.2, 12.2, 19.8], "target": [2.5, 0.5, 4.0], "fov": 30 },
         "close": { "position": [7.9, 7.0, 14.2], "target": [2.2, 0.8, 4.4], "fov": 34 },
@@ -50,6 +53,7 @@
       "devices": "BasementBedroom/devices.json",
       "mapping": "BasementBedroom/hub-mapping.json",
       "appearance": "BasementBedroom/appearance.json",
+      "life": "BasementBedroom/life.json",
       "views": {
         "dollhouse": { "position": [-5.0, 9.4, 9.6], "target": [2.0, 0.45, 2.1], "fov": 31 },
         "close": { "position": [-3.6, 5.0, 8.0], "target": [2.0, 0.8, 1.7], "fov": 36 },

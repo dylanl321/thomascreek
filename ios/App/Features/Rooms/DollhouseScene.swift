@@ -1,14 +1,17 @@
+import CoreMotion
 import SceneKit
 import SwiftUI
 import UIKit
 
 /// The cutaway, drawn with SceneKit from the room's USDZ.
-/// Studio light is fixed. Device light, glow and the fireplace are layered on top of it.
+/// Device light, glow and the fireplace sit on a studio rig whose hue follows the time of day.
+/// Room life (scenes, the cat, ambient motion) only changes this model. It never calls the hub.
 final class DollhouseController {
     let room: DollhouseRoom
     private(set) var scene: SCNScene?
     private(set) var cameraNode: SCNNode?
     private(set) var error: String?
+    weak var viewport: SCNView?
 
     private var nodes: [String: SCNNode] = [:]
     private var prepared: [String: Prepared] = [:]
@@ -16,8 +19,30 @@ final class DollhouseController {
     private var hitNames: [String: String] = [:]
     private var last: [String: Int] = [:]
     private var tickets: [String: Int] = [:]
+    private var life: DollhouseLife?
+    private var lifeRunning = false
+    private var motionReduced = false
+    private var ambientLight: SCNNode?
+    private var keyLight: SCNNode?
+    private var windowLight: SCNNode?
+    private var restPosition = SCNVector3Zero
+    private var restTarget = SCNVector3Zero
+    private var restFov: CGFloat = 30
+    private var driftPhase: CGFloat = 0
+    private var cameraMotion = false
+    private var simulationRunning = true
+    private let motionManager = CMMotionManager()
+    private var parallaxPitch: Float = 0
+    private var parallaxRoll: Float = 0
+    private var motionOriginPitch: Double?
+    private var motionOriginRoll: Double?
 
     init(room: DollhouseRoom) { self.room = room }
+
+    deinit {
+        motionManager.stopDeviceMotionUpdates()
+        life?.stop()
+    }
 
     func load() {
         guard scene == nil else { return }
@@ -56,25 +81,45 @@ final class DollhouseController {
         return nil
     }
 
-    /// Each device is a 0...1 brightness. 0 is off. Glow, emission and lamps scale with it.
-    func apply(_ levels: [String: Double], animated: Bool) {
-        guard scene != nil else { return }
-        for device in room.devices.devices {
-            let level = min(1, max(0, levels[device.name] ?? 0))
-            let key = Int((level * 100).rounded())
-            if last[device.name] == key { continue }
-            last[device.name] = key
-            apply(device, level: level, animated: animated)
-        }
+    func startLife(real: [String: Double], owned: Set<String>, sunrise: Date?, sunset: Date?) {
+        if life == nil { life = DollhouseLife(room: room, stage: self) }
+        life?.setReduceMotion(motionReduced)
+        life?.setRunning(lifeRunning)
+        life?.start(real: real, owned: owned, sunrise: sunrise, sunset: sunset)
+    }
+
+    func noteHub(real: [String: Double], owned: Set<String>) {
+        life?.noteHub(real: real, owned: owned)
+    }
+
+    func noteSun(sunrise: Date?, sunset: Date?) {
+        life?.noteSun(sunrise: sunrise, sunset: sunset)
+    }
+
+    func setLifeRunning(_ on: Bool) {
+        lifeRunning = on
+        life?.setRunning(on)
+    }
+
+    func setReduceMotion(_ on: Bool) {
+        motionReduced = on
+        life?.setReduceMotion(on)
     }
 
     func place(_ preset: CameraPreset, animated: Bool) {
         guard let cameraNode, let camera = cameraNode.camera else { return }
         let shot = preset == .dollhouse ? fitted(room.shot(preset)) : room.shot(preset)
+        restPosition = shot.position
+        restTarget = shot.target
+        restFov = shot.fov
         let move = {
-            cameraNode.position = shot.position
-            cameraNode.look(at: shot.target)
             camera.fieldOfView = shot.fov
+            if self.cameraMotion {
+                self.applyDrift(phase: self.driftPhase)
+            } else {
+                cameraNode.position = shot.position
+                cameraNode.look(at: shot.target)
+            }
         }
         if animated {
             SCNTransaction.begin()
@@ -208,13 +253,16 @@ final class DollhouseController {
         scene.lightingEnvironment.intensity = 0.16
 
         let ambient = SCNNode()
+        ambient.name = "dollhouse-ambient"
         ambient.light = SCNLight()
         ambient.light?.type = .ambient
         ambient.light?.color = UIColor(hex: 0xFFF3E3)
         ambient.light?.intensity = 260
         scene.rootNode.addChildNode(ambient)
+        ambientLight = ambient
 
         let key = SCNNode()
+        key.name = "dollhouse-key"
         key.light = SCNLight()
         key.light?.type = .directional
         key.light?.color = UIColor(hex: 0xFFF1DD)
@@ -233,6 +281,8 @@ final class DollhouseController {
         key.position = SCNVector3(aim.target.x - 5, aim.target.y + 10, aim.target.z + 4)
         key.look(at: aim.target)
         scene.rootNode.addChildNode(key)
+        keyLight = key
+        placeWindowLight(in: scene)
 
         let camera = SCNNode()
         camera.camera = SCNCamera()
@@ -251,43 +301,54 @@ final class DollhouseController {
 
     // MARK: state
 
-    private func apply(_ device: DollhouseDevice, level: Double, animated: Bool) {
-        let ticket = (tickets[device.name] ?? 0) + 1
-        tickets[device.name] = ticket
-        let on = level > 0.001
-        if !on { stopFlicker(device); spinDrums(device, on: false); spinFan(device, on: false) }
-        let names = device.meshNodes + device.glowDecals + device.onState.shows
-        if on {
-            for name in device.glowDecals + device.onState.shows {
+    /// Each device is a 0...1 brightness. 0 is off. Glow, emission and lamps ease to it.
+    /// Flame flicker, the fan and the drum are owned by room life, after this fade finishes.
+    func showLevels(_ levels: [String: Double], duration: TimeInterval, completion: (() -> Void)? = nil) {
+        guard scene != nil else { completion?(); return }
+        struct Change {
+            var device: DollhouseDevice
+            var level: Double
+            var ticket: Int
+        }
+        var changes: [Change] = []
+        for device in room.devices.devices {
+            let level = min(1, max(0, levels[device.name] ?? 0))
+            let key = Int((level * 100).rounded())
+            if last[device.name] == key { continue }
+            last[device.name] = key
+            let ticket = (tickets[device.name] ?? 0) + 1
+            tickets[device.name] = ticket
+            changes.append(Change(device: device, level: level, ticket: ticket))
+        }
+        guard !changes.isEmpty else { completion?(); return }
+        for change in changes where change.level > 0.001 {
+            for name in change.device.glowDecals + change.device.onState.shows {
                 prep(name)?.node.isHidden = false
             }
         }
         SCNTransaction.begin()
-        SCNTransaction.animationDuration = animated ? 0.45 : 0
+        SCNTransaction.animationDuration = duration
         SCNTransaction.animationTimingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-        for name in names { rest(name, level: level) }
-        for (index, name) in device.lightNodes.enumerated() {
-            let spec = lightSpec(name)
-            let listed = index < device.lightOnIntensity.count ? device.lightOnIntensity[index] : (spec?.intensity ?? 0)
-            let candela = listed > 0 ? listed : (spec?.intensity ?? 0)
-            let lumens = CGFloat(candela * Self.lumensPerCandela) * CGFloat(level)
-            lamps[name]?.light?.intensity = lumens
-            lamps[name.replacingOccurrences(of: ".", with: "_")]?.light?.intensity = lumens
+        for change in changes {
+            let names = change.device.meshNodes + change.device.glowDecals + change.device.onState.shows
+            for name in names { rest(name, level: change.level) }
+            for (index, name) in change.device.lightNodes.enumerated() {
+                let spec = lightSpec(name)
+                let listed = index < change.device.lightOnIntensity.count ? change.device.lightOnIntensity[index] : (spec?.intensity ?? 0)
+                let candela = listed > 0 ? listed : (spec?.intensity ?? 0)
+                let lumens = CGFloat(candela * Self.lumensPerCandela) * CGFloat(change.level)
+                lamps[name]?.light?.intensity = lumens
+                lamps[name.replacingOccurrences(of: ".", with: "_")]?.light?.intensity = lumens
+            }
         }
         SCNTransaction.completionBlock = { [weak self] in
-            guard let self, self.tickets[device.name] == ticket else { return }
-            if on {
-                if device.type == .fireplace { self.startFlicker(device) }
-                self.spinDrums(device, on: true)
-                self.spinFan(device, on: true)
-            } else {
-                self.stopFlicker(device)
-                self.spinDrums(device, on: false)
-                self.spinFan(device, on: false)
-                for name in device.glowDecals + device.onState.shows {
+            guard let self else { completion?(); return }
+            for change in changes where self.tickets[change.device.name] == change.ticket && change.level <= 0.001 {
+                for name in change.device.glowDecals + change.device.onState.shows {
                     self.prep(name)?.node.isHidden = true
                 }
             }
+            completion?()
         }
         SCNTransaction.commit()
     }
@@ -348,55 +409,6 @@ final class DollhouseController {
         }
     }
 
-    private func startFlicker(_ device: DollhouseDevice) {
-        for (index, name) in device.onState.shows.enumerated() {
-            guard let item = prep(name) else { continue }
-            pulse(item.node, base: CGFloat(max(item.look.strength, 0.2)), amount: 0.34, duration: 0.55 + Double(index) * 0.11)
-        }
-        if let lamp = lamps["light_fireplace"], let base = lamp.light?.intensity, base > 0 {
-            pulse(lamp, base: base, amount: 0.22, duration: 0.8)
-        }
-    }
-
-    private func stopFlicker(_ device: DollhouseDevice) {
-        for name in device.onState.shows { prep(name)?.node.removeAction(forKey: "flicker") }
-        lamps["light_fireplace"]?.removeAction(forKey: "flicker")
-    }
-
-    private func pulse(_ node: SCNNode, base: CGFloat, amount: CGFloat, duration: TimeInterval) {
-        node.removeAction(forKey: "flicker")
-        let action = SCNAction.customAction(duration: duration) { node, elapsed in
-            let wave = sin((elapsed / CGFloat(duration)) * .pi * 2)
-            let value = base * (1 - amount + amount * (0.5 + 0.5 * wave))
-            if node.light != nil {
-                node.light?.intensity = value
-            } else {
-                node.geometry?.materials.forEach { $0.emission.intensity = value }
-            }
-        }
-        node.runAction(.repeatForever(action), forKey: "flicker")
-    }
-
-    private func spinDrums(_ device: DollhouseDevice, on: Bool) {
-        guard device.type == .appliance else { return }
-        for name in device.glowDecals where name.contains("drum") {
-            guard let node = prep(name)?.node else { continue }
-            node.removeAction(forKey: "spin")
-            if on {
-                node.runAction(.repeatForever(.rotateBy(x: 0, y: 0, z: .pi * 2, duration: 1.6)), forKey: "spin")
-            }
-        }
-    }
-
-    /// The ceiling fan's blade group spins while the fan is on. The blur disc is a show node, so it appears with the light.
-    private func spinFan(_ device: DollhouseDevice, on: Bool) {
-        guard device.type == .fan, let node = nodes["ceiling_fan_blades"] else { return }
-        node.removeAction(forKey: "spin")
-        if on {
-            node.runAction(.repeatForever(.rotateBy(x: 0, y: .pi * 2, z: 0, duration: 1.4)), forKey: "spin")
-        }
-    }
-
     private func lightSpec(_ name: String) -> LitLight? {
         room.appearance.lights[name] ?? room.appearance.lights[name.replacingOccurrences(of: ".", with: "_")]
     }
@@ -430,6 +442,149 @@ final class DollhouseController {
     /// glTF point-light intensity is candela. SceneKit's omni intensity is lumens, and the room is a miniature,
     /// so this scale keeps a shelf puck a pool of light instead of a second sun.
     private static let lumensPerCandela: Double = 45
+}
+
+extension DollhouseController: DollhouseStage {
+    func node(named name: String) -> SCNNode? {
+        guard let key = resolved(name) else { return nil }
+        return nodes[key]
+    }
+
+    func lamp(named name: String) -> SCNNode? {
+        if let lamp = lamps[name], lamp.light != nil { return lamp }
+        let safe = name.replacingOccurrences(of: ".", with: "_")
+        if let lamp = lamps[safe], lamp.light != nil { return lamp }
+        return nil
+    }
+
+    func eachNamedNode(_ body: (String, SCNNode) -> Void) {
+        scene?.rootNode.enumerateHierarchy { node, _ in
+            guard let name = node.name, !name.isEmpty, name != "mesh" else { return }
+            body(name, node)
+        }
+    }
+
+    func setDaylight(_ daylight: DollhouseDaylight, animated: Bool) {
+        SCNTransaction.begin()
+        SCNTransaction.animationDuration = animated ? DollhouseLifeTiming.scene : 0
+        ambientLight?.light?.color = daylight.ambient
+        keyLight?.light?.color = daylight.key
+        windowLight?.light?.color = daylight.window
+        windowLight?.light?.intensity = daylight.windowIntensity
+        scene?.lightingEnvironment.contents = Self.gradient(top: daylight.envTop, bottom: daylight.envBottom)
+        scene?.lightingEnvironment.intensity = 0.16
+        SCNTransaction.commit()
+    }
+
+    func setSimulation(running: Bool, animated: Bool) {
+        simulationRunning = running
+        scene?.isPaused = !running
+        viewport?.scene?.isPaused = !running
+        viewport?.rendersContinuously = running && animated
+        if !running {
+            cameraNode?.removeAction(forKey: "life-drift")
+            cameraMotion = false
+            stopMotionUpdates()
+        }
+    }
+
+    func setCameraMotion(enabled: Bool) {
+        let allow = enabled && simulationRunning
+        guard allow != cameraMotion else { return }
+        cameraMotion = allow
+        viewport?.rendersContinuously = allow
+        guard allow else {
+            cameraNode?.removeAction(forKey: "life-drift")
+            stopMotionUpdates()
+            guard let cameraNode else { return }
+            cameraNode.position = restPosition
+            cameraNode.look(at: restTarget)
+            cameraNode.camera?.fieldOfView = restFov
+            return
+        }
+        startDrift()
+        startMotionUpdates()
+    }
+
+    private func placeWindowLight(in scene: SCNScene) {
+        let light = SCNLight()
+        light.type = .directional
+        light.color = UIColor(hex: 0xF4F0E6)
+        light.intensity = 22
+        light.castsShadow = false
+        let node = SCNNode()
+        node.light = light
+        node.name = "dollhouse-window-light"
+        var origin: SCNVector3?
+        scene.rootNode.enumerateHierarchy { child, _ in
+            guard origin == nil, let name = child.name?.lowercased() else { return }
+            if (name.contains("window") && name.contains("glass")) || name == "skylight_diffuser" {
+                origin = child.worldPosition
+            }
+        }
+        let aim = room.shot(.dollhouse).target
+        node.position = origin ?? SCNVector3(aim.x + 4, aim.y + 3, aim.z + 2)
+        node.look(at: aim)
+        scene.rootNode.addChildNode(node)
+        windowLight = node
+    }
+
+    /// A few degrees of orbit around the fitted shot, plus a small tilt from how the phone is held.
+    private func applyDrift(phase: CGFloat) {
+        guard let cameraNode else { return }
+        let swing = sin(Float(phase) * Float.pi * 2) * (3 * Float.pi / 180)
+        let dx = restPosition.x - restTarget.x
+        let dy = restPosition.y - restTarget.y
+        let dz = restPosition.z - restTarget.z
+        let turn = cos(swing)
+        let side = sin(swing)
+        let ox = dx * turn - dz * side
+        let oz = dx * side + dz * turn
+        cameraNode.position = SCNVector3(restTarget.x + ox, restTarget.y + dy, restTarget.z + oz)
+        cameraNode.look(at: restTarget)
+        var euler = cameraNode.eulerAngles
+        euler.x += parallaxPitch
+        euler.z += parallaxRoll
+        cameraNode.eulerAngles = euler
+        cameraNode.camera?.fieldOfView = restFov
+    }
+
+    private func startDrift() {
+        guard let cameraNode else { return }
+        cameraNode.removeAction(forKey: "life-drift")
+        let spin = SCNAction.customAction(duration: 48) { [weak self] _, elapsed in
+            guard let self else { return }
+            self.driftPhase = elapsed / 48
+            self.applyDrift(phase: self.driftPhase)
+        }
+        cameraNode.runAction(.repeatForever(spin), forKey: "life-drift")
+    }
+
+    private func startMotionUpdates() {
+        guard motionManager.isDeviceMotionAvailable, !motionManager.isDeviceMotionActive else { return }
+        motionOriginPitch = nil
+        motionOriginRoll = nil
+        motionManager.deviceMotionUpdateInterval = 1.0 / 12.0
+        motionManager.startDeviceMotionUpdates(using: .xArbitraryZVertical, to: .main) { [weak self] data, _ in
+            guard let self, let attitude = data?.attitude else { return }
+            if self.motionOriginPitch == nil {
+                self.motionOriginPitch = attitude.pitch
+                self.motionOriginRoll = attitude.roll
+            }
+            let dp = Float(attitude.pitch - (self.motionOriginPitch ?? attitude.pitch))
+            let dr = Float(attitude.roll - (self.motionOriginRoll ?? attitude.roll))
+            self.parallaxPitch = min(0.035, max(-0.035, dp * 0.35))
+            self.parallaxRoll = min(0.035, max(-0.035, dr * 0.35))
+        }
+    }
+
+    private func stopMotionUpdates() {
+        if motionManager.isDeviceMotionActive { motionManager.stopDeviceMotionUpdates() }
+        parallaxPitch = 0
+        parallaxRoll = 0
+        motionOriginPitch = nil
+        motionOriginRoll = nil
+    }
 }
 
 private struct Prepared {
@@ -505,6 +660,7 @@ struct DollhouseViewport: UIViewRepresentable {
     func updateUIView(_ view: SCNView, context: Context) {
         context.coordinator.controller = controller
         context.coordinator.onTap = onTap
+        controller.viewport = view
         if view.scene !== controller.scene {
             view.scene = controller.scene
             view.pointOfView = controller.cameraNode
