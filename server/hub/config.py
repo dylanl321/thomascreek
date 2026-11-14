@@ -181,6 +181,27 @@ class YouTubeConfig(BaseModel):
     starter: list[YouTubeStarter] = Field(default_factory=_starter)  # suggestions on the wizard's start page
 
 
+class IptvLoginConfig(BaseModel):
+    """One username on a provider. The password is only the name of a vault secret."""
+
+    id: str
+    username: str
+    password_secret: str
+
+
+class IptvProviderConfig(BaseModel):
+    id: str
+    name: str = ""
+    server: str
+    logins: list[IptvLoginConfig] = Field(default_factory=list)
+
+
+class IptvConfig(BaseModel):
+    """Extra IPTV providers. The original iptv.xtream_* vault keys remain the thomas-creek login."""
+
+    providers: list[IptvProviderConfig] = Field(default_factory=list)
+
+
 class IptvMatchConfig(BaseModel):
     """Folding several IPTV providers into one catalog. The model is asked only when the rules are not sure."""
 
@@ -408,6 +429,7 @@ class Config(BaseModel):
     artwork: ArtworkConfig = Field(default_factory=ArtworkConfig)
     assistant: AssistantConfig = Field(default_factory=AssistantConfig)
     iptv_match: IptvMatchConfig = Field(default_factory=IptvMatchConfig)
+    iptv: IptvConfig = Field(default_factory=IptvConfig)
     printers: PrintersConfig = Field(default_factory=PrintersConfig)
     child_policy: ChildPolicy = Field(default_factory=ChildPolicy)
     smart: SmartConfig = Field(default_factory=SmartConfig)

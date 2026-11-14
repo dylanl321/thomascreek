@@ -577,7 +577,7 @@ Both are `200`. The same object is delivered to that TV on `GET /v1/events`:
 {"type":"tv_tune","data":{"install_id":"tv_office_0123456789","session":"ses_ab12cd34ef567890abcd","canonical_id":"can_7f3a9c2b1d4e6f80","stream":{"url":"/v1/tv/stream/ses_ab12cd34ef567890abcd","ref":"vod:alpha:100","quality":"2160p"}}}
 ```
 
-`GET /v1/tv/stream/{session}` with that TV's bearer, on the home network, redirects to the provider. The redirect is how Xtream plays. It is not written to the log. Another TV, or a request from outside the house, is `404` "That stream has ended."
+`GET /v1/tv/stream/{session}` with that TV's bearer, on the home network, redirects to the provider. The redirect is how Xtream plays. It is not written to the log. Another TV is `404` "That stream has ended." A request from outside the house is refused like the other TV routes.
 
 If the picture fails to start or drops, the TV posts `POST /v1/tv/tune/fail` `{session}`. The hub frees the slot and sends another `tv_tune` for the next source or login. When nothing else is free, the event is not sent and the answer is `{"ok":false,"message":"Every login is busy. Try again in a moment."}`. `tv.stop` for that TV frees its slot. A TV that has not checked in for 90 seconds frees it too.
 

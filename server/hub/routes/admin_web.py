@@ -25,6 +25,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Resp
 from pydantic import BaseModel, Field
 
 from .. import __version__, bambu_cloud, testkeys
+from ..iptvplay import add_login
 from ..iptvcanon import merge as catalog_merge_items
 from ..iptvcanon import split as catalog_split_item
 from ..iptvcanon import unsure as catalog_unsure
@@ -528,7 +529,16 @@ def _catalog_html(h: Hub, csrf: str) -> str:
 <form method=post action=/admin/catalog/split class=fform style="padding:8px 0">
 <input type=hidden name=csrf value={csrf}>
 <input name=id placeholder="Title id"><input name=provider placeholder="Provider"><input name=stream_id placeholder="Stream id">
-<button class=ghost>Separate this copy</button></form></div>"""
+<button class=ghost>Separate this copy</button></form>
+<form method=post action=/admin/iptv/login class=fform style="padding:8px 0">
+<input type=hidden name=csrf value={csrf}>
+<input name=provider placeholder="Provider" required>
+<input name=server placeholder="Server address" required>
+<input name=login placeholder="Login name" required>
+<input name=username placeholder="Username" required>
+<input type=password name=password placeholder="Password" autocomplete=off required>
+<button>Add login</button></form>
+<p class=dim>The password is saved and not shown again.</p></div>"""
 
 
 def _app_update_html(h: Hub, csrf: str) -> str:
@@ -731,6 +741,14 @@ async def catalog_split(request: Request, h: Hub = Depends(hub)) -> Response:
     _claims, form = await _form_session(request, h)
     result = catalog_split_item(h.db, str(form.get("id") or ""), str(form.get("provider") or ""), str(form.get("stream_id") or ""))
     return _back("Separated that copy." if result else "That title isn't in the catalog.")
+
+
+@pages.post("/admin/iptv/login")
+async def add_iptv_login(request: Request, h: Hub = Depends(hub)) -> Response:
+    _claims, form = await _form_session(request, h)
+    saved = add_login(h, str(form.get("provider") or ""), str(form.get("server") or ""),
+                      str(form.get("login") or ""), str(form.get("username") or ""), str(form.get("password") or ""))
+    return _back(saved or "Say the password once. It is not shown again.")
 
 
 @pages.post("/admin/secrets")
