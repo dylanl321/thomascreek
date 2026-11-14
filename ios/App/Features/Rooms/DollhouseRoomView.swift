@@ -104,8 +104,13 @@ private struct DollhouseRoomPage: View {
                 }
                 .frame(maxWidth: .infinity)
                 .frame(height: 440)
-                .background(Color(uiColor: UIColor(hex: 0xF1ECE4)))
-                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                // No card: the room sits on the app background and its edges fade into it.
+                .mask(
+                    EllipticalGradient(stops: [.init(color: .black, location: 0),
+                                               .init(color: .black, location: 0.62),
+                                               .init(color: .clear, location: 1)],
+                                       center: .center, startRadiusFraction: 0, endRadiusFraction: 0.5)
+                )
 
                 Menu {
                     Button("Dollhouse", systemImage: "cube.transparent") { controller.place(.dollhouse, animated: true) }
