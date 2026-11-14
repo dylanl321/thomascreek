@@ -5,7 +5,8 @@
 // closed by a row of reeded-glass panels in brass frames with a black curtain behind them (another part of the basement beyond).
 // Seating: two rows facing the screen (-z), pushed right so their right ends touch the right wall; back row on a riser behind the front row.
 import * as THREE from 'three';
-import { STYLE, rng, canvasTex, makeBaseTextures, std, makeKit, createApp } from '../../kitchen/src/common.js';
+import { STYLE, rng, canvasTex, makeBaseTextures, std, makeKit, createApp } from './common.js';
+import { makeLifeKit } from './life.js';
 
 export const MROOM = { W: 5.4, L: 8.6, H: 2.6 };
 
@@ -126,10 +127,14 @@ export function buildMovieRoom() {
   }
 
   // ---------------- curtains (folded planes)
+  // curtain meshes keep their names; each mesh's ORIGIN is at its heading (top rod): geometry is shifted down by h/2 and the mesh sits at the rod,
+  // so the app's curtain sway (any mesh whose name contains 'curtain', not rod/track/light) swings from the top. Sway axis = the mesh's local X (along the rod).
   const curtain = (name, parent, mat, w, h, x, y, z, alongZ, folds = 7, amp = 0.035) => {
     const geo = new THREE.PlaneGeometry(w, h, folds * 6, 1); const p = geo.attributes.position;
     for (let i = 0; i < p.count; i++) p.setZ(i, amp * Math.sin((p.getX(i) / w) * Math.PI * 2 * folds));
-    geo.computeVertexNormals(); const m = mesh(name, geo, mat, parent, x, y, z); if (alongZ) m.rotation.y = Math.PI / 2; return m;
+    geo.translate(0, -h / 2, 0); geo.computeVertexNormals();
+    const m = mesh(name, geo, mat, parent, x, y + h / 2, z); if (alongZ) m.rotation.y = Math.PI / 2;
+    m.userData.pivotAxis = 'x'; m.userData.pivotNote = 'origin at the curtain heading (top rod); sway = small rotation about local X'; return m;
   };
   const rod = (name, parent, x0, x1, y, z0, z1) => B(name, parent, M.brass, x0, x1, y - 0.012, y + 0.012, z0, z1, 0.01);
   // flanking the fireplace (on the fireplace wall)
@@ -310,6 +315,22 @@ export function buildMovieRoom() {
           parts.forEach(m => { m.userData[flag] = true; }); } } });
   }
 
+  // ---------------- life: props (popcorn, sodas, a blanket left on the front row)
+  { const L = makeLifeKit();
+    L.P.popcornBowl('prop_popcorn_bowl', root, 2.95, 0.44, 3.62, 3);                       // on the ottoman next to the existing bowl
+    L.P.popcornBowl('prop_popcorn_bowl_2', root, SX - 0.05, RHt + 0.52, BZ - 0.12, 7);        // left on the back-row middle seat
+    L.P.sodaCup('prop_drink', root, stX + 0.13, 0.54, FZ - 0.13, '#c8191f');             // front-row side table, beside the lamp
+    L.P.sodaCup('prop_drink_2', root, stX + 0.13, RHt + 0.54, BZ - 0.13, '#1f6fc8');       // back-row side table
+    const knit = L.lstd('#ffffff', 1, 0, { map: L.plaid('#8a3a34', '#e8d7b5', '#2d2a26') });
+    const g = L.LG('prop_throw_blanket', root, SX + 0.72, 0, FZ, 0.06);                             // front row, right seat: over the back cushion and spilling onto the seat
+    L.LB('pm_throw_blanket_top', g, knit, -0.31, 0.31, 1.02, 1.055, 0.17, 0.5, 0.015);
+    const back = L.LB('pm_throw_blanket_back', g, knit, -0.31, 0.31, -0.23, 0.23, -0.02, 0.02, 0.012); back.position.set(0, 0.79, 0.15); back.rotation.x = 0.16;
+    const seat = L.LB('pm_throw_blanket_seat', g, knit, -0.3, 0.3, -0.02, 0.02, -0.3, 0.3, 0.012); seat.position.set(0.02, 0.545, -0.08); seat.rotation.set(0.0, 0.12, 0.03);
+    const roll = L.LC('pm_throw_blanket_roll', g, knit, 0.035, 0.035, 0.6, 0.02, 0.56, -0.38, 12); roll.rotation.set(0, 0.12, Math.PI / 2);
+    const hang = L.LB('pm_throw_blanket_hang', g, knit, -0.28, 0.28, -0.2, 0.1, -0.016, 0.016, 0.01); hang.position.set(0.05, 0.38, -0.47); hang.rotation.x = -0.12;
+    g.position.y = 0.55; g.children.forEach(c => { c.position.y -= 0.55; });                    // prop origin on the seat, at the blanket
+  }
+
   // ---------------- projector (ceiling-mounted)
   const PJ = { x: SC, y: H - 0.32, z: 4.4 };
   const lensMat = std('#1a2230', 0.1, 0.3, { emissive: new THREE.Color('#dfe9ff'), emissiveIntensity: 0 });
@@ -419,6 +440,7 @@ export function buildMovieRoom() {
       for (let k = 0; k < 6; k++) { const a = k / 6 * Math.PI * 2; const p = mesh(`flower_light_petal_${i + 1}_${k + 1}`, new THREE.SphereGeometry(0.045, 10, 6), rgb[i], g, bx + Math.cos(a) * 0.04, top + 0.01, bz + Math.sin(a) * 0.04, false); p.scale.set(1, 0.35, 0.6); p.rotation.y = -a; p.rotation.z = 0.5; }
       sphere(`flower_light_bloom_${i + 1}`, g, core, 0.02, bx, top + 0.02, bz).castShadow = false;
       if (i < 3) for (let k = 0; k < 3; k++) { const ly = 0.6 + r() * (top - 0.8); const lf = mesh(`flower_light_leaf_${i + 1}_${k + 1}`, new THREE.SphereGeometry(0.05, 8, 5), std('#4f6e36', 0.7), g, cx + dx * (ly / top) * 1.4 + (r() - 0.5) * 0.08, ly, cz + dz * (ly / top) * 1.4 + (r() - 0.5) * 0.08); lf.scale.set(0.35, 1.3, 0.12); lf.rotation.z = (r() - 0.5) * 1.2; } });
+    { const hd = sphere('flower_light_head', g, core, 0.026, cx, stems[0][2] + 0.04, cz); hd.scale.set(1, 0.6, 1); hd.castShadow = false; }   // app sparkle node: glowing bud atop the tallest bloom
     decals.push(decal('glow_flower_light_wall_screen', g, T.glow, '#d58cff', 0.55, 1.4, 1.6, cx, 1.45, 0.006, '+z'), decal('glow_flower_light_wall_side', g, T.glow, '#7fb0ff', 0.5, 1.4, 1.6, W - 0.006, 1.45, cz + 0.3, '-x'), decal('glow_flower_light_floor', g, T.glow, '#ff9ccf', 0.4, 1.2, 1.2, cx - 0.2, 0.014, cz + 0.2, 'up'));
     const l = pl('light_flower_light', g, '#e0a8ff', cx - 0.1, 1.55, cz + 0.1, 3);
     register('flower_light', { room, label: 'RGB flower light', type: 'light', group: g, emissive: [...rgb.map(mat => ({ mat, on: 4.5 })), { mat: core, on: 6 }], lights: [{ light: l, on: 1.2 }], decals, show, anchor: new THREE.Vector3(cx, 2.0, cz) });
@@ -462,6 +484,8 @@ export const VIEWS = {
   seats_from_screen: { pos: [3.6, 1.7, 0.6], target: [3.9, 0.7, 6.5], fov: 62, interior: true },
   candy_wall: { pos: [3.0, 1.55, 6.0], target: [0.0, 1.35, 7.4], fov: 55, interior: true },
   top: { pos: [6.0, 20, 13.5], target: [2.7, 0, 4.3], fov: 34 },
+  life_props: { pos: [1.55, 1.75, 2.6], target: [3.6, 0.55, 5.6], fov: 55, interior: true },
+  life_curtains: { pos: [3.4, 1.5, 4.2], target: [1.2, 1.4, 0.4], fov: 62, interior: true },
 };
 
 export const createMovieRoom = (container, opts = {}) => createApp(container, { build: buildMovieRoom, views: VIEWS, presets: PRESETS, shadow: { center: [2.7, 0, 4.3], half: 8 }, ...opts });

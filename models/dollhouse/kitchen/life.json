@@ -1,0 +1,96 @@
+{
+  "spots": {},
+  "scenes": [
+    {
+      "id": "morning_coffee",
+      "title": "Morning coffee",
+      "weights": {
+        "morning": 2,
+        "midday": 0.6,
+        "dusk": 0.3,
+        "night": 0.2
+      },
+      "devices": {
+        "under_cabinet_lights": 1
+      },
+      "props": [
+        "prop_mug",
+        "prop_kettle",
+        "prop_mail"
+      ],
+      "steam": [
+        "prop_mug",
+        "prop_kettle"
+      ]
+    },
+    {
+      "id": "cooking",
+      "title": "Dinner prep",
+      "weights": {
+        "morning": 0.3,
+        "midday": 0.8,
+        "dusk": 1.8,
+        "night": 0.6
+      },
+      "devices": {
+        "under_cabinet_lights": 1,
+        "range_hood_light": 1,
+        "recessed_lights": 0.7
+      },
+      "props": [
+        "prop_cutting_board",
+        "prop_kettle",
+        "prop_dishes"
+      ],
+      "steam": [
+        "prop_kettle"
+      ]
+    },
+    {
+      "id": "after_dinner",
+      "title": "Dishes waiting",
+      "weights": {
+        "morning": 0.2,
+        "midday": 0.5,
+        "dusk": 1,
+        "night": 1.4
+      },
+      "devices": {
+        "toe_kick_lights": 1,
+        "dining_pendant": 0.5,
+        "table_lamp_booth": 1
+      },
+      "props": [
+        "prop_dishes",
+        "prop_mail"
+      ]
+    },
+    {
+      "id": "laundry_day",
+      "title": "Laundry day",
+      "weights": {
+        "morning": 1.2,
+        "midday": 1.4,
+        "dusk": 0.6,
+        "night": 0.2
+      },
+      "devices": {
+        "laundry_light": 1,
+        "washer": 1,
+        "dryer": 1
+      },
+      "props": [
+        "prop_laundry_basket",
+        "prop_detergent",
+        "prop_mug"
+      ],
+      "steam": [
+        "prop_mug"
+      ],
+      "while_on": [
+        "washer",
+        "dryer"
+      ]
+    }
+  ]
+}

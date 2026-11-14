@@ -14,6 +14,7 @@ final class DollhouseAmbient {
     private var curtains: Set<String> = []
     private var screens: Set<String> = []
     private var didScanCurtains = false
+    private let motion = DollhouseMotion()
 
     init(room: DollhouseRoom) { self.room = room }
 
@@ -127,59 +128,54 @@ final class DollhouseAmbient {
         }
     }
 
+    /// Only these exact leaves ever spin. Each pivots on itself (fan hub, drum axle), so a turn can't
+    /// carry the room with it. Drums turn about their local +Z, which points out of the door.
     private func syncSpins(_ stage: DollhouseStage, levels: [String: Double]) {
         var wanted: [String: TimeInterval] = [:]
         for device in room.devices.devices {
             let level = levels[device.name] ?? 0
             guard level > 0.02 else { continue }
-            if device.type == .fan, stage.node(named: "ceiling_fan_blades") != nil {
+            if device.type == .fan {
                 wanted["ceiling_fan_blades"] = level > 0.7 ? 1.4 : 2.6
             }
-            if device.type == .appliance {
-                stage.eachNamedNode { name, node in
-                    guard name.contains("drum"), self.ownsDrum(name, device: device) else { return }
-                    wanted[name] = 1.8
-                }
+            if device.type == .appliance, Self.drums.contains(device.name + "_drum") {
+                wanted[device.name + "_drum"] = 1.8
             }
         }
         guard Set(wanted.keys) != spins else { return }
         for name in spins where wanted[name] == nil {
-            stage.node(named: name)?.removeAction(forKey: "life-spin")
+            if let node = stage.node(named: name) { motion.restore(node, key: "life-spin") }
         }
-        for (name, duration) in wanted where spins.contains(name) == false {
-            guard let node = stage.node(named: name) else { continue }
-            let spin = name == "ceiling_fan_blades"
-                ? SCNAction.rotateBy(x: 0, y: .pi * 2, z: 0, duration: duration)
-                : SCNAction.rotateBy(x: 0, y: 0, z: .pi * 2, duration: duration)
-            node.runAction(.repeatForever(spin), forKey: "life-spin")
+        var running: Set<String> = []
+        for (name, duration) in wanted {
+            guard let node = stage.node(named: name), node.isSmallSelfPivot() else { continue }
+            running.insert(name)
+            guard !spins.contains(name) else { continue }
+            let axis = name == "ceiling_fan_blades" ? SCNVector3(0, 1, 0) : SCNVector3(0, 0, 1)
+            motion.loop(node, key: "life-spin", axis: axis, period: duration) { phase in phase * 2 * .pi }
         }
-        spins = Set(wanted.keys)
+        spins = running
     }
 
-    private func ownsDrum(_ name: String, device: DollhouseDevice) -> Bool {
-        if device.glowDecals.contains(name) || device.meshNodes.contains(name) { return true }
-        let stem = device.name + "_drum"
-        return name == stem || name == "glow_" + stem || name.hasPrefix(stem + "_")
-    }
+    static let drums: Set<String> = ["washer_drum", "dryer_drum"]
+
+    /// The curtain meshes, by exact name. Each pivots at its heading (top rod) and hangs down -Y,
+    /// so a small turn about local X (the rod) is a sway, never a slide across the room.
+    static let curtainNames = [
+        "fireplace_curtain_1", "fireplace_curtain_2", "screen_curtain_1", "screen_curtain_2",
+        "rear_black_curtain_cut", "rear_black_curtain"
+    ]
 
     private func syncCurtains(_ stage: DollhouseStage) {
         guard !didScanCurtains else { return }
         didScanCurtains = true
-        var found: [SCNNode] = []
-        stage.eachNamedNode { name, node in
-            let key = name.lowercased()
-            guard key.contains("curtain"),
-                  !key.contains("rod"), !key.contains("track"), !key.contains("light") else { return }
-            found.append(node)
-        }
-        for (index, node) in found.enumerated() {
-            let sway = SCNAction.sequence([
-                .rotateBy(x: 0, y: 0.018, z: 0, duration: 3.2 + Double(index) * 0.35),
-                .rotateBy(x: 0, y: -0.018, z: 0, duration: 3.2 + Double(index) * 0.35)
-            ])
-            sway.timingMode = .easeInEaseOut
-            node.runAction(.repeatForever(sway), forKey: "life-sway")
-            if let name = node.name { curtains.insert(name) }
+        for (index, name) in Self.curtainNames.enumerated() {
+            guard let node = stage.node(named: name), node.isSmallSelfPivot(maxRadius: 2.5) else { continue }
+            let period = 6.4 + Double(index) * 0.7
+            motion.loop(node, key: "life-sway", axis: SCNVector3(1, 0, 0), period: period) { phase in
+                0.03 * sin(phase * 2 * .pi)
+            }
+            curtains.insert(name)
         }
     }
 
@@ -246,7 +242,13 @@ final class DollhouseAmbient {
             guard let node = stage.node(named: name), placed(node) else { continue }
             keep.insert(key)
             if particles[key] == nil {
-                particles[key] = (node, node.add(system: steam()))
+                // Props pivot on the surface under them, so the steam starts at the rim instead.
+                let (lo, hi) = node.contentBounds() ?? (SCNVector3Zero, SCNVector3Zero)
+                let emitter = SCNNode()
+                emitter.name = Self.emitterName
+                emitter.position = SCNVector3((lo.x + hi.x) / 2, hi.y, (lo.z + hi.z) / 2)
+                node.addChildNode(emitter)
+                particles[key] = (emitter, emitter.add(system: steam()))
             }
         }
         dropParticles(prefix: "steam:", keep: keep)
@@ -296,7 +298,7 @@ final class DollhouseAmbient {
 
     private func dropParticles(prefix: String, keep: Set<String>) {
         for (key, pair) in particles where key.hasPrefix(prefix) && !keep.contains(key) {
-            pair.0.removeParticleSystem(pair.1)
+            Self.detach(pair)
             particles.removeValue(forKey: key)
         }
     }
@@ -304,17 +306,28 @@ final class DollhouseAmbient {
     private func clearMotion(_ stage: DollhouseStage) {
         stopFlames(stage)
         flames = []
-        for name in spins { stage.node(named: name)?.removeAction(forKey: "life-spin") }
+        for name in spins {
+            if let node = stage.node(named: name) { motion.restore(node, key: "life-spin") }
+        }
         spins = []
-        for name in curtains { stage.node(named: name)?.removeAction(forKey: "life-sway") }
+        for name in curtains {
+            if let node = stage.node(named: name) { motion.restore(node, key: "life-sway") }
+        }
         curtains = []
         didScanCurtains = false
         for name in screens {
             drawable(stage, name)?.removeAction(forKey: "life-screen")
         }
         screens = []
-        for (_, pair) in particles { pair.0.removeParticleSystem(pair.1) }
+        for (_, pair) in particles { Self.detach(pair) }
         particles = [:]
+    }
+
+    private static let emitterName = "life-steam-emitter"
+
+    private static func detach(_ pair: (SCNNode, SCNParticleSystem)) {
+        pair.0.removeParticleSystem(pair.1)
+        if pair.0.name == emitterName { pair.0.removeFromParentNode() }
     }
 
     private func steam() -> SCNParticleSystem {
@@ -365,7 +378,7 @@ final class DollhouseAmbient {
     static let sparkNodes = [
         "table_lamp_shade", "table_lamp_booth_shade", "table_lamp_1_shade", "table_lamp_2_shade",
         "dresser_lamp_shade", "sconce_left_shade", "sconce_right_shade",
-        "sconce_left_bulb_1", "sconce_right_bulb_1", "chandelier_bulb_1", "chandelier_lower_bulb_1",
+        "sconce_left_bulb_1", "sconce_right_bulb_1", "chandelier_bulb_1", "chandelier_bulb_4", "chandelier_lower_bulb_1",
         "dining_pendant_bulb", "flower_light_head", "flower_light_bloom_1", "prop_lamp"
     ]
 
@@ -397,5 +410,88 @@ private extension UIColor {
         other.getRed(&r2, green: &g2, blue: &b2, alpha: &a2)
         let t = min(1, max(0, amount))
         return UIColor(red: r1 + (r2 - r1) * t, green: g1 + (g2 - g1) * t, blue: b1 + (b2 - b1) * t, alpha: a1 + (a2 - a1) * t)
+    }
+}
+
+/// Turns a node about one of its own axes from a captured rest pose, so an interrupted loop can't
+/// leave it a little more rotated each time, and stopping puts it back exactly where the model had it.
+final class DollhouseMotion {
+    private var rests: [ObjectIdentifier: SCNMatrix4] = [:]
+
+    func rest(of node: SCNNode) -> SCNMatrix4 {
+        let id = ObjectIdentifier(node)
+        if let rest = rests[id] { return rest }
+        rests[id] = node.transform
+        return node.transform
+    }
+
+    /// `angle` gets the phase (0 to 1) of each period.
+    func loop(_ node: SCNNode, key: String, axis: SCNVector3, period: TimeInterval, angle: @escaping (Float) -> Float) {
+        let base = rest(of: node)
+        node.removeAction(forKey: key)
+        let action = SCNAction.customAction(duration: period) { node, elapsed in
+            let turn = angle(Float(elapsed) / Float(period))
+            node.transform = SCNMatrix4Mult(SCNMatrix4MakeRotation(turn, axis.x, axis.y, axis.z), base)
+        }
+        node.runAction(.repeatForever(action), forKey: key)
+    }
+
+    /// Waits, then plays one wiggle (`angle` of the 0-1 phase), forever.
+    func every(_ node: SCNNode, key: String, wait: TimeInterval, jitter: TimeInterval = 0, axis: SCNVector3,
+               duration: TimeInterval, angle: @escaping (Float) -> Float) {
+        let base = rest(of: node)
+        node.removeAction(forKey: key)
+        node.transform = base
+        let wiggle = SCNAction.customAction(duration: duration) { node, elapsed in
+            let turn = angle(Float(elapsed) / Float(duration))
+            node.transform = SCNMatrix4Mult(SCNMatrix4MakeRotation(turn, axis.x, axis.y, axis.z), base)
+        }
+        let settle = SCNAction.run { node in node.transform = base }
+        let pause = jitter > 0 ? SCNAction.wait(duration: wait, withRange: jitter) : SCNAction.wait(duration: wait)
+        node.runAction(.repeatForever(.sequence([pause, wiggle, settle])), forKey: key)
+    }
+
+    func restore(_ node: SCNNode, key: String) {
+        node.removeAction(forKey: key)
+        if let rest = rests[ObjectIdentifier(node)] { node.transform = rest }
+    }
+}
+
+extension SCNNode {
+    /// Bounds of every mesh under this node, in this node's own space. Nil when there is no mesh.
+    func contentBounds() -> (SCNVector3, SCNVector3)? {
+        var lo = SCNVector3(Float.greatestFiniteMagnitude, Float.greatestFiniteMagnitude, Float.greatestFiniteMagnitude)
+        var hi = SCNVector3(-Float.greatestFiniteMagnitude, -Float.greatestFiniteMagnitude, -Float.greatestFiniteMagnitude)
+        enumerateHierarchy { node, _ in
+            guard node.geometry != nil else { return }
+            let (a, b) = node.boundingBox
+            for x in [a.x, b.x] { for y in [a.y, b.y] { for z in [a.z, b.z] {
+                let p = node === self ? SCNVector3(x, y, z) : node.convertPosition(SCNVector3(x, y, z), to: self)
+                lo = SCNVector3(min(lo.x, p.x), min(lo.y, p.y), min(lo.z, p.z))
+                hi = SCNVector3(max(hi.x, p.x), max(hi.y, p.y), max(hi.z, p.z))
+            } } }
+        }
+        return lo.x <= hi.x ? (lo, hi) : nil
+    }
+
+    /// True only for a small part that turns about a point on itself: never the scene root, the room
+    /// root, or a big group (groups in these models often sit at the room origin, metres away).
+    func isSmallSelfPivot(maxRadius: Float = 1.2) -> Bool {
+        var depth = 0
+        var up = parent
+        while let node = up { depth += 1; up = node.parent }
+        // scene root -> file root -> room group -> part
+        guard depth >= 3 else { return false }
+        guard let bounds = contentBounds() else { return false }
+        let (lo, hi) = bounds
+        let diagonal = convertVector(SCNVector3(hi.x - lo.x, hi.y - lo.y, hi.z - lo.z), to: nil)
+        let radius = sqrt(diagonal.x * diagonal.x + diagonal.y * diagonal.y + diagonal.z * diagonal.z) / 2
+        guard radius > 0, radius <= maxRadius else { return false }
+        let unit = convertVector(SCNVector3(1, 0, 0), to: nil)
+        let scale = max(sqrt(unit.x * unit.x + unit.y * unit.y + unit.z * unit.z), 0.0001)
+        let margin = 0.15 / scale
+        return lo.x - margin <= 0 && 0 <= hi.x + margin
+            && lo.y - margin <= 0 && 0 <= hi.y + margin
+            && lo.z - margin <= 0 && 0 <= hi.z + margin
     }
 }

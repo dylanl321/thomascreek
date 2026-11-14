@@ -1,5 +1,9 @@
 import fs from 'fs';
-let scene = fs.readFileSync('src/scene.js', 'utf8').replace(/^export /gm, '');
+let scene = fs.readFileSync('src/scene.js', 'utf8').replace(/^import .*life\.js';$/gm, '').replace(/^export /gm, '');
+// life kit + viewer runtime: hosts already import THREE / RoundedBoxGeometry, so drop life.js imports
+const life = fs.readFileSync('src/life.js', 'utf8').replace(/^import .*$/gm, '').replace(/^export /gm, '');
+const lifeViewer = fs.readFileSync('src/life_viewer.js', 'utf8').replace(/^export /gm, '');
+scene = scene + '\n' + life + '\n' + lifeViewer;
 const html = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Den · Smart Home Dollhouse</title>
@@ -57,15 +61,16 @@ Object.values(app.devices).forEach(d => {
 const setActive = (id, key) => document.querySelectorAll('#' + id + ' button').forEach(b => b.classList.toggle('active', b.dataset.k === key));
 const mk = (id, entries, fn) => entries.forEach(([k, label]) => { const b = document.createElement('button'); b.textContent = label; b.dataset.k = k; b.onclick = () => { fn(k); setActive(id, k); }; document.getElementById(id).appendChild(b); });
 mk('presets', [['all_off', 'All off'], ['all_on', 'All on'], ['evening', 'Evening'], ['movie_night', 'Movie night']], k => { app.applyPreset(k); refresh(); });
-mk('views', [['dollhouse', 'Dollhouse'], ['dollhouse_close', 'Closer'], ['photo', 'Photo angle'], ['door_detail', 'Doors'], ['cat_detail', 'Cat'], ['top', 'Top']], goView);
+mk('views', [['dollhouse', 'Dollhouse'], ['dollhouse_close', 'Closer'], ['photo', 'Photo angle'], ['door_detail', 'Doors'], ['cat_detail', 'Cat'], ['life_props', 'Cozy corner'], ['life_blanket', 'Throw'], ['top', 'Top']], goView);
 app.applyPreset('evening'); refresh(); setActive('presets', 'evening'); setActive('views', 'dollhouse');
 addEventListener('resize', () => app.resize(innerWidth, innerHeight));
+const lifeTick = setupLife(app, {});
 const v = new THREE.Vector3(), flames = [];
 app.scene.traverse(o => { if (o.name.startsWith('fire_flame_')) flames.push([o, o.scale.y, Math.random() * 6]); });
 const clock = new THREE.Clock();
 (function loop() {
   requestAnimationFrame(loop); controls.update();
-  const t = clock.getElapsedTime();
+  const t = clock.getElapsedTime(); lifeTick();
   flames.forEach(([o, s, p]) => { o.scale.y = s * (0.85 + 0.2 * Math.sin(t * 9 + p) + 0.08 * Math.sin(t * 23 + p * 2)); });
   const fl = app.scene.getObjectByName('light_fireplace'); if (app.devices.fireplace.on) fl.intensity = 3.5 * (0.85 + 0.15 * Math.sin(t * 13));
   Object.values(app.devices).forEach(d => { v.copy(d.anchor).project(app.camera); const el = dots[d.name];

@@ -1,5 +1,5 @@
 // Shared dollhouse kit — style tokens, base textures, geometry helpers, device registry and the
-// studio renderer. Matches ../living-room/style.md (the den keeps its own copy so its look is frozen).
+// studio renderer. Matches /workspace/room/style.md (the den keeps its own copy so its look is frozen).
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
@@ -161,8 +161,8 @@ export function createApp(container, { build, views, presets, width = 1600, heig
   const render = () => composer.render();
   const resize = (w, h) => { camera.aspect = w / h; camera.updateProjectionMatrix(); renderer.setSize(w, h); composer.setSize(w, h); };
   const exportGLB = () => new Promise((res, rej) => {
-    const hidden = []; room.root.traverse(o => { if (o.userData.noExport && o.visible) { o.visible = false; hidden.push(o); } });
-    const restore = () => hidden.forEach(o => { o.visible = true; });
+    const hidden = [], shown = []; room.root.traverse(o => { if (o.userData.noExport && o.visible) { o.visible = false; hidden.push(o); } if (o.userData.exportForceVisible && !o.visible) { o.visible = true; shown.push(o); } });
+    const restore = () => { hidden.forEach(o => { o.visible = true; }); shown.forEach(o => { o.visible = false; }); };
     new GLTFExporter().parse(room.root, (buf) => { restore(); res(buf); }, (e) => { restore(); rej(e); }, { binary: true, onlyVisible: true, maxTextureSize: 1024 });
   });
   setView(Object.keys(views)[0]);

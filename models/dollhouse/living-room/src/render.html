@@ -9,6 +9,15 @@ const w = +p.get('w') || 1600, h = +p.get('h') || 1000;
 const app = createDen(document.body, { width: w, height: h });
 window.app = app;
 app.applyPreset(p.get('state') || 'all_off'); app.setView(p.get('view') || 'dollhouse');
+// life staging: ?cat=<default|sleep|sit|stretch|walk_1|walk_2>[&spot=<cat_spot_*>] moves pet_cat to a spot, shows that pose (fallback meshes hidden) and frames it
+const cat = p.get('cat');
+if (cat) { const root = app.den.root, pc = root.getObjectByName('pet_cat');
+  const HOME = { default: 'cat_spot_sofa', sleep: 'cat_spot_fireplace', sit: 'cat_spot_window', stretch: 'cat_spot_rug', walk_1: 'cat_spot_rug', walk_2: 'cat_spot_rug' };
+  const spot = root.getObjectByName(p.get('spot') || HOME[cat]); pc.position.copy(spot.position); pc.rotation.y = spot.rotation.y;
+  pc.children.forEach(o => { if (o.isMesh) o.visible = cat === 'default'; else if (o.name.startsWith('pet_cat_pose_')) o.visible = o.name === 'pet_cat_pose_' + cat; });
+  root.updateMatrixWorld(true); const c = pc.getWorldPosition(pc.position.clone());
+  const ORB = { sit: -2.3, default: 0.9 }; const ry = pc.rotation.y + (p.has('orbit') ? +p.get('orbit') : (ORB[cat] ?? 0.75)); const D = cat === 'sleep' || cat === 'default' ? 1.45 : 1.85;
+  app.setView({ pos: [c.x + Math.cos(ry) * D, c.y + 0.75, c.z - Math.sin(ry) * D], target: [c.x, c.y + 0.2, c.z], fov: 30 }); }
 app.render(); app.render();
 window.__done = true;
 } catch (e) { window.__err = e.stack || String(e); }

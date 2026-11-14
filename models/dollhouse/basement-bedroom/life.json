@@ -1,0 +1,78 @@
+{
+  "spots": {},
+  "scenes": [
+    {
+      "id": "reading_in_bed",
+      "title": "Reading in bed",
+      "weights": {
+        "morning": 0.4,
+        "midday": 0.3,
+        "dusk": 1,
+        "night": 1.6
+      },
+      "devices": {
+        "sconce_left": 1,
+        "sconce_right": 1
+      },
+      "props": [
+        "prop_open_book",
+        "prop_throw_blanket"
+      ]
+    },
+    {
+      "id": "night_light",
+      "title": "Night light",
+      "weights": {
+        "morning": 0.1,
+        "midday": 0,
+        "dusk": 0.5,
+        "night": 1.8
+      },
+      "devices": {
+        "sconce_left": 0.3,
+        "sconce_right": 0.3
+      },
+      "props": [
+        "prop_lamp",
+        "prop_shoes"
+      ]
+    },
+    {
+      "id": "laundry_pile",
+      "title": "Laundry to fold",
+      "weights": {
+        "morning": 1.3,
+        "midday": 1.4,
+        "dusk": 0.6,
+        "night": 0.2
+      },
+      "devices": {
+        "skylight_glow": 1,
+        "ceiling_fan": 1
+      },
+      "props": [
+        "prop_laundry_basket",
+        "prop_throw_blanket",
+        "prop_shoes"
+      ]
+    },
+    {
+      "id": "morning",
+      "title": "Slow morning",
+      "weights": {
+        "morning": 1.8,
+        "midday": 0.7,
+        "dusk": 0.2,
+        "night": 0
+      },
+      "devices": {
+        "skylight_glow": 1,
+        "dresser_lamp": 1
+      },
+      "props": [
+        "prop_throw_blanket",
+        "prop_shoes"
+      ]
+    }
+  ]
+}

@@ -3,18 +3,90 @@
     {
       "id": "movie_night",
       "title": "Movie night",
-      "weights": { "morning": 0.3, "midday": 0.5, "dusk": 1.8, "night": 2.2 },
-      "devices": { "projector": 1, "popcorn_machine": 1, "fireplace": 0.65 },
-      "props": ["prop_popcorn_bowl", "prop_throw_blanket"],
-      "steam": ["popcorn_kettle"],
-      "while_on": ["projector"]
+      "weights": {
+        "morning": 0.3,
+        "midday": 0.5,
+        "dusk": 1.8,
+        "night": 2.2
+      },
+      "devices": {
+        "projector": 1,
+        "popcorn_machine": 1,
+        "fireplace": 0.65
+      },
+      "props": [
+        "prop_popcorn_bowl",
+        "prop_throw_blanket",
+        "prop_popcorn_bowl_2",
+        "prop_drink",
+        "prop_drink_2"
+      ],
+      "steam": [
+        "popcorn_kettle"
+      ],
+      "while_on": [
+        "projector"
+      ]
     },
     {
       "id": "intermission",
       "title": "Intermission",
-      "weights": { "morning": 1.0, "midday": 1.2, "dusk": 1.0, "night": 0.8 },
-      "devices": { "popcorn_machine": 0.35, "fireplace": 0.2 },
-      "props": ["prop_popcorn_bowl", "prop_drink"]
+      "weights": {
+        "morning": 1.0,
+        "midday": 1.2,
+        "dusk": 1.0,
+        "night": 0.8
+      },
+      "devices": {
+        "popcorn_machine": 0.35,
+        "fireplace": 0.2
+      },
+      "props": [
+        "prop_popcorn_bowl",
+        "prop_drink"
+      ]
+    },
+    {
+      "id": "party",
+      "title": "Party",
+      "weights": {
+        "morning": 0.1,
+        "midday": 0.4,
+        "dusk": 1.4,
+        "night": 1.2
+      },
+      "devices": {
+        "recessed_lights": 1,
+        "rear_string_lights": 1,
+        "candy_shelf_backlight": 1,
+        "popcorn_machine": 1,
+        "flower_light": 1,
+        "table_lamps": 1,
+        "fireplace": 1
+      },
+      "props": [
+        "prop_popcorn_bowl",
+        "prop_drink",
+        "prop_drink_2"
+      ]
+    },
+    {
+      "id": "lazy_afternoon",
+      "title": "Lazy afternoon",
+      "weights": {
+        "morning": 0.6,
+        "midday": 1.4,
+        "dusk": 0.6,
+        "night": 0.3
+      },
+      "devices": {
+        "fireplace": 1,
+        "table_lamps": 0.5
+      },
+      "props": [
+        "prop_throw_blanket",
+        "prop_drink"
+      ]
     }
   ]
 }

@@ -2688,6 +2688,44 @@
       "metallic": 0.0,
       "double_sided": true,
       "base_texture": "tex_7.png"
+    },
+    "pm_popcorn_bowl_bowl": {
+      "kind": "shade",
+      "base_srgb": [
+        0.9999999999999999,
+        0.9999999999999999,
+        0.9999999999999999
+      ],
+      "opacity": 1.0,
+      "emissive_srgb": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "strength": 0.0,
+      "roughness": 0.5,
+      "metallic": 0.0,
+      "double_sided": true,
+      "base_texture": "tex_11.png"
+    },
+    "pm_popcorn_bowl_2_bowl": {
+      "kind": "shade",
+      "base_srgb": [
+        0.9999999999999999,
+        0.9999999999999999,
+        0.9999999999999999
+      ],
+      "opacity": 1.0,
+      "emissive_srgb": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "strength": 0.0,
+      "roughness": 0.5,
+      "metallic": 0.0,
+      "double_sided": true,
+      "base_texture": "tex_12.png"
     }
   },
   "lights": {

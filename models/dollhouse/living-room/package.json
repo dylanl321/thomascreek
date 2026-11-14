@@ -1,17 +1,16 @@
 {
-  "name": "room",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs",
+  "name": "living-room-life",
+  "private": true,
+  "type": "module",
   "dependencies": {
     "puppeteer-core": "^25.17.0",
     "three": "^0.170.0"
+  },
+  "scripts": {
+    "serve": "python3 -m http.server 8766",
+    "export": "node render.mjs export",
+    "viewer": "node build_viewer.mjs",
+    "check": "node check_life_names.mjs room_corner.glb room_corner_all_on.glb",
+    "smoke": "node smoke_life.mjs . room_corner.glb room_corner_all_on.glb"
   }
 }

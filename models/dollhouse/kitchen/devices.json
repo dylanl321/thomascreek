@@ -351,6 +351,15 @@
         "washer_dial",
         "washer_door_ring",
         "washer_door_glass",
+        "washer_drum",
+        "washer_drum_baffle_1",
+        "washer_drum_baffle_2",
+        "washer_drum_baffle_3",
+        "washer_drum_laundry_1",
+        "washer_drum_laundry_2",
+        "washer_drum_laundry_3",
+        "washer_drum_laundry_4",
+        "washer_drum_laundry_5",
         "washer_status_arc"
       ],
       "on_state": {
@@ -386,6 +395,14 @@
         "dryer_dial",
         "dryer_door_ring",
         "dryer_door_glass",
+        "dryer_drum",
+        "dryer_drum_baffle_1",
+        "dryer_drum_baffle_2",
+        "dryer_drum_baffle_3",
+        "dryer_drum_laundry_1",
+        "dryer_drum_laundry_2",
+        "dryer_drum_laundry_3",
+        "dryer_drum_laundry_4",
         "dryer_status_arc"
       ],
       "on_state": {
@@ -397,5 +414,121 @@
         "shows": []
       }
     }
-  ]
+  ],
+  "life": {
+    "cat": null,
+    "cat_spots": [],
+    "props": [
+      {
+        "name": "prop_mug",
+        "world_position_m": [
+          -2.28,
+          0.92,
+          2.35
+        ],
+        "parent": "kitchen"
+      },
+      {
+        "name": "prop_mail",
+        "world_position_m": [
+          -2.38,
+          0.92,
+          4.02
+        ],
+        "parent": "kitchen"
+      },
+      {
+        "name": "prop_dishes",
+        "world_position_m": [
+          -0.32,
+          0.926,
+          2.025
+        ],
+        "parent": "kitchen"
+      },
+      {
+        "name": "prop_kettle",
+        "world_position_m": [
+          -1.42,
+          0.966,
+          0.2
+        ],
+        "parent": "kitchen"
+      },
+      {
+        "name": "prop_cutting_board",
+        "world_position_m": [
+          -2.39,
+          0.92,
+          0.36
+        ],
+        "parent": "kitchen"
+      },
+      {
+        "name": "prop_detergent",
+        "world_position_m": [
+          -0.4,
+          0.94,
+          8.94
+        ],
+        "parent": "kitchen"
+      },
+      {
+        "name": "prop_laundry_basket",
+        "world_position_m": [
+          -1.3,
+          0,
+          10.15
+        ],
+        "parent": "kitchen"
+      }
+    ],
+    "drums": [
+      {
+        "name": "washer_drum",
+        "world_position_m": [
+          -0.581,
+          0.41,
+          8.84
+        ],
+        "spin_axis_local": "z",
+        "door_axis_local": "+z"
+      },
+      {
+        "name": "dryer_drum",
+        "world_position_m": [
+          -0.581,
+          0.41,
+          9.56
+        ],
+        "spin_axis_local": "z",
+        "door_axis_local": "+z"
+      }
+    ],
+    "fan_blades": null,
+    "curtains": [],
+    "sparkles": [
+      {
+        "name": "dining_pendant_bulb",
+        "world_position_m": [
+          -1.3,
+          1.74,
+          6.95
+        ]
+      },
+      {
+        "name": "table_lamp_booth_shade",
+        "world_position_m": [
+          -1.14,
+          1.086,
+          7.11
+        ]
+      }
+    ],
+    "exterior_nodes": [
+      "exterior_yard",
+      "living_room_glimpse",
+      "sunroom_glimpse"
+    ]
+  }
 }
