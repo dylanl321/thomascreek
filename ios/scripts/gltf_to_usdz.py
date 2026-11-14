@@ -100,17 +100,17 @@ def kind_for(name: str) -> str | None:
         return "glow"
     if name.startswith("fire_flame"):
         return "flame"
-    if name.startswith("light_cone_"):
+    if name.startswith("light_cone_") or name.endswith("_beam") or name.startswith("light_shaft") or "spin_blur" in name:
         return "cone"
-    if name == "fire_embers":
+    if name == "fire_embers" or name.endswith("_embers"):
         return "embers"
     if name == "tv_screen":
         return "screen"
-    if name == "soundbar_led":
+    if name == "soundbar_led" or "petal" in name or "_bloom" in name:
         return "led"
-    if "shade" in name or name.endswith("_dome") or "glass_dome" in name:
+    if any(part in name for part in ("shade", "lining", "diffuser")) or name.endswith("_dome") or name.endswith("_bowl") or "glass_dome" in name:
         return "shade"
-    if name == "cabinet_light_strip" or any(part in name for part in ("bulb", "puck", "_strip", "toe_kick", "_lamp")):
+    if name == "cabinet_light_strip" or any(part in name for part in ("bulb", "puck", "_strip", "toe_kick", "_lamp", "_step", "_shelf")):
         return "bulb"
     if name.startswith("recessed_light") and "trim" not in name:
         return "bulb"
@@ -300,13 +300,15 @@ def main() -> None:
     if not opened:
         raise SystemExit(f"could not reopen {dst}")
     names = {p.GetName() for p in opened.Traverse()}
-    # The living room has a known set. Any other room must still carry its device anchors.
+    anchors = [n for n in names if n.startswith("anchor_")]
     if "anchor_tv" in names:
-        missing = [n for n in ("anchor_tv", "tv_screen", "glow_chandelier_floor", "fire_flame_1", "soundbar_led", "light_chandelier") if n not in names]
+        missing = [n for n in ("tv_screen", "glow_chandelier_floor", "fire_flame_1", "soundbar_led", "light_chandelier") if n not in names]
+    elif "anchor_washer" in names:
+        missing = [n for n in ("anchor_under_cabinet_lights", "glow_washer_drum", "light_laundry") if n not in names]
     else:
-        missing = [n for n in ("anchor_under_cabinet_lights", "anchor_washer", "anchor_dryer", "glow_washer_drum", "light_laundry") if n not in names]
-        if len([n for n in names if n.startswith("anchor_")]) < 3:
-            missing.append("anchors")
+        missing = []
+    if len(anchors) < 3:
+        missing.append("anchors")
     if missing:
         raise SystemExit(f"USDZ is missing nodes: {missing}")
     print(f"wrote {dst} ({dst.stat().st_size} bytes), {len(converter.appearance['nodes'])} lit nodes, "

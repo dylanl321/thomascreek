@@ -13,7 +13,7 @@ final class DollhouseController {
     private var prepared: [String: Prepared] = [:]
     private var lamps: [String: SCNNode] = [:]
     private var hitNames: [String: String] = [:]
-    private var last: [String: Bool] = [:]
+    private var last: [String: Int] = [:]
     private var tickets: [String: Int] = [:]
 
     init(room: DollhouseRoom) { self.room = room }
@@ -54,14 +54,15 @@ final class DollhouseController {
         return nil
     }
 
-    /// `on` is the set of device names that should be lit.
-    func apply(_ on: [String: Bool], animated: Bool) {
+    /// Each device is a 0...1 brightness. 0 is off. Glow, emission and lamps scale with it.
+    func apply(_ levels: [String: Double], animated: Bool) {
         guard scene != nil else { return }
         for device in room.devices.devices {
-            let lit = on[device.name] ?? false
-            if last[device.name] == lit { continue }
-            last[device.name] = lit
-            apply(device, on: lit, animated: animated)
+            let level = min(1, max(0, levels[device.name] ?? 0))
+            let key = Int((level * 100).rounded())
+            if last[device.name] == key { continue }
+            last[device.name] = key
+            apply(device, level: level, animated: animated)
         }
     }
 
@@ -207,10 +208,11 @@ final class DollhouseController {
 
     // MARK: state
 
-    private func apply(_ device: DollhouseDevice, on: Bool, animated: Bool) {
+    private func apply(_ device: DollhouseDevice, level: Double, animated: Bool) {
         let ticket = (tickets[device.name] ?? 0) + 1
         tickets[device.name] = ticket
-        if !on { stopFlicker(device); spinDrums(device, on: false) }
+        let on = level > 0.001
+        if !on { stopFlicker(device); spinDrums(device, on: false); spinFan(device, on: false) }
         let names = device.meshNodes + device.glowDecals + device.onState.shows
         if on {
             for name in device.glowDecals + device.onState.shows {
@@ -220,22 +222,25 @@ final class DollhouseController {
         SCNTransaction.begin()
         SCNTransaction.animationDuration = animated ? 0.45 : 0
         SCNTransaction.animationTimingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-        for name in names { rest(name, on: on) }
+        for name in names { rest(name, level: level) }
         for (index, name) in device.lightNodes.enumerated() {
             let spec = lightSpec(name)
             let listed = index < device.lightOnIntensity.count ? device.lightOnIntensity[index] : (spec?.intensity ?? 0)
             let candela = listed > 0 ? listed : (spec?.intensity ?? 0)
-            lamps[name]?.light?.intensity = on ? CGFloat(candela * Self.lumensPerCandela) : 0
-            lamps[name.replacingOccurrences(of: ".", with: "_")]?.light?.intensity = on ? CGFloat(candela * Self.lumensPerCandela) : 0
+            let lumens = CGFloat(candela * Self.lumensPerCandela) * CGFloat(level)
+            lamps[name]?.light?.intensity = lumens
+            lamps[name.replacingOccurrences(of: ".", with: "_")]?.light?.intensity = lumens
         }
         SCNTransaction.completionBlock = { [weak self] in
             guard let self, self.tickets[device.name] == ticket else { return }
             if on {
                 if device.type == .fireplace { self.startFlicker(device) }
                 self.spinDrums(device, on: true)
+                self.spinFan(device, on: true)
             } else {
                 self.stopFlicker(device)
                 self.spinDrums(device, on: false)
+                self.spinFan(device, on: false)
                 for name in device.glowDecals + device.onState.shows {
                     self.prep(name)?.node.isHidden = true
                 }
@@ -244,9 +249,10 @@ final class DollhouseController {
         SCNTransaction.commit()
     }
 
-    private func rest(_ name: String, on: Bool) {
+    private func rest(_ name: String, level: Double) {
         guard let item = prep(name) else { return }
         let look = item.look
+        let on = level > 0.001
         switch look.kind {
         case "glow":
             for mat in item.materials {
@@ -259,17 +265,18 @@ final class DollhouseController {
                 mat.multiply.contents = UIColor(srgb: look.baseSrgb)
                 mat.transparency = CGFloat(look.opacity)
             }
-            item.node.opacity = on ? 1 : 0
+            // Same curve as the three.js builder: a dim light keeps a little glow, then scales up.
+            item.node.opacity = on ? CGFloat(0.2 + 0.8 * level) : 0
         case "flame", "cone":
-            paintEmission(item, on: on, strength: look.strength)
-            item.node.opacity = on ? CGFloat(look.opacity) : 0
+            paintEmission(item, level: level, strength: look.strength)
+            item.node.opacity = CGFloat(look.opacity) * CGFloat(level)
         case "screen":
             for mat in item.materials {
                 mat.lightingModel = .physicallyBased
                 if on, let picture = item.picture {
                     mat.diffuse.contents = picture
                     mat.emission.contents = picture
-                    mat.emission.intensity = CGFloat(max(look.strength, 1))
+                    mat.emission.intensity = CGFloat(max(look.strength, 1)) * CGFloat(level)
                     mat.roughness.contents = 0.4
                     mat.metalness.contents = 0
                 } else {
@@ -281,19 +288,19 @@ final class DollhouseController {
                 }
             }
         case "bulb", "shade", "led", "embers":
-            paintEmission(item, on: on, strength: look.strength)
+            paintEmission(item, level: level, strength: look.strength)
         default:
-            paintEmission(item, on: on, strength: look.strength)
+            paintEmission(item, level: level, strength: look.strength)
         }
     }
 
-    private func paintEmission(_ item: Prepared, on: Bool, strength: Double) {
+    private func paintEmission(_ item: Prepared, level: Double, strength: Double) {
         let color = UIColor(srgb: item.look.emissiveSrgb)
         for mat in item.materials {
             mat.lightingModel = .physicallyBased
             mat.emission.contents = color
             // Strength stays in the intensity so a value above 1 is what the bloom threshold sees.
-            mat.emission.intensity = on ? CGFloat(strength) : 0
+            mat.emission.intensity = CGFloat(strength) * CGFloat(level)
             if item.look.doubleSided { mat.isDoubleSided = true }
         }
     }
@@ -335,6 +342,15 @@ final class DollhouseController {
             if on {
                 node.runAction(.repeatForever(.rotateBy(x: 0, y: 0, z: .pi * 2, duration: 1.6)), forKey: "spin")
             }
+        }
+    }
+
+    /// The ceiling fan's blade group spins while the fan is on. The blur disc is a show node, so it appears with the light.
+    private func spinFan(_ device: DollhouseDevice, on: Bool) {
+        guard device.type == .fan, let node = nodes["ceiling_fan_blades"] else { return }
+        node.removeAction(forKey: "spin")
+        if on {
+            node.runAction(.repeatForever(.rotateBy(x: 0, y: .pi * 2, z: 0, duration: 1.4)), forKey: "spin")
         }
     }
 

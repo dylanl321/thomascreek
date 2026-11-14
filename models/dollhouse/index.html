@@ -7,9 +7,11 @@ button{border:0;border-radius:999px;padding:7px 14px;font-size:13px;background:t
 button.active{background:#3a2a1e;color:#fff}
 iframe{position:fixed;inset:0;width:100%;height:100%;border:0;display:none}iframe.active{display:block}
 </style></head><body>
-<div id="tabs"><button data-k="den" class="active">Den</button><button data-k="kitchen">Kitchen · Dining · Laundry</button></div>
+<div id="tabs"><button data-k="den" class="active">Den</button><button data-k="kitchen">Kitchen · Dining · Laundry</button><button data-k="movie">Movie Room</button><button data-k="bedroom">Bedroom</button></div>
 <iframe id="den" class="active" src="living-room/viewer.html"></iframe>
 <iframe id="kitchen" data-src="kitchen/viewer.html"></iframe>
+<iframe id="movie" data-src="movie-room/viewer.html"></iframe>
+<iframe id="bedroom" data-src="basement-bedroom/viewer.html"></iframe>
 <script>
 document.querySelectorAll('#tabs button').forEach(b => b.onclick = () => {
   document.querySelectorAll('#tabs button').forEach(x => x.classList.toggle('active', x === b));

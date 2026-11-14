@@ -27,6 +27,34 @@
         "close": { "position": [-9.9, 7.4, 12.0], "target": [-1.9, 0.8, 4.0], "fov": 31 },
         "top": { "position": [-6.0, 21.0, 12.5], "target": [-2.3, 0.0, 5.3], "fov": 34 }
       }
+    },
+    {
+      "id": "movie_room",
+      "title": "Movie Room",
+      "symbol": "film.fill",
+      "model": "MovieRoom/movie_room.usdz",
+      "devices": "MovieRoom/devices.json",
+      "mapping": "MovieRoom/hub-mapping.json",
+      "appearance": "MovieRoom/appearance.json",
+      "views": {
+        "dollhouse": { "position": [10.2, 12.2, 19.8], "target": [2.5, 0.5, 4.0], "fov": 30 },
+        "close": { "position": [7.9, 7.0, 14.2], "target": [2.2, 0.8, 4.4], "fov": 34 },
+        "top": { "position": [6.0, 20.0, 13.5], "target": [2.7, 0.0, 4.3], "fov": 34 }
+      }
+    },
+    {
+      "id": "basement_bedroom",
+      "title": "Basement Bedroom",
+      "symbol": "bed.double.fill",
+      "model": "BasementBedroom/bedroom.usdz",
+      "devices": "BasementBedroom/devices.json",
+      "mapping": "BasementBedroom/hub-mapping.json",
+      "appearance": "BasementBedroom/appearance.json",
+      "views": {
+        "dollhouse": { "position": [-5.0, 9.4, 9.6], "target": [2.0, 0.45, 2.1], "fov": 31 },
+        "close": { "position": [-3.6, 5.0, 8.0], "target": [2.0, 0.8, 1.7], "fov": 36 },
+        "top": { "position": [2.0, 15.5, 7.0], "target": [2.0, 0.0, 2.25], "fov": 32 }
+      }
     }
   ]
 }

@@ -80,3 +80,22 @@ Rules:
 - Openings into rooms that aren't modelled (e.g. the kitchen's cased opening to the living room) use the stencil portal with a dim floor that fades to dark.
 - Tall pieces standing on a cut-away camera-side wall (e.g. the kitchen oven tower) are cut at about 1.24 m with a cream cap in dollhouse views (`userData.dollhouseOnly` cap). The upper part is `interiorOnly`.
 - Each glass opening can have its own stencil ref so it shows a different scene beyond: ref 1 is the deck and yard, ref 2 is the sunroom seen through the dining door.
+
+### Movie room addendum (basement, models/dollhouse/movie-room)
+- Reuses kitchen/src/common.js. Kept walls are the fireplace wall (x=0) and the screen wall (z=0). The camera-side walls (right and rear) are cut at 1.1 m; their upper parts are interiorOnly.
+- Ceiling-mounted items (cans, string-light track) float in dollhouse views. The track is interiorOnly so it doesn't draw a black line across the room.
+- Avoid additive wash decals on dark fabric: they turn black curtains beige.
+- Movie room round 2:
+  - Media console removed.
+  - LED flower-light plant added in the screen corner.
+  - The rear edge is an OPEN boundary: reeded-glass panels plus a black curtain, with no cut wall. The curtain is lowered to 0.75 m in dollhouse views.
+  - Sofas face the screen in two rows (the back row on the riser), pushed right so their right ends touch the right wall.
+  - The reeded panels hang flat on the rear curtain: 5 on the popcorn side running to the end wall, 2 behind the sofas running to the right wall, with the gap in the middle.
+  - The RGB flower light is in the right screen corner, and the art moved to the right wall (interior views only).
+  - (Round 3 corrects round 2's sofa rotation.)
+
+### Basement bedroom addendum (models/dollhouse/basement-bedroom)
+- Kept walls: the bed wall (z=0) and the prints wall (x=W). The left wall (with the doorway) and the front wall are cut at 1.1 m.
+- The light gray-white ceiling shows only as a band along the kept walls. Cans, the fan and the skylight well float at ceiling height.
+- The photo's nightstand table lamps are NOT real: they are replaced by brass cone sconces (sconce_ref.jpg).
+- common.js setDevice now accepts a 0..1 dim level (presets may use e.g. 0.3). Decals scale opacity by 0.2+0.8k. Boolean presets behave exactly as before.

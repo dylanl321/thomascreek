@@ -1,6 +1,6 @@
 # Dollhouse rooms
 
-Each room the app can draw is one entry in `catalog.json`. The living room and the kitchen (the kitchen, the dining booth, and the laundry in one cutaway) are the first two. A garage apartment is the same shape of folder when its model exists: a USDZ, a `devices.json`, an `appearance.json` from the converter, and a `hub-mapping.json` you can edit. Nothing else in the app has to change. The page title comes from the catalog. The living-room generator still calls that corner "den"; the hub room id, and every label in the app, is Living Room. The three.js sources live in `models/dollhouse/`.
+Each room the app can draw is one entry in `catalog.json`. The living room, the kitchen (the kitchen, the dining booth, and the laundry in one cutaway), the movie room (the basement theater), and the basement bedroom are the catalog. A garage apartment is the same shape of folder when its model exists: a USDZ, a `devices.json`, an `appearance.json` from the converter, and a `hub-mapping.json` you can edit. Nothing else in the app has to change. The page title comes from the catalog. The living-room generator still calls that corner "den"; the hub room id, and every label in the app, is Living Room. The three.js sources live in `models/dollhouse/`.
 
 ```
 Rooms/
@@ -13,7 +13,27 @@ Rooms/
     textures/
 ```
 
-`hub-mapping.json` is the only file that ties a model device (`chandelier`, `tv`, …) to a hub entity id. Leave `entities` empty when you don't know the id yet. The model still toggles. The house is not called. `climate_entity_id` is optional; when it is null the page uses a climate device the hub already places in that room.
+`hub-mapping.json` is the only file that ties a model device (`chandelier`, `tv`, …) to a hub entity id. The control is already chosen (`light`, `switch`, `media`, `select`, `fan`, or `status`). A null `id` shows Not set up: the model stays off and the hub is not called. Put the entity id in that slot and the same control starts working. No app change. A light's glow follows its brightness: the hub's 0–100 percent, or a preset level such as bedtime at 0.3.
+
+```json
+"fireplace": {
+  "control": "switch",
+  "entities": [{ "id": null, "action": "switch.set" }]
+}
+```
+
+becomes
+
+```json
+"fireplace": {
+  "control": "switch",
+  "entities": [{ "id": "switch.living_room_fireplace", "action": "switch.set" }]
+}
+```
+
+`climate_entity_id` is the same idea for the thermostat. Null shows a Not set up climate card, unless the hub snapshot already puts a climate device in that room. Washer and dryer use `"control": "status"`: they never send a command, and the drum spins while that entity is running. A hood light uses `"control": "select"` and `select.set`, which the hub only accepts if the option is one the device already offers.
+
+`also` lists hub devices that belong in the room but are not in the cutaway. They show under Also in this room.
 
 ## How room_corner.usdz was made
 

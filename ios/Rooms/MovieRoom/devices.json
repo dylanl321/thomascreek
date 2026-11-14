@@ -1,0 +1,527 @@
+{
+  "room": "movie_room",
+  "units": "meters",
+  "up": "+Y",
+  "origin": "corner of fireplace wall (x=0 plane) and screen wall (z=0 plane) at floor level; interior x>0, z>0",
+  "presets": {
+    "all_off": {},
+    "all_on": {
+      "projector": 1,
+      "screen_bias_light": 1,
+      "recessed_lights": 1,
+      "fireplace": 1,
+      "rear_string_lights": 1,
+      "riser_step_lights": 1,
+      "candy_shelf_backlight": 1,
+      "popcorn_machine": 1,
+      "flower_light": 1,
+      "table_lamps": 1
+    },
+    "movie_night": {
+      "projector": 1,
+      "screen_bias_light": 1,
+      "rear_string_lights": 1,
+      "riser_step_lights": 1,
+      "fireplace": 1,
+      "candy_shelf_backlight": 1,
+      "flower_light": 1,
+      "table_lamps": 0.3
+    },
+    "party": {
+      "recessed_lights": 1,
+      "fireplace": 1,
+      "rear_string_lights": 1,
+      "riser_step_lights": 1,
+      "candy_shelf_backlight": 1,
+      "popcorn_machine": 1,
+      "flower_light": 1,
+      "table_lamps": 1
+    }
+  },
+  "devices": [
+    {
+      "name": "projector",
+      "label": "Projector",
+      "type": "media",
+      "room": "movie_room",
+      "anchor_node": "anchor_projector",
+      "position_m": [
+        2.7,
+        2.16,
+        4.4
+      ],
+      "group_node": "projector",
+      "light_nodes": [
+        "light_projector_screen"
+      ],
+      "light_on_intensity": [
+        2.5
+      ],
+      "glow_decals": [
+        "glow_projector_screen_spill",
+        "glow_projector_floor_spill"
+      ],
+      "mesh_nodes": [
+        "projector_beam"
+      ],
+      "on_state": {
+        "emissive": [
+          6
+        ],
+        "shows": [
+          "projector_beam"
+        ]
+      }
+    },
+    {
+      "name": "screen_bias_light",
+      "label": "Screen bias light",
+      "type": "light",
+      "room": "movie_room",
+      "anchor_node": "anchor_screen_bias_light",
+      "position_m": [
+        2.7,
+        2.3,
+        0.12
+      ],
+      "group_node": "screen_bias_light",
+      "light_nodes": [
+        "light_bias"
+      ],
+      "light_on_intensity": [
+        1.4
+      ],
+      "glow_decals": [
+        "glow_bias_halo"
+      ],
+      "mesh_nodes": [
+        "light_bias_strip_top",
+        "light_bias_strip_bottom",
+        "light_bias_strip_left",
+        "light_bias_strip_right"
+      ],
+      "on_state": {
+        "emissive": [
+          5
+        ],
+        "shows": []
+      }
+    },
+    {
+      "name": "recessed_lights",
+      "label": "Recessed lights",
+      "type": "light",
+      "room": "movie_room",
+      "anchor_node": "anchor_recessed_lights",
+      "position_m": [
+        2.7,
+        2.52,
+        3.4
+      ],
+      "group_node": "recessed_lights",
+      "light_nodes": [
+        "light_recessed_2.4",
+        "light_recessed_6.6"
+      ],
+      "light_on_intensity": [
+        7,
+        7
+      ],
+      "glow_decals": [
+        "glow_recessed_1_pool",
+        "glow_recessed_2_pool",
+        "glow_recessed_3_pool",
+        "glow_recessed_4_pool",
+        "glow_recessed_5_pool",
+        "glow_recessed_6_pool",
+        "glow_recessed_7_pool",
+        "glow_recessed_8_pool"
+      ],
+      "mesh_nodes": [
+        "recessed_light_1_trim",
+        "recessed_light_1",
+        "light_cone_recessed_1",
+        "recessed_light_2_trim",
+        "recessed_light_2",
+        "light_cone_recessed_2",
+        "recessed_light_3_trim",
+        "recessed_light_3",
+        "light_cone_recessed_3",
+        "recessed_light_4_trim",
+        "recessed_light_4",
+        "light_cone_recessed_4",
+        "recessed_light_5_trim",
+        "recessed_light_5",
+        "light_cone_recessed_5",
+        "recessed_light_6_trim",
+        "recessed_light_6",
+        "light_cone_recessed_6",
+        "recessed_light_7_trim",
+        "recessed_light_7",
+        "light_cone_recessed_7",
+        "recessed_light_8_trim",
+        "recessed_light_8",
+        "light_cone_recessed_8"
+      ],
+      "on_state": {
+        "emissive": [
+          6
+        ],
+        "shows": [
+          "light_cone_recessed_1",
+          "light_cone_recessed_2",
+          "light_cone_recessed_3",
+          "light_cone_recessed_4",
+          "light_cone_recessed_5",
+          "light_cone_recessed_6",
+          "light_cone_recessed_7",
+          "light_cone_recessed_8"
+        ]
+      }
+    },
+    {
+      "name": "fireplace",
+      "label": "Fireplace",
+      "type": "fireplace",
+      "room": "movie_room",
+      "anchor_node": "anchor_fireplace",
+      "position_m": [
+        0.55,
+        1.22,
+        3.5
+      ],
+      "group_node": "fireplace_flames",
+      "light_nodes": [
+        "light_fireplace"
+      ],
+      "light_on_intensity": [
+        3.5
+      ],
+      "glow_decals": [
+        "glow_fireplace_hearth",
+        "glow_fireplace_floor",
+        "glow_fireplace_opening"
+      ],
+      "mesh_nodes": [
+        "fire_flame_1",
+        "fire_flame_2",
+        "fire_flame_3",
+        "fire_flame_4",
+        "fire_flame_5",
+        "fire_flame_6",
+        "fire_flame_7",
+        "fireplace_embers"
+      ],
+      "on_state": {
+        "emissive": [
+          3
+        ],
+        "shows": [
+          "fire_flame_1",
+          "fire_flame_2",
+          "fire_flame_3",
+          "fire_flame_4",
+          "fire_flame_5",
+          "fire_flame_6",
+          "fire_flame_7"
+        ]
+      }
+    },
+    {
+      "name": "rear_string_lights",
+      "label": "Rear string lights",
+      "type": "light",
+      "room": "movie_room",
+      "anchor_node": "anchor_rear_string_lights",
+      "position_m": [
+        2.7,
+        2.45,
+        8.38
+      ],
+      "group_node": "rear_string_lights",
+      "light_nodes": [
+        "light_string_1.4",
+        "light_string_3",
+        "light_string_4.6"
+      ],
+      "light_on_intensity": [
+        0.9,
+        0.9,
+        0.9
+      ],
+      "glow_decals": [
+        "glow_string_floor"
+      ],
+      "mesh_nodes": [
+        "rear_track",
+        "light_string_bulb_1",
+        "light_string_bulb_2",
+        "light_string_bulb_3",
+        "light_string_bulb_4",
+        "light_string_bulb_5",
+        "light_string_bulb_6",
+        "light_string_bulb_7",
+        "light_string_bulb_8",
+        "light_string_bulb_9",
+        "light_string_bulb_10",
+        "light_string_bulb_11",
+        "light_string_bulb_12",
+        "light_string_bulb_13",
+        "light_string_bulb_14",
+        "light_string_bulb_15",
+        "light_string_bulb_16",
+        "light_string_bulb_17",
+        "light_string_bulb_18",
+        "light_string_bulb_19",
+        "light_string_bulb_20",
+        "light_string_bulb_21",
+        "light_string_bulb_22",
+        "rear_string_wire"
+      ],
+      "on_state": {
+        "emissive": [
+          6
+        ],
+        "shows": []
+      }
+    },
+    {
+      "name": "riser_step_lights",
+      "label": "Riser step lights",
+      "type": "light",
+      "room": "movie_room",
+      "anchor_node": "anchor_riser_step_lights",
+      "position_m": [
+        3.8,
+        0.16,
+        6.43
+      ],
+      "group_node": "riser_step_lights",
+      "light_nodes": [],
+      "light_on_intensity": [],
+      "glow_decals": [
+        "glow_riser_step_1",
+        "glow_riser_step_2",
+        "glow_riser_step_3",
+        "glow_riser_step_4",
+        "glow_riser_step_5",
+        "glow_riser_step_6"
+      ],
+      "mesh_nodes": [
+        "light_riser_step_1",
+        "light_riser_step_2",
+        "light_riser_step_3",
+        "light_riser_step_4",
+        "light_riser_step_5",
+        "light_riser_step_6"
+      ],
+      "on_state": {
+        "emissive": [
+          6
+        ],
+        "shows": []
+      }
+    },
+    {
+      "name": "table_lamps",
+      "label": "Table lamps",
+      "type": "light",
+      "room": "movie_room",
+      "anchor_node": "anchor_table_lamps",
+      "position_m": [
+        2.52,
+        1.1,
+        5.15
+      ],
+      "group_node": "table_lamps",
+      "light_nodes": [
+        "light_table_lamp_1",
+        "light_table_lamp_2"
+      ],
+      "light_on_intensity": [
+        1.5,
+        1.5
+      ],
+      "glow_decals": [
+        "glow_table_lamp_1_table",
+        "glow_table_lamp_1_floor",
+        "glow_table_lamp_2_table",
+        "glow_table_lamp_2_floor"
+      ],
+      "mesh_nodes": [
+        "table_lamp_1_base",
+        "table_lamp_1_stem",
+        "table_lamp_1_shade",
+        "table_lamp_1_bulb",
+        "table_lamp_2_base",
+        "table_lamp_2_stem",
+        "table_lamp_2_shade",
+        "table_lamp_2_bulb"
+      ],
+      "on_state": {
+        "emissive": [
+          1.6,
+          5
+        ],
+        "shows": []
+      }
+    },
+    {
+      "name": "flower_light",
+      "label": "RGB flower light",
+      "type": "light",
+      "room": "movie_room",
+      "anchor_node": "anchor_flower_light",
+      "position_m": [
+        5.04,
+        2,
+        0.3
+      ],
+      "group_node": "flower_light",
+      "light_nodes": [
+        "light_flower_light"
+      ],
+      "light_on_intensity": [
+        1.2
+      ],
+      "glow_decals": [
+        "glow_flower_light_wall_screen",
+        "glow_flower_light_wall_side",
+        "glow_flower_light_floor"
+      ],
+      "mesh_nodes": [
+        "flower_light_pot",
+        "flower_light_soil",
+        "flower_light_stem_1",
+        "flower_light_petal_1_1",
+        "flower_light_petal_1_2",
+        "flower_light_petal_1_3",
+        "flower_light_petal_1_4",
+        "flower_light_petal_1_5",
+        "flower_light_petal_1_6",
+        "flower_light_bloom_1",
+        "flower_light_leaf_1_1",
+        "flower_light_leaf_1_2",
+        "flower_light_leaf_1_3",
+        "flower_light_stem_2",
+        "flower_light_petal_2_1",
+        "flower_light_petal_2_2",
+        "flower_light_petal_2_3",
+        "flower_light_petal_2_4",
+        "flower_light_petal_2_5",
+        "flower_light_petal_2_6",
+        "flower_light_bloom_2",
+        "flower_light_leaf_2_1",
+        "flower_light_leaf_2_2",
+        "flower_light_leaf_2_3",
+        "flower_light_stem_3",
+        "flower_light_petal_3_1",
+        "flower_light_petal_3_2",
+        "flower_light_petal_3_3",
+        "flower_light_petal_3_4",
+        "flower_light_petal_3_5",
+        "flower_light_petal_3_6",
+        "flower_light_bloom_3",
+        "flower_light_leaf_3_1",
+        "flower_light_leaf_3_2",
+        "flower_light_leaf_3_3",
+        "flower_light_stem_4",
+        "flower_light_petal_4_1",
+        "flower_light_petal_4_2",
+        "flower_light_petal_4_3",
+        "flower_light_petal_4_4",
+        "flower_light_petal_4_5",
+        "flower_light_petal_4_6",
+        "flower_light_bloom_4",
+        "flower_light_stem_5",
+        "flower_light_petal_5_1",
+        "flower_light_petal_5_2",
+        "flower_light_petal_5_3",
+        "flower_light_petal_5_4",
+        "flower_light_petal_5_5",
+        "flower_light_petal_5_6",
+        "flower_light_bloom_5"
+      ],
+      "on_state": {
+        "emissive": [
+          4.5,
+          4.5,
+          4.5,
+          4.5,
+          4.5,
+          6
+        ],
+        "shows": []
+      }
+    },
+    {
+      "name": "candy_shelf_backlight",
+      "label": "Candy shelf backlight",
+      "type": "light",
+      "room": "movie_room",
+      "anchor_node": "anchor_candy_shelf_backlight",
+      "position_m": [
+        0.2,
+        2.25,
+        7
+      ],
+      "group_node": "candy_shelf_backlight",
+      "light_nodes": [
+        "light_candy_shelves"
+      ],
+      "light_on_intensity": [
+        1.2
+      ],
+      "glow_decals": [
+        "glow_candy_shelf_1",
+        "glow_candy_shelf_1_under",
+        "glow_candy_shelf_2",
+        "glow_candy_shelf_2_under",
+        "glow_candy_shelf_3",
+        "glow_candy_shelf_3_under"
+      ],
+      "mesh_nodes": [
+        "light_candy_shelf_1",
+        "light_candy_shelf_2",
+        "light_candy_shelf_3"
+      ],
+      "on_state": {
+        "emissive": [
+          6
+        ],
+        "shows": []
+      }
+    },
+    {
+      "name": "popcorn_machine",
+      "label": "Popcorn machine",
+      "type": "appliance",
+      "room": "movie_room",
+      "anchor_node": "anchor_popcorn_machine",
+      "position_m": [
+        0.36,
+        1.72,
+        8.12
+      ],
+      "group_node": "popcorn_machine",
+      "light_nodes": [
+        "light_popcorn"
+      ],
+      "light_on_intensity": [
+        1.6
+      ],
+      "glow_decals": [
+        "glow_popcorn_floor"
+      ],
+      "mesh_nodes": [],
+      "on_state": {
+        "emissive": [
+          1.2,
+          3.5,
+          0.5
+        ],
+        "shows": []
+      }
+    }
+  ]
+}

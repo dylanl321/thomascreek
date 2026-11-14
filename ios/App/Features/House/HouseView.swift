@@ -75,7 +75,7 @@ struct HouseView: View {
 
     /// Lights the dollhouse knows about, from the live snapshot. The tile is only there for rooms in the catalog.
     private func dollhouseDetail(_ room: DollhouseRoom) -> String {
-        let ids = room.devices.devices.flatMap { room.entities(for: $0.name).map(\.id) }
+        let ids = room.devices.devices.flatMap { room.entities(for: $0.name).compactMap(\.id) }
         let devices = ids.compactMap { store.home?.device($0) }
         guard !devices.isEmpty else { return "Model" }
         let on = devices.filter(\.isOn).count
@@ -155,7 +155,7 @@ struct RoomDetailView: View {
         let lights = devices.filter { [.light, .fan, .switch].contains($0.kind) }
         let climate = devices.filter { $0.kind == .climate && ($0.available != false && $0["available"]?.bool != false) }
         let media = devices.filter { [.media, .speaker].contains($0.kind) }
-        let other = devices.filter { ![.light, .fan, .switch, .climate, .media, .speaker, .camera].contains($0.kind) }
+        let other = devices.filter { ![.light, .fan, .switch, .climate, .media, .speaker, .camera, .select].contains($0.kind) }
         let scenes = room?.scenes ?? []
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {

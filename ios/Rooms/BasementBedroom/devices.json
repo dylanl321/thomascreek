@@ -1,0 +1,295 @@
+{
+  "room": "basement_bedroom",
+  "units": "meters",
+  "up": "+Y",
+  "origin": "floor-level corner of the bed wall (z=0 plane) and the left/doorway wall (x=0 plane); prints wall is x=4.0; interior 0<x<4.0, 0<z<4.5. Preset values are 0..1 levels (0.3 = dimmed)",
+  "presets": {
+    "all_off": {},
+    "all_on": {
+      "sconce_left": 1,
+      "sconce_right": 1,
+      "recessed_lights": 1,
+      "ceiling_fan": 1,
+      "skylight_glow": 1,
+      "dresser_lamp": 1
+    },
+    "bedtime": {
+      "sconce_left": 0.3,
+      "sconce_right": 0.3
+    },
+    "reading": {
+      "sconce_left": 1,
+      "sconce_right": 1
+    }
+  },
+  "devices": [
+    {
+      "name": "sconce_left",
+      "label": "Sconce (left)",
+      "type": "light",
+      "room": "basement_bedroom",
+      "anchor_node": "anchor_sconce_left",
+      "position_m": [
+        0.49,
+        1.1,
+        0.13
+      ],
+      "group_node": "sconce_left",
+      "light_nodes": [
+        "light_sconce_left",
+        "light_sconce_left_fill"
+      ],
+      "light_on_intensity": [
+        9,
+        1
+      ],
+      "glow_decals": [
+        "glow_sconce_left_wall_pool",
+        "glow_sconce_left_wall_pool_core",
+        "glow_sconce_left_wall_halo",
+        "glow_sconce_left_nightstand_pool"
+      ],
+      "mesh_nodes": [
+        "sconce_left_backplate",
+        "sconce_left_arm",
+        "sconce_left_arm_cup",
+        "sconce_left_elbow",
+        "sconce_left_arm_drop",
+        "sconce_left_knurled_collar",
+        "sconce_left_shade",
+        "sconce_left_shade_lining",
+        "sconce_left_bulb_disc"
+      ],
+      "on_state": {
+        "emissive": [
+          1.4,
+          6
+        ],
+        "shows": []
+      }
+    },
+    {
+      "name": "sconce_right",
+      "label": "Sconce (right)",
+      "type": "light",
+      "room": "basement_bedroom",
+      "anchor_node": "anchor_sconce_right",
+      "position_m": [
+        2.81,
+        1.1,
+        0.13
+      ],
+      "group_node": "sconce_right",
+      "light_nodes": [
+        "light_sconce_right",
+        "light_sconce_right_fill"
+      ],
+      "light_on_intensity": [
+        9,
+        1
+      ],
+      "glow_decals": [
+        "glow_sconce_right_wall_pool",
+        "glow_sconce_right_wall_pool_core",
+        "glow_sconce_right_wall_halo",
+        "glow_sconce_right_nightstand_pool"
+      ],
+      "mesh_nodes": [
+        "sconce_right_backplate",
+        "sconce_right_arm",
+        "sconce_right_arm_cup",
+        "sconce_right_elbow",
+        "sconce_right_arm_drop",
+        "sconce_right_knurled_collar",
+        "sconce_right_shade",
+        "sconce_right_shade_lining",
+        "sconce_right_bulb_disc"
+      ],
+      "on_state": {
+        "emissive": [
+          1.4,
+          6
+        ],
+        "shows": []
+      }
+    },
+    {
+      "name": "recessed_lights",
+      "label": "Recessed lights",
+      "type": "light",
+      "room": "basement_bedroom",
+      "anchor_node": "anchor_recessed_lights",
+      "position_m": [
+        0.75,
+        2.37,
+        3.65
+      ],
+      "group_node": "recessed_lights",
+      "light_nodes": [
+        "light_recessed_1.2_1.2",
+        "light_recessed_2.6_3.4"
+      ],
+      "light_on_intensity": [
+        6,
+        6
+      ],
+      "glow_decals": [
+        "glow_recessed_1_pool",
+        "glow_recessed_2_pool",
+        "glow_recessed_3_pool",
+        "glow_recessed_4_pool"
+      ],
+      "mesh_nodes": [
+        "recessed_light_1_trim",
+        "recessed_light_1",
+        "light_cone_recessed_1",
+        "recessed_light_2_trim",
+        "recessed_light_2",
+        "light_cone_recessed_2",
+        "recessed_light_3_trim",
+        "recessed_light_3",
+        "light_cone_recessed_3",
+        "recessed_light_4_trim",
+        "recessed_light_4",
+        "light_cone_recessed_4"
+      ],
+      "on_state": {
+        "emissive": [
+          6
+        ],
+        "shows": [
+          "light_cone_recessed_1",
+          "light_cone_recessed_2",
+          "light_cone_recessed_3",
+          "light_cone_recessed_4"
+        ]
+      }
+    },
+    {
+      "name": "ceiling_fan",
+      "label": "Ceiling fan + light",
+      "type": "fan",
+      "room": "basement_bedroom",
+      "anchor_node": "anchor_ceiling_fan",
+      "position_m": [
+        1.85,
+        2.03,
+        2.35
+      ],
+      "group_node": "ceiling_fan",
+      "light_nodes": [
+        "light_ceiling_fan"
+      ],
+      "light_on_intensity": [
+        2
+      ],
+      "glow_decals": [
+        "glow_ceiling_fan_floor",
+        "glow_ceiling_fan_bed"
+      ],
+      "mesh_nodes": [
+        "ceiling_fan_canopy",
+        "ceiling_fan_downrod",
+        "ceiling_fan_motor",
+        "ceiling_fan_iron_1",
+        "ceiling_fan_blade_1",
+        "ceiling_fan_iron_2",
+        "ceiling_fan_blade_2",
+        "ceiling_fan_iron_3",
+        "ceiling_fan_blade_3",
+        "ceiling_fan_iron_4",
+        "ceiling_fan_blade_4",
+        "ceiling_fan_iron_5",
+        "ceiling_fan_blade_5",
+        "ceiling_fan_light_housing",
+        "ceiling_fan_light_bowl",
+        "ceiling_fan_pull_chain",
+        "ceiling_fan_spin_blur"
+      ],
+      "on_state": {
+        "emissive": [
+          3
+        ],
+        "shows": [
+          "ceiling_fan_spin_blur"
+        ]
+      }
+    },
+    {
+      "name": "skylight_glow",
+      "label": "Skylight glow",
+      "type": "light",
+      "room": "basement_bedroom",
+      "anchor_node": "anchor_skylight_glow",
+      "position_m": [
+        3.1,
+        2.4,
+        1.5
+      ],
+      "group_node": "skylight",
+      "light_nodes": [
+        "light_skylight"
+      ],
+      "light_on_intensity": [
+        2.2
+      ],
+      "glow_decals": [
+        "glow_skylight_floor",
+        "glow_skylight_wall"
+      ],
+      "mesh_nodes": [
+        "skylight_well_a",
+        "skylight_well_b",
+        "skylight_well_c",
+        "skylight_well_d",
+        "skylight_tube_cap",
+        "skylight_diffuser",
+        "light_shaft_skylight"
+      ],
+      "on_state": {
+        "emissive": [
+          3.2
+        ],
+        "shows": [
+          "light_shaft_skylight"
+        ]
+      }
+    },
+    {
+      "name": "dresser_lamp",
+      "label": "Dresser lamp",
+      "type": "light",
+      "room": "basement_bedroom",
+      "anchor_node": "anchor_dresser_lamp",
+      "position_m": [
+        3.64,
+        1.27,
+        3.28
+      ],
+      "group_node": "dresser_lamp",
+      "light_nodes": [
+        "light_dresser_lamp"
+      ],
+      "light_on_intensity": [
+        1.4
+      ],
+      "glow_decals": [
+        "glow_dresser_lamp_top",
+        "glow_dresser_lamp_wall"
+      ],
+      "mesh_nodes": [
+        "dresser_lamp_base",
+        "dresser_lamp_stem",
+        "dresser_lamp_arm",
+        "dresser_lamp_shade",
+        "dresser_lamp_shade_lining"
+      ],
+      "on_state": {
+        "emissive": [
+          2.5
+        ],
+        "shows": []
+      }
+    }
+  ]
+}

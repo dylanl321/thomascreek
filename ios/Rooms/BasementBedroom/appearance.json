@@ -1,0 +1,928 @@
+{
+  "nodes": {
+    "nightstand_left_shelf": {
+      "kind": "bulb",
+      "base_srgb": [
+        0.9999999999999999,
+        0.9999999999999999,
+        0.9999999999999999
+      ],
+      "opacity": 1.0,
+      "emissive_srgb": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "strength": 0.0,
+      "roughness": 0.55,
+      "metallic": 0.0,
+      "double_sided": false,
+      "base_texture": "tex_2.png"
+    },
+    "nightstand_right_shelf": {
+      "kind": "bulb",
+      "base_srgb": [
+        0.9999999999999999,
+        0.9999999999999999,
+        0.9999999999999999
+      ],
+      "opacity": 1.0,
+      "emissive_srgb": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "strength": 0.0,
+      "roughness": 0.55,
+      "metallic": 0.0,
+      "double_sided": false,
+      "base_texture": "tex_2.png"
+    },
+    "dresser_bowl": {
+      "kind": "shade",
+      "base_srgb": [
+        0.35294117645570583,
+        0.2274509803743882,
+        0.1333333333134
+      ],
+      "opacity": 1.0,
+      "emissive_srgb": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "strength": 0.0,
+      "roughness": 0.5,
+      "metallic": 0.0,
+      "double_sided": true
+    },
+    "sconce_left_shade": {
+      "kind": "shade",
+      "base_srgb": [
+        0.9999999999999999,
+        0.9999999999999999,
+        0.9999999999999999
+      ],
+      "opacity": 1.0,
+      "emissive_srgb": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "strength": 0.0,
+      "roughness": 0.38,
+      "metallic": 0.9,
+      "double_sided": false,
+      "base_texture": "tex_3.png"
+    },
+    "sconce_left_shade_lining": {
+      "kind": "shade",
+      "base_srgb": [
+        0.9529411764695058,
+        0.9176470588216352,
+        0.847058823525894
+      ],
+      "opacity": 1.0,
+      "emissive_srgb": [
+        0.9999999999999999,
+        0.8862745098013057,
+        0.6901960784242469
+      ],
+      "strength": 1.4,
+      "roughness": 0.6,
+      "metallic": 0.0,
+      "double_sided": false
+    },
+    "sconce_left_bulb_disc": {
+      "kind": "bulb",
+      "base_srgb": [
+        0.9999999999999999,
+        0.9647058823521294,
+        0.9019607843114705
+      ],
+      "opacity": 1.0,
+      "emissive_srgb": [
+        0.9999999999999999,
+        0.8862745098013057,
+        0.6901960784242469
+      ],
+      "strength": 6.0,
+      "roughness": 0.4,
+      "metallic": 0.0,
+      "double_sided": false
+    },
+    "glow_sconce_left_wall_pool": {
+      "kind": "glow",
+      "base_srgb": [
+        0.9999999999999999,
+        0.780392156857694,
+        0.490196078419647
+      ],
+      "opacity": 1.0,
+      "emissive_srgb": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "strength": 0.0,
+      "roughness": 0.9,
+      "metallic": 0.0,
+      "double_sided": true,
+      "base_texture": "tex_8.png"
+    },
+    "glow_sconce_left_wall_pool_core": {
+      "kind": "glow",
+      "base_srgb": [
+        0.9999999999999999,
+        0.8862745098013057,
+        0.6901960784242469
+      ],
+      "opacity": 0.8,
+      "emissive_srgb": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "strength": 0.0,
+      "roughness": 0.9,
+      "metallic": 0.0,
+      "double_sided": true,
+      "base_texture": "tex_8.png"
+    },
+    "glow_sconce_left_wall_halo": {
+      "kind": "glow",
+      "base_srgb": [
+        0.9999999999999999,
+        0.780392156857694,
+        0.490196078419647
+      ],
+      "opacity": 0.45,
+      "emissive_srgb": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "strength": 0.0,
+      "roughness": 0.9,
+      "metallic": 0.0,
+      "double_sided": true,
+      "base_texture": "tex_9.png"
+    },
+    "glow_sconce_left_nightstand_pool": {
+      "kind": "glow",
+      "base_srgb": [
+        0.9999999999999999,
+        0.780392156857694,
+        0.490196078419647
+      ],
+      "opacity": 0.9,
+      "emissive_srgb": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "strength": 0.0,
+      "roughness": 0.9,
+      "metallic": 0.0,
+      "double_sided": true,
+      "base_texture": "tex_9.png"
+    },
+    "sconce_right_shade": {
+      "kind": "shade",
+      "base_srgb": [
+        0.9999999999999999,
+        0.9999999999999999,
+        0.9999999999999999
+      ],
+      "opacity": 1.0,
+      "emissive_srgb": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "strength": 0.0,
+      "roughness": 0.38,
+      "metallic": 0.9,
+      "double_sided": false,
+      "base_texture": "tex_3.png"
+    },
+    "sconce_right_shade_lining": {
+      "kind": "shade",
+      "base_srgb": [
+        0.9529411764695058,
+        0.9176470588216352,
+        0.847058823525894
+      ],
+      "opacity": 1.0,
+      "emissive_srgb": [
+        0.9999999999999999,
+        0.8862745098013057,
+        0.6901960784242469
+      ],
+      "strength": 1.4,
+      "roughness": 0.6,
+      "metallic": 0.0,
+      "double_sided": false
+    },
+    "sconce_right_bulb_disc": {
+      "kind": "bulb",
+      "base_srgb": [
+        0.9999999999999999,
+        0.9647058823521294,
+        0.9019607843114705
+      ],
+      "opacity": 1.0,
+      "emissive_srgb": [
+        0.9999999999999999,
+        0.8862745098013057,
+        0.6901960784242469
+      ],
+      "strength": 6.0,
+      "roughness": 0.4,
+      "metallic": 0.0,
+      "double_sided": false
+    },
+    "glow_sconce_right_wall_pool": {
+      "kind": "glow",
+      "base_srgb": [
+        0.9999999999999999,
+        0.780392156857694,
+        0.490196078419647
+      ],
+      "opacity": 1.0,
+      "emissive_srgb": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "strength": 0.0,
+      "roughness": 0.9,
+      "metallic": 0.0,
+      "double_sided": true,
+      "base_texture": "tex_8.png"
+    },
+    "glow_sconce_right_wall_pool_core": {
+      "kind": "glow",
+      "base_srgb": [
+        0.9999999999999999,
+        0.8862745098013057,
+        0.6901960784242469
+      ],
+      "opacity": 0.8,
+      "emissive_srgb": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "strength": 0.0,
+      "roughness": 0.9,
+      "metallic": 0.0,
+      "double_sided": true,
+      "base_texture": "tex_8.png"
+    },
+    "glow_sconce_right_wall_halo": {
+      "kind": "glow",
+      "base_srgb": [
+        0.9999999999999999,
+        0.780392156857694,
+        0.490196078419647
+      ],
+      "opacity": 0.45,
+      "emissive_srgb": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "strength": 0.0,
+      "roughness": 0.9,
+      "metallic": 0.0,
+      "double_sided": true,
+      "base_texture": "tex_9.png"
+    },
+    "glow_sconce_right_nightstand_pool": {
+      "kind": "glow",
+      "base_srgb": [
+        0.9999999999999999,
+        0.780392156857694,
+        0.490196078419647
+      ],
+      "opacity": 0.9,
+      "emissive_srgb": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "strength": 0.0,
+      "roughness": 0.9,
+      "metallic": 0.0,
+      "double_sided": true,
+      "base_texture": "tex_9.png"
+    },
+    "recessed_light_1": {
+      "kind": "bulb",
+      "base_srgb": [
+        0.847058823525894,
+        0.823529411760647,
+        0.7843137254852351
+      ],
+      "opacity": 1.0,
+      "emissive_srgb": [
+        0.9999999999999999,
+        0.8862745098013057,
+        0.6901960784242469
+      ],
+      "strength": 6.0,
+      "roughness": 0.4,
+      "metallic": 0.0,
+      "double_sided": false
+    },
+    "light_cone_recessed_1": {
+      "kind": "cone",
+      "base_srgb": [
+        0.9999999999999999,
+        0.780392156857694,
+        0.490196078419647
+      ],
+      "opacity": 0.07,
+      "emissive_srgb": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "strength": 0.0,
+      "roughness": 0.9,
+      "metallic": 0.0,
+      "double_sided": true,
+      "base_texture": "tex_10.png"
+    },
+    "glow_recessed_1_pool": {
+      "kind": "glow",
+      "base_srgb": [
+        0.9999999999999999,
+        0.780392156857694,
+        0.490196078419647
+      ],
+      "opacity": 0.3,
+      "emissive_srgb": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "strength": 0.0,
+      "roughness": 0.9,
+      "metallic": 0.0,
+      "double_sided": true,
+      "base_texture": "tex_9.png"
+    },
+    "recessed_light_2": {
+      "kind": "bulb",
+      "base_srgb": [
+        0.847058823525894,
+        0.823529411760647,
+        0.7843137254852351
+      ],
+      "opacity": 1.0,
+      "emissive_srgb": [
+        0.9999999999999999,
+        0.8862745098013057,
+        0.6901960784242469
+      ],
+      "strength": 6.0,
+      "roughness": 0.4,
+      "metallic": 0.0,
+      "double_sided": false
+    },
+    "light_cone_recessed_2": {
+      "kind": "cone",
+      "base_srgb": [
+        0.9999999999999999,
+        0.780392156857694,
+        0.490196078419647
+      ],
+      "opacity": 0.07,
+      "emissive_srgb": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "strength": 0.0,
+      "roughness": 0.9,
+      "metallic": 0.0,
+      "double_sided": true,
+      "base_texture": "tex_10.png"
+    },
+    "glow_recessed_2_pool": {
+      "kind": "glow",
+      "base_srgb": [
+        0.9999999999999999,
+        0.780392156857694,
+        0.490196078419647
+      ],
+      "opacity": 0.3,
+      "emissive_srgb": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "strength": 0.0,
+      "roughness": 0.9,
+      "metallic": 0.0,
+      "double_sided": true,
+      "base_texture": "tex_9.png"
+    },
+    "recessed_light_3": {
+      "kind": "bulb",
+      "base_srgb": [
+        0.847058823525894,
+        0.823529411760647,
+        0.7843137254852351
+      ],
+      "opacity": 1.0,
+      "emissive_srgb": [
+        0.9999999999999999,
+        0.8862745098013057,
+        0.6901960784242469
+      ],
+      "strength": 6.0,
+      "roughness": 0.4,
+      "metallic": 0.0,
+      "double_sided": false
+    },
+    "light_cone_recessed_3": {
+      "kind": "cone",
+      "base_srgb": [
+        0.9999999999999999,
+        0.780392156857694,
+        0.490196078419647
+      ],
+      "opacity": 0.07,
+      "emissive_srgb": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "strength": 0.0,
+      "roughness": 0.9,
+      "metallic": 0.0,
+      "double_sided": true,
+      "base_texture": "tex_10.png"
+    },
+    "glow_recessed_3_pool": {
+      "kind": "glow",
+      "base_srgb": [
+        0.9999999999999999,
+        0.780392156857694,
+        0.490196078419647
+      ],
+      "opacity": 0.3,
+      "emissive_srgb": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "strength": 0.0,
+      "roughness": 0.9,
+      "metallic": 0.0,
+      "double_sided": true,
+      "base_texture": "tex_9.png"
+    },
+    "recessed_light_4": {
+      "kind": "bulb",
+      "base_srgb": [
+        0.847058823525894,
+        0.823529411760647,
+        0.7843137254852351
+      ],
+      "opacity": 1.0,
+      "emissive_srgb": [
+        0.9999999999999999,
+        0.8862745098013057,
+        0.6901960784242469
+      ],
+      "strength": 6.0,
+      "roughness": 0.4,
+      "metallic": 0.0,
+      "double_sided": false
+    },
+    "light_cone_recessed_4": {
+      "kind": "cone",
+      "base_srgb": [
+        0.9999999999999999,
+        0.780392156857694,
+        0.490196078419647
+      ],
+      "opacity": 0.07,
+      "emissive_srgb": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "strength": 0.0,
+      "roughness": 0.9,
+      "metallic": 0.0,
+      "double_sided": true,
+      "base_texture": "tex_10.png"
+    },
+    "glow_recessed_4_pool": {
+      "kind": "glow",
+      "base_srgb": [
+        0.9999999999999999,
+        0.780392156857694,
+        0.490196078419647
+      ],
+      "opacity": 0.3,
+      "emissive_srgb": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "strength": 0.0,
+      "roughness": 0.9,
+      "metallic": 0.0,
+      "double_sided": true,
+      "base_texture": "tex_9.png"
+    },
+    "ceiling_fan_light_bowl": {
+      "kind": "shade",
+      "base_srgb": [
+        0.9490196078419645,
+        0.9372549019593411,
+        0.9098039215665529
+      ],
+      "opacity": 1.0,
+      "emissive_srgb": [
+        0.9999999999999999,
+        0.8862745098013057,
+        0.6901960784242469
+      ],
+      "strength": 3.0,
+      "roughness": 0.35,
+      "metallic": 0.0,
+      "double_sided": false
+    },
+    "ceiling_fan_spin_blur": {
+      "kind": "cone",
+      "base_srgb": [
+        0.847058823525894,
+        0.823529411760647,
+        0.7843137254852351
+      ],
+      "opacity": 0.55,
+      "emissive_srgb": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "strength": 0.0,
+      "roughness": 0.9,
+      "metallic": 0.0,
+      "double_sided": true,
+      "base_texture": "tex_11.png"
+    },
+    "glow_ceiling_fan_floor": {
+      "kind": "glow",
+      "base_srgb": [
+        0.9999999999999999,
+        0.780392156857694,
+        0.490196078419647
+      ],
+      "opacity": 0.4,
+      "emissive_srgb": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "strength": 0.0,
+      "roughness": 0.9,
+      "metallic": 0.0,
+      "double_sided": true,
+      "base_texture": "tex_9.png"
+    },
+    "glow_ceiling_fan_bed": {
+      "kind": "glow",
+      "base_srgb": [
+        0.9999999999999999,
+        0.780392156857694,
+        0.490196078419647
+      ],
+      "opacity": 0.3,
+      "emissive_srgb": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "strength": 0.0,
+      "roughness": 0.9,
+      "metallic": 0.0,
+      "double_sided": true,
+      "base_texture": "tex_9.png"
+    },
+    "skylight_diffuser": {
+      "kind": "shade",
+      "base_srgb": [
+        0.8117647058780234,
+        0.8588235294085175,
+        0.9019607843114705
+      ],
+      "opacity": 1.0,
+      "emissive_srgb": [
+        0.49803921567472936,
+        0.6980392156793293,
+        0.9999999999999999
+      ],
+      "strength": 3.2,
+      "roughness": 0.3,
+      "metallic": 0.0,
+      "double_sided": false
+    },
+    "light_shaft_skylight": {
+      "kind": "cone",
+      "base_srgb": [
+        0.49803921567472936,
+        0.6980392156793293,
+        0.9999999999999999
+      ],
+      "opacity": 0.16,
+      "emissive_srgb": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "strength": 0.0,
+      "roughness": 0.9,
+      "metallic": 0.0,
+      "double_sided": true,
+      "base_texture": "tex_12.png"
+    },
+    "glow_skylight_floor": {
+      "kind": "glow",
+      "base_srgb": [
+        0.49803921567472936,
+        0.6980392156793293,
+        0.9999999999999999
+      ],
+      "opacity": 0.45,
+      "emissive_srgb": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "strength": 0.0,
+      "roughness": 0.9,
+      "metallic": 0.0,
+      "double_sided": true,
+      "base_texture": "tex_9.png"
+    },
+    "glow_skylight_wall": {
+      "kind": "glow",
+      "base_srgb": [
+        0.49803921567472936,
+        0.6980392156793293,
+        0.9999999999999999
+      ],
+      "opacity": 0.3,
+      "emissive_srgb": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "strength": 0.0,
+      "roughness": 0.9,
+      "metallic": 0.0,
+      "double_sided": true,
+      "base_texture": "tex_9.png"
+    },
+    "dresser_lamp_base": {
+      "kind": "bulb",
+      "base_srgb": [
+        0.9999999999999999,
+        0.9999999999999999,
+        0.9999999999999999
+      ],
+      "opacity": 1.0,
+      "emissive_srgb": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "strength": 0.0,
+      "roughness": 0.38,
+      "metallic": 0.9,
+      "double_sided": false,
+      "base_texture": "tex_3.png"
+    },
+    "dresser_lamp_stem": {
+      "kind": "bulb",
+      "base_srgb": [
+        0.9999999999999999,
+        0.9999999999999999,
+        0.9999999999999999
+      ],
+      "opacity": 1.0,
+      "emissive_srgb": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "strength": 0.0,
+      "roughness": 0.38,
+      "metallic": 0.9,
+      "double_sided": false,
+      "base_texture": "tex_3.png"
+    },
+    "dresser_lamp_arm": {
+      "kind": "bulb",
+      "base_srgb": [
+        0.9999999999999999,
+        0.9999999999999999,
+        0.9999999999999999
+      ],
+      "opacity": 1.0,
+      "emissive_srgb": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "strength": 0.0,
+      "roughness": 0.38,
+      "metallic": 0.9,
+      "double_sided": false,
+      "base_texture": "tex_3.png"
+    },
+    "dresser_lamp_shade": {
+      "kind": "shade",
+      "base_srgb": [
+        0.9999999999999999,
+        0.9999999999999999,
+        0.9999999999999999
+      ],
+      "opacity": 1.0,
+      "emissive_srgb": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "strength": 0.0,
+      "roughness": 0.38,
+      "metallic": 0.9,
+      "double_sided": false,
+      "base_texture": "tex_3.png"
+    },
+    "dresser_lamp_shade_lining": {
+      "kind": "shade",
+      "base_srgb": [
+        0.9529411764695058,
+        0.9176470588216352,
+        0.847058823525894
+      ],
+      "opacity": 1.0,
+      "emissive_srgb": [
+        0.9999999999999999,
+        0.8862745098013057,
+        0.6901960784242469
+      ],
+      "strength": 2.5,
+      "roughness": 0.6,
+      "metallic": 0.0,
+      "double_sided": false
+    },
+    "glow_dresser_lamp_top": {
+      "kind": "glow",
+      "base_srgb": [
+        0.9999999999999999,
+        0.780392156857694,
+        0.490196078419647
+      ],
+      "opacity": 0.75,
+      "emissive_srgb": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "strength": 0.0,
+      "roughness": 0.9,
+      "metallic": 0.0,
+      "double_sided": true,
+      "base_texture": "tex_9.png"
+    },
+    "glow_dresser_lamp_wall": {
+      "kind": "glow",
+      "base_srgb": [
+        0.9999999999999999,
+        0.780392156857694,
+        0.490196078419647
+      ],
+      "opacity": 0.4,
+      "emissive_srgb": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "strength": 0.0,
+      "roughness": 0.9,
+      "metallic": 0.0,
+      "double_sided": true,
+      "base_texture": "tex_9.png"
+    }
+  },
+  "lights": {
+    "light_sconce_left": {
+      "type": "spot",
+      "color_srgb": [
+        0.9999999999999999,
+        0.780392156857694,
+        0.490196078419647
+      ],
+      "intensity": 9.0,
+      "range": 3.2,
+      "inner_deg": 14.20935333548097,
+      "outer_deg": 35.52338333870242
+    },
+    "light_sconce_left_fill": {
+      "type": "point",
+      "color_srgb": [
+        0.9999999999999999,
+        0.780392156857694,
+        0.490196078419647
+      ],
+      "intensity": 1.0,
+      "range": 1.6
+    },
+    "light_sconce_right": {
+      "type": "spot",
+      "color_srgb": [
+        0.9999999999999999,
+        0.780392156857694,
+        0.490196078419647
+      ],
+      "intensity": 9.0,
+      "range": 3.2,
+      "inner_deg": 14.20935333548097,
+      "outer_deg": 35.52338333870242
+    },
+    "light_sconce_right_fill": {
+      "type": "point",
+      "color_srgb": [
+        0.9999999999999999,
+        0.780392156857694,
+        0.490196078419647
+      ],
+      "intensity": 1.0,
+      "range": 1.6
+    },
+    "light_recessed_1_2_1_2": {
+      "type": "spot",
+      "color_srgb": [
+        0.9999999999999999,
+        0.780392156857694,
+        0.490196078419647
+      ],
+      "intensity": 6.0,
+      "range": 6.0,
+      "inner_deg": 19.767043954600545,
+      "outer_deg": 65.89014651533513
+    },
+    "light_recessed_2_6_3_4": {
+      "type": "spot",
+      "color_srgb": [
+        0.9999999999999999,
+        0.780392156857694,
+        0.490196078419647
+      ],
+      "intensity": 6.0,
+      "range": 6.0,
+      "inner_deg": 19.767043954600545,
+      "outer_deg": 65.89014651533513
+    },
+    "light_ceiling_fan": {
+      "type": "point",
+      "color_srgb": [
+        0.9999999999999999,
+        0.780392156857694,
+        0.490196078419647
+      ],
+      "intensity": 2.0,
+      "range": 5.5
+    },
+    "light_skylight": {
+      "type": "point",
+      "color_srgb": [
+        0.5607843137153881,
+        0.7294117646996587,
+        0.9999999999999999
+      ],
+      "intensity": 2.2,
+      "range": 4.5
+    },
+    "light_dresser_lamp": {
+      "type": "point",
+      "color_srgb": [
+        0.9999999999999999,
+        0.780392156857694,
+        0.490196078419647
+      ],
+      "intensity": 1.4,
+      "range": 2.6
+    }
+  }
+}

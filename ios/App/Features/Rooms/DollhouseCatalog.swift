@@ -15,20 +15,37 @@ struct DollhouseRoom: Identifiable {
     var views: DollhouseViews?
 
     func presetIDs() -> [String] {
-        let preferred = ["all_off", "all_on", "evening", "movie_night", "laundry_running"]
+        let preferred = ["all_off", "all_on", "evening", "movie_night", "party", "bedtime", "reading", "laundry_running"]
         let extra = devices.presets.keys.filter { !preferred.contains($0) }.sorted()
         return preferred.filter { devices.presets[$0] != nil } + extra
     }
 
-    /// Every device on or off, the way devices.json writes a preset. A missing name is off.
-    func preset(_ id: String) -> [String: Bool] {
-        let on = devices.presets[id] ?? [:]
-        return Dictionary(uniqueKeysWithValues: devices.devices.map { ($0.name, (on[$0.name] ?? 0) > 0) })
+    /// Every device at a 0...1 level, the way devices.json writes a preset. A missing name is off.
+    func preset(_ id: String) -> [String: Double] {
+        let levels = devices.presets[id] ?? [:]
+        return Dictionary(uniqueKeysWithValues: devices.devices.map { device in
+            (device.name, min(1, max(0, levels[device.name] ?? 0)))
+        })
     }
 
     func device(_ name: String) -> DollhouseDevice? { devices.devices.first { $0.name == name } }
 
     func entities(for name: String) -> [MappedEntity] { mapping.devices[name]?.entities ?? [] }
+
+    func isConfigured(_ name: String) -> Bool {
+        entities(for: name).contains { $0.id?.isEmpty == false }
+    }
+
+    func control(for name: String) -> DollhouseControl {
+        if let raw = mapping.devices[name]?.control, let control = DollhouseControl(rawValue: raw) { return control }
+        switch device(name)?.type {
+        case .appliance: return .status
+        case .media: return .media
+        case .fireplace: return .switch
+        case .fan: return .fan
+        default: return .light
+        }
+    }
 
     static func presetTitle(_ id: String) -> String {
         switch id {
@@ -36,6 +53,9 @@ struct DollhouseRoom: Identifiable {
         case "all_on": "All on"
         case "evening": "Evening"
         case "movie_night": "Movie night"
+        case "party": "Party"
+        case "bedtime": "Bedtime"
+        case "reading": "Reading"
         case "laundry_running": "Laundry running"
         default: id.replacingOccurrences(of: "_", with: " ").capitalized
         }
@@ -43,7 +63,7 @@ struct DollhouseRoom: Identifiable {
 }
 
 struct DollhouseDevices: Decodable {
-    var presets: [String: [String: Int]]
+    var presets: [String: [String: Double]]
     var devices: [DollhouseDevice]
 }
 
@@ -78,7 +98,7 @@ struct DollhouseDevice: Decodable, Identifiable {
 }
 
 enum DollhouseDeviceType: String, Decodable {
-    case light, fireplace, media, appliance, other
+    case light, fireplace, media, appliance, fan, other
     init(from decoder: Decoder) throws {
         let raw = try decoder.singleValueContainer().decode(String.self)
         self = DollhouseDeviceType(rawValue: raw) ?? .other
@@ -90,6 +110,7 @@ enum DollhouseDeviceType: String, Decodable {
         case .fireplace: "flame.fill"
         case .media: "tv.fill"
         case .appliance: "washer.fill"
+        case .fan: "fan.fill"
         case .other: "circle.grid.2x2"
         }
     }
@@ -101,23 +122,44 @@ struct HubMapping: Decodable {
     var climateEntityId: String?
     var devices: [String: MappedDevice]
     var relatedScenes: [String: String?]?
+    var also: [AlsoControl]?
     var notInModel: [ExtraHubDevice]?
 }
 
 struct MappedDevice: Decodable {
+    /// light, switch, media, select, or status. Empty means the page picks from the device type.
+    var control: String?
+    var note: String?
     var entities: [MappedEntity]
 }
 
 struct MappedEntity: Decodable, Hashable {
-    var id: String
+    /// Null until someone fills in the hub id. The control is already chosen.
+    var id: String?
     var action: String
     var command: String?
+    var options: [String]?
+    var onOption: String?
+    var offOption: String?
+    var note: String?
+}
+
+/// A real hub device that is in the room but not in the cutaway.
+struct AlsoControl: Decodable, Identifiable, Hashable {
+    var id: String
+    var name: String
+    var action: String
+    var note: String?
 }
 
 struct ExtraHubDevice: Decodable, Hashable {
     var id: String
     var name: String
     var note: String?
+}
+
+enum DollhouseControl: String {
+    case light, `switch`, media, select, status, fan
 }
 
 struct DollhouseAppearance: Decodable {

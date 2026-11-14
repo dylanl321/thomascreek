@@ -112,12 +112,13 @@ export function makeKit(root, T) {
     devices[name] = d; return d;
   };
   const setDevice = (name, on) => {
-    const d = devices[name]; if (!d) return; d.on = !!on;
-    d.emissive.forEach(e => { e.mat.emissiveIntensity = on ? e.on : 0; });
-    d.lights.forEach(l => { l.light.intensity = on ? l.on : 0; });
-    d.decals.forEach(m => { m.visible = !!on; });
-    d.show.forEach(m => { m.visible = !!on; });
-    if (d.custom) d.custom(!!on);
+    // on: boolean or a 0..1 dim level (numbers < 1 dim emissives, lights and glow decals)
+    const d = devices[name]; if (!d) return; const k = on === true ? 1 : Math.max(0, Math.min(1, +on || 0)); d.on = k > 0; d.level = k;
+    d.emissive.forEach(e => { e.mat.emissiveIntensity = e.on * k; });
+    d.lights.forEach(l => { l.light.intensity = l.on * k; });
+    d.decals.forEach(m => { if (m.userData.baseOpacity === undefined) m.userData.baseOpacity = m.material.opacity; m.material.opacity = m.userData.baseOpacity * (k > 0 ? 0.2 + 0.8 * k : 0); m.visible = k > 0; });
+    d.show.forEach(m => { m.visible = k > 0; });
+    if (d.custom) d.custom(k > 0, k);
   };
   // stencil portal (exterior is drawn only through glass)
   const portalMat = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false, side: THREE.DoubleSide, stencilWrite: true, stencilRef: 1, stencilFunc: THREE.AlwaysStencilFunc, stencilZPass: THREE.ReplaceStencilOp });
@@ -156,7 +157,7 @@ export function createApp(container, { build, views, presets, width = 1600, heig
   if (bloom) composer.addPass(bloomPass);
   composer.addPass(new OutputPass());
   const setView = (v) => { const V = typeof v === 'string' ? views[v] : v; camera.position.set(...V.pos); camera.fov = V.fov; camera.updateProjectionMatrix(); camera.lookAt(...V.target); camera.userData.target = new THREE.Vector3(...V.target); room.root.traverse(o => { if (o.userData.interiorOnly) o.visible = !!V.interior; if (o.userData.dollhouseOnly) o.visible = !V.interior; }); };
-  const applyPreset = (p) => { const P = typeof p === 'string' ? presets[p] : p; Object.keys(room.devices).forEach(n => room.setDevice(n, !!P[n])); };
+  const applyPreset = (p) => { const P = typeof p === 'string' ? presets[p] : p; Object.keys(room.devices).forEach(n => room.setDevice(n, P[n] || 0)); };
   const render = () => composer.render();
   const resize = (w, h) => { camera.aspect = w / h; camera.updateProjectionMatrix(); renderer.setSize(w, h); composer.setSize(w, h); };
   const exportGLB = () => new Promise((res, rej) => {
