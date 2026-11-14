@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 
 from ..adapters.base import AdapterError
 from ..adapters.family import FAVORITE_TAG
+from ..feasts import is_dinner, sections_of
 from ..kitchen import parse_recipe_text
 from ..state import Hub
 from .deps import Caller, caller, error, hub, need
@@ -282,7 +283,7 @@ async def plan_set(day: str, body: PlanBody, c: Caller = Depends(caller), h: Hub
 async def _suggestions(h: Hub, exclude: set[str], n: int) -> list[dict[str, Any]]:
     """Recipes not made lately come first; never-made ones mix in; favorites get a nudge."""
     lib = (await h.mealie.recipes(per_page=300))["items"]
-    pool = [r for r in lib if r["slug"] not in exclude and "Dessert" not in r["tags"] and "Side" not in r["tags"]]
+    pool = [r for r in lib if r["slug"] not in exclude and is_dinner(r.get("sections") or sections_of([], r["tags"]))]
 
     def score(r: dict[str, Any]) -> float:
         last = r.get("last_made")

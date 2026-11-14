@@ -29,6 +29,8 @@ struct FamilyView: View {
                     }
                     SectionTile(symbol: "book.fill", title: "Recipes", detail: recipesLine) { router.go(.recipes) }
                     SectionTile(symbol: "cart.fill", title: "Shopping", detail: "Lists") { router.go(.shopping) }
+                    SectionTile(symbol: "leaf.fill", title: "Holidays", detail: "Feasts, menus, prep") { router.go(.feasts) }
+                    SectionTile(symbol: "list.bullet.clipboard", title: "Shop for meals", detail: "A feast or the weeks ahead") { router.go(.shopBuilder([])) }
                 }
 
                 if isParent {
@@ -115,6 +117,7 @@ struct CalendarView: View {
 
 struct ShoppingView: View {
     @Environment(HomeStore.self) private var store
+    @Environment(Router.self) private var router
     @State private var data: ShoppingLists?
     @State private var newItem = ""
     @State private var listID: String?
@@ -148,6 +151,11 @@ struct ShoppingView: View {
         }
         .scrollContentBackground(.hidden).background(Backdrop())
         .navigationTitle("Shopping")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { router.go(.shopBuilder([])) } label: { Label("Build from meals", systemImage: "wand.and.stars") }
+            }
+        }
         .task { await load() }
         .refreshable { await load() }
     }
