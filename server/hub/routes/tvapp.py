@@ -42,7 +42,7 @@ from pydantic import BaseModel, Field
 from ..home import iso
 from ..state import Hub
 from ..tvapp import TvAppError, clean_ip
-from .. import tvupdate
+from .. import tvfleet, tvupdate
 from ..iptvplay import touch
 from ..tvremote import allowed_packages
 from .deps import Caller, caller, caller_ip, error, hub, need
@@ -375,9 +375,14 @@ async def tv_update(request: Request, current: str | None = None, c: Caller = De
     if not c.subject.tv:
         raise error(403, "forbidden", "The TV app reads its own update")
     try:
-        return tvupdate.manifest(h.tv_app, current)
+        pinned = tvfleet.offered_version(h, c.subject.tv_id or "")
+        if pinned is None:
+            return tvupdate.manifest(h.tv_app, current)
+        return tvfleet.manifest_for(h, pinned, current)
     except TvAppError as exc:
         raise _err(exc) from None
+    except tvfleet.FleetError as exc:
+        raise error(exc.status, "not_found", exc.message) from None
 
 
 @tv_router.post("/update/health")
@@ -389,6 +394,7 @@ async def tv_update_health(request: Request, body: dict[str, Any] = Body(...), c
         raise error(403, "forbidden", "The TV app reports its own update")
     try:
         tvupdate.record(h.tv_app, c.subject.tv_id, body)
+        tvfleet.note_health(h, c.subject.tv_id, body)
     except TvAppError as exc:
         raise _err(exc) from None
     return {"ok": True}

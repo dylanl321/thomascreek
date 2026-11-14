@@ -12,6 +12,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from . import tvupdate
 from .db import new_id
 from .home import iso
 
@@ -21,6 +22,8 @@ KV_NOTICES = "tv.fleet.notices"
 KV_KILL = "tv.fleet.kill"
 KV_POLICY = "tv.fleet.policy"
 KV_COMMANDS = "tv.fleet.commands"
+KV_ROLLOUT = "tv.fleet.rollout"
+KV_AUDIT = "tv.fleet.audit"
 
 ONLINE_S = 120
 SAMPLE_S = 60
@@ -32,6 +35,15 @@ OURS = "me.dlewis.thomascreek.tv"
 CAPABILITIES = ("basic", "owner", "root")
 PLATFORMS = ("google_tv", "android_tv", "unknown")
 METRICS = ("cpu", "ram", "storage", "temperature", "ping", "rssi")
+SHELL_TEMPLATES = {
+    "logcat": "logcat -d -t 200 -s ThomasCreekTV:V AndroidRuntime:E",
+    "packages": "pm list packages",
+    "storage": "df -h /data",
+    "uptime": "uptime",
+    "network": "ip -4 addr",
+    "battery": "dumpsys battery",
+}
+
 ACTIONS = (
     "reboot", "restart_app", "install_apk", "uninstall", "disable", "set_kiosk",
     "apply_policy", "kill_list", "screenshot", "show_message", "tv_power", "tv_volume",
@@ -161,6 +173,197 @@ def set_policy(h: Any, body: dict[str, Any]) -> dict[str, Any]:
     return saved
 
 
+def start_rollout(h: Any, body: dict[str, Any], now: float | None = None) -> dict[str, Any]:
+    """Offer one stored build to a few TVs first, then the rest once those are fine."""
+    now = time.time() if now is None else now
+    try:
+        code = int((body or {}).get("version_code"))
+    except (TypeError, ValueError):
+        raise FleetError(404, "That build isn't on the hub.") from None
+    if isinstance((body or {}).get("version_code"), bool) or not h.tv_app.apk_path(code).is_file():
+        raise FleetError(404, "That build isn't on the hub.")
+    stage = [str(item) for item in ((body or {}).get("stage") or [])]
+    if not stage:
+        raise FleetError(400, "Name the first room.")
+    for install_id in stage:
+        _known(h, install_id)
+    then = (body or {}).get("then")
+    if then not in (None, "all"):
+        raise FleetError(400, "Name the first room.")
+    immediate = bool((body or {}).get("now"))
+    row = {
+        "version_code": code,
+        "state": "staging",
+        "now": immediate,
+        "then": then,
+        "stage": stage,
+        "status": {install_id: "waiting" for install_id in stage},
+        "rest": "held",
+        "at": now,
+    }
+    h.db.kv_set(KV_ROLLOUT, row)
+    if immediate:
+        _push_install(h, stage, code, now)
+    return rollout(h)
+
+
+def rollout(h: Any) -> dict[str, Any]:
+    row = h.db.kv_get(KV_ROLLOUT)
+    if not isinstance(row, dict) or row.get("state") in (None, "done"):
+        return {"rollout": None}
+    names = h.tv_app.tvs()
+    return {"rollout": {
+        "version_code": row.get("version_code"),
+        "state": row.get("state"),
+        "now": bool(row.get("now")),
+        "stage": [{
+            "id": install_id,
+            "name": (names.get(install_id) or {}).get("name") or "TV",
+            "status": (row.get("status") or {}).get(install_id) or "waiting",
+        } for install_id in row.get("stage") or []],
+        "rest": row.get("rest") or "held",
+    }}
+
+
+def offered_version(h: Any, install_id: str) -> int | None:
+    """The build this TV should be offered, when a rollout is holding the newest one back."""
+    row = h.db.kv_get(KV_ROLLOUT)
+    if not isinstance(row, dict) or row.get("state") in (None, "done"):
+        return None
+    code = int(row["version_code"])
+    stage = set(row.get("stage") or [])
+    if install_id in stage or (row.get("state") == "rolling" and row.get("then") == "all"):
+        return code
+    previous = _previous_code(h, code)
+    return previous if previous is not None else 0
+
+
+def manifest_for(h: Any, code: int, current: str | None) -> dict[str, Any]:
+    """The update body for one stored build. `0` means there is nothing older to offer."""
+    if code <= 0:
+        have = tvupdate._number(current)
+        return {"version_code": have or 0, "up_to_date": True}
+    path = h.tv_app.apk_path(code)
+    if not path.is_file():
+        raise FleetError(404, "That build isn't on the hub.")
+    latest = h.tv_app.latest() or {}
+    if int(latest.get("versionCode") or 0) == code:
+        return tvupdate.manifest(h.tv_app, current)
+    sha = hashlib.sha256(path.read_bytes()).hexdigest()
+    have = tvupdate._number(current)
+    if have is not None and have >= code:
+        return {"version_code": code, "up_to_date": True}
+    catalog = h.db.kv_get("tv.builds") or {}
+    meta = catalog.get(str(code)) if isinstance(catalog, dict) and isinstance(catalog.get(str(code)), dict) else {}
+    return {
+        "version_code": code,
+        "version_name": meta.get("versionName") or str(code),
+        "sha256": sha,
+        "signer_sha256": h.db.kv_get("tvapp.signer"),
+        "apk_path": f"/v1/tv/{code}",
+        "package": h.config.tv_app.package,
+        "notes": meta.get("notes") or None,
+        "install": tvupdate._INSTALL,
+        "idle_only": True,
+        "silent": True,
+        "window": tvupdate._window(h.tv_app),
+    }
+
+
+def note_health(h: Any, install_id: str, body: dict[str, Any], now: float | None = None) -> None:
+    """Move a rollout on when a staged TV says the new build plays."""
+    row = h.db.kv_get(KV_ROLLOUT)
+    if not isinstance(row, dict) or row.get("state") not in ("staging", "rolling"):
+        return
+    now = time.time() if now is None else now
+    failed = body.get("rollback") is True or body.get("playback_ok") is False
+    healthy = body.get("boot_ok") is True and body.get("hub_ok") is True and body.get("playback_ok") is True and body.get("rollback") is False
+    status = dict(row.get("status") or {})
+    if install_id in (row.get("stage") or []) and failed:
+        status[install_id] = "stopped"
+        row["status"] = status
+        row["state"] = "stopped"
+        row["rest"] = "held"
+        h.db.kv_set(KV_ROLLOUT, row)
+        return
+    if not healthy:
+        return
+    status[install_id] = "ok"
+    row["status"] = status
+    stage = list(row.get("stage") or [])
+    if row.get("state") == "staging" and all(status.get(item) == "ok" for item in stage):
+        if row.get("then") == "all":
+            row["state"] = "rolling"
+            row["rest"] = "offered"
+            h.db.kv_set(KV_ROLLOUT, row)
+            if row.get("now"):
+                others = [item for item in h.tv_app.tvs() if item not in stage and (h.tv_app.tvs().get(item) or {}).get("status") == "approved"]
+                _push_install(h, others, int(row["version_code"]), now)
+            return
+        row["state"] = "done"
+    elif row.get("state") == "rolling":
+        approved = [item for item, tv in h.tv_app.tvs().items() if tv.get("status") == "approved"]
+        if approved and all(status.get(item) == "ok" for item in approved):
+            row["state"] = "done"
+    h.db.kv_set(KV_ROLLOUT, row)
+
+
+def shell(h: Any, install_id: str, body: dict[str, Any], who: str | None, at_home: bool, now: float | None = None) -> dict[str, Any]:
+    """Queue one allowlisted command. Free-form stays off unless the flag is on."""
+    if not at_home:
+        raise FleetError(403, "The TV app talks to the hub only on the home network")
+    now = time.time() if now is None else now
+    _known(h, install_id)
+    if (_devices(h).get(install_id) or {}).get("capability") != "root":
+        raise FleetError(400, "This TV has no shell.")
+    template = (body or {}).get("template")
+    line = (body or {}).get("command")
+    if template:
+        if template not in SHELL_TEMPLATES:
+            raise FleetError(400, "That isn't one of the shell commands.")
+        params = {"template": template}
+        audit_template, audit_command = template, None
+    elif isinstance(line, str):
+        if not h.config.tv_fleet.shell:
+            return {"ok": False, "message": "Shell commands are off."}
+        if "\n" in line or not line.strip() or len(line) > 200:
+            raise FleetError(400, "That isn't one of the shell commands.")
+        params = {"command": line.strip()}
+        audit_template, audit_command = None, line.strip()
+    else:
+        raise FleetError(400, "That isn't one of the shell commands.")
+    queued = _enqueue(h, install_id, "shell", params, who, now)
+    _audit(h, install_id, queued["id"], audit_template, audit_command, who, now)
+    return queued
+
+
+def audit(h: Any, limit: int = 50) -> dict[str, Any]:
+    rows = h.db.kv_get(KV_AUDIT) or []
+    if not isinstance(rows, list):
+        rows = []
+    shown = []
+    for row in rows[-max(1, min(limit, 200)):]:
+        shown.append({
+            "at": row.get("at"), "who": row.get("who"), "id": row.get("tv"),
+            "action": "shell", "template": row.get("template"), "command": row.get("command"),
+            "ok": row.get("ok"),
+        })
+    return {"items": list(reversed(shown))}
+
+
+def command_detail(h: Any, install_id: str, command_id: str) -> dict[str, Any]:
+    for row in _commands(h).get(install_id) or []:
+        if row.get("id") == command_id:
+            view = _wire(row)
+            view["ok"] = row.get("ok")
+            view["detail"] = row.get("detail")
+            if row.get("output") is not None:
+                view["output"] = row.get("output")
+                view["truncated"] = bool(row.get("truncated"))
+            return view
+    raise FleetError(404, "That command has already finished.")
+
+
 def command(h: Any, install_id: str, action: str, params: dict[str, Any] | None, who: str | None = None,
             now: float | None = None) -> dict[str, Any]:
     now = time.time() if now is None else now
@@ -201,6 +404,8 @@ def ack(h: Any, install_id: str, body: dict[str, Any], now: float | None = None)
         _notice(h, install_id, "kill", True, now)
     elif found.get("action") == "kill_list":
         _notice(h, install_id, "kill", False, now)
+    if found.get("action") == "shell":
+        _audit_ok(h, found["id"], ok)
     return {"ok": True}
 
 
@@ -641,6 +846,48 @@ def _text(value: Any, limit: int) -> str | None:
         return None
     text = value.strip()
     return text[:limit] or None
+
+
+def _push_install(h: Any, install_ids: list[str], code: int, now: float) -> None:
+    path = h.tv_app.apk_path(code)
+    if not path.is_file():
+        return
+    sha = hashlib.sha256(path.read_bytes()).hexdigest()
+    latest = h.tv_app.latest() or {}
+    name = latest.get("versionName") if int(latest.get("versionCode") or 0) == code else str(code)
+    params = {"url": f"/v1/tv/{code}", "sha256": sha, "version_code": code, "version_name": name}
+    for install_id in install_ids:
+        if (h.tv_app.tvs().get(install_id) or {}).get("status") == "approved":
+            _enqueue(h, install_id, "install_apk", params, None, now)
+
+
+def _previous_code(h: Any, code: int) -> int | None:
+    folder = h.tv_app.dir
+    if not folder.is_dir():
+        return None
+    found = [int(path.stem) for path in folder.glob("*.apk") if path.stem.isdigit() and int(path.stem) < code]
+    return max(found) if found else None
+
+
+def _audit(h: Any, install_id: str, command_id: str, template: str | None, line: str | None, who: str | None, now: float) -> None:
+    rows = h.db.kv_get(KV_AUDIT) or []
+    if not isinstance(rows, list):
+        rows = []
+    rows.append({
+        "cmd": command_id, "at": iso(now), "who": who or "Admin", "tv": install_id,
+        "template": template, "command": line, "ok": None,
+    })
+    h.db.kv_set(KV_AUDIT, rows[-200:])
+
+
+def _audit_ok(h: Any, command_id: str, ok: bool) -> None:
+    rows = h.db.kv_get(KV_AUDIT) or []
+    if not isinstance(rows, list):
+        return
+    for row in rows:
+        if row.get("cmd") == command_id:
+            row["ok"] = ok
+    h.db.kv_set(KV_AUDIT, rows)
 
 
 def _sentence(value: Any) -> str | None:
