@@ -24,6 +24,8 @@ final class DollhouseController {
     private var ambientLight: SCNNode?
     private var keyLight: SCNNode?
     private var windowLight: SCNNode?
+    /// The share of full strength each device lamp gets, from how many lamps are lit (see `Rig.lampShare`).
+    private var lampShare: Double = 1
     private var restPosition = SCNVector3Zero
     private var restTarget = SCNVector3Zero
     private var restFov: CGFloat = 30
@@ -250,7 +252,7 @@ final class DollhouseController {
             light.intensity = 0
             light.castsShadow = false
             light.attenuationStartDistance = 0
-            light.attenuationEndDistance = CGFloat(spec.range > 0 ? spec.range : 6)
+            light.attenuationEndDistance = CGFloat((spec.range > 0 ? spec.range : 6) * Rig.rangeScale)
             light.attenuationFalloffExponent = 2
             if spec.type == "spot" {
                 light.spotInnerAngle = CGFloat(spec.innerDeg ?? 18)
@@ -268,14 +270,14 @@ final class DollhouseController {
     private func addStudio(to scene: SCNScene) {
         scene.background.contents = UIColor.clear
         scene.lightingEnvironment.contents = Self.gradient(top: 0xFFF3E3, bottom: 0x5B4636)
-        scene.lightingEnvironment.intensity = 0.16
+        scene.lightingEnvironment.intensity = Rig.environment
 
         let ambient = SCNNode()
         ambient.name = "dollhouse-ambient"
         ambient.light = SCNLight()
         ambient.light?.type = .ambient
         ambient.light?.color = UIColor(hex: 0xFFF3E3)
-        ambient.light?.intensity = 260
+        ambient.light?.intensity = Rig.ambient
         scene.rootNode.addChildNode(ambient)
         ambientLight = ambient
 
@@ -284,13 +286,13 @@ final class DollhouseController {
         key.light = SCNLight()
         key.light?.type = .directional
         key.light?.color = UIColor(hex: 0xFFF1DD)
-        key.light?.intensity = 750
+        key.light?.intensity = Rig.key
         key.light?.castsShadow = true
         key.light?.shadowMode = .deferred
         key.light?.shadowSampleCount = 16
         key.light?.shadowRadius = 8
         key.light?.shadowMapSize = CGSize(width: 2048, height: 2048)
-        key.light?.shadowColor = UIColor(white: 0, alpha: 0.28)
+        key.light?.shadowColor = UIColor(white: 0, alpha: Rig.shadowAlpha)
         key.light?.zNear = 0.5
         key.light?.zFar = 80
         let aim = room.shot(.dollhouse)
@@ -308,9 +310,10 @@ final class DollhouseController {
         camera.camera?.zFar = 100
         camera.camera?.wantsHDR = true
         camera.camera?.wantsExposureAdaptation = false
-        camera.camera?.exposureOffset = -0.6
-        camera.camera?.bloomIntensity = 0.18
-        camera.camera?.bloomThreshold = 1.3
+        camera.camera?.exposureOffset = Rig.exposure
+        camera.camera?.whitePoint = Rig.whitePoint
+        camera.camera?.bloomIntensity = Rig.bloomIntensity
+        camera.camera?.bloomThreshold = Rig.bloomThreshold
         camera.camera?.bloomBlurRadius = 12
         camera.name = "dollhouse-camera"
         scene.rootNode.addChildNode(camera)
@@ -338,6 +341,20 @@ final class DollhouseController {
             tickets[device.name] = ticket
             changes.append(Change(device: device, level: level, ticket: ticket))
         }
+        // Lamps share one budget once more than a few are lit, so "All on" reads as several warm pools,
+        // not every light's full strength stacked on the same walls.
+        let litLamps = room.devices.devices.reduce(0) { sum, device in
+            (levels[device.name] ?? 0) > 0.001 ? sum + device.lightNodes.count : sum
+        }
+        let share = Rig.lampShare(lit: litLamps)
+        if abs(share - lampShare) > 0.001 {
+            lampShare = share
+            let changed = Set(changes.map(\.device.name))
+            for device in room.devices.devices where !changed.contains(device.name) && !device.lightNodes.isEmpty {
+                let level = min(1, max(0, levels[device.name] ?? 0))
+                changes.append(Change(device: device, level: level, ticket: tickets[device.name] ?? 0))
+            }
+        }
         guard !changes.isEmpty else { completion?(); return }
         for change in changes where change.level > 0.001 {
             for name in change.device.glowDecals + change.device.onState.shows {
@@ -354,7 +371,7 @@ final class DollhouseController {
                 let spec = lightSpec(name)
                 let listed = index < change.device.lightOnIntensity.count ? change.device.lightOnIntensity[index] : (spec?.intensity ?? 0)
                 let candela = listed > 0 ? listed : (spec?.intensity ?? 0)
-                let lumens = CGFloat(candela * Self.lumensPerCandela) * CGFloat(change.level)
+                let lumens = CGFloat(candela * Rig.lumensPerCandela * share) * CGFloat(change.level)
                 lamps[name]?.light?.intensity = lumens
                 lamps[name.replacingOccurrences(of: ".", with: "_")]?.light?.intensity = lumens
             }
@@ -388,7 +405,7 @@ final class DollhouseController {
                 mat.transparency = CGFloat(look.opacity)
             }
             // Same curve as the three.js builder: a dim light keeps a little glow, then scales up.
-            item.node.opacity = on ? CGFloat(0.2 + 0.8 * level) : 0
+            item.node.opacity = on ? CGFloat((0.2 + 0.8 * level) * Rig.glow) : 0
         case "flame", "cone":
             paintEmission(item, level: level, strength: look.strength)
             item.node.opacity = CGFloat(look.opacity) * CGFloat(level)
@@ -398,7 +415,7 @@ final class DollhouseController {
                 if on, let picture = item.picture {
                     mat.diffuse.contents = picture
                     mat.emission.contents = picture
-                    mat.emission.intensity = CGFloat(max(look.strength, 1)) * CGFloat(level)
+                    mat.emission.intensity = CGFloat(max(look.strength, 1) * Rig.emission) * CGFloat(level)
                     mat.roughness.contents = 0.4
                     mat.metalness.contents = 0
                 } else {
@@ -422,7 +439,7 @@ final class DollhouseController {
             mat.lightingModel = .physicallyBased
             mat.emission.contents = color
             // Strength stays in the intensity so a value above 1 is what the bloom threshold sees.
-            mat.emission.intensity = CGFloat(strength) * CGFloat(level)
+            mat.emission.intensity = CGFloat(strength * Rig.emission) * CGFloat(level)
             if item.look.doubleSided { mat.isDoubleSided = true }
         }
     }
@@ -457,9 +474,35 @@ final class DollhouseController {
         }
     }
 
-    /// glTF point-light intensity is candela. SceneKit's omni intensity is lumens, and the room is a miniature,
-    /// so this scale keeps a shelf puck a pool of light instead of a second sun.
-    private static let lumensPerCandela: Double = 45
+}
+
+/// The studio rig and device-light scale, in one place. Checked offscreen with ios/scripts/dollhouse_snapshot.swift
+/// (keep its rig JSON in step). Aim: a dim room on the app background, warm pools near lit fixtures, walls that
+/// keep their colour, and nothing clipped even with every light on.
+private enum Rig {
+    static let ambient: CGFloat = 140
+    static let key: CGFloat = 420
+    static let shadowAlpha: CGFloat = 0.35
+    static let environment: CGFloat = 0.1
+    static let exposure: CGFloat = -0.7
+    /// Above 1, highlights roll off instead of clipping to white.
+    static let whitePoint: CGFloat = 1.5
+    static let bloomIntensity: CGFloat = 0.12
+    static let bloomThreshold: CGFloat = 1.6
+    /// glTF light intensity is candela. SceneKit's attenuation is a falloff to a range, not inverse-square, so
+    /// a light at 45x lit the whole room at near full strength. This scale and the shorter range keep each
+    /// fixture a pool of light.
+    static let lumensPerCandela: Double = 20
+    static let rangeScale: Double = 0.6
+    /// Emissive bulbs, shades and screens, and the additive glow decals.
+    static let emission: Double = 0.6
+    static let glow: Double = 0.55
+    /// Up to this many device lamps run at full strength; past it they split that budget.
+    static let fullLamps = 4
+
+    static func lampShare(lit: Int) -> Double {
+        lit > fullLamps ? Double(fullLamps) / Double(lit) : 1
+    }
 }
 
 extension DollhouseController: DollhouseStage {
@@ -490,7 +533,7 @@ extension DollhouseController: DollhouseStage {
         windowLight?.light?.color = daylight.window
         windowLight?.light?.intensity = daylight.windowIntensity
         scene?.lightingEnvironment.contents = Self.gradient(top: daylight.envTop, bottom: daylight.envBottom)
-        scene?.lightingEnvironment.intensity = 0.16
+        scene?.lightingEnvironment.intensity = Rig.environment
         SCNTransaction.commit()
     }
 
