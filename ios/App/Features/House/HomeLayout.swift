@@ -463,7 +463,7 @@ extension DeviceSymbols {
         case .light: "lightbulb"; case .fan: "fan"; case .switch: "powerplug"; case .climate: "thermometer.medium"
         case .lock: "lock"; case .garage: "door.garage.closed"; case .media: "tv"; case .speaker: "hifispeaker"
         case .camera: "video"; case .sensor: "gauge"; case .vacuum: "fan.oscillation"; case .oven: "oven"
-        case .printer: "printer"; case .valve: "drop"; case .shower: "shower"; case .unknown: "square.dashed"
+        case .printer: "printer"; case .valve: "drop"; case .shower: "shower"; case .select: "switch.2"; case .unknown: "square.dashed"
         }
     }
 }

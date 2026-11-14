@@ -1,0 +1,42 @@
+{
+  "room_id": "basement_bedroom",
+  "title": "Basement Bedroom",
+  "climate_entity_id": null,
+  "notes": "None of the six modeled devices appear in the Home Assistant config, so each id is null and the page shows Not set up. Fill an id in and that control starts working. The ceiling fan and its light are one device in the model: a fan.set entry spins the blades, and a light.set entry lights the bowl and dims it. climate.basement is the basement thermostat and is not assigned here.",
+  "devices": {
+    "sconce_left": {
+      "control": "light",
+      "note": "Left sconce. Bedtime is 30 percent.",
+      "entities": [{"id": null, "action": "light.set"}]
+    },
+    "sconce_right": {
+      "control": "light",
+      "note": "Right sconce. Bedtime is 30 percent.",
+      "entities": [{"id": null, "action": "light.set"}]
+    },
+    "recessed_lights": {
+      "control": "light",
+      "entities": [{"id": null, "action": "light.set"}]
+    },
+    "ceiling_fan": {
+      "control": "light",
+      "note": "One control in the model. Add the fan id, the light id, or both.",
+      "entities": [
+        {"id": null, "action": "fan.set", "note": "Ceiling fan."},
+        {"id": null, "action": "light.set", "note": "Fan light kit, if it is its own light."}
+      ]
+    },
+    "skylight_glow": {
+      "control": "light",
+      "note": "Skylight tube glow. No entity.",
+      "entities": [{"id": null, "action": "light.set"}]
+    },
+    "dresser_lamp": {
+      "control": "light",
+      "entities": [{"id": null, "action": "light.set"}]
+    }
+  },
+  "also": [
+    {"id": "light.basement_bedroom_closet", "name": "Closet light", "action": "light.set", "note": "In the basement bedroom, not drawn in the cutaway."}
+  ]
+}

@@ -231,6 +231,7 @@ class Assistant:
             {"name": "act", "description": (
                 "Control a device or run a scene or mode (POST /v1/actions). Actions and params: "
                 "light.set {on, brightness 0-100, color '#RRGGBB'}; fan.set {on, speed 0-100}; switch.set {on}; "
+                "select.set {option} (only a choice that control already offers, such as a hood light Off, Dim or High); "
                 "scene.run (target scene.x); mode.run (target mode id); climate.set {target_temp, hvac heat|cool|auto|off}; "
                 "lock.set {locked}; garage.set {open}; media.command {command power|play|pause|next|prev|stop|mute|"
                 "vol_up|vol_down|volume|source|app|text|up|down|left|right|select|back|home|menu|play_pause|"

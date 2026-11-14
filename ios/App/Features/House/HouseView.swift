@@ -43,6 +43,9 @@ struct HouseView: View {
         let me = store.me
         let h = store.home
         return LazyVGrid(columns: [GridItem(.adaptive(minimum: 104), spacing: 10)], spacing: 10) {
+            ForEach(DollhouseCatalog.rooms) { room in
+                SectionTile(symbol: room.symbol, title: room.title, detail: dollhouseDetail(room)) { router.go(.dollhouse(room.id)) }
+            }
             if me?.can(.climateAll) == true, !(h?.devices(kind: .climate).isEmpty ?? true) {
                 SectionTile(symbol: "thermometer.medium", title: "Climate", detail: climateLine) { router.go(.climate) }
             }
@@ -68,6 +71,15 @@ struct HouseView: View {
                 SectionTile(symbol: "eye.slash", title: "Hidden devices", detail: "Clean up, set up rooms") { router.go(.hiddenDevices) }
             }
         }
+    }
+
+    /// Lights the dollhouse knows about, from the live snapshot. The tile is only there for rooms in the catalog.
+    private func dollhouseDetail(_ room: DollhouseRoom) -> String {
+        let ids = room.devices.devices.flatMap { room.entities(for: $0.name).compactMap(\.id) }
+        let devices = ids.compactMap { store.home?.device($0) }
+        guard !devices.isEmpty else { return "Model" }
+        let on = devices.filter(\.isOn).count
+        return on == 0 ? "All off" : "\(on) on"
     }
 
     /// Each thermostat on House itself; a tap opens its history with the controls on top.
@@ -143,7 +155,7 @@ struct RoomDetailView: View {
         let lights = devices.filter { [.light, .fan, .switch].contains($0.kind) }
         let climate = devices.filter { $0.kind == .climate && ($0.available != false && $0["available"]?.bool != false) }
         let media = devices.filter { [.media, .speaker].contains($0.kind) }
-        let other = devices.filter { ![.light, .fan, .switch, .climate, .media, .speaker, .camera].contains($0.kind) }
+        let other = devices.filter { ![.light, .fan, .switch, .climate, .media, .speaker, .camera, .select].contains($0.kind) }
         let scenes = room?.scenes ?? []
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {

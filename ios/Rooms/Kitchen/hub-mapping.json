@@ -1,0 +1,88 @@
+{
+  "room_id": "kitchen",
+  "title": "Kitchen",
+  "climate_entity_id": null,
+  "notes": "Each device already has a control. A null id means Not set up: the model stays off and the hub is not called. Put the entity id in and the same control starts working. Washer and dryer are status only: they never send a command, and the drums spin when the hub says that entity is running. climate_entity_id is the thermostat.",
+  "devices": {
+    "under_cabinet_lights": {
+      "control": "light",
+      "entities": [{"id": "light.kitchen_under_cabinet", "action": "light.set"}]
+    },
+    "toe_kick_lights": {
+      "control": "light",
+      "note": "Toe-kick lights. No entity in the kitchen scenes yet.",
+      "entities": [{"id": null, "action": "light.set", "note": "Toe-kick lights."}]
+    },
+    "recessed_lights": {
+      "control": "light",
+      "entities": [
+        {"id": "light.kitchen_island_overhead", "action": "light.set"},
+        {"id": "light.kitchen_surround_overhead", "action": "light.set"},
+        {"id": "light.kitchen_sink_overhead", "action": "light.set"}
+      ]
+    },
+    "dining_pendant": {
+      "control": "light",
+      "entities": [{"id": "light.kitchen_table_overhead", "action": "light.set"}]
+    },
+    "table_lamp_booth": {
+      "control": "light",
+      "entities": [{"id": "light.kitchen_counter_lamp", "action": "light.set"}]
+    },
+    "range_hood_light": {
+      "control": "select",
+      "note": "Hood light level. select.set only accepts Off, Dim, or High, because those are the options the device publishes.",
+      "entities": [{
+        "id": "select.fcb97e702032_hood_light_level",
+        "action": "select.set",
+        "options": ["Off", "Dim", "High"],
+        "on_option": "High",
+        "off_option": "Off"
+      }]
+    },
+    "laundry_light": {
+      "control": "light",
+      "entities": [{"id": "light.kitchen_laundry_entry_overhead", "action": "light.set"}]
+    },
+    "washer": {
+      "control": "status",
+      "note": "Read only. Set the id to the washer entity the hub reports. The drum spins while it is running.",
+      "entities": [{"id": null, "action": "status", "note": "Washer."}]
+    },
+    "dryer": {
+      "control": "status",
+      "note": "Read only. Set the id to the dryer entity the hub reports. The drum spins while it is running.",
+      "entities": [{"id": null, "action": "status", "note": "Dryer."}]
+    }
+  },
+  "related_scenes": {
+    "all_on": "scene.kitchen_all_on_2"
+  },
+  "not_in_model": [
+    {
+      "id": "light.kitchen_table_wall",
+      "name": "Kitchen Table Wall",
+      "note": "In the main-floor scenes. The booth pendant is light.kitchen_table_overhead, not this wall light."
+    },
+    {
+      "id": "light.s2_dimmer_2",
+      "name": "Kitchen Table",
+      "note": "Older id in scene.kitchen_all_on. The current scene uses light.kitchen_table_overhead."
+    },
+    {
+      "id": "light.s2_dimmer_3",
+      "name": "Surround Recessed",
+      "note": "Older id in scene.kitchen_all_on. The current scene uses light.kitchen_surround_overhead."
+    },
+    {
+      "id": "light.s2_dimmer_4",
+      "name": "Laundry Hall Recessed",
+      "note": "In scene.kitchen_all_on and marked unavailable there. Not used."
+    },
+    {
+      "id": "switch.fcb97e702032_hood_delay_off",
+      "name": "Hood delay off",
+      "note": "A hood timer switch, not the hood lamp."
+    }
+  ]
+}

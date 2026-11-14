@@ -1,0 +1,76 @@
+{
+  "room_id": "living_room",
+  "title": "Living Room",
+  "climate_entity_id": null,
+  "notes": "Each device already has a control. A null id means Not set up: the model stays off and the hub is not called. Put the entity id in and the same control starts working. climate_entity_id is the thermostat; null shows a Not set up climate card unless the hub already places a climate device in living_room.",
+  "devices": {
+    "shelf_lights": {
+      "control": "light",
+      "entities": [{"id": "light.book_shelves_light_2", "action": "light.set"}]
+    },
+    "soffit_downlights": {
+      "control": "light",
+      "entities": [{"id": "light.living_room_book_shelves_overhead", "action": "light.set"}]
+    },
+    "sconce": {
+      "control": "light",
+      "entities": [{"id": "light.living_room_sconces", "action": "light.set"}]
+    },
+    "table_lamp": {
+      "control": "light",
+      "entities": [
+        {"id": "light.living_room_couch_lamp", "action": "light.set"},
+        {"id": "light.living_room_couch_lamp_2", "action": "light.set"}
+      ]
+    },
+    "chandelier": {
+      "control": "light",
+      "entities": [{"id": "light.living_room_chandelier", "action": "light.set"}]
+    },
+    "cabinet_light": {
+      "control": "light",
+      "note": "Display cabinet light. Set the id when the hub entity is known. If it is a switch, change action to switch.set.",
+      "entities": [{"id": null, "action": "light.set", "note": "Display cabinet light."}]
+    },
+    "fireplace": {
+      "control": "switch",
+      "note": "Treated as a switch. If the fireplace is a light instead, change action to light.set.",
+      "entities": [{"id": null, "action": "switch.set", "note": "Fireplace switch."}]
+    },
+    "tv": {
+      "control": "media",
+      "entities": [{"id": "media_player.samsung_the_frame_55", "action": "media.command", "command": "power"}]
+    },
+    "soundbar": {
+      "control": "media",
+      "note": "A media player. Power is a toggle, same as the TV.",
+      "entities": [{"id": null, "action": "media.command", "command": "power", "note": "Soundbar media player."}]
+    }
+  },
+  "related_scenes": {
+    "all_off": "scene.living_room_all_off",
+    "all_on": "scene.living_room_all_on",
+    "evening": "scene.living_room_night"
+  },
+  "also": [
+    {
+      "id": "light.living_room_hallway",
+      "name": "Hallway light",
+      "action": "light.set",
+      "note": "In the main-floor scenes. This model is the corner, not the hall."
+    },
+    {
+      "id": "switch.living_room_book_shelves_overhead",
+      "name": "Wetbar sconce",
+      "action": "switch.set",
+      "note": "The living-room scenes name this switch Living Room Wetbar Sconce. The shelf downlights are a different light."
+    }
+  ],
+  "not_in_model": [
+    {
+      "id": "light.living_room_shelves",
+      "name": "Living Room Shelves",
+      "note": "Zigbee2MQTT's friendly name for the bookshelf strip would publish this id. The scenes still call light.book_shelves_light_2. If a rename made that the only id that answers, point shelf_lights at it."
+    }
+  ]
+}

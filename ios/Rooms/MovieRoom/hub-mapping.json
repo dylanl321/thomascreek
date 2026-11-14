@@ -1,0 +1,74 @@
+{
+  "room_id": "basement",
+  "title": "Movie Room",
+  "climate_entity_id": null,
+  "notes": "The cutaway is the basement theater. room_id is basement because that is the area the basement scenes use. climate.basement is the only thermostat in the automations and is not assigned here, because it is the basement unit rather than this room's own. A null id is Not set up.",
+  "devices": {
+    "projector": {
+      "control": "media",
+      "note": "No projector media player in the Home Assistant config. light.dig_uno_v3 is the screen bias light, not the projector.",
+      "entities": [{"id": null, "action": "media.command", "command": "power"}]
+    },
+    "screen_bias_light": {
+      "control": "light",
+      "note": "WLED strip whose friendly name is Projector Screen.",
+      "entities": [{"id": "light.dig_uno_v3", "action": "light.set"}]
+    },
+    "recessed_lights": {
+      "control": "light",
+      "note": "The theater ceiling cans from Basement All On. Desk and office overheads are listed under Also in this room.",
+      "entities": [
+        {"id": "light.basement_main_room_front_overhead", "action": "light.set"},
+        {"id": "light.basement_main_room_fireplace_overhead", "action": "light.set"},
+        {"id": "light.basement_main_room_partition_overhead", "action": "light.set"}
+      ]
+    },
+    "fireplace": {
+      "control": "switch",
+      "note": "No fireplace entity in the basement scenes. Change the action to light.set if it is a light.",
+      "entities": [{"id": null, "action": "switch.set"}]
+    },
+    "rear_string_lights": {
+      "control": "light",
+      "note": "Mapped to the entity whose friendly name is Basement Main Room Curtain Lights. Move the id if the rear strings are a different device.",
+      "entities": [{"id": "light.basement_main_room_curtain_lights", "action": "light.set"}]
+    },
+    "riser_step_lights": {
+      "control": "light",
+      "note": "No step-light entity in the basement scenes.",
+      "entities": [{"id": null, "action": "light.set"}]
+    },
+    "table_lamps": {
+      "control": "light",
+      "entities": [
+        {"id": "light.basement_main_room_couch_lamp", "action": "light.set"},
+        {"id": "light.basement_main_room_fireplace_lamps", "action": "light.set"}
+      ]
+    },
+    "flower_light": {
+      "control": "light",
+      "note": "RGB flower light. No matching entity.",
+      "entities": [{"id": null, "action": "light.set"}]
+    },
+    "candy_shelf_backlight": {
+      "control": "light",
+      "entities": [
+        {"id": "light.basement_main_room_candy_shelves", "action": "light.set"},
+        {"id": "light.candy_wall_lamp", "action": "light.set"}
+      ]
+    },
+    "popcorn_machine": {
+      "control": "status",
+      "note": "Read only. The glow comes on when the hub says this entity is running. No popcorn entity in the config.",
+      "entities": [{"id": null, "action": "status"}]
+    }
+  },
+  "also": [
+    {"id": "light.basement_main_room_back_lamp", "name": "Back lamp", "action": "light.set"},
+    {"id": "light.basement_main_room_bar_lamp", "name": "Bar lamp", "action": "light.set"},
+    {"id": "light.basement_main_room_desk_overhead", "name": "Desk overhead", "action": "light.set"},
+    {"id": "light.basement_main_room_office_overhead", "name": "Office overhead", "action": "light.set"},
+    {"id": "switch.basement_main_room_circle_lamp", "name": "Circle lamp", "action": "switch.set"},
+    {"id": "switch.basement_main_room_lamp", "name": "Candle lamp", "action": "switch.set"}
+  ]
+}

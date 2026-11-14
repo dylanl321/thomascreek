@@ -1,0 +1,9 @@
+{
+  "name": "dollhouse",
+  "private": true,
+  "description": "Procedural dollhouse rooms. npm install here so living-room and kitchen can both import three and puppeteer-core.",
+  "dependencies": {
+    "puppeteer-core": "^25.17.0",
+    "three": "^0.170.0"
+  }
+}

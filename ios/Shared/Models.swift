@@ -283,7 +283,7 @@ struct Appliance: Codable, Hashable, Identifiable {
 }
 
 enum DeviceKind: String, Codable {
-    case light, fan, `switch`, climate, lock, garage, media, speaker, camera, sensor, vacuum, oven, printer, valve, shower, unknown
+    case light, fan, `switch`, climate, lock, garage, media, speaker, camera, sensor, vacuum, oven, printer, valve, shower, select, unknown
     init(from decoder: Decoder) throws {
         let raw = try decoder.singleValueContainer().decode(String.self)
         self = DeviceKind(rawValue: raw) ?? .unknown
