@@ -312,8 +312,23 @@ class Hub:
         self.tv_app.start()
         self.source_health.start()
         self.tv_bedtime.start()
+        self._explore = asyncio.create_task(self._explore_loop())
         if self.config.artwork.enabled:
             self.artwork.start()
+
+    async def _explore_loop(self) -> None:
+        """Rebuild the Explore feed every six hours. A failure keeps the last copy."""
+        await asyncio.sleep(45)
+        while True:
+            try:
+                from .tvexplore import refresh
+
+                await refresh(self)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # noqa: BLE001
+                log.info("explore: %s", exc)
+            await asyncio.sleep(6 * 3600)
 
     async def probe_once(self) -> None:
         """Touch each enabled service so the status page shows a real answer, not "never checked"."""
@@ -537,3 +552,5 @@ class Hub:
         await self.tv_app.stop()
         await self.source_health.stop()
         await self.tv_bedtime.stop()
+        if getattr(self, "_explore", None):
+            self._explore.cancel()
