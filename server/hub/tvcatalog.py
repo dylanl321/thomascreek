@@ -267,6 +267,11 @@ class TvCatalog:
             },
         }
         self._write(doc)
+        try:
+            from .iptvcanon import observe, sources_from_catalog
+            observe(self.db, sources_from_catalog(doc))
+        except Exception as exc:  # noqa: BLE001
+            log.info("catalog fold: %s", exc)
         return doc
 
     def store_series(self, payload: dict[str, Any], series_id: str) -> dict[str, Any]:
@@ -600,7 +605,18 @@ class TvCatalog:
                         break
         shows = self.series(q=q, category=None, kids_only=kids_only, limit=20)["series"]
         films = self.movies(q=q, category=None, kids_only=kids_only, limit=20)["movies"]
+        _mark_canonical(self.db, shows, "series")
+        _mark_canonical(self.db, films, "movie")
         return {"q": q.strip(), "channels": channels[:20], "programmes": programmes[:20], "series": shows, "movies": films}
+
+
+def _mark_canonical(db: Any, rows: list[dict[str, Any]], kind: str) -> None:
+    from .iptvcanon import playable
+
+    for row in rows:
+        found = playable(db, kind=kind, title=str(row.get("name") or ""), year=None)
+        if found and found.get("canonical_id"):
+            row["canonical_id"] = found["canonical_id"]
 
 
 def _categories(rows: list[dict[str, Any]] | None) -> dict[str, str]:

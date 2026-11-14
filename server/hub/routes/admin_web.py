@@ -25,6 +25,9 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Resp
 from pydantic import BaseModel, Field
 
 from .. import __version__, bambu_cloud, testkeys
+from ..iptvcanon import merge as catalog_merge_items
+from ..iptvcanon import split as catalog_split_item
+from ..iptvcanon import unsure as catalog_unsure
 from ..bambu_cloud import token_expiry
 from ..crypto import CryptoError
 from ..onepassword import NAME_RE
@@ -510,6 +513,24 @@ def _build_of(v: str | None) -> int | None:
     return int(m.group(1)) if m else None
 
 
+def _catalog_html(h: Hub, csrf: str) -> str:
+    """Titles the rules would not fold, with a way to say they are the same."""
+    e = html.escape
+    rows = catalog_unsure(h.db)["unsure"]
+    body = "".join(
+        f"<div class=row><div>{e(row.get('title') or '')} <span class=dim>and {e(row.get('other') or '')}</span></div>"
+        f"<form method=post action=/admin/catalog/merge class=inline><input type=hidden name=csrf value={csrf}>"
+        f"<input type=hidden name=left value='{e(row.get('left') or '')}'>"
+        f"<input type=hidden name=right value='{e(row.get('right') or '')}'><button>Same title</button></form></div>"
+        for row in rows)
+    empty = "<div class=row><div class=dim>Nothing waiting. Titles are folded only when the hub is sure.</div></div>"
+    return f"""<h2>Catalog</h2><div class=card>{body or empty}
+<form method=post action=/admin/catalog/split class=fform style="padding:8px 0">
+<input type=hidden name=csrf value={csrf}>
+<input name=id placeholder="Title id"><input name=provider placeholder="Provider"><input name=stream_id placeholder="Stream id">
+<button class=ghost>Separate this copy</button></form></div>"""
+
+
 def _app_update_html(h: Hub, csrf: str) -> str:
     """Latest app build, who is behind, and the "required" floor. Collapsed like the key rows."""
     e = html.escape
@@ -629,6 +650,7 @@ def _status_page(h: Hub, claims: dict[str, Any], flash: str | None, new_key: str
 <div class=row><div>Private VPN (PIA)</div><div class=dim>{e(h.pia.status())} · {e(', '.join(h.config.vpn.pia.roles))}</div></div>
 <div class=row><div>Devices</div><div class=dim>{e(dev)}</div></div>
 <div class=row><div>TLS pin</div><div class=dim><code>{e(pin or '')}</code></div></div></div>
+{_catalog_html(h, csrf)}
 {_app_update_html(h, csrf)}
 {_test_keys_html(h, csrf, new_key)}
 <h2>Keys and files</h2><p class=dim>Values are never shown again; saving replaces the old one right away.</p>
@@ -695,6 +717,20 @@ def _back(msg: str) -> RedirectResponse:
     from urllib.parse import quote
 
     return RedirectResponse(f"/admin?m={quote(msg)}", status_code=303)
+
+
+@pages.post("/admin/catalog/merge")
+async def catalog_merge(request: Request, h: Hub = Depends(hub)) -> Response:
+    _claims, form = await _form_session(request, h)
+    result = catalog_merge_items(h.db, [str(form.get("left") or ""), str(form.get("right") or "")])
+    return _back("Folded those titles together." if result else "Those titles aren't in the catalog.")
+
+
+@pages.post("/admin/catalog/split")
+async def catalog_split(request: Request, h: Hub = Depends(hub)) -> Response:
+    _claims, form = await _form_session(request, h)
+    result = catalog_split_item(h.db, str(form.get("id") or ""), str(form.get("provider") or ""), str(form.get("stream_id") or ""))
+    return _back("Separated that copy." if result else "That title isn't in the catalog.")
 
 
 @pages.post("/admin/secrets")
