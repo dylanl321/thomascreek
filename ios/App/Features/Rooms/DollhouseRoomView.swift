@@ -40,7 +40,9 @@ private struct DollhouseRoomPage: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     hero(proxy)
-                    presets
+                    if !room.devices.devices.isEmpty {
+                        presets
+                    }
                     ForEach(room.devices.devices) { device in
                         DollhouseDeviceCard(room: room, device: device, on: isOn(device.name), highlighted: highlighted == device.name,
                                             set: { set(device, $0) }, choose: { setOption(device, $0) })
@@ -191,7 +193,7 @@ private struct DollhouseRoomPage: View {
             HStack {
                 Freshness(date: store.home?.generated, live: true)
                 Spacer()
-                Text(room.isProperty ? "Tap the house for rooms · pinch to zoom" : "Tap a light · hold for more · pinch to zoom")
+                Text(room.isProperty ? "Tap the house for rooms · pinch to zoom · two fingers to pan" : "Tap a light · hold for more · pinch to zoom")
                     .font(.caption)
                     .foregroundStyle(Theme.dim)
             }

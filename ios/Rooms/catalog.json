@@ -12,8 +12,8 @@
       "life": "Property/life.json",
       "views": {
         "dollhouse": { "position": [-80, 240, 160], "target": [4, -3, 8], "fov": 30 },
-        "close": { "position": [-62, 52, 132], "target": [14, -1, 58], "fov": 30 },
-        "top": { "position": [8, 300, 110], "target": [4, 0, 4], "fov": 34 }
+        "close": { "position": [-68, 57, 144], "target": [15, -1, 63], "fov": 30 },
+        "top": { "position": [9, 330, 120], "target": [4, 0, 4], "fov": 34 }
       }
     },
     {

@@ -183,7 +183,7 @@ let center = SCNVector3((lo.x + hi.x) / 2, (lo.y + hi.y) / 2, (lo.z + hi.z) / 2)
 let radius = sqrt(pow(hi.x - lo.x, 2) + pow(hi.y - lo.y, 2) + pow(hi.z - lo.z, 2)) / 2
 var dir = SIMD3<Double>(Double(pos[0] - tgt[0]), Double(pos[1] - tgt[1]), Double(pos[2] - tgt[2]))
 dir /= (dir * dir).sum().squareRoot()
-let dist = Double(radius) / sin(fov * .pi / 360) * 0.92
+let dist = Double(radius) / sin(fov * .pi / 360) * (isProperty ? 1.0 : 0.92)
 let cam = SCNNode(); cam.camera = SCNCamera()
 cam.camera!.zNear = 0.05; cam.camera!.zFar = 100; cam.camera!.fieldOfView = CGFloat(fov)
 cam.camera!.wantsHDR = true; cam.camera!.wantsExposureAdaptation = false

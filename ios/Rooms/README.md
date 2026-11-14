@@ -126,7 +126,7 @@ Pose groups and `prop_*` nodes can start hidden. The app fades them. A drum or a
 
 ## Property (the whole lot)
 
-`Property/` is the exterior view: the lot on Thomas Creek Ct, the slope down to the floodplain, the river, the field, the drive, the trees, and placeholder massing for the house and the garage apartment. It is the first row in `catalog.json`, so it is the first dollhouse tile on House. The source is Model Generator's three.js build in `/workspace/handoff/property/` (frame: 1 unit = 1 m, +Y up, north = -Z, origin = lot centre; about 102 x 186 m). The committed USDZ is `property_all_on.glb` through the same converter:
+`Property/` is the exterior view: the lot on Thomas Creek Ct, the slope down to the floodplain, the river, the field, the drive, the trees, the blueberry orchard, and placeholder massing for the house and the garage apartment. It is the first row in `catalog.json`, so it is the first dollhouse tile on House. The source is Model Generator's three.js build in `/workspace/handoff/property/` (frame: 1 unit = 1 m, +Y up, north = -Z, origin = lot centre; about 102 x 186 m). The committed USDZ is `property_all_on.glb` through the same converter:
 
 ```
 python3 ios/scripts/gltf_to_usdz.py property_all_on.glb ios/Rooms/Property/property.usdz ios/Rooms/Property/appearance.json
@@ -137,7 +137,7 @@ The row has `"kind": "property"`. That one flag:
 - drops the Climate card and Advanced, and lists the rooms instead;
 - makes a tap on `house_massing*` open a list of the rooms, and a tap on `garage_massing*` say the garage apartment has no model yet.
 
-The one device is `light_pole` (the field light). No outdoor light was in the hub mappings, so its id is null: `life.json` turns the model's light on from dusk to sunrise and off by day, and the hub is never called. Put the entity id in `Property/hub-mapping.json` and a tap on the pole toggles the real light, like any room light. The river gets a slow shimmer from a surface shader while motion is allowed (`DollhouseAmbient.syncRiver`).
+The property has no hub devices. Model Generator's first export had a `light_pole`, which was really the lone tree in the field; the re-export has `tree_field_lone` instead, the blueberry orchard (`blueberry_row_1`, `blueberry_bed_west_1`-`3`), and anchors `anchor_river`, `anchor_field`, `anchor_orchard`, `anchor_tree`. The lot is now scaled to 5 acres with the terrain relief exaggerated x2 (see the handoff README). With no devices, the page hides Scenes, and `life.json` has no scenes: the lot only follows the time-of-day light. To add an outdoor light later, put it in `devices.json` and `hub-mapping.json` the same way as a room device. The river gets a slow shimmer from a surface shader while motion is allowed (`DollhouseAmbient.syncRiver`).
 
 Check the lighting offscreen (the snapshot knows the `kind` flag too):
 
