@@ -626,6 +626,43 @@
       "double_sided": true,
       "base_texture": "tex_12.png"
     },
+    "light_toe_kick_laundry_cabinet": {
+      "kind": "bulb",
+      "base_srgb": [
+        0.847058823525894,
+        0.823529411760647,
+        0.7843137254852351
+      ],
+      "opacity": 1.0,
+      "emissive_srgb": [
+        0.9999999999999999,
+        0.8862745098013057,
+        0.6901960784242469
+      ],
+      "strength": 6.0,
+      "roughness": 0.4,
+      "metallic": 0.0,
+      "double_sided": false
+    },
+    "glow_toe_kick_laundry_cabinet_floor": {
+      "kind": "glow",
+      "base_srgb": [
+        0.9999999999999999,
+        0.780392156857694,
+        0.490196078419647
+      ],
+      "opacity": 0.75,
+      "emissive_srgb": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "strength": 0.0,
+      "roughness": 0.9,
+      "metallic": 0.0,
+      "double_sided": true,
+      "base_texture": "tex_12.png"
+    },
     "light_toe_kick_oven_tower": {
       "kind": "bulb",
       "base_srgb": [
@@ -1463,6 +1500,25 @@
       "roughness": 0.35,
       "metallic": 0.0,
       "double_sided": true
+    },
+    "pm_catch_all_bowl_bowl": {
+      "kind": "shade",
+      "base_srgb": [
+        0.9999999999999999,
+        0.9999999999999999,
+        0.9999999999999999
+      ],
+      "opacity": 1.0,
+      "emissive_srgb": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "strength": 0.0,
+      "roughness": 0.55,
+      "metallic": 0.0,
+      "double_sided": true,
+      "base_texture": "tex_17.png"
     },
     "pm_dishes_bowl": {
       "kind": "shade",

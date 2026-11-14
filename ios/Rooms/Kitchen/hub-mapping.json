@@ -8,11 +8,6 @@
       "control": "light",
       "entities": [{"id": "light.kitchen_under_cabinet", "action": "light.set"}]
     },
-    "toe_kick_lights": {
-      "control": "light",
-      "note": "Toe-kick lights. No entity in the kitchen scenes yet.",
-      "entities": [{"id": null, "action": "light.set", "note": "Toe-kick lights."}]
-    },
     "recessed_lights": {
       "control": "light",
       "entities": [

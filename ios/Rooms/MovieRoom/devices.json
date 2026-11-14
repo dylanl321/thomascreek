@@ -668,6 +668,8 @@
       }
     ],
     "exterior_nodes": [
+      "french_door_1_porch_glimpse",
+      "french_door_2_porch_glimpse",
       "exterior_patio"
     ]
   }

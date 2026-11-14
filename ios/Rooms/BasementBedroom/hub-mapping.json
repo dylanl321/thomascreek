@@ -34,6 +34,11 @@
     "dresser_lamp": {
       "control": "light",
       "entities": [{"id": null, "action": "light.set"}]
+    },
+    "tv": {
+      "control": "media",
+      "note": "The TV on the wall over the dresser. A media player: power is a toggle. Set the id when the hub entity is known.",
+      "entities": [{"id": null, "action": "media.command", "command": "power", "note": "Bedroom TV media player."}]
     }
   },
   "also": [

@@ -57,6 +57,28 @@
       ]
     },
     {
+      "id": "tv_in_bed",
+      "title": "TV in bed",
+      "weights": {
+        "morning": 0.2,
+        "midday": 0.4,
+        "dusk": 1,
+        "night": 1.5
+      },
+      "devices": {
+        "tv": 1,
+        "sconce_left": 0.2,
+        "sconce_right": 0.2
+      },
+      "props": [
+        "prop_throw_blanket",
+        "prop_shoes"
+      ],
+      "while_on": [
+        "tv"
+      ]
+    },
+    {
       "id": "morning",
       "title": "Slow morning",
       "weights": {

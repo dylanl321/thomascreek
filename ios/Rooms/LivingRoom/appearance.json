@@ -216,6 +216,24 @@
       "metallic": 0.0,
       "double_sided": false
     },
+    "end_table_2_shelf": {
+      "kind": "bulb",
+      "base_srgb": [
+        0.29411764704258825,
+        0.17254901958881175,
+        0.09411764703798822
+      ],
+      "opacity": 1.0,
+      "emissive_srgb": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "strength": 0.0,
+      "roughness": 0.65,
+      "metallic": 0.0,
+      "double_sided": false
+    },
     "tv_screen": {
       "kind": "screen",
       "base_srgb": [

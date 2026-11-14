@@ -12,7 +12,12 @@
       "devices": {
         "projector": 1,
         "popcorn_machine": 1,
-        "fireplace": 0.65
+        "fireplace": 0.65,
+        "screen_bias_light": 1,
+        "rear_string_lights": 1,
+        "riser_step_lights": 1,
+        "flower_light": 1,
+        "table_lamps": 0.3
       },
       "props": [
         "prop_popcorn_bowl",

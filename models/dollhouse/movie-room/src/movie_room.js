@@ -65,6 +65,7 @@ export function buildMovieRoom() {
     stone: (rx, ry) => { const t = T.stone.clone(); t.needsUpdate = true; t.repeat.set(rx, ry); return std('#ffffff', 0.9, 0, { map: t }); },
     soot: std('#151110', 0.95), white: std('#efedea', 0.45), red: std('#b3121b', 0.45, 0.1), steel: std('#c6c9cc', 0.3, 0.85),
     glass: new THREE.MeshPhysicalMaterial({ color: '#a9bfd6', roughness: 0.05, transparent: true, opacity: 0.1, depthWrite: false }),
+    doorWood: std('#3b2516', 0.5), doorGlass: new THREE.MeshPhysicalMaterial({ color: '#2a3a52', roughness: 0.04, metalness: 0.1, transparent: true, opacity: 0.32, depthWrite: false }),
     cabGlass: new THREE.MeshPhysicalMaterial({ color: '#ffffff', roughness: 0.05, transparent: true, opacity: 0.14, depthWrite: false, side: THREE.DoubleSide }),
   };
   const arch = G('architecture'), openings = G('doors_and_windows'), furn = G('furniture'), fire = G('fireplace'), exterior = G('exterior_patio'), devGroup = G('devices');
@@ -92,26 +93,44 @@ export function buildMovieRoom() {
   io(B('crown_right_wall', arch, M.trim, W - 0.08, W, H - 0.1, H, 0, L, 0.01));
   B('baseboard_screen_wall', arch, M.trim, 0, W, 0, 0.1, 0, 0.018);
 
-  // ---------------- French doors to the lower porch (den style: 2 leaves, 5 rows, white trim, transom)
+  // ---------------- French doors to the lower porch (den style: 2 leaves, 5 rows, transom). Dark-stained wood frame + walnut casing,
+  // brass levers, tinted glass (reads as glass even where the app drops the porch scenery). Behind each glass: a painted night-porch
+  // plane `french_door_<n>_porch_glimpse` (export-only: the viewer shows the 3D exterior_patio through the stencil portal instead).
   const portalMesh = [];
+  const porchGlimpseTex = canvasTex(256, 512, (g, w, h) => {
+    const sky = g.createLinearGradient(0, 0, 0, h * 0.62); sky.addColorStop(0, '#0d1428'); sky.addColorStop(1, '#2b3a5c'); g.fillStyle = sky; g.fillRect(0, 0, w, h);
+    const r = rng(17); g.fillStyle = '#f2f0e6'; for (let i = 0; i < 40; i++) { g.globalAlpha = 0.4 + r() * 0.6; g.fillRect(r() * w, r() * h * 0.45, 1.5, 1.5); } g.globalAlpha = 1;
+    g.fillStyle = '#1b2a26'; g.fillRect(0, h * 0.55, w, h * 0.12);                                                   // lawn line
+    g.fillStyle = '#22362c'; [[40, 0.57, 48], [190, 0.56, 60]].forEach(([x, y, rr]) => { g.beginPath(); g.arc(x, h * y, rr, Math.PI, 0); g.fill(); });  // shrubs
+    for (let i = 0; i < 6; i++) for (let j = 0; j < 4; j++) { g.fillStyle = (i + j) % 2 ? '#4c5164' : '#444a5c'; g.fillRect(j * w / 4 + 1, h * 0.67 + i * h * 0.055 + 1, w / 4 - 2, h * 0.055 - 2); }  // pavers
+    g.fillStyle = '#1d2130'; g.fillRect(0, 0, w, h * 0.06); g.fillStyle = '#545b77'; g.fillRect(0, h * 0.06, w, h * 0.03);  // porch roof + beam
+    g.fillStyle = '#5c6380'; g.fillRect(w * 0.7, h * 0.09, 18, h * 0.6);                                                   // porch post
+    const lamp = g.createRadialGradient(w * 0.2, h * 0.3, 1, w * 0.2, h * 0.3, 40); lamp.addColorStop(0, 'rgba(255,214,150,0.9)'); lamp.addColorStop(1, 'rgba(255,214,150,0)'); g.fillStyle = lamp; g.fillRect(0, 0, w, h);
+  });
   FD.forEach(({ z0, z1 }, di) => {
-    const g = G(`french_door_${di + 1}`, openings), n = (s) => `french_door_${di + 1}_${s}`, top = 1.86;
-    B(n('jamb_l'), g, M.trim, -WT, 0, 0, DH, z0, z0 + 0.03); B(n('jamb_r'), g, M.trim, -WT, 0, 0, DH, z1 - 0.03, z1); B(n('jamb_head'), g, M.trim, -WT, 0, DH - 0.03, DH, z0, z1);
-    B(n('casing_l'), g, M.trim, 0, 0.025, 0, DH + 0.09, z0 - 0.09, z0 + 0.005); B(n('casing_r'), g, M.trim, 0, 0.025, 0, DH + 0.09, z1 - 0.005, z1 + 0.09);
-    B(n('casing_head'), g, M.trim, 0, 0.03, DH, DH + 0.12, z0 - 0.11, z1 + 0.11, 0.005);
+    const g = G(`french_door_${di + 1}`, openings), n = (s) => `french_door_${di + 1}_${s}`, top = 1.86, F = M.doorWood, C = M.walnut;
+    B(n('jamb_l'), g, C, -WT, 0, 0, DH, z0, z0 + 0.03); B(n('jamb_r'), g, C, -WT, 0, 0, DH, z1 - 0.03, z1); B(n('jamb_head'), g, C, -WT, 0, DH - 0.03, DH, z0, z1);
+    B(n('casing_l'), g, C, 0, 0.025, 0, DH + 0.09, z0 - 0.09, z0 + 0.005, 0.004); B(n('casing_r'), g, C, 0, 0.025, 0, DH + 0.09, z1 - 0.005, z1 + 0.09, 0.004);
+    B(n('casing_head'), g, C, 0, 0.03, DH, DH + 0.12, z0 - 0.11, z1 + 0.11, 0.005);
+    B(n('threshold'), g, M.brass, -WT, 0.01, 0, 0.018, z0 + 0.03, z1 - 0.03);
     const xa = -0.13, xb = -0.08, a0 = z0 + 0.03, a1 = z1 - 0.03, mid = (a0 + a1) / 2;
     for (const [k, la, lb] of [[1, a0, mid - 0.004], [2, mid + 0.004, a1]]) {
-      B(n(`leaf${k}_stile_a`), g, M.trim, xa, xb, 0.02, top, la, la + 0.07); B(n(`leaf${k}_stile_b`), g, M.trim, xa, xb, 0.02, top, lb - 0.07, lb);
-      B(n(`leaf${k}_rail_bottom`), g, M.trim, xa, xb, 0.02, 0.22, la, lb); B(n(`leaf${k}_rail_top`), g, M.trim, xa, xb, top - 0.07, top, la, lb);
-      B(n(`leaf${k}_glass`), g, M.glass, -0.108, -0.102, 0.22, top - 0.07, la + 0.07, lb - 0.07).castShadow = false;
-      const c = (la + lb) / 2; B(n(`leaf${k}_muntin_v`), g, M.trim, xa + 0.008, xb - 0.008, 0.22, top - 0.07, c - 0.011, c + 0.011);
-      for (let r = 1; r < 5; r++) { const y = 0.22 + (top - 0.29) * r / 5; B(n(`leaf${k}_muntin_h_${r}`), g, M.trim, xa + 0.008, xb - 0.008, y - 0.011, y + 0.011, la + 0.07, lb - 0.07); }
+      B(n(`leaf${k}_stile_a`), g, F, xa, xb, 0.02, top, la, la + 0.07, 0.004); B(n(`leaf${k}_stile_b`), g, F, xa, xb, 0.02, top, lb - 0.07, lb, 0.004);
+      B(n(`leaf${k}_rail_bottom`), g, F, xa, xb, 0.02, 0.22, la, lb, 0.004); B(n(`leaf${k}_rail_top`), g, F, xa, xb, top - 0.07, top, la, lb, 0.004);
+      B(n(`leaf${k}_glass`), g, M.doorGlass, -0.108, -0.102, 0.22, top - 0.07, la + 0.07, lb - 0.07).castShadow = false;
+      const c = (la + lb) / 2; B(n(`leaf${k}_muntin_v`), g, F, xa + 0.008, xb - 0.008, 0.22, top - 0.07, c - 0.011, c + 0.011);
+      for (let r = 1; r < 5; r++) { const y = 0.22 + (top - 0.29) * r / 5; B(n(`leaf${k}_muntin_h_${r}`), g, F, xa + 0.008, xb - 0.008, y - 0.011, y + 0.011, la + 0.07, lb - 0.07); }
+      const hz = k === 1 ? lb - 0.045 : la + 0.045;
+      B(n(`leaf${k}_rose`), g, M.brass, -0.084, -0.078, 0.97, 1.05, hz - 0.018, hz + 0.018, 0.004);
       B(n(`leaf${k}_lever`), g, M.brass, -0.08, -0.04, 1.0, 1.02, k === 1 ? lb - 0.09 : la + 0.07, k === 1 ? lb - 0.07 : la + 0.09, 0.005);
     }
-    B(n('transom_bar'), g, M.trim, xa, xb, top, top + 0.05, a0, a1);
-    B(n('transom_glass'), g, M.glass, -0.108, -0.102, top + 0.05, DH - 0.03, a0, a1).castShadow = false;
-    for (let k = 1; k < 4; k++) { const z = a0 + (a1 - a0) * k / 4; B(n(`transom_muntin_${k}`), g, M.trim, xa + 0.008, xb - 0.008, top + 0.05, DH - 0.03, z - 0.011, z + 0.011); }
+    B(n('meeting_astragal'), g, F, xa - 0.006, xb, 0.02, top, mid - 0.012, mid + 0.012, 0.003);
+    B(n('transom_bar'), g, F, xa, xb, top, top + 0.05, a0, a1);
+    B(n('transom_glass'), g, M.doorGlass, -0.108, -0.102, top + 0.05, DH - 0.03, a0, a1).castShadow = false;
+    for (let k = 1; k < 4; k++) { const z = a0 + (a1 - a0) * k / 4; B(n(`transom_muntin_${k}`), g, F, xa + 0.008, xb - 0.008, top + 0.05, DH - 0.03, z - 0.011, z + 0.011); }
     const p = portal(n('portal'), g, new THREE.PlaneGeometry(a1 - a0, DH - 0.05)); p.rotation.y = Math.PI / 2; p.position.set(-0.16, (DH - 0.05) / 2 + 0.02, (a0 + a1) / 2); portalMesh.push(p);
+    const gl = mesh(n('porch_glimpse'), new THREE.PlaneGeometry(a1 - a0, DH - 0.05), new THREE.MeshBasicMaterial({ map: porchGlimpseTex, toneMapped: false }), g, -0.2, (DH - 0.05) / 2 + 0.02, (a0 + a1) / 2, false);
+    gl.rotation.y = Math.PI / 2; gl.receiveShadow = false; gl.visible = false; gl.userData.exportForceVisible = true;
   });
   // lower porch at night (only through the glass)
   { const E = (nm, mat, ...a) => extMesh(B(nm, exterior, mat, ...a));
@@ -156,7 +175,7 @@ export function buildMovieRoom() {
   const screenMat = std('#e8e8e4', 0.85, 0, { emissive: new THREE.Color('#ffffff'), emissiveIntensity: 0 });
   mesh('screen_surface', new THREE.PlaneGeometry(SW, SH), screenMat, furn, SC, SY0 + SH / 2, 0.102, false);
   // (nothing under the screen: media console removed per Dylan)
-  // framed art: on the right wall between the door and the dresser (the RGB flower light now owns the right screen corner).
+  // framed art: on the right wall past the door (the RGB flower light owns the right screen corner).
   // It sits above the 1.1 m cut, so it only shows in interior views.
   { const g = G('framed_art', furn), z0 = 1.6, z1 = 2.2, y0 = 1.2, y1 = 2.0;
     io(B('framed_art_frame', g, std('#1e1a17', 0.4), W - 0.035, W, y0, y1, z0, z1, 0.006));
@@ -252,14 +271,7 @@ export function buildMovieRoom() {
     const r = rng(77); for (let i = 0; i < 46; i++) { const a = r() * 6.28, d = Math.sqrt(r()) * 0.17; sphere(`popcorn_kernel_${i}`, g, popCornMat, 0.022 + r() * 0.01, Math.cos(a) * d, 0.88 + r() * 0.06 * (1 - d / 0.17) + 0.02, Math.sin(a) * d * 0.8).castShadow = false; }
   }
 
-  // ---------------- mid-century dresser by the right wall
-  { const g = G('mid_century_dresser', furn), x0 = W - 0.48, x1 = W - 0.02, z0 = 2.35, z1 = 3.75;
-    B('dresser_body', g, M.walnut, x0, x1, 0.22, 0.86, z0, z1, 0.012);
-    for (let c = 0; c < 2; c++) for (let rr = 0; rr < 3; rr++) { const a = z0 + 0.03 + c * 0.68, y = 0.26 + rr * 0.2;
-      B(`dresser_drawer_${c + 1}_${rr + 1}`, g, M.walnut, x0 - 0.012, x0, y, y + 0.18, a, a + 0.64, 0.004);
-      B(`dresser_pull_${c + 1}_${rr + 1}`, g, M.brass, x0 - 0.02, x0 - 0.01, y + 0.13, y + 0.145, a + 0.25, a + 0.39, 0.003); }
-    for (const [x, z] of [[x0 + 0.05, z0 + 0.06], [x1 - 0.05, z0 + 0.06], [x0 + 0.05, z1 - 0.06], [x1 - 0.05, z1 - 0.06]]) { const l = cyl('dresser_leg', g, M.darkWood, 0.02, 0.012, 0.22, x, 0.11, z, 8); l.rotation.z = x < (x0 + x1) / 2 ? 0.08 : -0.08; }
-    cyl('dresser_lamp_base', g, M.brass, 0.06, 0.08, 0.04, x0 + 0.24, 0.88, z0 + 0.3, 16); }
+  // (mid-century dresser on the right wall removed per Dylan)
 
   // ---------------- seating: two rows of brown leather recliners FACING THE SCREEN, right ends against the right wall; back row on a riser
   const sofaW = 3 * 0.72 + 0.4, SX = W - 0.02 - sofaW / 2;
@@ -289,11 +301,10 @@ export function buildMovieRoom() {
     B(`${name}_top`, g, M.walnut, x - 0.22, x + 0.22, y + 0.5, y + 0.54, z - 0.22, z + 0.22, 0.01);
     B(`${name}_shelf`, g, M.darkWood, x - 0.19, x + 0.19, y + 0.14, y + 0.17, z - 0.19, z + 0.19, 0.006);
     for (const [k, dx, dz] of [[1, -1, -1], [2, 1, -1], [3, -1, 1], [4, 1, 1]]) B(`${name}_leg_${k}`, g, M.darkWood, x + dx * 0.19 - 0.02, x + dx * 0.19 + 0.02, y, y + 0.5, z + dz * 0.19 - 0.02, z + dz * 0.19 + 0.02); });
-  // coffee table / ottoman, round side table, rug (in front of the front row)
+  // coffee table / ottoman, rug (round side table removed per Dylan) (in front of the front row)
   B('area_rug', arch, std('#ffffff', 1, 0, { map: T.rug }), 1.25, 4.95, 0, 0.012, 1.7, 4.55).castShadow = false;
   { const g = G('coffee_ottoman', furn); B('coffee_ottoman_top', g, M.walnut, 2.6, 4.0, 0.36, 0.44, 3.3, 4.1, 0.02); B('coffee_ottoman_body', g, M.darkWood, 2.65, 3.95, 0.06, 0.36, 3.35, 4.05, 0.02);
     B('coffee_ottoman_plinth', g, M.blackMatte, 2.71, 3.89, 0, 0.06, 3.41, 3.99); cyl('coffee_ottoman_bowl', g, std('#d9d2c3', 0.5), 0.13, 0.08, 0.07, 3.3, 0.475, 3.7, 20); }
-  { const g = G('round_side_table', furn), x = 1.15, z = 5.2; cyl('round_side_table_top', g, M.walnut, 0.26, 0.26, 0.04, x, 0.56, z, 32); cyl('round_side_table_pedestal', g, M.darkWood, 0.05, 0.07, 0.52, x, 0.28, z, 14); cyl('round_side_table_base', g, M.darkWood, 0.18, 0.2, 0.03, x, 0.015, z, 24); }
 
   // ---------------- reeded glass panels in brass frames, flat against the rear black curtain: 5 on the popcorn/candy side to the x=0 end, 2 behind the sofas to the right wall, gap between
   { const g = G('reeded_glass_partition', furn), z = L + 0.045, pw = 0.5, gap = 0.035, y0 = 0.42, y1 = 2.3;
