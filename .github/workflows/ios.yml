@@ -11,12 +11,17 @@ on:
       - ".github/workflows/ios.yml"
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - uses: swift-actions/setup-swift@v2
-        with:
-          swift-version: "6.0.3"
+      - name: Install Swift
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libncurses6 libcurl4 libxml2 binutils
+          curl -fsSL -o /tmp/swift.tar.gz https://download.swift.org/swift-6.0.3-release/ubuntu2404/swift-6.0.3-RELEASE/swift-6.0.3-RELEASE-ubuntu24.04.tar.gz
+          sudo mkdir -p /opt/swift
+          sudo tar -xzf /tmp/swift.tar.gz -C /opt/swift --strip-components=1
+          echo /opt/swift/usr/bin >> "$GITHUB_PATH"
       - name: Unit tests
         working-directory: ios/TVPhone
         run: swift test
