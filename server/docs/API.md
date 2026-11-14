@@ -531,7 +531,7 @@ The TV reports the outcome on its next `POST /v1/tv/state` (bearer):
  "at":"…","command":{"id":"tvc_…","ok":false,"error":"no signal"}}}
 ```
 
-`command` is present only on the heartbeat that carried the result. A child sees a `tv` event only for their own room or their own TV. A TV subscription does not receive other TVs' `tv` events, `camera_event`, or camera snapshots. It does receive doorbell and act-now house, kitchen, weather and door notices as `inbox` (display only: no `actions`, no image). An adult TV also receives `decision` / `requests`. Doorbell text is `cat: "doorbell"`.
+`command` is present only on the heartbeat that carried the result. A child sees a `tv` event only for their own room or their own TV. A TV subscription does not receive other TVs' `tv` events, `camera_event`, or camera snapshots. It does receive doorbell and act-now house, kitchen, weather and door notices as `inbox` (display only: no `actions`, no image). An adult TV also receives `decision` / `requests`. Doorbell text is `cat: "doorbell"`. The same stream also carries `home_alert`, `bedtime`, and `dvr_update`, with the shapes in the sections below.
 
 ### Admin
 
@@ -762,6 +762,38 @@ Phones receive now-playing as `tv`, not `tv_command`:
 `GET /v1/art/{kind}/{key}?size=m` with a TV or phone bearer that can watch. `kind` is `logo`, `poster`, `backdrop` or `still`. The body is the image. `ETag` is the quoted sha256 of those bytes. `Cache-Control` is `private, max-age=604800`. `If-None-Match` returns `304`. `size` is `s`, `m` (w342), `l` (w780), `original`, or `w92` / `w154` / `w185` / `w342` / `w500` / `w780`. A missing TMDB or fanart.tv key leaves posters and backdrops empty (`404`); channel logos still resolve. Episode stills use TVmaze and need no key.
 
 Channel logos are chosen in this order: the iptv-org logo for the iptv-org id or tvg-id, then a file in tv-logo/tv-logos, then the provider logo. The index refreshes weekly. A background pass fills logos for the lineup and posters for programmes in the next 24 hours.
+
+### DVR
+
+For a channel with no catch-up. The hub records the live stream with ffmpeg (`-c copy`) into one MPEG-TS file on the NAS. Playback is that growing file with HTTP Range, not HLS. `start` and `end` on a recording are the programme times you sent. `pad_before_s` (default 60) and `pad_after_s` (default 180) only change when the file starts and stops; they are not fields on the recording. `error` is `null` when there is nothing to report. `duration_s` is `0` until capture has started. `stream_url` is always the hub path; the stream answers `409 not_ready` until the file has bytes. `poster_url` is `/v1/art/poster/prog:{20 hex}` from the title, or from `programme_key` when that is a `prog:` id. A provider password is never in this payload.
+
+`POST /v1/dvr/recordings` → `201`
+
+```json
+{"channel_key":"xc:thomas-creek:10","start":"2026-11-14T01:00:00+00:00","end":"2026-11-14T02:00:00+00:00","title":"Newsroom","programme_key":"prog:0b49a5b26ac1e2d3739f","pad_before_s":60,"pad_after_s":180}
+```
+
+```json
+{"id":"dvr_ab12","channel_key":"xc:thomas-creek:10","title":"Newsroom","start":"2026-11-14T01:00:00+00:00","end":"2026-11-14T02:00:00+00:00","status":"scheduled","size_bytes":0,"duration_s":0,"poster_url":"/v1/art/poster/prog:0b49a5b26ac1e2d3739f","error":null,"stream_url":"/v1/dvr/recordings/dvr_ab12/stream"}
+```
+
+`POST /v1/dvr/recordings/now` `{"channel_key":"xc:thomas-creek:10","duration_s":3600,"title":"News"}` → `201` with `"status":"recording"`. `duration_s` must be 60 to 28800.
+
+`POST /v1/dvr/rules` `{"channel_key":"xc:thomas-creek:10","title_match":"Newsroom","new_only":true}` → `201` `{"id":"dvrule_ab12","channel_key":"xc:thomas-creek:10","title_match":"Newsroom","new_only":true}`. The scheduler adds a recording when a matching programme is in the guide. `new_only` skips a start time that is already scheduled.
+
+`GET /v1/dvr/recordings?status=scheduled` → `{"recordings":[ <recording> ]}`. `GET /v1/dvr/recordings/{id}` is one recording. `DELETE` → `{"ok":true}`. `POST /v1/dvr/recordings/{id}/stop` → the recording with `"status":"cancelled"`.
+
+`status` is `scheduled`, `recording`, `done`, `failed` or `cancelled`. `409 conflict` when the recording would open more streams than `dvr.max_connections` at one time. The oldest finished recording is deleted when the folder passes `dvr.quota_bytes`. A restart keeps a future recording; one whose window passed while the hub was down is `failed`.
+
+`GET /v1/dvr/recordings/{id}/stream` is `video/mp2t` with `Accept-Ranges: bytes`. `Range: bytes=10-19` on a 1000-byte file is `206` and `Content-Range: bytes 10-19/1000`. The same call works while the file is still growing.
+
+SSE, on every status change, to phones and TVs:
+
+```json
+{"type":"dvr_update","data":{"id":"dvr_ab12","channel_key":"xc:thomas-creek:10","title":"Newsroom","start":"2026-11-14T01:00:00+00:00","end":"2026-11-14T02:00:00+00:00","status":"recording","size_bytes":0,"duration_s":0,"poster_url":"/v1/art/poster/prog:0b49a5b26ac1e2d3739f","error":null,"stream_url":"/v1/dvr/recordings/dvr_ab12/stream"}}
+```
+
+A child only sees a recording of a kids' channel, and only a kids' channel can be recorded from a kids' profile.
 
 `GET /v1/tv/apps` with a TV bearer. `allowed` is always present. A kids profile, and any child or guest using the TV, gets the kid apps from the household catalog. An adult profile gets every catalog app that has an Android package, including those kid apps.
 

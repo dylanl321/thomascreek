@@ -1,3 +1,4 @@
+import AVKit
 import SwiftUI
 
 // The phone's view of the household IPTV library. The hub holds the provider login;
@@ -110,15 +111,27 @@ struct TVPlayRequest: Identifiable {
     var episodeId: String?
 }
 
+struct DvrPage: Decodable { var recordings: [DvrItem] }
+struct DvrItem: Decodable, Identifiable {
+    var id: String
+    var title: String?
+    var status: String
+    var start: String?
+    var streamUrl: String?
+}
+
 struct TVGuideView: View {
     @Environment(Router.self) private var router
+    @Environment(HomeStore.self) private var store
     @State private var section = "guide"
     @State private var query = ""
     @State private var guide: [TVGuideChannel]?
     @State private var shows: [TVShow]?
     @State private var films: [TVShow]?
+    @State private var recordings: [DvrItem]?
     @State private var found: TVLibrarySearch?
     @State private var play: TVPlayRequest?
+    @State private var playback: URL?
 
     var body: some View {
         ScrollView {
@@ -127,6 +140,7 @@ struct TVGuideView: View {
                     Text("Guide").tag("guide")
                     Text("Shows").tag("shows")
                     Text("Movies").tag("movies")
+                    Text("Saved").tag("saved")
                 }
                 .pickerStyle(.segmented)
                 if query.count >= 2 {
@@ -135,6 +149,8 @@ struct TVGuideView: View {
                     guideList
                 } else if section == "shows" {
                     posterGrid(shows, empty: "No shows") { router.go(.tvSeries($0.id)) }
+                } else if section == "saved" {
+                    savedList
                 } else {
                     posterGrid(films, empty: "No movies") { router.go(.tvMovie($0.id)) }
                 }
@@ -149,6 +165,37 @@ struct TVGuideView: View {
         .task(id: query) { await search() }
         .refreshable { await loadSection() }
         .sheet(item: $play) { PlayOnTVSheet(request: $0) }
+        .sheet(isPresented: Binding(get: { playback != nil }, set: { if !$0 { playback = nil } })) {
+            if let playback {
+                NavigationStack {
+                    VideoPlayer(player: AVPlayer(url: playback)).ignoresSafeArea()
+                        .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { self.playback = nil } } }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private var savedList: some View {
+        if let recordings {
+            if recordings.isEmpty {
+                EmptyCard(symbol: "recordingtape", title: "No recordings", detail: "Record a programme from the guide.")
+            }
+            ForEach(recordings) { item in
+                Button { Task { await playSaved(item) } } label: {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(item.title ?? "Recording").font(.headline).foregroundStyle(Theme.fg)
+                            Text(item.status).font(.caption).foregroundStyle(Theme.dim)
+                        }
+                        Spacer()
+                        if item.status == "done" || item.status == "recording" {
+                            Image(systemName: "play.fill").foregroundStyle(Theme.accent)
+                        }
+                    }
+                }
+                .buttonStyle(.plain).card()
+            }
+        } else { LoadingCard() }
     }
 
     @ViewBuilder private var guideList: some View {
@@ -187,25 +234,61 @@ struct TVGuideView: View {
     }
 
     private func programmeButton(_ item: TVProgramme, channel: TVGuideChannel, live: Bool) -> some View {
-        Button {
-            play = TVPlayRequest(
-                title: item.title,
-                kind: item.catchup == true && !live ? "catchup" : "live",
-                channelKey: channel.key,
-                start: item.catchup == true && !live ? item.start : nil)
-        } label: {
-            HStack {
-                TVArt(url: item.posterUrl ?? item.backdropUrl ?? item.icon, symbol: "film").frame(width: 36, height: 36)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(item.title).font(.subheadline.weight(.semibold)).foregroundStyle(Theme.fg).lineLimit(1)
-                    Text(live ? "On now" : (item.catchup == true ? "Start over · \(tvClock(item.start))" : tvClock(item.start)))
-                        .font(.caption).foregroundStyle(Theme.dim)
+        HStack {
+            Button {
+                play = TVPlayRequest(
+                    title: item.title,
+                    kind: item.catchup == true && !live ? "catchup" : "live",
+                    channelKey: channel.key,
+                    start: item.catchup == true && !live ? item.start : nil)
+            } label: {
+                HStack {
+                    TVArt(url: item.posterUrl ?? item.backdropUrl ?? item.icon, symbol: "film").frame(width: 36, height: 36)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(item.title).font(.subheadline.weight(.semibold)).foregroundStyle(Theme.fg).lineLimit(1)
+                        Text(live ? "On now" : (item.catchup == true ? "Start over · \(tvClock(item.start))" : tvClock(item.start)))
+                            .font(.caption).foregroundStyle(Theme.dim)
+                    }
+                    Spacer()
+                    Image(systemName: "play.tv").foregroundStyle(Theme.accent)
                 }
-                Spacer()
-                Image(systemName: "play.tv").foregroundStyle(Theme.accent)
+            }
+            .buttonStyle(.plain)
+            if item.end != nil {
+                Button { Task { await record(item, channel) } } label: {
+                    Image(systemName: "record.circle").font(.title3).foregroundStyle(Theme.warn)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Record")
             }
         }
-        .buttonStyle(.plain)
+    }
+
+    private func record(_ item: TVProgramme, _ channel: TVGuideChannel) async {
+        guard let end = item.end else { return }
+        do {
+            let _: DvrItem = try await HubClient.shared.post("/v1/dvr/recordings", [
+                "channel_key": channel.key, "start": item.start, "end": end, "title": item.title,
+            ])
+            store.show("Recording", item.title)
+        } catch {
+            store.show(error.localizedDescription, item.title, isError: true)
+        }
+    }
+
+    private func playSaved(_ item: DvrItem) async {
+        guard let path = item.streamUrl, item.status == "done" || item.status == "recording" else { return }
+        do {
+            let request = try await HubClient.shared.authorizedRequest(path)
+            let (data, response) = try await HubClient.session.data(for: request)
+            let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+            guard (200..<300).contains(code), !data.isEmpty else { return }
+            let file = FileManager.default.temporaryDirectory.appendingPathComponent("\(item.id).ts")
+            try data.write(to: file)
+            playback = file
+        } catch {
+            store.show(error.localizedDescription, item.title, isError: true)
+        }
     }
 
     private func posterGrid(_ items: [TVShow]?, empty: String, open: @escaping (TVShow) -> Void) -> some View {
@@ -284,6 +367,8 @@ struct TVGuideView: View {
             guide = (try? await HubClient.shared.get("/v1/tv/guide", as: TVGuidePage.self))?.channels ?? []
         } else if section == "shows" {
             shows = (try? await HubClient.shared.get("/v1/tv/series", as: TVSeriesPage.self))?.series ?? []
+        } else if section == "saved" {
+            recordings = (try? await HubClient.shared.get("/v1/dvr/recordings", as: DvrPage.self))?.recordings ?? []
         } else {
             films = (try? await HubClient.shared.get("/v1/tv/movies", as: TVMoviePage.self))?.movies ?? []
         }
