@@ -12,8 +12,10 @@ struct RightNowSection: View {
 
     var body: some View {
         let all = cards
+        // The hub decides how many lead (calmer when little is going on); 3 from an older hub.
+        let limit = max(1, store.home?.plan?.cardsShown ?? 3)
         if !all.isEmpty {
-            let shown = showAll ? all : Array(all.prefix(3))
+            let shown = showAll ? all : Array(all.prefix(limit))
             VStack(alignment: .leading, spacing: 10) {
                 if !kid {
                     SectionHeader(title: "Right now") {
@@ -23,8 +25,8 @@ struct RightNowSection: View {
                 ForEach(shown) { c in
                     if c.style == "picture" { PictureCard(card: c) } else { SmartCardView(card: c, lead: c.id == shown.first?.id && c.priority >= 85) }
                 }
-                if all.count > 3 {
-                    Button(showAll ? "Show less" : "Show \(all.count - 3) more") { withAnimation(.snappy) { showAll.toggle() } }
+                if all.count > limit {
+                    Button(showAll ? "Show less" : "Show \(all.count - limit) more") { withAnimation(.snappy) { showAll.toggle() } }
                         .font(.subheadline.weight(.semibold)).frame(maxWidth: .infinity)
                 }
             }

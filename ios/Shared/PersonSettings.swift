@@ -44,6 +44,8 @@ struct PersonSettings: Codable, Hashable {
 enum SettingKey {
     static let homeOrder = "home.order"
     static let homeHidden = "home.hidden"
+    /// Let the house brain arrange Home (default on).
+    static let homeAI = "home.ai"
     static let appearance = "appearance"
     static let simpleMode = "simple_mode"
     static let textSize = "text_size"

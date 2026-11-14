@@ -39,6 +39,7 @@ def iso_ago(seconds: float) -> str:
 @pytest.fixture
 def brain(hub, monkeypatch):
     hub.vault.set("anthropic.api_key", "sk-ant-test")
+    hub.config.brain.layout_enabled = False  # Home layout has its own tests (test_layout.py)
     b = hub.brain
     # An evening by default, so the daytime and morning jobs only speak when a test sets the clock.
     monkeypatch.setattr(b, "now", lambda: datetime(2026, 11, 14, 20, 0, tzinfo=hub.policy.tz))

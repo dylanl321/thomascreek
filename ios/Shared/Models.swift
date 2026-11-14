@@ -101,7 +101,24 @@ struct SmartCard: Codable, Hashable, Identifiable {
     }
 }
 
-struct SmartList: Codable { var cards: [SmartCard]; var weather: HomeSnapshot.Weather? }
+struct SmartList: Codable { var cards: [SmartCard]; var weather: HomeSnapshot.Weather?; var plan: HomePlan? }
+
+/// How the house brain arranged this person's Home right now (hub/brain/layout.py). Nil from an older hub.
+/// `source` is "ai" when the brain arranged it, "default" (the person's own order) or "off" (they switched it off).
+/// Sections with `show == false` sit under "Show everything"; a `note` means the service behind it is down.
+struct HomePlan: Codable, Hashable {
+    var source: String
+    var home: String?
+    var sections: [Section]
+    var cardsShown: Int?
+    var why: String?
+    var generatedAt: String?
+    /// `pinned`: shown whatever the person's own settings say (Right now while a safety card is up).
+    struct Section: Codable, Hashable { var id: String; var show: Bool; var note: String?; var pinned: Bool? }
+
+    var arranged: Bool { source == "ai" }
+    func note(_ id: String) -> String? { sections.first { $0.id == id }?.note }
+}
 
 // MARK: - Who am I
 
@@ -199,6 +216,8 @@ struct HomeSnapshot: Codable, Hashable {
     var seasonal: Seasonal?
     var weather: Weather?
     var smart: [SmartCard]?
+    /// The house brain's arrangement of this person's Home (sections, how many cards). Nil from an older hub.
+    var plan: HomePlan?
     /// 3D printers (the workshop), when this person may see them.
     var printers: [PrinterSummary]?
     /// Real appliances (fridge, ovens, dishwasher, washer, dryer, vacuum), one per device, for people with "appliances".

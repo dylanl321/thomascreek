@@ -14,8 +14,13 @@ router = APIRouter(prefix="/v1/smart", tags=["smart"])
 
 
 @router.get("")
-async def smart(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
-    return {"cards": h.smart.cards(c.subject), "weather": h.smart.weather.now()}
+async def smart(plan: str | None = None, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """`?plan=open` comes from the app's Home screen: only then may the house brain re-plan the layout."""
+    arranged, cards = h.home.plan_and_cards(c.subject, open_home=plan == "open")
+    out = {"cards": cards, "weather": h.smart.weather.now()}
+    if arranged is not None:
+        out["plan"] = arranged
+    return out
 
 
 class DismissBody(BaseModel):

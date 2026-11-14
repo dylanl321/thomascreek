@@ -7,6 +7,7 @@ struct HomeView: View {
 
     private var me: Me? { store.me }
     private var home: HomeSnapshot? { store.home }
+    @State private var showEverything = false
 
     var body: some View {
         ScrollView {
@@ -15,13 +16,23 @@ struct HomeView: View {
                 if let alert = store.doorAlert { DoorAlertCard(alert: alert) }
                 if let bedtime = store.tvBedtime, bedtime.state != "unlocked" { TVBedtimeCard(notice: bedtime) }
                 VPNNotice()
-                ForEach(sections) { section($0) }
-                if !store.reachable, store.role == .admin, !sections.contains(.status) { OfflineCard() }
+                let arranged = layout
+                ForEach(arranged.shown) { planned($0) }
+                if !arranged.tucked.isEmpty {
+                    if showEverything { ForEach(arranged.tucked) { planned($0) } }
+                    Button(showEverything ? "Show less" : "Show everything") { withAnimation(.snappy) { showEverything.toggle() } }
+                        .font(.subheadline.weight(.semibold)).frame(maxWidth: .infinity).padding(.top, 2)
+                }
+                if !store.reachable, store.role == .admin, !arranged.shown.contains(.status) { OfflineCard() }
                 Button { router.showEditHome = true } label: {
                     Label("Edit Home", systemImage: "slider.horizontal.3").font(.subheadline.weight(.semibold))
                         .frame(maxWidth: .infinity).padding(.vertical, 12)
                 }
                 .buttonStyle(.plain).foregroundStyle(Theme.accent).padding(.top, 4)
+                if let plan = home?.plan, plan.arranged, arrangeOn {
+                    Label(plan.why.map { "Arranged for now: \($0)" } ?? "Arranged for now by Thomas Creek", systemImage: "sparkles")
+                        .font(.caption).foregroundStyle(Theme.dim).frame(maxWidth: .infinity)
+                }
             }
             .screen()
         }
@@ -54,6 +65,29 @@ struct HomeView: View {
     }
 
     private var sections: [HomeSection] { SettingsStore.shared.homeSections(default: Self.sections(for: me)) }
+    private var arrangeOn: Bool { SettingsStore.shared.bool(SettingKey.homeAI, true) }
+
+    /// The hub's arrangement when the house brain made one (and the person hasn't switched it off), else their own
+    /// order. Only sections this person has and didn't hide; any the hub didn't mention keep showing.
+    private var layout: (shown: [HomeSection], tucked: [HomeSection]) {
+        // A safety card (oven left on, unlocked while away) shows even if they hid Right now.
+        let pinned = (home?.plan?.sections ?? []).filter { $0.pinned == true }
+            .compactMap { HomeSection(rawValue: $0.id) }.filter { Self.sections(for: me).contains($0) }
+        let mine = pinned + sections.filter { !pinned.contains($0) }
+        guard let plan = home?.plan, plan.arranged, arrangeOn else { return (mine, []) }
+        let shown = plan.sections.filter(\.show).compactMap { HomeSection(rawValue: $0.id) }.filter(mine.contains)
+        let tucked = plan.sections.filter { !$0.show }.compactMap { HomeSection(rawValue: $0.id) }.filter(mine.contains)
+        return (shown + mine.filter { !shown.contains($0) && !tucked.contains($0) }, tucked)
+    }
+
+    /// A section, or a one-line note when the service behind it isn't answering.
+    @ViewBuilder private func planned(_ s: HomeSection) -> some View {
+        if let note = home?.plan?.note(s.rawValue) {
+            ServiceNoteRow(title: s.title, symbol: s.symbol, note: note)
+        } else {
+            section(s)
+        }
+    }
 
     @ViewBuilder private func section(_ s: HomeSection) -> some View {
         switch s {
@@ -108,6 +142,25 @@ struct HomeView: View {
         var s = Date.now.formatted(.dateTime.weekday(.wide).month(.abbreviated).day())
         if let w = home?.weather, let t = w.temp { s += " · \(Int(t.rounded()))° \(w.condition ?? "")" }
         return s
+    }
+}
+
+/// Stands in for a Home section whose service is down, so the screen says why it's missing.
+struct ServiceNoteRow: View {
+    let title: String
+    let symbol: String
+    let note: String
+    var body: some View {
+        HStack(spacing: 12) {
+            IconBadge(symbol: symbol, color: Theme.dim, size: 34)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.subheadline.weight(.semibold))
+                Text(note).font(.caption).foregroundStyle(Theme.dim)
+            }
+            Spacer(minLength: 0)
+        }
+        .card()
+        .accessibilityElement(children: .combine)
     }
 }
 
