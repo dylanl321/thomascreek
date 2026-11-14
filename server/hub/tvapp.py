@@ -70,6 +70,7 @@ TOKEN_SECRET = "github.tv_app_token"
 KV_SIGNER = "tvapp.signer"
 KV_BOXES = "tvapp.boxes"
 KV_LATEST = "tvapp.latest"
+KV_BUILDS = "tv.builds"
 KV_TVS = "tvapp.tvs"
 KV_KIDS = "tvapp.kids_categories"
 KV_CONFIG_VERSION = "tvapp.config_version"
@@ -480,38 +481,18 @@ class TvApp:
                 raise TvAppError(502, "bad_release", f"Release {rel.get('tag_name')} is missing update.json or {APK_NAME}")
             info = json.loads((await self._asset(c, assets["update.json"])).decode())
             code = int(info["versionCode"])
-            sha = str(info.get("sha256") or "").lower()
             cur = self.latest()
             if cur and int(cur.get("versionCode", 0)) >= code and self.apk_path(int(cur["versionCode"])).exists():
                 return cur
             if int(assets[APK_NAME].get("size") or 0) > MAX_APK:
                 raise TvAppError(502, "too_big", "The APK in the release is too large")
             apk = await self._asset(c, assets[APK_NAME])
-        if not re.fullmatch(r"[0-9a-f]{64}", sha) or hashlib.sha256(apk).hexdigest() != sha:
-            raise TvAppError(502, "bad_hash", f"Build {info.get('versionName')} doesn't match its update.json; not kept")
         try:
-            certs = signer_certificates(apk)
-        except ValueError as exc:
-            raise TvAppError(502, "unsigned", f"Build {info.get('versionName')} isn't properly signed ({exc})") from None
-        pinned = self.db.kv_get(KV_SIGNER)
-        if pinned is None:
-            self.db.kv_set(KV_SIGNER, certs[0])
-            pinned = certs[0]
-            log.info("tvapp: pinned signer %s", pinned)
-        if pinned not in certs:
-            msg = f"Build {info.get('versionName')} is signed with a different key than earlier builds; it was not installed anywhere"
-            if self.notify:
-                await self.notify("TV app build refused", msg)
-            raise TvAppError(502, "signer_changed", msg)
-        self.dir.mkdir(parents=True, exist_ok=True)
-        tmp = self.apk_path(code).with_suffix(".part")
-        tmp.write_bytes(apk)
-        tmp.replace(self.apk_path(code))
-        latest = {"versionCode": code, "versionName": str(info.get("versionName") or code), "sha256": sha,
-                  "notes": str(info.get("notes") or "")[:500], "tag": rel.get("tag_name"), "fetched_at": time.time()}
-        self.db.kv_set(KV_LATEST, latest)
-        self._prune(keep=(code, int(cur["versionCode"])) if cur else (code,))
-        return latest
+            return self.store_build(apk, info, tag=rel.get("tag_name"), announce=True)
+        except TvAppError as exc:
+            if exc.code == "signer_changed" and self.notify:
+                await self.notify("TV app build refused", exc.message)
+            raise
 
     async def _asset(self, c: httpx.AsyncClient, asset: dict[str, Any]) -> bytes:
         r = await c.get(f"/repos/{self.cfg.repo}/releases/assets/{asset['id']}",
@@ -519,10 +500,72 @@ class TvApp:
         r.raise_for_status()
         return r.content
 
+    def store_build(self, apk: bytes, info: dict[str, Any], *, tag: str | None = None, announce: bool = False) -> dict[str, Any]:
+        """Keep a signed APK whose checksum matches update.json. The newest one is what TVs install."""
+        try:
+            code = int(info.get("versionCode"))
+        except (TypeError, ValueError):
+            raise TvAppError(400, "bad_release", "That update.json isn't the one from the TV build.") from None
+        if code < 1 or isinstance(info.get("versionCode"), bool):
+            raise TvAppError(400, "bad_release", "That update.json isn't the one from the TV build.")
+        name = str(info.get("versionName") or code)
+        sha = str(info.get("sha256") or "").lower()
+        status = 502 if announce else 400
+        if len(apk) > MAX_APK:
+            raise TvAppError(status, "too_big", "That build is too large.")
+        if not re.fullmatch(r"[0-9a-f]{64}", sha) or hashlib.sha256(apk).hexdigest() != sha:
+            raise TvAppError(status, "bad_hash", f"Build {name} doesn't match its update.json; not kept")
+        try:
+            certs = signer_certificates(apk)
+        except ValueError as exc:
+            raise TvAppError(status, "unsigned", f"Build {name} isn't properly signed ({exc})") from None
+        pinned = self.db.kv_get(KV_SIGNER)
+        if pinned is None:
+            self.db.kv_set(KV_SIGNER, certs[0])
+            pinned = certs[0]
+            log.info("tvapp: pinned signer %s", pinned)
+        if pinned not in certs:
+            raise TvAppError(status, "signer_changed",
+                             f"Build {name} is signed with a different key than earlier builds; it was not installed anywhere")
+        self.dir.mkdir(parents=True, exist_ok=True)
+        tmp = self.apk_path(code).with_suffix(".part")
+        tmp.write_bytes(apk)
+        tmp.replace(self.apk_path(code))
+        self._remember_build(code, name, sha, str(info.get("notes") or "")[:500], tag)
+        cur = self.latest() or {}
+        if not cur or code >= int(cur.get("versionCode") or 0):
+            cur = {"versionCode": code, "versionName": name, "sha256": sha,
+                   "notes": str(info.get("notes") or "")[:500], "tag": tag, "fetched_at": time.time()}
+            self.db.kv_set(KV_LATEST, cur)
+        self._prune(self._kept_codes(code))
+        return self.latest() or cur
+
+    def _remember_build(self, code: int, name: str, sha: str, notes: str, tag: str | None) -> None:
+        raw = self.db.kv_get(KV_BUILDS) or {}
+        if not isinstance(raw, dict):
+            raw = {}
+        raw[str(code)] = {"versionCode": code, "versionName": name, "sha256": sha, "notes": notes or None,
+                          "tag": tag, "fetched_at": time.time()}
+        self.db.kv_set(KV_BUILDS, raw)
+
+    def _kept_codes(self, newest: int) -> tuple[int, ...]:
+        """The latest build and up to seven older ones, so the Downloads page can still offer them."""
+        found = {newest}
+        for path in self.dir.glob("*.apk"):
+            if path.stem.isdigit():
+                found.add(int(path.stem))
+        return tuple(sorted(found, reverse=True)[:8])
+
     def _prune(self, keep: tuple[int, ...]) -> None:
-        for p in self.dir.glob("*.apk"):
-            if p.stem.isdigit() and int(p.stem) not in keep:
-                p.unlink(missing_ok=True)
+        kept = set(keep)
+        for path in self.dir.glob("*.apk"):
+            if path.stem.isdigit() and int(path.stem) not in kept:
+                path.unlink(missing_ok=True)
+        raw = self.db.kv_get(KV_BUILDS) or {}
+        if isinstance(raw, dict):
+            left = {key: row for key, row in raw.items() if str(key).isdigit() and int(key) in kept}
+            if left != raw:
+                self.db.kv_set(KV_BUILDS, left)
 
     # -- boxes ---------------------------------------------------------------------------------------------------------
     def _serial(self, ip: str) -> str:
@@ -1342,6 +1385,12 @@ class TvApp:
         await asyncio.sleep(30)
         while True:
             try:
+                # downloads imports this module, so the inbox is read from inside the loop.
+                from .tvbuilds import adopt_inbox
+
+                note = adopt_inbox(self)
+                if note:
+                    log.info("tvapp inbox: %s", note)
                 if self.vault.has(TOKEN_SECRET):
                     await self.check()
                 await self.update_all()
