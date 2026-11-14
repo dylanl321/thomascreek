@@ -143,3 +143,27 @@ A room with windows can have a `sun` entry in `catalog.json`. The app then works
 - `walls` are the real walls holding the windows; the tallest one sets the shell's ceiling height.
 
 The basement rooms have no `sun`. `ios/scripts/dollhouse_snapshot.swift` takes an optional date, latitude, longitude and cloud cover to render a room offscreen with the sun at that moment.
+
+## Property (the whole lot)
+
+`Property/` is the exterior view: the lot on Thomas Creek Ct, the slope down to the floodplain, the river, the field, the drive, the trees, the blueberry orchard, and placeholder massing for the house and the garage apartment. It is the first row in `catalog.json`, so it is the first dollhouse tile on House. The source is Model Generator's three.js build in `/workspace/handoff/property/` (frame: 1 unit = 1 m, +Y up, north = -Z, origin = lot centre; about 102 x 186 m). The committed USDZ is `property_all_on.glb` through the same converter:
+
+```
+python3 ios/scripts/gltf_to_usdz.py property_all_on.glb ios/Rooms/Property/property.usdz ios/Rooms/Property/appearance.json
+```
+
+The row has `"kind": "property"`. That one flag:
+- scales the key light, its shadow box and the camera's far plane to the lot (a room's 100 m far plane would clip it), and lets pinch zoom go to 6x instead of 2.5x;
+- drops the Climate card and Advanced, and lists the rooms instead;
+- makes a tap on `house_massing*` open a list of the rooms, and a tap on `garage_massing*` say the garage apartment has no model yet.
+
+The property has no hub devices. Model Generator's first export had a `light_pole`, which was really the lone tree in the field; the re-export has `tree_field_lone` instead, the blueberry orchard (`blueberry_row_1`, `blueberry_bed_west_1`-`3`), and anchors `anchor_river`, `anchor_field`, `anchor_orchard`, `anchor_tree`. The lot is now scaled to 5 acres with the terrain relief exaggerated x2 (see the handoff README). With no devices, the page hides Scenes, and `life.json` has no scenes: the lot only follows the time-of-day light. To add an outdoor light later, put it in `devices.json` and `hub-mapping.json` the same way as a room device. The river gets a slow shimmer from a surface shader while motion is allowed (`DollhouseAmbient.syncRiver`).
+
+Check the lighting offscreen (the snapshot knows the `kind` flag too):
+
+```
+mkdir -p /tmp/dhsnap && cp ios/scripts/dollhouse_snapshot.swift /tmp/dhsnap/main.swift
+swiftc -O /tmp/dhsnap/main.swift ios/App/Features/Rooms/DollhouseSunlight.swift -o /tmp/dollhouse_snapshot
+SNAP_SIZE=780x880 /tmp/dollhouse_snapshot ios/Rooms property allon dusk ios/scripts/dollhouse_rig.json /tmp/property.png
+```
+

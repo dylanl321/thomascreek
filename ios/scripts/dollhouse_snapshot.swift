@@ -50,6 +50,8 @@ let roomsDir = URL(fileURLWithPath: a[1]), roomId = a[2], mode = a[3], part = a[
 let rig = try JSONDecoder().decode(Rig.self, from: Data(contentsOf: URL(fileURLWithPath: a[5])))
 let catalog = try JSONSerialization.jsonObject(with: Data(contentsOf: roomsDir.appendingPathComponent("catalog.json"))) as! [String: Any]
 let row = (catalog["rooms"] as! [[String: Any]]).first { $0["id"] as? String == roomId }!
+// The property (the whole lot, ~190 m) scales the key light and camera planes to its size, per addStudio.
+let isProperty = row["kind"] as? String == "property"
 let appearance = try JSONSerialization.jsonObject(with: Data(contentsOf: roomsDir.appendingPathComponent(row["appearance"] as! String))) as! [String: Any]
 let devices = try JSONSerialization.jsonObject(with: Data(contentsOf: roomsDir.appendingPathComponent(row["devices"] as! String))) as! [String: Any]
 let scene = try SCNScene(url: roomsDir.appendingPathComponent(row["model"] as! String), options: [.animationImportPolicy: SCNSceneSource.AnimationImportPolicy.doNotPlay])
@@ -201,7 +203,7 @@ let center = SCNVector3((lo.x + hi.x) / 2, (lo.y + hi.y) / 2, (lo.z + hi.z) / 2)
 let radius = sqrt(pow(hi.x - lo.x, 2) + pow(hi.y - lo.y, 2) + pow(hi.z - lo.z, 2)) / 2
 var dir = SIMD3<Double>(Double(pos[0] - tgt[0]), Double(pos[1] - tgt[1]), Double(pos[2] - tgt[2]))
 dir /= (dir * dir).sum().squareRoot()
-let dist = Double(radius) / sin(fov * .pi / 360) * 0.92
+let dist = Double(radius) / sin(fov * .pi / 360) * (isProperty ? 1.0 : 0.92)
 let cam = SCNNode(); cam.camera = SCNCamera()
 cam.camera!.zNear = 0.05; cam.camera!.zFar = 100; cam.camera!.fieldOfView = CGFloat(fov)
 cam.camera!.wantsHDR = true; cam.camera!.wantsExposureAdaptation = false
@@ -209,6 +211,15 @@ cam.camera!.exposureOffset = CGFloat(rig.exposure)
 cam.camera!.whitePoint = CGFloat(rig.whitePoint)
 cam.camera!.categoryBitMask = ~DollhouseSunlight.shellCategory
 cam.camera!.bloomIntensity = CGFloat(rig.bloomIntensity); cam.camera!.bloomThreshold = CGFloat(rig.bloomThreshold); cam.camera!.bloomBlurRadius = 12
+if isProperty {
+    let reach = CGFloat(radius)
+    let unit = SCNVector3(-5 / 11.87, 10 / 11.87, 4 / 11.87)
+    key.position = SCNVector3(center.x + unit.x * reach * 1.6, center.y + unit.y * reach * 1.6, center.z + unit.z * reach * 1.6)
+    key.light!.zNear = 1; key.light!.zFar = reach * 3.4
+    key.light!.orthographicScale = Double(reach * 1.1); key.light!.shadowRadius = 3
+    key.look(at: center)
+    cam.camera!.zNear = 0.5; cam.camera!.zFar = Double(reach * 8)
+}
 cam.position = SCNVector3(center.x + CGFloat(dir.x * dist), center.y + CGFloat(dir.y * dist), center.z + CGFloat(dir.z * dist))
 cam.look(at: center)
 scene.rootNode.addChildNode(cam)
@@ -217,7 +228,9 @@ let renderer = SCNRenderer(device: MTLCreateSystemDefaultDevice(), options: nil)
 renderer.scene = scene
 renderer.pointOfView = cam
 renderer.autoenablesDefaultLighting = false
-let size = CGSize(width: 900, height: 700)
+// SNAP_SIZE=780x880 renders at the phone hero's shape (390x440 pt) to check the fit.
+let sizeParts = (ProcessInfo.processInfo.environment["SNAP_SIZE"] ?? "900x700").split(separator: "x").compactMap { Double($0) }
+let size = sizeParts.count == 2 ? CGSize(width: sizeParts[0], height: sizeParts[1]) : CGSize(width: 900, height: 700)
 _ = renderer.snapshot(atTime: 0, with: size, antialiasingMode: .multisampling4X)
 let image = renderer.snapshot(atTime: 0.1, with: size, antialiasingMode: .multisampling4X)
 var rect = CGRect(origin: .zero, size: image.size)

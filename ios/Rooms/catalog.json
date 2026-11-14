@@ -1,6 +1,22 @@
 {
   "rooms": [
     {
+      "id": "property",
+      "title": "Property",
+      "symbol": "tree.fill",
+      "kind": "property",
+      "model": "Property/property.usdz",
+      "devices": "Property/devices.json",
+      "mapping": "Property/hub-mapping.json",
+      "appearance": "Property/appearance.json",
+      "life": "Property/life.json",
+      "views": {
+        "dollhouse": { "position": [-80, 240, 160], "target": [4, -3, 8], "fov": 30 },
+        "close": { "position": [-68, 57, 144], "target": [15, -1, 63], "fov": 30 },
+        "top": { "position": [9, 330, 120], "target": [4, 0, 4], "fov": 34 }
+      }
+    },
+    {
       "id": "living_room",
       "title": "Living Room",
       "symbol": "sofa.fill",

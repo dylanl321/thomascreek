@@ -1,0 +1,10 @@
+{
+  "room": "property",
+  "units": "meters",
+  "up": "+Y",
+  "origin": "centre of the lot bounding box; north = -Z, east = +X; y = 0 is finished grade at the house (floodplain about -4.5 m)",
+  "presets": {
+    "all_off": {}
+  },
+  "devices": []
+}

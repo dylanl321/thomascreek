@@ -28,6 +28,7 @@ private struct DollhouseRoomPage: View {
     @State private var highlighted: String?
     @State private var visible = false
     @State private var detail: DollhouseDetail?
+    @State private var site: DollhouseSite?
 
     init(room: DollhouseRoom) {
         self.room = room
@@ -39,7 +40,9 @@ private struct DollhouseRoomPage: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     hero(proxy)
-                    presets
+                    if !room.devices.devices.isEmpty {
+                        presets
+                    }
                     ForEach(room.devices.devices) { device in
                         DollhouseDeviceCard(room: room, device: device, on: isOn(device.name), highlighted: highlighted == device.name,
                                             set: { set(device, $0) }, choose: { setOption(device, $0) })
@@ -51,14 +54,18 @@ private struct DollhouseRoomPage: View {
                             AlsoInRoomCard(extra: extra)
                         }
                     }
-                    SectionHeader("Climate", live: climate != nil)
-                    if let climate {
-                        ClimateCard(device: climate)
+                    if room.isProperty {
+                        roomLinks
                     } else {
-                        NotSetUpCard(symbol: "thermometer.medium", title: "Climate",
-                                     note: "Set climate_entity_id in this room's hub-mapping.json.")
+                        SectionHeader("Climate", live: climate != nil)
+                        if let climate {
+                            ClimateCard(device: climate)
+                        } else {
+                            NotSetUpCard(symbol: "thermometer.medium", title: "Climate",
+                                         note: "Set climate_entity_id in this room's hub-mapping.json.")
+                        }
+                        advanced
                     }
-                    advanced
                 }
                 .screen()
             }
@@ -80,8 +87,10 @@ private struct DollhouseRoomPage: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarLeading) { LivePill() }
-            ToolbarItem(placement: .primaryAction) {
-                Button("Advanced") { router.go(.room(room.mapping.roomId)) }
+            if !room.isProperty {
+                ToolbarItem(placement: .primaryAction) {
+                    Button("Advanced") { router.go(.room(room.mapping.roomId)) }
+                }
             }
         }
         .task {
@@ -151,6 +160,8 @@ private struct DollhouseRoomPage: View {
                             }
                         }, onLongPress: { name in
                             detail = DollhouseDetail(name: name)
+                        }, onSite: { tapped in
+                            site = tapped
                         })
                     } else {
                         ProgressView("Opening \(room.title)…")
@@ -158,6 +169,17 @@ private struct DollhouseRoomPage: View {
                 }
                 .frame(maxWidth: .infinity)
                 .frame(height: 440)
+                .confirmationDialog(site?.title ?? "", isPresented: Binding(get: { site != nil }, set: { if !$0 { site = nil } }),
+                                    titleVisibility: .visible, presenting: site) { tapped in
+                    if tapped == .house {
+                        ForEach(DollhouseCatalog.indoorRooms) { indoor in
+                            Button(indoor.title) { router.go(.dollhouse(indoor.id)) }
+                        }
+                    }
+                    Button("Cancel", role: .cancel) {}
+                } message: { tapped in
+                    Text(tapped == .house ? "Open a room" : "The garage apartment doesn't have a model yet.")
+                }
                 // No card and no mask: the cutaway sits on the app background like a dollhouse.
 
                 Menu {
@@ -176,7 +198,7 @@ private struct DollhouseRoomPage: View {
             HStack {
                 Freshness(date: store.home?.generated, live: true)
                 Spacer()
-                Text("Tap a light · hold for more · pinch to zoom")
+                Text(room.isProperty ? "Tap the house for rooms · pinch to zoom · two fingers to pan" : "Tap a light · hold for more · pinch to zoom")
                     .font(.caption)
                     .foregroundStyle(Theme.dim)
             }
@@ -201,6 +223,25 @@ private struct DollhouseRoomPage: View {
             Text("Linked devices change in the house. Anything still unlinked changes in the model only.")
                 .font(.footnote)
                 .foregroundStyle(Theme.dim)
+        }
+    }
+
+    /// The property page lists the rooms instead of a climate card and an Advanced screen.
+    private var roomLinks: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            SectionHeader("Rooms")
+            ForEach(DollhouseCatalog.indoorRooms) { indoor in
+                Button { router.go(.dollhouse(indoor.id)) } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: indoor.symbol).foregroundStyle(Theme.accent).frame(width: 28)
+                        Text(indoor.title).font(.headline).foregroundStyle(Theme.fg)
+                        Spacer()
+                        Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(Theme.dim)
+                    }
+                    .card()
+                }
+                .buttonStyle(.plain)
+            }
         }
     }
 
