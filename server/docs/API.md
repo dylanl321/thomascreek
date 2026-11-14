@@ -778,8 +778,39 @@ Channel logos are chosen in this order: the iptv-org logo for the iptv-org id or
 ```json
 {"version_code":602,"version_name":"1.4.1-tc.2","sha256":"abc","signer_sha256":"deadbeef",
  "apk_path":"/v1/tv/apk","package":"me.dlewis.thomascreek.tv","notes":null,
- "install":"Download the APK with this TV's bearer, check sha256 and signer_sha256, then hand the file to PackageInstaller. The person confirms on the TV."}
+ "install":"Download the APK with this TV's bearer, check sha256 and signer_sha256, then hand the file to PackageInstaller. The person confirms on the TV.",
+ "idle_only":true,"silent":true,"window":{"from":"01:00","to":"06:00","timezone":"America/New_York"}}
 ```
+
+The `install` sentence is unchanged. A TV that already knows it still confirms on screen. A current TV reads `idle_only`, `silent`, and `window` and does not ask. It downloads only while idle, inside that window, in the hub's timezone. `from` is included and `to` is not: 01:00 starts it, 06:00 stops it. Outside that window, or while something is playing, it does nothing and shows nothing. `GET /v1/tv/apk` still answers at any hour, so an older TV can update when a person asks.
+
+The hub already keeps one build: `version_code`, `sha256`, and the signing certificate. The first build pins `signer_sha256`. A later build with a different certificate is not kept and is not offered. The TV checks `sha256` and `signer_sha256` before it installs.
+
+`GET /v1/tv/update?current=602` with the version the TV is running. When that is the build the hub has, or newer, the body is only:
+
+```json
+{"version_code":602,"up_to_date":true}
+```
+
+No `apk_path`, so there is nothing to download. A missing or lower `current` is the full manifest above. A `current` that is not a number is treated as missing.
+
+After a silent install the TV reports once, with its bearer, on the home network:
+
+`POST /v1/tv/update/health`
+
+```json
+{"version_code":602,"boot_ok":true,"hub_ok":true,"playback_ok":true,"rollback":false}
+```
+
+The answer is `{"ok":true}`. `rollback` true means the TV put the previous build back. A report that is missing a field, or is not true or false, is `400` "Say how the update went." The hub stores the latest report for that TV and does not send a push or an event.
+
+It shows only on `GET /v1/tvapp` (`systems`). A TV that has not reported is left off the list. A problem is first.
+
+```json
+{"updates":[{"id":"tv_office_0123456789","name":"Living room","version_code":602,"boot_ok":true,"hub_ok":true,"playback_ok":false,"rollback":false,"ok":false,"at":"2026-11-14T06:10:00+00:00"}]}
+```
+
+`ok` is true only when boot, the hub, and playback are ok and the TV did not roll back.
 
 `GET /v1/tv/plex`
 

@@ -388,6 +388,13 @@ def clean_ip(ip: str) -> str:
     return str(addr)
 
 
+def _update_reports(tv: TvApp) -> list[dict[str, Any]]:
+    # tvupdate imports this module, so the admin list is loaded when the overview is built.
+    from .tvupdate import listing
+
+    return listing(tv)
+
+
 class TvApp:
     def __init__(self, cfg: Any, vault: Any, db: Any, data: Path, *, adb: Adb | None = None,
                  transport: httpx.AsyncBaseTransport | None = None,
@@ -435,6 +442,7 @@ class TvApp:
             "kids_categories": self.kids_categories(),
             "config_version": self.config_version(),
             "lineup_version": self.lineup_version(),
+            "updates": _update_reports(self),
         }
 
     # -- releases ----------------------------------------------------------------------------------------------------
