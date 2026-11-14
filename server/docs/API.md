@@ -955,6 +955,16 @@ The eight scenes are Fireplace, Snowfall, Christmas lights, Autumn leaves, Hallo
 
 `GET /v1/ambient/library` lists them. `PUT /v1/ambient` is admin: `{pin, device?, items:[{id, channel_key?, stream_url?, poster_url?}]}`. `pin` is one of the ids, or null to follow the date. A `device` pin applies only to that TV. The same assignments can live in the hub config under `ambient.pin` and `ambient.streams`. A saved PUT wins.
 
+### Siri
+
+Three phrases on the iPhone. Siri includes the app name, which is how the shortcuts are registered. Each one stays in Siri. A missing show, room, or play is a sentence.
+
+Play `<thing>` in `<room>`. `GET /v1/search?q=` first. If that hit is already a `tv.play` action, it is sent as-is. Otherwise `GET /v1/tv/library/search?q=` supplies a channel, the programme on now, or a movie, and that becomes `POST /v1/actions` `tv.play` on the TV in that room. One TV in the house is used when the room is left out. The room is the TV's name or its room.
+
+Move the TV to `<room>`. `GET /v1/tv/devices`, then `POST /v1/tv/handoff` from the TV that is playing to the TV in that room. Nothing playing answers with that sentence and does not send a command.
+
+Turn off the TV in `<room>`. `POST /v1/actions` `tv.stop` on that TV.
+
 ## Universal title search
 
 `GET /v1/titles/search?q=` (at least two letters). One card per title across Plex, the IPTV lineup and guide, and TMDB (Jellyseerr, which is what asks Sonarr and Radarr). The same title is one card: matched on TMDB id, then IMDb, then TVDB, then the cleaned name and year.
