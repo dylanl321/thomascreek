@@ -827,6 +827,31 @@ Moved:
 
 The play command is the same `tv_command` as any other play, with `resume` set. A TV that hasn't checked in for two minutes still gets the command: `message` says it'll come on when that TV wakes up. A kids' TV asked to play something else answers `403` with `message` "Theo's TV only plays kids' shows". A room this person can't use answers `403` "That room isn't one you can use". Unknown TV is `404`.
 
+### Doorbell and the door cameras
+
+The hub finds the doorbell and the cameras by a door (the name or the room mentions a door, the porch, the driveway, or the entry). One camera in the house is used when none of them says so. Nothing has to be set. Quiet hours are 22:00 to 07:00 in the hub's timezone: a doorbell still shows, and a person or motion waits until morning. `00:00` to `00:00` turns quiet hours off. Motion is off until someone asks for it. The same camera does not alert again for a short while.
+
+`home_alert` on `GET /v1/events`, for every TV and for phones that aren't a guest:
+
+```json
+{"type":"home_alert","data":{"id":"ha_ab12cd34","kind":"doorbell","camera":"driveway","title":"Someone's at the door","snapshot_url":"/v1/tv/alerts/ha_ab12cd34/snapshot.jpg","stream_url":"/v1/tv/alerts/ha_ab12cd34/stream","ttl_s":90,"stream":"mjpeg"}}
+```
+
+`kind` is `doorbell`, `person` or `motion`. `ttl_s` is how long the card stays up (90, 45 or 20). `snapshot_url` and `stream_url` are omitted when no camera could be found; the title still shows. Both URLs are on the hub and need the same bearer. They contain no Home Assistant address and no password. `stream` is `mjpeg` or, when go2rtc is configured, `hls`.
+
+`GET /v1/tv/alerts/{id}/snapshot.jpg` is `image/jpeg`. A TV bearer works at home. A phone at home works. Away from home it needs `cameras`, the same as the other camera pictures. An alert older than ten minutes, or a camera that doesn't answer, is `404` `{"error":"gone","message":"That alert has passed"}`.
+
+`GET /v1/tv/alerts/{id}/stream` is `multipart/x-mixed-replace` (MJPEG) or, when `stream` is `hls`, `application/vnd.apple.mpegurl`. The playlist's segment URLs are `/v1/tv/alerts/{id}/media?src=` and need the same bearer. A segment path with `://` or `..` is ignored.
+
+`GET /v1/tv/alerts/settings` is what is in effect, including the cameras that were found:
+
+```json
+{"cameras":["driveway"],"rooms":null,"quiet":{"from":"22:00","to":"07:00"},"motion":false,"auto":true,
+ "found":[{"id":"driveway","name":"Driveway","room":"front","door":true}]}
+```
+
+`PUT /v1/tv/alerts/settings` is admin. `cameras: null` or `rooms: null` goes back to finding them. `cameras` lists ids such as `driveway`. The same block can live under `home_assistant.extra` as `door_cameras`, `door_rooms`, `alert_quiet` and `alert_motion`; a saved PUT wins.
+
 ## Universal title search
 
 `GET /v1/titles/search?q=` (at least two letters). One card per title across Plex, the IPTV lineup and guide, and TMDB (Jellyseerr, which is what asks Sonarr and Radarr). The same title is one card: matched on TMDB id, then IMDb, then TVDB, then the cleaned name and year.

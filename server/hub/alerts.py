@@ -407,6 +407,10 @@ class Alerts:
                                                        self._name(self.hub.home.states.get(f"camera.{cam}"), cam or "Door") if cam else "Front door")
             except Exception as exc:  # noqa: BLE001
                 log.info("doorbell live activity failed: %s", exc)
+            try:
+                self.hub.home_alerts.note_doorbell(eid, cam, now)
+            except Exception as exc:  # noqa: BLE001
+                log.info("door alert failed: %s", exc)
         # Leak, smoke, gas, CO
         if eid in self.hazards() and n == "on":
             dc = (new.get("attributes") or {}).get("device_class")

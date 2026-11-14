@@ -12,6 +12,7 @@ struct HomeView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 HeroHeader(title: greeting(me?.firstName), subtitle: dateLine, subtitleLink: home?.weather?.temp == nil ? nil : .weather, show3D: true)
+                if let alert = store.doorAlert { DoorAlertCard(alert: alert) }
                 VPNNotice()
                 ForEach(sections) { section($0) }
                 if !store.reachable, store.role == .admin, !sections.contains(.status) { OfflineCard() }

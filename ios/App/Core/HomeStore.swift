@@ -27,6 +27,8 @@ final class HomeStore {
     /// Thomas Creek TVs, so Now playing can offer Move to… without another round trip.
     var houseTVs: [TVPlayer] = []
     var tvsLoadedAt: Date?
+    /// Someone at the door, for as long as the hub said the card should stay up.
+    var doorAlert: DoorNotice?
     var lastUpdate: Date?
     var reachable = true
     var unreachableSince: Date?
@@ -236,6 +238,17 @@ final class HomeStore {
             let ok = o["ok"]?.bool ?? false
             show(o["message"]?.string ?? (ok ? "Playing" : "Couldn't start it"), o["tracks"]?.string, isError: !ok)
         case "hello":
+            return
+        case "home_alert":
+            guard let alert = e.data.flatMap({ Self.decode(DoorNotice.self, $0) }) else { return }
+            doorAlert = alert
+            if alert.kind == "doorbell" { UINotificationFeedbackGenerator().notificationOccurred(.warning) }
+            DoorLive.show(alert)
+            let token = alert.id
+            Task {
+                try? await Task.sleep(for: .seconds(max(8, alert.ttlS)))
+                if doorAlert?.id == token { doorAlert = nil }
+            }
             return
         case "camera_event":
             guard let ev = e.data.flatMap({ Self.decode(CameraEvent.self, $0) }) else { return }

@@ -151,8 +151,49 @@ class Frigate(Adapter):
         data = resp.json()
         return data.get("sdp", "")
 
+    def _stream_client(self) -> httpx.AsyncClient | None:
+        if not self.cfg.go2rtc_url:
+            return None
+        if getattr(self, "_stream", None) is None:
+            self._stream = httpx.AsyncClient(
+                base_url=self.cfg.go2rtc_url.rstrip("/"),
+                timeout=httpx.Timeout(8.0, read=None), verify=self.cfg.verify_tls)
+        return self._stream
+
+    async def hls_playlist(self, camera: str) -> str | None:
+        """go2rtc's HLS playlist, or None when it isn't there. The TV never sees this host."""
+        client = self._stream_client()
+        if client is None:
+            return None
+        try:
+            resp = await client.get("/api/stream.m3u8", params={"src": camera})
+        except httpx.HTTPError:
+            return None
+        if resp.status_code != 200 or not resp.text.lstrip().startswith("#EXTM3U"):
+            return None
+        return resp.text
+
+    async def open_go2rtc(self, path: str, params: dict[str, str] | None = None):
+        """A go2rtc path (a playlist segment or MJPEG), streamed. None when the path isn't safe."""
+        client = self._stream_client()
+        if client is None or not path or "://" in path or path.startswith("//") or ".." in path:
+            return None
+        try:
+            resp = await client.send(
+                client.build_request("GET", "/" + path.split("?", 1)[0].lstrip("/"), params=params), stream=True)
+        except httpx.HTTPError:
+            return None
+        if resp.status_code != 200:
+            await resp.aclose()
+            return None
+        return resp
+
     async def close(self) -> None:
         await super().close()
         if self._go2rtc:
             await self._go2rtc.aclose()
             self._go2rtc = None
+        stream = getattr(self, "_stream", None)
+        if stream is not None:
+            await stream.aclose()
+            self._stream = None
