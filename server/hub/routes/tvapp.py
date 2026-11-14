@@ -43,6 +43,7 @@ from ..home import iso
 from ..state import Hub
 from ..tvapp import TvAppError, clean_ip
 from .. import tvupdate
+from ..iptvplay import touch
 from ..tvremote import allowed_packages
 from .deps import Caller, caller, caller_ip, error, hub, need
 
@@ -486,6 +487,7 @@ async def tv_state(body: StateIn, c: Caller = Depends(caller), h: Hub = Depends(
     install_id = _own_tv(c)
     try:
         data = h.tv_app.record_state(install_id, body.model_dump())
+        touch(h, install_id)
     except TvAppError as exc:
         raise _err(exc) from None
     h.bus.publish({"type": "tv", "data": data})

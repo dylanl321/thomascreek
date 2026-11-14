@@ -517,6 +517,72 @@ Pairs the rules will not decide are left separate. When `anthropic.api_key` is s
 
 `POST /v1/tv/catalog/merge` `{ids:["can_aaa","can_bbb"]}` and `POST /v1/tv/catalog/split` `{id:"can_7f3a9c2b1d4e6f80","provider":"beta","stream_id":"55"}` are `systems`. Merge answers `{"ok":true,"id":"can_aaa"}`. Split answers `{"ok":true,"id":"can_new"}`. A remembered choice wins over the rules and over the model. A second merge of the same pair answers the same id and does not ask the model. Unknown ids answer `404` "That title isn't in the catalog."
 
+### Logins and playback
+
+A provider can have more than one login. Passwords stay in the vault. The old `iptv.xtream_server`, `iptv.xtream_username` and `iptv.xtream_password` keys still count as one provider, `thomas-creek`, with one login, `main`. More providers live in the hub config, without passwords:
+
+```yaml
+iptv:
+  providers:
+    - id: alpha
+      name: Alpha
+      server: http://iptv.example:8080
+      logins:
+        - id: house
+          username: house
+          password_secret: iptv.alpha.house.password
+```
+
+`password_secret` is the vault name. The hub web page has an add-login form. It writes the password to the vault and does not show it again.
+
+The hub reads `max_connections`, `active_cons` and `exp_date` from each login's `player_api.php` user info about every ten minutes.
+
+`GET /v1/tv/accounts` (`systems`)
+
+```json
+{"logins":[
+  {"provider":"alpha","login":"house","max_connections":2,"active":1,"slots_left":1,"expires":"2026-12-01","status":"ok"}
+ ],
+ "sessions":[
+  {"tv":"tv_office_0123456789","name":"Living room","provider":"alpha","login":"house","canonical_id":"can_7f3a9c2b1d4e6f80","since":"2026-11-14T18:00:00+00:00"}
+ ]}
+```
+
+`status` is `ok`, `full`, `expired`, or `disabled`. `expires` is `YYYY-MM-DD` or null when the login does not expire. Passwords are not in this body. A login that expires within seven days, or that is disabled, tells admins once. It does not tell the household.
+
+The TV asks with a canonical id.
+
+`POST /v1/tv/tune` `{canonical_id, device?}`. `device` is the install id when a phone is sending the picture to a TV. A TV bearer omits it and plays on itself.
+
+```json
+{"ok":true,"session":"ses_ab12cd34ef567890abcd","canonical_id":"can_7f3a9c2b1d4e6f80",
+ "stream":{"url":"/v1/tv/stream/ses_ab12cd34ef567890abcd","ref":"vod:alpha:100","quality":"2160p"}}
+```
+
+The hub picks a source and a login that still has a free slot, prefers a higher quality, and spreads the rooms across logins. A full, expired, or disabled login is skipped. Nothing free:
+
+```json
+{"ok":false,"message":"Every login is busy. Try again in a moment."}
+```
+
+An unknown canonical id:
+
+```json
+{"ok":false,"message":"That title isn't in the catalog."}
+```
+
+Both are `200`. The same object is delivered to that TV on `GET /v1/events`:
+
+```json
+{"type":"tv_tune","data":{"install_id":"tv_office_0123456789","session":"ses_ab12cd34ef567890abcd","canonical_id":"can_7f3a9c2b1d4e6f80","stream":{"url":"/v1/tv/stream/ses_ab12cd34ef567890abcd","ref":"vod:alpha:100","quality":"2160p"}}}
+```
+
+`GET /v1/tv/stream/{session}` with that TV's bearer, on the home network, redirects to the provider. The redirect is how Xtream plays. It is not written to the log. Another TV is `404` "That stream has ended." A request from outside the house is refused like the other TV routes.
+
+If the picture fails to start or drops, the TV posts `POST /v1/tv/tune/fail` `{session}`. The hub frees the slot and sends another `tv_tune` for the next source or login. When nothing else is free, the event is not sent and the answer is `{"ok":false,"message":"Every login is busy. Try again in a moment."}`. `tv.stop` for that TV frees its slot. A TV that has not checked in for 90 seconds frees it too.
+
+The TV change: play and tune send `canonical_id` to `POST /v1/tv/tune`, open `stream.url` with the TV bearer, and on a startup failure or a drop post `POST /v1/tv/tune/fail`. A new `tv_tune` event replaces the stream. Existing `tv.play` commands are unchanged.
+
 ### TVs a phone can target
 
 `GET /v1/tv/players`

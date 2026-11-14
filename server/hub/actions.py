@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 from .adapters.base import AdapterError, NoAnswer, NotConfigured, ServiceError, Unreachable
+from .iptvplay import release_tv
 from .home import iso, kind_for
 from .policy import TIERS, Decision, Subject, Target
 from .tvapp import TvAppError
@@ -864,6 +865,7 @@ class ActionRunner:
             remember(self.hub.db, "kids" if tv.get("profile") == "kids" else "adult", command)
         self.hub.bus.publish({"type": "tv_command", "data": command}, device_id=f"tv:{info['install_id']}")
         if plan.action == "tv.stop":
+            release_tv(self.hub, info["install_id"])
             return f"Told {plan.label} to stop"
         return f"Told {plan.label} to play {command.get('name') or command.get('title') or 'that'}"
 
