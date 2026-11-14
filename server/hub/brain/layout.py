@@ -1,6 +1,6 @@
 """Each person's Home, arranged by the house brain.
 
-The model (the brain's smart tier by default, brain.layout_tier) decides which sections a person's Home shows, in what order, which
+The model (the brain's cheap tier, Haiku, by default; brain.layout_tier: smart for Sonnet) decides which sections a person's Home shows, in what order, which
 "Right now" cards lead and how many show, from the situation: time of day, weekday or weekend, home or
 away, the cards the rules found, what's playing, a trip coming up, which services are down. It bases its
 choices on a set of example screens (layout_examples.py).

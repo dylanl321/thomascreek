@@ -106,7 +106,7 @@ async def test_the_model_arranges_home_and_it_is_cached(hub, layout, people):
     assert sent["now"]["part"] == "evening" and sent["now"]["where"] == "home"
     assert {c["key"] for c in sent["now"]["cards"]} == {"dinner", "habit"}
     assert sent["examples"] and all(e["situation"]["home"] == "adult" for e in sent["examples"])
-    assert fake.requests[0]["model"] == "claude-sonnet-5-5"  # quality over cost (brain.layout_tier)
+    assert fake.requests[0]["model"] == "claude-haiku-5-5"  # Haiku first (brain.layout_tier)
 
     plan, ordered = layout.plan_for(s, cards)
     assert plan["source"] == "ai" and plan["why"] == "Evening at home" and plan["generated_at"]
@@ -117,7 +117,7 @@ async def test_the_model_arranges_home_and_it_is_cached(hub, layout, people):
     assert len(fake.requests) == 1  # same situation: no second call
 
     [run] = hub.db.all("SELECT * FROM ai_runs WHERE job='layout'")
-    assert run["outcome"] == "planned" and run["cost_usd"] > 0 and run["model"] == "claude-sonnet-5-5"
+    assert run["outcome"] == "planned" and run["cost_usd"] > 0 and run["model"] == "claude-haiku-5-5"
     assert hub.brain.summary()["layout"]["runs"] == 1
 
 
@@ -212,3 +212,11 @@ def test_weather_is_a_home_section_setting(home_client, people):
                           headers=people["phones"]["Avery"].h)
     assert r.status_code == 200, r.text
     assert r.json()["settings"]["home.order"] == ["weather", "rightnow"] and r.json()["settings"]["home.ai"] is False
+
+
+async def test_sonnet_is_one_setting_away(hub, layout, people):
+    hub.config.brain.layout_tier = "smart"
+    fake = layout.use(plan_answer(["rightnow", "status", "favorites"]))
+    layout.plan_for(subject(hub, people["avery"]), [])
+    await settle()
+    assert [r["model"] for r in fake.requests] == ["claude-sonnet-5-5"]
