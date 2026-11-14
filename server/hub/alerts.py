@@ -89,6 +89,8 @@ class Alerts:
         self.sent = 0
         self._hist_last: dict[str, float] = {}
         self._pruned = 0.0
+        # event id -> the push already sent, so a snapshot that arrives a moment later can replace it
+        self._frigate_open: dict[str, dict[str, Any]] = {}
 
     # -- settings ----------------------------------------------------------
     def sources(self) -> dict[str, Any]:
@@ -339,7 +341,7 @@ class Alerts:
         from .routes.cameras import camera_name
 
         cam_title = camera_name(self.hub, cam)
-        image = f"/v1/cameras/events/{e['id']}/snapshot.jpg" if e.get("has_snapshot", True) else None
+        image = push_image(e)
         ref = f"thomascreek://camera/{cam}"
         if label in PACKAGE_LABELS:
             self.record("package", f"Package at the {cam_title.lower()}", f"{cam_title} camera", self._people(),
@@ -347,9 +349,14 @@ class Alerts:
                         payload={"event_id": e["id"], "label": label, "camera": cam})
             who = [(p, pr) for p in self._people() if (pr := self.prefs(p["id"]))["on"] and pr["package"]
                    and self._cooled(p["id"], cam, "package", 1800, now)]
-            return await self._deliver(who, title=f"Package at the {cam_title.lower()}", body=f"{cam_title} camera",
-                                       cat="cameras", ref=ref, image=image, group=f"cam:{cam}",
-                                       push_category="CAMERA_PACKAGE", extra={"event_id": e["id"], "label": label})
+            title = f"Package at the {cam_title.lower()}"
+            extra = {"event_id": e["id"], "label": label}
+            n = await self._deliver(who, title=title, body=f"{cam_title} camera",
+                                    cat="cameras", ref=ref, image=image, group=f"cam:{cam}",
+                                    push_category="CAMERA_PACKAGE", extra=extra)
+            self._opened(e.get("id"), who, image=image, title=title, body=f"{cam_title} camera", ref=ref,
+                         group=f"cam:{cam}", category="CAMERA_PACKAGE", extra=extra)
+            return n
         group = next((g for g, labels in LABEL_GROUPS.items() if label in labels), None)
         if not group:
             return 0
@@ -373,9 +380,38 @@ class Alerts:
                 who.append((p, pr))
         if not who:
             return 0
-        return await self._deliver(who, title=f"{what} at the {cam_title.lower()}", body=body, cat="cameras",
-                                   ref=ref, image=image, group=f"cam:{cam}", push_category=f"CAMERA_{group.upper()}",
-                                   extra={"event_id": e["id"], "label": label})
+        title = f"{what} at the {cam_title.lower()}"
+        extra = {"event_id": e["id"], "label": label}
+        n = await self._deliver(who, title=title, body=body, cat="cameras", ref=ref, image=image,
+                                group=f"cam:{cam}", push_category=f"CAMERA_{group.upper()}", extra=extra)
+        self._opened(e.get("id"), who, image=image, title=title, body=body, ref=ref, group=f"cam:{cam}",
+                     category=f"CAMERA_{group.upper()}", extra=extra)
+        return n
+
+    def _opened(self, event_id: str | None, who: list[tuple[dict[str, Any], dict[str, Any]]], **info: Any) -> None:
+        if not event_id or not who:
+            return
+        self._frigate_open[str(event_id)] = {
+            "people": [(p["id"], self._quiet_now(pr["quiet"])) for p, pr in who],
+            "level": "fyi", "interruption": "active", **info,
+        }
+        while len(self._frigate_open) > 100:
+            self._frigate_open.pop(next(iter(self._frigate_open)))
+
+    async def refresh_frigate(self, e: dict[str, Any]) -> int:
+        """The same detection grew a snapshot. Replace the push; don't start another alert."""
+        info = self._frigate_open.get(str(e.get("id") or ""))
+        image = push_image(e)
+        if not info or not image or info.get("image"):
+            return 0
+        info["image"] = image
+        for pid, silent in info["people"]:
+            await self.hub.notify.push_update(
+                pid, info["title"], info["body"], cat="cameras", level=info["level"], ref=info["ref"],
+                group_key=info["group"], category=info["category"], silent=silent, image=image,
+                interruption=info["interruption"], extra=info["extra"],
+            )
+        return len(info["people"])
 
     # -- Home Assistant ------------------------------------------------------
     async def on_state(self, eid: str, old: dict[str, Any] | None, new: dict[str, Any] | None,
@@ -729,6 +765,21 @@ class Alerts:
             self.ws_connected = False
             await asyncio.sleep(delay)
             delay = min(delay * 2, 120)
+
+
+def push_image(e: dict[str, Any]) -> str | None:
+    """Hub path of this event's snapshot, or None when Frigate has no picture yet.
+
+    `v` is the frame time, so a phone replacing an alert fetches the new frame
+    instead of the one it already saved for this path.
+    """
+    if not e.get("id") or not e.get("has_snapshot", True):
+        return None
+    path = f"/v1/cameras/events/{e['id']}/snapshot.jpg"
+    v = e.get("frame_time")
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        return f"{path}?v={v:.3f}"
+    return path
 
 
 def _iou(a: list[float], b: list[float]) -> float:

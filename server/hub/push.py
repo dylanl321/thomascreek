@@ -7,6 +7,7 @@ device token is dead, and the hub forgets it.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import re
 import time
@@ -21,6 +22,23 @@ from .vault import Vault
 log = logging.getLogger("hub.push")
 
 HOSTS = {"production": "https://api.push.apple.com", "sandbox": "https://api.sandbox.push.apple.com"}
+# Header values are printable ASCII. Apple rejects an apns-collapse-id over 64 bytes.
+_COLLAPSE_OK = re.compile(r"[\x21-\x7e]{1,64}")
+
+
+def collapse_identifier(value: str | None) -> str | None:
+    """A stable apns-collapse-id for one alert group, also used as thread-id.
+
+    A short printable key is kept as-is. Anything longer, or not safe in a
+    header, becomes the SHA-256 of the whole key (exactly 64 bytes). Hashing
+    beats truncating: two long keys that share a prefix must not collapse
+    into each other.
+    """
+    if not value:
+        return None
+    if _COLLAPSE_OK.fullmatch(value):
+        return value
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
 class PushResult:
@@ -103,8 +121,9 @@ class APNs:
             "apns-push-type": push_type,
             "apns-priority": str(priority),
         }
-        if collapse_id:
-            headers["apns-collapse-id"] = collapse_id[:64]
+        safe_collapse = collapse_identifier(collapse_id)
+        if safe_collapse:
+            headers["apns-collapse-id"] = safe_collapse
         if expiration is not None:
             headers["apns-expiration"] = str(expiration)
         url = f"{HOSTS.get(env, HOSTS['production'])}/3/device/{token}"

@@ -6,15 +6,18 @@ import asyncio
 import ipaddress
 import logging
 import secrets
+import ssl
 import time
 from pathlib import Path
 from typing import Any
+
+import aiomqtt
 
 from .actions import ActionRunner
 from .artwork import Artwork
 from .assistant import Assistant
 from .alerts import Alerts
-from .adapters.cameras import Frigate
+from .adapters.cameras import Frigate, mqtt_to_event, parse_frigate_mqtt
 from .settings import PersonSettings
 from .smart import Smart
 from .adapters.family import FamilyBoard, Homebox, Mealie, ShowPlayer
@@ -64,6 +67,8 @@ class Hub:
         self.bus = EventBus()
         self.ha = HomeAssistant(config.home_assistant, vault)
         self.frigate = Frigate(config.frigate, vault)
+        self._frigate_seen: dict[str, dict[str, Any]] = {}
+        self._frigate_primed = False
         self.plex = Plex(config.plex, vault)
         self.jellyseerr = Jellyseerr(config.jellyseerr, vault)
         self.sonarr = Arr("sonarr", config.sonarr, vault)
@@ -311,40 +316,169 @@ class Hub:
                 log.debug("service probe: %s", exc)
             await asyncio.sleep(interval)
 
-    async def _watch_frigate(self, interval: float = 10.0) -> None:
-        """Keep the camera list fresh and send each new Frigate event to the app (SSE camera_event)."""
-        from .routes.cameras import event_item
+    def frigate_poll_delay(self) -> float:
+        """Seconds between HTTP polls. MQTT already pushed; the poll is a backstop.
 
-        seen: set[str] = set()
-        after: float | None = None
+        With no broker, or the broker down, the poll itself has to be about a second.
+        """
+        if self.frigate.mqtt_connected:
+            return 30.0
+        return max(0.5, float(self.config.frigate.poll_s or 1))
+
+    async def _watch_frigate(self) -> None:
+        """Camera events as they happen, then each new one to the app (SSE camera_event).
+
+        Frigate's MQTT topic is instant. When that broker isn't set, or it drops,
+        the HTTP poll runs about once a second. The first poll only marks what
+        already happened, so a restart doesn't re-alert the recent events.
+        """
+        mqtt = asyncio.create_task(self._frigate_mqtt())
+        try:
+            while True:
+                try:
+                    await self._poll_frigate_once()
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:  # noqa: BLE001
+                    log.debug("Frigate watch: %s", exc)
+                await asyncio.sleep(self.frigate_poll_delay())
+        finally:
+            mqtt.cancel()
+
+    async def _poll_frigate_once(self) -> None:
+        await self.frigate.camera_info()
+        rows = await self.frigate.events(limit=50)
+        if not self._frigate_primed:
+            for e in rows:
+                await self.note_frigate_event(e, backlog=True)
+            self._frigate_primed = True
+            return
+        for e in sorted(rows, key=lambda r: r.get("start_time") or 0):
+            await self.note_frigate_event(e)
+
+    async def _frigate_mqtt(self) -> None:
+        cfg = self.config.frigate
+        host = (cfg.mqtt_host or "").strip()
+        if not host:
+            return
+        backoff = 1.0
+        topic = cfg.mqtt_topic or "frigate/events"
         while True:
             try:
-                await self.frigate.camera_info()
-                rows = await self.frigate.events(limit=50)
-                for e in sorted(rows, key=lambda r: r.get("start_time") or 0):
-                    cam = e.get("camera")
-                    item = event_item(self, e)
-                    prev = self.frigate.last_event.get(cam)
-                    if cam and (prev is None or (prev.get("start") or "") <= (item["start"] or "")):
-                        self.frigate.last_event[cam] = item
-                    if after is not None and e["id"] not in seen and (e.get("start_time") or 0) >= after:
-                        self.bus.publish({"type": "camera_event", "data": item})
-                        try:
-                            await self.alerts.on_frigate(e)
-                        except Exception as exc:  # noqa: BLE001
-                            log.warning("camera alert failed: %s", exc)
-                    seen.add(e["id"])
-                if rows:
-                    after = max([after or 0] + [r.get("start_time") or 0 for r in rows])
-                elif after is None:
-                    after = time.time()
-                if len(seen) > 2000:
-                    seen = {r["id"] for r in rows}
+                kw: dict[str, Any] = {
+                    "hostname": host,
+                    "port": int(cfg.mqtt_port or 1883),
+                    "identifier": f"thomascreek-frigate-{secrets.token_hex(3)}",
+                }
+                if cfg.mqtt_username:
+                    kw["username"] = cfg.mqtt_username
+                password = self.vault.get(cfg.mqtt_password_secret) if cfg.mqtt_password_secret else None
+                if password:
+                    kw["password"] = str(password)
+                if cfg.mqtt_tls:
+                    kw["tls_context"] = ssl.create_default_context()
+                async with aiomqtt.Client(**kw) as client:
+                    await client.subscribe(topic)
+                    self.frigate.mqtt_connected = True
+                    backoff = 1.0
+                    log.info("Frigate events connected (%s %s)", host, topic)
+                    async for msg in client.messages:
+                        await self._on_frigate_mqtt(msg.payload)
             except asyncio.CancelledError:
+                self.frigate.mqtt_connected = False
                 raise
             except Exception as exc:  # noqa: BLE001
-                log.debug("Frigate watch: %s", exc)
-            await asyncio.sleep(interval)
+                self.frigate.mqtt_connected = False
+                log.info("Frigate events: %s", exc)
+                await asyncio.sleep(backoff)
+                backoff = min(backoff * 2, 30.0)
+
+    async def _on_frigate_mqtt(self, payload: bytes | str) -> None:
+        parsed = parse_frigate_mqtt(payload)
+        if not parsed:
+            return
+        _kind, after = parsed
+        info = self.frigate._info.get(after.get("camera") or "") or {}
+        size = None
+        if info.get("width") and info.get("height"):
+            size = (float(info["width"]), float(info["height"]))
+        try:
+            await self.note_frigate_event(mqtt_to_event(after, size))
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Frigate event %s: %s", after.get("id"), exc)
+
+    async def note_frigate_event(self, e: dict[str, Any], *, backlog: bool = False) -> str:
+        """One Frigate event from MQTT or the poll. Returns what was done with it.
+
+        `backlog` marks an event that was already on the camera when the hub
+        looked, so a restart doesn't push it again.
+        """
+        eid = str(e.get("id") or "")
+        if not eid:
+            return "skip"
+        self._touch_frigate_event(e)
+        snap = bool(e.get("has_snapshot"))
+        seen = self._frigate_seen.get(eid)
+        if backlog:
+            if seen is None:
+                self._frigate_seen[eid] = {"has_snapshot": snap, "alerted": False,
+                                           "false_positive": bool(e.get("false_positive"))}
+                self._trim_frigate_seen()
+            return "backlog"
+        # The first message Frigate sends is sometimes still a false positive.
+        # A later one that clears that flag is the real detection.
+        graduated = bool(seen and seen.get("false_positive") and not e.get("false_positive")
+                         and not seen.get("alerted"))
+        if seen is None or graduated:
+            self._frigate_seen[eid] = {"has_snapshot": snap, "alerted": False,
+                                       "false_positive": bool(e.get("false_positive"))}
+            self._trim_frigate_seen()
+            self._publish_frigate_event(e)
+            if e.get("false_positive"):
+                return "false"
+            try:
+                n = await self.alerts.on_frigate(e)
+            except Exception as exc:  # noqa: BLE001
+                log.warning("camera alert failed: %s", exc)
+                n = 0
+            if n:
+                self._frigate_seen[eid]["alerted"] = True
+            return "new"
+        if snap and not seen.get("has_snapshot"):
+            seen["has_snapshot"] = True
+            self._publish_frigate_event(e)
+            if seen.get("alerted"):
+                try:
+                    await self.alerts.refresh_frigate(e)
+                except Exception as exc:  # noqa: BLE001
+                    log.warning("camera snapshot update failed: %s", exc)
+                return "snapshot"
+        return "dup"
+
+    def _touch_frigate_event(self, e: dict[str, Any]) -> None:
+        # routes.cameras imports Hub from this module.
+        from .routes.cameras import event_item
+
+        cam = e.get("camera")
+        if not cam or not e.get("id"):
+            return
+        item = event_item(self, e)
+        prev = self.frigate.last_event.get(cam)
+        if prev is None or (prev.get("start") or "") <= (item.get("start") or ""):
+            self.frigate.last_event[cam] = item
+
+    def _publish_frigate_event(self, e: dict[str, Any]) -> None:
+        from .routes.cameras import event_item
+
+        if not e.get("id"):
+            return
+        self.bus.publish({"type": "camera_event", "data": event_item(self, e)})
+
+    def _trim_frigate_seen(self) -> None:
+        extra = len(self._frigate_seen) - 2000
+        if extra > 0:
+            for key in list(self._frigate_seen)[:extra]:
+                self._frigate_seen.pop(key, None)
 
     async def stop(self) -> None:
         await self.home.stop()

@@ -180,7 +180,8 @@ actor HubClient {
     }
 
     func raw(_ method: String, _ path: String, query: [String: String] = [:], body: Data? = nil,
-             auth: Bool = true, confirm: String? = nil, retried: Bool = false, timeout: TimeInterval? = nil) async throws -> Data {
+             auth: Bool = true, confirm: String? = nil, retried: Bool = false, timeout: TimeInterval? = nil,
+             fresh: Bool = false) async throws -> Data {
         // The hub's web-page sign-in only exists on the home address: the published address (NPM)
         // answers 404 for /v1/admin/*. Never send it there, even when the app last used it.
         let homeOnly = path.hasPrefix("/v1/admin/")
@@ -191,6 +192,8 @@ actor HubClient {
         var lastError: Error = HubError.unreachable
         for base in list {
             var req = request(base, method, path, query: query, body: body, bearer: bearer, confirmHeader: nil)
+            // A replaced alert must download the new snapshot, not the frame URLSession kept.
+            if fresh { req.cachePolicy = .reloadIgnoringLocalCacheData }
             if let timeout { req.timeoutInterval = max(req.timeoutInterval, timeout) }
             let data: Data, resp: URLResponse
             // Slow calls (the assistant thinks for a while) use the long-lived session: the regular one

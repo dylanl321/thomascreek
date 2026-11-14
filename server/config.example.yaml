@@ -30,6 +30,14 @@ frigate:
   go2rtc_url: http://FRIGATE:1984
   username: null
   password_secret: frigate.password
+  # Same broker as Frigate's mqtt.host. Camera alerts then go out as Frigate
+  # publishes them. Leave mqtt_host null to poll about once a second instead.
+  mqtt_host: null                         # e.g. 192.168.1.10
+  mqtt_port: 1883
+  mqtt_tls: false                         # true when the broker is TLS (usually port 8883)
+  mqtt_username: null                     # only if that broker requires a login
+  mqtt_password_secret: frigate.mqtt_password
+  mqtt_topic: frigate/events              # Frigate's topic_prefix + /events
 
 plex:        {enabled: true,  url: http://PLEX:32400, token_secret: plex.token}
 jellyseerr:  {enabled: true,  url: http://JELLYSEERR:5055, token_secret: jellyseerr.api_key}

@@ -122,7 +122,9 @@ Show this quietly (e.g. a "Practice mode" chip from `/v1/me.dry_run`).
 
 Categories: `doors, cameras, requests, media, chores, holiday, house, systems, devices`
 (the last two only for admin). APNs custom keys: `cat`, `inbox_id`, `ref`. `aps.category`
-is `NEW_DEVICE` or `REQUEST` for notices with buttons; `thread-id` is the category.
+is `NEW_DEVICE` or `REQUEST` for notices with buttons. `thread-id` matches `apns-collapse-id`
+(the alert's group, so a repeat replaces the one on screen and related alerts sit together);
+an alert with no group uses the category as `thread-id` and does not collapse.
 
 `GET /v1/inbox` -> `{items:[{id,t,level,cat,title,body,actions?,ref?}]}` sorted act_now, decision, maintenance, fyi.
 `POST /v1/inbox/{id}/ack`
