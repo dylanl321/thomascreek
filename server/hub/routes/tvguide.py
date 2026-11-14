@@ -128,7 +128,7 @@ async def explore_request(body: dict[str, Any], c: Caller = Depends(caller), h: 
 
 @router.get("/explore/art/{kind}/{media}/{tmdb_id}")
 async def explore_art(kind: str, media: str, tmdb_id: str, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> Response:
-    """A cached poster, backdrop or logo. A missing file is a quiet 404."""
+    """A cached poster, backdrop, logo or title card. A missing file is a quiet 404."""
     _media(h, c)
     found = await tvexplore.cached_art(h, kind, media, tmdb_id)
     if found is None:

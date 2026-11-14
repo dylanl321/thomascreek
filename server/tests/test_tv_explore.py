@@ -31,6 +31,7 @@ ADULT = {
         "poster_url": "/v1/tv/explore/art/poster/movie/603",
         "backdrop_url": "/v1/tv/explore/art/backdrop/movie/603",
         "logo_url": "/v1/tv/explore/art/logo/movie/603",
+        "title_card_url": "/v1/tv/explore/art/title/movie/603",
         "rating": "R", "genres": ["Action", "Science Fiction"],
         "reason": "New this week", "badges": ["New"], "availability": "play",
         "movie_id": "vod:thomas-creek:100",
@@ -42,6 +43,7 @@ ADULT = {
             "poster_url": "/v1/tv/explore/art/poster/movie/603",
             "backdrop_url": "/v1/tv/explore/art/backdrop/movie/603",
             "logo_url": "/v1/tv/explore/art/logo/movie/603",
+            "title_card_url": "/v1/tv/explore/art/title/movie/603",
             "rating": "R", "genres": ["Action", "Science Fiction"],
             "reason": "New this week", "badges": ["New"], "availability": "play",
             "movie_id": "vod:thomas-creek:100",
@@ -50,7 +52,9 @@ ADULT = {
             "kind": "series", "title": "Bluey", "year": 2018, "overview": "A puppy.", "tagline": None,
             "poster_url": "/v1/tv/explore/art/poster/tv/82728",
             "backdrop_url": "/v1/tv/explore/art/backdrop/tv/82728",
-            "logo_url": None, "rating": "TV-Y", "genres": ["Kids"],
+            "logo_url": "/v1/tv/explore/art/logo/tv/82728",
+            "title_card_url": "/v1/tv/explore/art/title/tv/82728",
+            "rating": "TV-Y", "genres": ["Kids"],
             "reason": "Popular this week", "badges": ["Popular", "Top 10"], "availability": "request",
             "tmdb_id": 82728, "media_id": "tv:82728",
         }]},
@@ -58,7 +62,9 @@ ADULT = {
             "kind": "movie", "title": "Spirited Away", "year": 2001, "overview": "A girl.", "tagline": None,
             "poster_url": "/v1/tv/explore/art/poster/movie/129",
             "backdrop_url": "/v1/tv/explore/art/backdrop/movie/129",
-            "logo_url": None, "rating": "PG", "genres": ["Animation"],
+            "logo_url": "/v1/tv/explore/art/logo/movie/129",
+            "title_card_url": "/v1/tv/explore/art/title/movie/129",
+            "rating": "PG", "genres": ["Animation"],
             "reason": "Acclaimed", "badges": ["Top 10"], "availability": "play",
             "movie_id": "vod:thomas-creek:129",
         }]},
@@ -105,7 +111,7 @@ def test_no_tmdb_key_uses_the_library(hub, people):
         "kind": "movie", "title": "Kids Movie", "year": 2018, "overview": None, "tagline": None,
         "poster_url": "/v1/art/poster/vod:thomas-creek:101",
         "backdrop_url": "/v1/art/backdrop/vod:thomas-creek:101",
-        "logo_url": None, "rating": "G", "genres": ["Kids"], "reason": "In your library", "badges": ["New"],
+        "logo_url": None, "title_card_url": None, "rating": "G", "genres": ["Kids"], "reason": "In your library", "badges": ["New"],
         "availability": "play", "movie_id": "vod:thomas-creek:101",
     }
     assert body == {"hero": card, "rows": [{"id": "library", "title": "Recently added", "items": [card]}]}
@@ -148,3 +154,23 @@ def test_one_tap_asks_and_a_ready_title_reaches_up_next(hub, people):
     shelf = dylan.client.get("/v1/tv/upnext", headers=dylan.h).json()
     ready = next(row for row in shelf["rows"] if row["id"] == "recordings")
     assert ready["items"][0]["reason"] == "ready to watch" and ready["items"][0]["series_id"] == "series:thomas-creek:50"
+
+
+def test_english_art_is_chosen_over_other_languages():
+    from hub.tvexplore import english_logo, english_title_card
+    logos = [
+        {"iso_639_1": "ja", "file_path": "/ja.png", "vote_average": 10, "vote_count": 4},
+        {"iso_639_1": "en", "file_path": "/low.png", "vote_average": 1, "vote_count": 1},
+        {"iso_639_1": "en", "file_path": "/high.png", "vote_average": 8, "vote_count": 3},
+        {"iso_639_1": None, "file_path": "/plain.png", "vote_average": 9, "vote_count": 9},
+    ]
+    assert english_logo(logos) == "/high.png"
+    assert english_logo([{"iso_639_1": "fr", "file_path": "/fr.png"}]) is None
+    assert english_logo([{"iso_639_1": None, "file_path": "/plain.png"}]) == "/plain.png"
+    backs = [
+        {"iso_639_1": None, "file_path": "/clean.jpg", "vote_average": 9},
+        {"iso_639_1": "en", "file_path": "/titled.jpg", "vote_average": 3},
+        {"iso_639_1": "fr", "file_path": "/fr.jpg", "vote_average": 10},
+    ]
+    assert english_title_card(backs) == "/titled.jpg"
+    assert english_title_card([{"iso_639_1": None, "file_path": "/clean.jpg"}]) is None

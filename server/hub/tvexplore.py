@@ -95,7 +95,7 @@ def _tmdb_card(row: dict[str, Any]) -> dict[str, Any]:
 
 async def cached_art(h: Any, kind: str, media: str, tmdb_id: str) -> tuple[bytes, str] | None:
     """A poster, backdrop or logo kept on the hub. The first ask downloads it."""
-    if kind not in ("poster", "backdrop", "logo") or media not in ("movie", "tv") or not tmdb_id.isdigit():
+    if kind not in ("poster", "backdrop", "logo", "title") or media not in ("movie", "tv") or not tmdb_id.isdigit():
         return None
     folder = h.tv_app.dir / "explore-art"
     folder.mkdir(parents=True, exist_ok=True)
@@ -110,12 +110,12 @@ async def cached_art(h: Any, kind: str, media: str, tmdb_id: str) -> tuple[bytes
         return None
     try:
         async with httpx.AsyncClient(timeout=8) as client:
-            if kind == "logo":
+            if kind in ("logo", "title"):
                 info = await client.get(f"{TMDB}/{media}/{tmdb_id}/images", params={"api_key": key})
                 info.raise_for_status()
-                logos = info.json().get("logos") or []
-                file_path = next((row.get("file_path") for row in logos if row.get("file_path")), None)
-                size = "w500"
+                body = info.json()
+                file_path = english_logo(body.get("logos") or []) if kind == "logo" else english_title_card(body.get("backdrops") or [])
+                size = "w500" if kind == "logo" else "w1280"
             else:
                 info = await client.get(f"{TMDB}/{media}/{tmdb_id}", params={"api_key": key})
                 info.raise_for_status()
@@ -391,7 +391,8 @@ def _resolve(raw: dict[str, Any], index: dict[tuple, dict[str, Any]], *, can_req
                       "genres": raw.get("genres") or hit.get("genres") or [],
                       "poster_url": _tmdb_art("poster", kind, tmdb, raw.get("poster_path")) or hit.get("poster_url"),
                       "backdrop_url": _tmdb_art("backdrop", kind, tmdb, raw.get("backdrop_path")) or hit.get("backdrop_url"),
-                      "logo_url": _tmdb_art("logo", kind, tmdb, raw.get("logo_path")) or hit.get("logo_url")},
+                      "logo_url": _tmdb_art("logo", kind, tmdb, raw.get("logo_path")) or hit.get("logo_url"),
+                      "title_card_url": _tmdb_art("title", kind, tmdb, None)},
                      reason=row_id, badges=badges)
         link = None
         if tmdb is not None:
@@ -407,6 +408,7 @@ def _resolve(raw: dict[str, Any], index: dict[tuple, dict[str, Any]], *, can_req
         "poster_url": _tmdb_art("poster", kind, tmdb, raw.get("poster_path")),
         "backdrop_url": _tmdb_art("backdrop", kind, tmdb, raw.get("backdrop_path")),
         "logo_url": _tmdb_art("logo", kind, tmdb, raw.get("logo_path")),
+        "title_card_url": _tmdb_art("title", kind, tmdb, None),
         "availability": "request", "tmdb_id": tmdb,
         "media_id": f"{'tv' if kind == 'series' else 'movie'}:{tmdb}",
     }, reason=row_id, badges=badges)
@@ -423,6 +425,7 @@ def _view(row: dict[str, Any], *, reason: str, badges: list[str]) -> dict[str, A
         "poster_url": row.get("poster_url"),
         "backdrop_url": row.get("backdrop_url"),
         "logo_url": row.get("logo_url"),
+        "title_card_url": row.get("title_card_url"),
         "rating": row.get("rating"),
         "genres": list(row.get("genres") or []),
         "reason": _REASONS[reason],
@@ -486,10 +489,38 @@ def _hero(items: list[dict[str, Any]]) -> dict[str, Any] | None:
     return dict(items[0]) if items else None
 
 
+def english_logo(logos: list) -> str | None:
+    """An English title treatment, or a logo with no language. Other languages are not used."""
+    return _ranked_path(logos, lambda lang: lang == "en") or _ranked_path(logos, lambda lang: lang in (None, ""))
+
+
+def english_title_card(backdrops: list) -> str | None:
+    """A backdrop whose language is English. Those are the ones with the title painted on."""
+    return _ranked_path(backdrops, lambda lang: lang == "en")
+
+
+def _ranked_path(rows: list, want) -> str | None:
+    ranked = sorted(
+        (row for row in rows if isinstance(row, dict)),
+        key=lambda row: (-float(row.get("vote_average") or 0), -int(row.get("vote_count") or 0)),
+    )
+    for row in ranked:
+        path = row.get("file_path")
+        if isinstance(path, str) and path.startswith("/") and want(row.get("iso_639_1")):
+            return path
+    return None
+
+
 def _tmdb_art(kind: str, media_kind: str, tmdb: int | None, path: object) -> str | None:
-    if tmdb is None or not isinstance(path, str) or not path.startswith("/"):
+    if tmdb is None:
         return None
     media = "tv" if media_kind == "series" else "movie"
+    if kind == "logo":
+        return f"/v1/tv/explore/art/logo/{media}/{tmdb}"
+    if kind == "title":
+        return f"/v1/tv/explore/art/title/{media}/{tmdb}"
+    if not isinstance(path, str) or not path.startswith("/"):
+        return None
     return f"/v1/tv/explore/art/{kind}/{media}/{tmdb}"
 
 

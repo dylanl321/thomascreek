@@ -998,33 +998,33 @@ A title is on the feed only when the household can play it, or when it can be as
 {"hero":{
   "kind":"movie","title":"The Matrix","year":1999,"overview":"A hacker.","tagline":"Welcome to the Real World",
   "poster_url":"/v1/tv/explore/art/poster/movie/603","backdrop_url":"/v1/tv/explore/art/backdrop/movie/603",
-  "logo_url":"/v1/tv/explore/art/logo/movie/603","rating":"R","genres":["Action","Science Fiction"],
+  "logo_url":"/v1/tv/explore/art/logo/movie/603","title_card_url":"/v1/tv/explore/art/title/movie/603","rating":"R","genres":["Action","Science Fiction"],
   "reason":"New this week","badges":["New"],"availability":"play","movie_id":"vod:thomas-creek:100"
  },
  "rows":[
   {"id":"new","title":"New releases","items":[
     {"kind":"movie","title":"The Matrix","year":1999,"overview":"A hacker.","tagline":"Welcome to the Real World",
      "poster_url":"/v1/tv/explore/art/poster/movie/603","backdrop_url":"/v1/tv/explore/art/backdrop/movie/603",
-     "logo_url":"/v1/tv/explore/art/logo/movie/603","rating":"R","genres":["Action","Science Fiction"],
+     "logo_url":"/v1/tv/explore/art/logo/movie/603","title_card_url":"/v1/tv/explore/art/title/movie/603","rating":"R","genres":["Action","Science Fiction"],
      "reason":"New this week","badges":["New"],"availability":"play","movie_id":"vod:thomas-creek:100"}
   ]},
   {"id":"popular","title":"Popular","items":[
     {"kind":"series","title":"Bluey","year":2018,"overview":"A puppy.","tagline":null,
      "poster_url":"/v1/tv/explore/art/poster/tv/82728","backdrop_url":"/v1/tv/explore/art/backdrop/tv/82728",
-     "logo_url":null,"rating":"TV-Y","genres":["Kids"],
+     "logo_url":"/v1/tv/explore/art/logo/tv/82728","title_card_url":"/v1/tv/explore/art/title/tv/82728","rating":"TV-Y","genres":["Kids"],
      "reason":"Popular this week","badges":["Popular","Top 10"],"availability":"request",
      "tmdb_id":82728,"media_id":"tv:82728"}
   ]},
   {"id":"acclaimed","title":"Must watch","items":[
     {"kind":"movie","title":"Spirited Away","year":2001,"overview":"A girl.","tagline":null,
      "poster_url":"/v1/tv/explore/art/poster/movie/129","backdrop_url":"/v1/tv/explore/art/backdrop/movie/129",
-     "logo_url":null,"rating":"PG","genres":["Animation"],
+     "logo_url":"/v1/tv/explore/art/logo/movie/129","title_card_url":"/v1/tv/explore/art/title/movie/129","rating":"PG","genres":["Animation"],
      "reason":"Acclaimed","badges":["Top 10"],"availability":"play","movie_id":"vod:thomas-creek:129"}
   ]}
  ]}
 ```
 
-`kind` is `movie` or `series`. `availability` is `play` or `request`. A playable movie has `movie_id`. A playable series has `series_id`. A Plex title also has `plex_id`. A finished recording has `recording_id`. A request has `tmdb_id` and `media_id` (`movie:603` or `tv:82728`). `request_id` is present once someone has asked. `logo_url` and `tagline` are null when the hub does not have them. `poster_url`, `backdrop_url` and `logo_url` are hub paths. Fetch them with the bearer. A missing file is `404` "No artwork". The card still shows the title.
+`kind` is `movie` or `series`. `availability` is `play` or `request`. A playable movie has `movie_id`. A playable series has `series_id`. A Plex title also has `plex_id`. A finished recording has `recording_id`. A request has `tmdb_id` and `media_id` (`movie:603` or `tv:82728`). `request_id` is present once someone has asked. `tagline` is null when the hub does not have one. When a title has a TMDB id, `logo_url` is always `/v1/tv/explore/art/logo/{movie|tv}/{tmdb_id}` and `title_card_url` is always `/v1/tv/explore/art/title/{movie|tv}/{tmdb_id}`, even if the list payload had no logo. The logo file is the English logo from TMDB `/{movie|tv}/{id}/images`, or a logo with no language when there is no English one. Other languages are not used. The title card is an English backdrop from that same call, which is the picture with the title painted on. A library title with no TMDB id has both fields null. `poster_url`, `backdrop_url`, `logo_url` and `title_card_url` are hub paths. Fetch them with the bearer. A missing file is `404` "No artwork". The card still shows the title.
 
 `badges` is any of `New`, `Popular`, `Top 10`, `Requested`. `reason` is `New this week`, `Popular this week`, `Acclaimed`, or `In your library`. Rows with nothing in them are left out. The order is New releases, Popular, Must watch. The hero is the first new title that has a backdrop, or the first playable title. With nothing to show, the feed is `{"hero":null,"rows":[]}`.
 
@@ -1035,12 +1035,12 @@ With no `tmdb.api_key` in the vault, the hub does not call TMDB. The feed is one
 ```json
 {"hero":{"kind":"movie","title":"Kids Movie","year":2018,"overview":null,"tagline":null,
   "poster_url":"/v1/art/poster/vod:thomas-creek:101","backdrop_url":"/v1/art/backdrop/vod:thomas-creek:101",
-  "logo_url":null,"rating":"G","genres":["Kids"],"reason":"In your library","badges":["New"],
+  "logo_url":null,"title_card_url":null,"rating":"G","genres":["Kids"],"reason":"In your library","badges":["New"],
   "availability":"play","movie_id":"vod:thomas-creek:101"},
  "rows":[{"id":"library","title":"Recently added","items":[
    {"kind":"movie","title":"Kids Movie","year":2018,"overview":null,"tagline":null,
     "poster_url":"/v1/art/poster/vod:thomas-creek:101","backdrop_url":"/v1/art/backdrop/vod:thomas-creek:101",
-    "logo_url":null,"rating":"G","genres":["Kids"],"reason":"In your library","badges":["New"],
+    "logo_url":null,"title_card_url":null,"rating":"G","genres":["Kids"],"reason":"In your library","badges":["New"],
     "availability":"play","movie_id":"vod:thomas-creek:101"}
  ]}]}
 ```
