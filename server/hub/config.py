@@ -389,6 +389,13 @@ class HubSettings(BaseModel):
     live_actions: list[str] = Field(default_factory=list)
     # Requests from these networks count as "at home" (enrollment, camera tier).
     home_networks: list[str] = Field(default_factory=lambda: ["192.168.0.0/16", "10.0.0.0/8", "172.16.0.0/12"])
+    # The hub web page (/admin) opens for callers at home, and also for these:
+    # web_over_vpn lets phones and laptops on the home WireGuard VPN in (vpn.subnet and the
+    # addresses in the vpn.pool configs), web_networks adds other ranges. Callers are matched
+    # by the address the hub sees (through trusted_proxies only), so the public hostname
+    # stays closed to the internet.
+    web_over_vpn: bool = True
+    web_networks: list[str] = Field(default_factory=list)
     # Reverse proxies whose X-Forwarded-For is believed. Empty: trust nobody.
     trusted_proxies: list[str] = Field(default_factory=list)
     # Sign-in steps that need no token (enroll, challenge, token, hello, the web page),
@@ -419,7 +426,7 @@ class HubSettings(BaseModel):
     def _no_unlock(cls, v: list[str]) -> list[str]:
         return [a for a in v if a in ("garage.set",)]
 
-    @field_validator("home_networks", "trusted_proxies")
+    @field_validator("home_networks", "trusted_proxies", "web_networks")
     @classmethod
     def _valid_networks(cls, v: list[str]) -> list[str]:
         for net in v:

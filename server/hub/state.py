@@ -170,6 +170,7 @@ class Hub:
         self.keychecks = KeyChecks(self)
         self._home_nets = [ipaddress.ip_network(n, strict=False) for n in config.hub.home_networks]
         self._proxies = [ipaddress.ip_network(n, strict=False) for n in config.hub.trusted_proxies]
+        self._web_nets = [ipaddress.ip_network(n, strict=False) for n in config.hub.web_networks]
         self.started_at = time.time()
 
     @property
@@ -217,6 +218,23 @@ class Hub:
         if self.vpn.is_tunnel_address(addr):
             return False
         return any(addr in n for n in self._home_nets)
+
+    def can_open_web(self, ip: str | None) -> bool:
+        """May this caller open the hub web page? Home, the home VPN, or a listed range.
+
+        A VPN phone is still "away" for everything else (camera tier, enrollment); only the
+        web page treats it like home. A public address is never let in.
+        """
+        if self.is_home(ip):
+            return True
+        if not ip:
+            return False
+        addr = ipaddress.ip_address(ip)
+        if addr.is_loopback or addr.is_global:
+            return False
+        if self.config.hub.web_over_vpn and self.vpn.is_tunnel_address(addr):
+            return True
+        return any(addr in n for n in self._web_nets)
 
     # -- identity --------------------------------------------------------
     def subject_for(self, device: dict[str, Any], at_home: bool) -> Subject:

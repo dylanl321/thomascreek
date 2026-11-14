@@ -3,7 +3,7 @@
 Open https://<hub>:8443/admin on the home network. Signing in goes through the
 app: the page shows a short code, Dylan types it in the app (Systems, Hub web
 page) and confirms with Face ID. The app can also open the page already signed
-in. The session is a cookie for /admin only, 8 hours, home network only.
+in. The session is a cookie for /admin only, 8 hours, home network or home VPN only.
 
 Values are write-only: the page lists which keys exist, never what they are.
 """
@@ -124,7 +124,7 @@ def _session(request: Request, h: Hub) -> dict[str, Any] | None:
     person = h.db.person(claims.get("per")) if claims.get("per") else None
     if not dev or dev["status"] != "active" or not person or person["role"] != "admin":
         return None
-    if not h.is_home(caller_ip(request, h)):
+    if not h.can_open_web(caller_ip(request, h)):
         return None
     claims["_token"] = token
     return claims
@@ -140,8 +140,8 @@ def _set_session(resp: Response, h: Hub, dev: str, per: str) -> None:
 
 
 def _home_only(request: Request, h: Hub) -> None:
-    if not h.is_home(caller_ip(request, h)):
-        raise error(403, "home_only", "The hub's web page only opens on the home network")
+    if not h.can_open_web(caller_ip(request, h)):
+        raise error(403, "home_only", "The hub's web page only opens on the home network or the home VPN")
 
 
 # -- app side: approve a code, or get a signed-in link ------------------------

@@ -12,6 +12,8 @@ hub:
   dry_run: true
   live_actions: []          # e.g. [light.set, scene.run, lights.control]
   home_networks: [192.168.1.0/24]
+  web_over_vpn: true        # the /admin web page also opens on the home VPN (vpn.subnet, vpn.pool addresses)
+  web_networks: []          # extra private ranges that may open /admin
   trusted_proxies: []       # the reverse proxy's address, only if the hub is published through it
   remote_url: null          # e.g. https://hub.<your domain> if published
   away_auth_per_minute: 30  # sign-in tries per minute per caller away from home (0 = no limit)
