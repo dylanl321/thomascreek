@@ -124,6 +124,26 @@ The app looks these up by name and skips anything missing. New clutter only need
 
 Pose groups and `prop_*` nodes can start hidden. The app fades them. A drum or a curtain whose pivot is the object's centre sways or spins around that centre, so keep the pivot on the fan hub, the drum axle, or the curtain heading.
 
+## Sunlight
+
+A room with windows can have a `sun` entry in `catalog.json`. The app then works out where the real sun is from the house's location (the hub's weather sends it rounded to 0.1 degree) and the clock, and shines a shadow-casting sun light through the glass. Frames, muntins, walls and furniture block it, so patches of light land on the floor and the counters and move through the day. Cloud cover fades it (overcast leaves a faint trace), rain, snow and fog take most of it away, and it is off at night or when the sun is on the other side of the house. It updates every minute while the page is showing.
+
+```json
+"sun": {
+  "bearing_x": 180,
+  "windows": ["french_doors", "arched_window", "glass_door_right"],
+  "floors": ["floor_carpet"],
+  "walls": ["wall_fireplace"]
+}
+```
+
+- `bearing_x` is the compass bearing (degrees clockwise from north) of the model's +X axis. In the living room and the kitchen, +X is the way the window wall faces outward, so it is simply the direction the French doors (or the sink window) look out to: 90 east, 180 south, 270 west.
+- `windows` are window and glass-door groups. Nodes inside them named `*glass*` or `*pane*` let the sun through; everything else in the group casts a shadow.
+- `floors` size the invisible shell that stands in for the ceiling and the cut-away walls, so the sun only gets in through the windows. The shell is never drawn, lights nothing and can't be tapped.
+- `walls` are the real walls holding the windows; the tallest one sets the shell's ceiling height.
+
+The basement rooms have no `sun`. `ios/scripts/dollhouse_snapshot.swift` takes an optional date, latitude, longitude and cloud cover to render a room offscreen with the sun at that moment.
+
 ## Property (the whole lot)
 
 `Property/` is the exterior view: the lot on Thomas Creek Ct, the slope down to the floodplain, the river, the field, the drive, the trees, the blueberry orchard, and placeholder massing for the house and the garage apartment. It is the first row in `catalog.json`, so it is the first dollhouse tile on House. The source is Model Generator's three.js build in `/workspace/handoff/property/` (frame: 1 unit = 1 m, +Y up, north = -Z, origin = lot centre; about 102 x 186 m). The committed USDZ is `property_all_on.glb` through the same converter:
@@ -142,7 +162,8 @@ The property has no hub devices. Model Generator's first export had a `light_pol
 Check the lighting offscreen (the snapshot knows the `kind` flag too):
 
 ```
-swiftc -O ios/scripts/dollhouse_snapshot.swift -o /tmp/dollhouse_snapshot
+mkdir -p /tmp/dhsnap && cp ios/scripts/dollhouse_snapshot.swift /tmp/dhsnap/main.swift
+swiftc -O /tmp/dhsnap/main.swift ios/App/Features/Rooms/DollhouseSunlight.swift -o /tmp/dollhouse_snapshot
 SNAP_SIZE=780x880 /tmp/dollhouse_snapshot ios/Rooms property allon dusk ios/scripts/dollhouse_rig.json /tmp/property.png
 ```
 

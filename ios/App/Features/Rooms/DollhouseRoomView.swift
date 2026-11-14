@@ -100,6 +100,7 @@ private struct DollhouseRoomPage: View {
             failure = controller.error
             loaded = true
             controller.setReduceMotion(reduceMotion)
+            controller.noteWeather(sunWeather)
             controller.setLifeRunning(lifeRunning)
             controller.startLife(real: states(), owned: ownedDevices(), sunrise: sunDate(store.home?.weather?.sunrise), sunset: sunDate(store.home?.weather?.sunset))
         }
@@ -118,6 +119,10 @@ private struct DollhouseRoomPage: View {
         }
         .onChange(of: reduceMotion) { _, reduced in
             controller.setReduceMotion(reduced)
+        }
+        .onChange(of: sunWeather) { _, weather in
+            guard loaded else { return }
+            controller.noteWeather(weather)
         }
         .onChange(of: sunKey) { _, _ in
             guard loaded else { return }
@@ -277,6 +282,12 @@ private struct DollhouseRoomPage: View {
 
     private var sunKey: String {
         "\(store.home?.weather?.sunrise ?? "")|\(store.home?.weather?.sunset ?? "")"
+    }
+
+    /// The house's (rounded) location and cloud cover, for the sun through the windows.
+    private var sunWeather: DollhouseSunWeather? {
+        guard let w = store.home?.weather, let lat = w.lat, let lon = w.lon else { return nil }
+        return DollhouseSunWeather(latitude: lat, longitude: lon, clouds: w.clouds, symbol: w.symbol)
     }
 
     private func sunDate(_ raw: String?) -> Date? { raw.flatMap(ISO.parse) }

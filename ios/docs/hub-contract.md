@@ -206,7 +206,7 @@ push (`{"aps":{"content-available":1},"cat":"sends"}`, push type `background`, p
 
 ## Smart "Right now" cards
 
-`GET /v1/home` now carries `weather` ({temp, condition, symbol, high, low, sunrise, sunset}) and `smart`, a list of
+`GET /v1/home` now carries `weather` ({temp, condition, symbol, high, low, sunrise, sunset, clouds, lat, lon}; `clouds` is cover 0-100, `lat`/`lon` the house rounded to 0.1 degree for the dollhouse sun) and `smart`, a list of
 cards the hub picked for this person right now, highest priority first. `GET /v1/smart` returns just
 `{cards, weather}`; the event stream sends `{"type":"smart"}` when they may have changed (and device events can
 change them too), so the app refetches `/v1/smart`.

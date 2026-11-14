@@ -14,6 +14,8 @@ struct DollhouseRoom: Identifiable {
     var appearance: DollhouseAppearance
     var views: DollhouseViews?
     var life: DollhouseLifeScript?
+    /// Real sunlight through the windows. Nil for rooms without windows (the basement).
+    var sun: DollhouseSunSpec?
     /// `room` (a cutaway) or `property` (the whole lot, in metres). The property page has no climate or Advanced
     /// screen, its rig scales to the lot, and a tap on the house opens the rooms.
     var kind: DollhouseKind = .room
@@ -230,6 +232,7 @@ enum DollhouseCatalog {
             var appearance: String
             var views: DollhouseViews?
             var life: String?
+            var sun: DollhouseSunSpec?
             var kind: String?
         }
         var rooms: [Row]
@@ -254,7 +257,7 @@ enum DollhouseCatalog {
             return DollhouseRoom(id: row.id, title: row.title, symbol: row.symbol, model: row.model,
                                  devicesName: row.devices, mappingName: row.mapping, appearanceName: row.appearance,
                                  devices: devices, mapping: mapping, appearance: appearance, views: row.views, life: life,
-                                 kind: row.kind.flatMap(DollhouseKind.init(rawValue:)) ?? .room)
+                                 sun: row.sun, kind: row.kind.flatMap(DollhouseKind.init(rawValue:)) ?? .room)
         }
     }
 

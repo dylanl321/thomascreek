@@ -784,6 +784,10 @@ class HomeModel:
             # Just after a restart nothing has been fetched yet: say so, so the app shows "loading" not nothing.
             # (After a few minutes with nothing, the weather is really unavailable and the card stays hidden.)
             w = {**(w or {}), "pending": True}
+        loc = self.hub.forecasts._home_loc()
+        if w and w.get("temp") is not None and loc:
+            # Rounded to about 10 km: enough to place the sun in the dollhouse, not to find the house.
+            w = {**w, "lat": round(loc[0], 1), "lon": round(loc[1], 1)}
         return w
 
     def systems_card(self) -> dict[str, Any]:
