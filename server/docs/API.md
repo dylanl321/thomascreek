@@ -810,9 +810,11 @@ Channel logos are chosen in this order: the iptv-org logo for the iptv-org id or
    "playing":null},
   {"id":"tv_office_0123456789","name":"Living room","room":"living_room","online":true,
    "media_entity":"media_player.living",
-   "playing":{"channel_key":"xc:thomas-creek:10","title":"Newsroom","name":"CNN","number":20,"position_s":125}}
+   "playing":{"channel_key":"xc:thomas-creek:10","title":"Newsroom","name":"CNN","number":20,"position_s":125,"poster_url":"/v1/art/poster/prog:0b49a5b26ac1e2d3739f"}}
 ]}
 ```
+
+`poster_url` is added on `playing` when the hub can name artwork. A film uses its poster, a series uses the series poster, a titled programme uses the programme poster, and a channel with no title uses the channel logo. The phone fetches that path with the bearer. It is omitted when nothing is playing, or when there is no title and no channel. The art route answers `404` when the file is not cached yet. The card still shows the title.
 
 `POST /v1/tv/handoff` `{from_device, to_device}`. Either value is an install id or the linked `media_entity`. The hub reads what's playing and `position_s`, sends `tv.play` to `to_device` with `resume` set to that position, then `tv.stop` to `from_device`. Nothing is playing, or it's the same TV, answers 200 and does not send a command:
 
@@ -828,6 +830,56 @@ Moved:
 ```
 
 The play command is the same `tv_command` as any other play, with `resume` set. A TV that hasn't checked in for two minutes still gets the command: `message` says it'll come on when that TV wakes up. A kids' TV asked to play something else answers `403` with `message` "Theo's TV only plays kids' shows". A room this person can't use answers `403` "That room isn't one you can use". Unknown TV is `404`.
+
+### iPhone remote
+
+The phone is the remote for a room. Moving a show to another room stays `POST /v1/tv/handoff`. Starting a title stays `POST /v1/actions` with `tv.play`. This endpoint is the buttons on the remote.
+
+`POST /v1/tv/remote` uses the same bearer as `GET /v1/tv/devices`.
+
+```json
+{"device":"tv_office_0123456789","command":"pause"}
+```
+
+`device` is an install id or the linked `media_entity`. Leave it out and the hub picks a TV: the one that is playing, then the only one that is on, then the room this person last moved a show to, then the only TV they can use. If more than one fits, it does not guess:
+
+```json
+{"ok":false,"message":"Pick a room."}
+```
+
+`command` is `play`, `pause`, `seek`, `channel_up`, `channel_down`, `tune`, `text`, `back`, or `home`.
+
+`play` and `pause` are the transport buttons. `play` resumes what is already on. It does not start a new title. `seek` includes `position_s`, whole seconds from 0 to 86400. `tune` includes `channel_key`. `text` includes `text`, up to 80 characters, for the search box. `channel_up`, `channel_down`, `back`, and `home` need nothing else.
+
+The hub answers immediately. It does not wait for the TV.
+
+```json
+{"ok":true,"id":"tvr_ab12cd34ef567890abcd"}
+```
+
+The TV receives it on the existing `GET /v1/events` stream, and only that TV. It is not added to `GET /v1/tv/commands`, and the TV does not acknowledge it. Phones do not receive this event.
+
+```json
+{"type":"tv_remote","data":{"id":"tvr_ab12cd34ef567890abcd","install_id":"tv_office_0123456789","command":"seek","position_s":125,"at":"2026-11-14T01:30:00+00:00"}}
+```
+
+`channel_key` is included only for `tune`. `text` is included only for `text`. A TV that is not on the event stream misses the command. `online` on the room card already says whether that TV has checked in. The tap still answers `ok`.
+
+A kids' profile, or a child, tuning a channel that is not for kids is `403`:
+
+```json
+{"error":"forbidden","message":"That channel isn't for this TV"}
+```
+
+A room this person can't use is `403` "That room isn't one you can use". An unknown TV is `404` "That TV isn't registered". A command the remote does not have is `400` "That button isn't on this remote." A seek without a place is `400` "Say where to skip to." A tune without a channel is `400` "Say which channel." Empty text, or text that looks like an address, is `400` "Say what to type."
+
+More than twelve commands to the same TV in five seconds answers `200` and sends nothing:
+
+```json
+{"ok":false,"message":"That's as fast as it goes."}
+```
+
+No push is sent for a remote button.
 
 ### Doorbell and the door cameras
 
