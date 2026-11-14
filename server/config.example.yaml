@@ -102,6 +102,25 @@ tv_app:
   # Number from https://go.aftvnews.com/ for http://<hub>/tv. Leave this out until you register that address.
   # downloader_code: "48291"
 
+# The house brain (hub/brain): background jobs that notice things and suggest Right-now cards or
+# maintenance inbox items. Uses the same Claude key as the assistant (vault: anthropic.api_key).
+# Every run is logged with its cost (Systems > House brain in the app). Everything is optional.
+brain:
+  enabled: true                    # kill switch (the app can also pause it)
+  cheap_model: claude-haiku-5-5    # words and ranks what plain code found
+  smart_model: claude-sonnet-5-5   # only when the cheap model says it's unsure
+  monthly_cap_usd: null            # no cap; set a number to make the brain only watch once it's spent that
+  auto_actions: []                 # suggest only: nothing acts on the house by itself
+  briefing_time: "07:00"
+  briefing_on_first_open: true
+  briefing_push: false
+  jobs:                            # per job: enabled, autonomy (observe | suggest), daily_budget_usd, cooldown_min
+    plain_cards: {autonomy: suggest}
+    left_on: {autonomy: suggest}
+    health: {autonomy: suggest}
+    briefing: {autonomy: suggest}
+    catch_up: {autonomy: suggest}
+
 child_policy:
   climate_min: 66
   climate_max: 74

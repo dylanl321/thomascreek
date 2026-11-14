@@ -333,7 +333,8 @@ class Assistant:
         ctx = {"app": app, "auth": auth, "ip": ip, "subject": subject, "conv": conv, "turn": turn}
 
         reply = ""
-        usage = {"in": 0, "out": 0, "cached": 0}
+        usage = {"in": 0, "out": 0, "cached": 0, "cache_write": 0}
+        started = time.monotonic()
         for _ in range(self.cfg.max_steps):
             kw: dict[str, Any] = dict(
                 model=self.cfg.model, max_tokens=4096, system=system, tools=tools, messages=conv.messages,
@@ -356,6 +357,7 @@ class Assistant:
                 usage["in"] += getattr(u, "input_tokens", 0) or 0
                 usage["out"] += getattr(u, "output_tokens", 0) or 0
                 usage["cached"] += getattr(u, "cache_read_input_tokens", 0) or 0
+                usage["cache_write"] += getattr(u, "cache_creation_input_tokens", 0) or 0
             content = [_dump(b) for b in resp.content]
             conv.messages.append({"role": "assistant", "content": content})
             texts = [b.get("text", "") for b in content if b.get("type") == "text"]
@@ -383,8 +385,13 @@ class Assistant:
         if not reply:
             reply = "Done." if turn.changed and not turn.confirms else "Okay."
 
-        self.hub.db.log("assistant.ask", "ok", person_id=subject.person_id, device_id=device_id,
-                        detail=f"in={usage['in']} cached={usage['cached']} out={usage['out']} steps={len(turn.steps)}")
+        act_id = self.hub.db.log("assistant.ask", "ok", person_id=subject.person_id, device_id=device_id,
+                                 detail=f"in={usage['in']} cached={usage['cached']} out={usage['out']} steps={len(turn.steps)}")
+        brain = getattr(self.hub, "brain", None)
+        if brain is not None:  # the house brain's run log keeps the cost of every model call, this one too
+            brain.record_assistant(model=self.cfg.model, usage=usage, person_id=subject.person_id,
+                                   latency_ms=int((time.monotonic() - started) * 1000), steps=len(turn.steps),
+                                   activity_id=act_id)
         return {"conversation_id": conv.id, "reply": reply, "steps": turn.steps, "confirms": turn.confirms,
                 "changed": turn.changed}
 

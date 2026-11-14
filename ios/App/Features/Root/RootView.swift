@@ -202,6 +202,8 @@ struct DestinationView: View {
         case .people: PeopleView()
         case .kidNet: KidNetView()
         case .vpnPool: VPNPoolView()
+        case .houseBrain: HouseBrainView()
+        case .brainRun(let id): BrainRunView(id: id)
         case .hubWeb: HubWebPageView()
         case .youtube: YouTubeManageView()
         case .today: TodayView()

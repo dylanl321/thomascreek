@@ -221,6 +221,32 @@ class AssistantConfig(BaseModel):
     house_name: str = "Thomas Creek"
 
 
+class BrainJobConfig(BaseModel):
+    """One house-brain job (see hub/brain/jobs.py). Unset fields keep the job's own default."""
+
+    enabled: bool = True
+    autonomy: str | None = None        # observe | suggest | act (act still only suggests unless listed in auto_actions)
+    daily_budget_usd: float | None = None  # None/0 = unlimited
+    cooldown_min: float | None = None
+
+
+class BrainConfig(BaseModel):
+    """The house brain: cheap background AI that notices things and suggests (hub/brain/)."""
+
+    enabled: bool = True               # kill switch; it also needs the Claude key (assistant.key_secret)
+    key_secret: str = "anthropic.api_key"
+    cheap_model: str = "claude-haiku-5-5"   # routine wording and ranking
+    smart_model: str = "claude-sonnet-5-5"  # only when the cheap model says it's unsure
+    effort: str = "low"
+    monthly_cap_usd: float | None = None  # None/0 = no cap. When set, past it the brain only observes (admins told once)
+    auto_actions: list[str] = Field(default_factory=list)  # actions a job may take by itself; empty = suggest only
+    briefing_time: str = "07:00"
+    briefing_on_first_open: bool = True  # an earlier first open (after 05:00) brings the briefing forward
+    briefing_push: bool = False
+    mute_after_ignored: int = 6        # a job whose last N cards were all ignored or "Not now" mutes itself
+    jobs: dict[str, BrainJobConfig] = Field(default_factory=dict)
+
+
 class AppUpdateConfig(BaseModel):
     """Telling phones a newer TestFlight build is out (see hub/appupdate.py)."""
 
@@ -430,6 +456,7 @@ class Config(BaseModel):
     assistant: AssistantConfig = Field(default_factory=AssistantConfig)
     iptv_match: IptvMatchConfig = Field(default_factory=IptvMatchConfig)
     iptv: IptvConfig = Field(default_factory=IptvConfig)
+    brain: BrainConfig = Field(default_factory=BrainConfig)
     printers: PrintersConfig = Field(default_factory=PrintersConfig)
     child_policy: ChildPolicy = Field(default_factory=ChildPolicy)
     smart: SmartConfig = Field(default_factory=SmartConfig)

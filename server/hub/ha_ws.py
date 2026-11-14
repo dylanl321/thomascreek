@@ -224,6 +224,10 @@ class HAConnection:
         if isinstance(new, dict):
             self.hub.home.publish_soon(self.hub.home.merge_states([new]))
         # Alerts may send pushes or fetch snapshots: never hold up the next event for them.
+        try:
+            self.hub.brain.on_state(eid, d.get("old_state"), new)  # cheap: marks jobs due, never calls a model here
+        except Exception as exc:  # noqa: BLE001
+            log.debug("brain on_state %s: %s", eid, exc)
         task = asyncio.create_task(self.hub.alerts.on_state(eid, d.get("old_state"), new))
         task.add_done_callback(_log_alert_failure(eid))
 

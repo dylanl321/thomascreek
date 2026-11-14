@@ -226,6 +226,26 @@ Devices, rules and alarms (push alerts) come only from the box named by `firewal
 (its gid or name, default "140Thomas", the Gold Pro at the house; with one box in the account that box is used).
 If no box matches, Firewalla shows as down on Systems with the box names it found.
 
+## House brain (admin, `hub/brain`, `routes/brain.py`)
+
+Background jobs find things in plain Python (states, presence, the activity log) and the cheap model
+(`brain.cheap_model`, Claude Haiku 5.5) only words and ranks them; it hands over to `brain.smart_model`
+(Sonnet 5.5) when it answers `unsure`. Jobs: `plain_cards`, `left_on`, `health` (maintenance inbox),
+`briefing`, `catch_up`. Cards arrive in `GET /v1/smart` with `rule: brain_<job>` and an `ai: {run_id, job}`
+field; `POST /v1/smart/dismiss` on them records `used` / `not_now` in the run log. Nothing acts by itself
+(`brain.auto_actions` is empty). No spending cap unless `brain.monthly_cap_usd` is set.
+
+| Method | Path | |
+|---|---|---|
+| GET | `/v1/brain/summary` | `{status: on\|paused\|off\|needs_key\|capped, month, spend_usd, assistant_usd, total_usd, cap_usd\|null, runs, cards, used, not_now, ignored, resolved, dismiss_rate, actions, undo_rate, models, jobs: [{id, title, about, enabled, autonomy, muted, runs, cost_usd, cards, used, last_run}]}` |
+| GET | `/v1/brain/runs?job=&limit=&before=` | `{items: [{id, ts, job, job_title, trigger, model, tier, tokens_in, tokens_out, tokens_cached, cost_usd, latency_ms, action, outcome, feedback, headline, input_summary}], before}` |
+| GET | `/v1/brain/runs/{id}` | one run with `decision` (what it saw, the model's words, fallback reason, per-call costs) |
+| POST | `/v1/brain` | `{paused}` pause or resume every job |
+| POST | `/v1/brain/jobs/{id}` | `{enabled?, autonomy?: observe\|suggest}` |
+| POST | `/v1/brain/jobs/{id}/run` | run a job once now |
+
+Ask Thomas Creek's turns are logged in the same table (job `assistant`) with their cost.
+
 ## People, devices, systems (admin unless noted)
 
 `GET /v1/people` -> `{people:[{id,name,role,ui_style,areas,shared_areas,grants,denies,tv_device,access_until,devices:[..]}], unassigned:[..], areas:[..]}`
