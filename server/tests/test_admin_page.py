@@ -32,7 +32,9 @@ def _plex_on(hub):
 def test_key_test_button_shows_works_or_refused_without_the_value(hub, people, home_client):
     _plex_on(hub)
     csrf = _sign_in(people, home_client)
-    home_client.post("/admin/secrets", data={"csrf": csrf, "name": "plex.token", "value": "plex-secret-123"})
+    # Set it directly: saving through the form starts a background check that can still be running
+    # (and unmocked) when the button is pressed, which makes the button return the cached result.
+    hub.vault.set("plex.token", "plex-secret-123")
     with respx.mock() as mock:
         mock.get("http://plex.test/library/sections").mock(return_value=httpx.Response(401))
         r = home_client.post("/admin/keys/test", data={"csrf": csrf, "name": "plex.token"})
