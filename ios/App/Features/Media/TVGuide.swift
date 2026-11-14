@@ -7,15 +7,34 @@ struct TVPlayerList: Decodable { var tvs: [TVPlayer] }
 struct TVPlayer: Decodable, Identifiable {
     var id: String
     var name: String
-    var roomName: String?
-    var profile: String?
-    var online: Bool?
-    var playing: TVPlaying?
+    var room: String? = nil
+    var roomName: String? = nil
+    var profile: String? = nil
+    var mediaEntity: String? = nil
+    var online: Bool? = nil
+    var playing: TVPlaying? = nil
+    /// The room this person moved a show to last. The hub lists that one first.
+    var usual: Bool? = nil
 }
+struct TVDeviceList: Decodable { var devices: [TVPlayer] }
+struct TVHandoffReply: Decodable { var ok: Bool?; var moved: Bool?; var message: String? }
 struct TVPlaying: Decodable, Hashable {
-    var channelKey: String?
-    var title: String?
+    var channelKey: String? = nil
+    var title: String? = nil
+    var name: String? = nil
+    var positionS: Double? = nil
+    var kind: String? = nil
+    var movieId: String? = nil
+    var seriesId: String? = nil
+    var episodeId: String? = nil
+}
+/// A `tv` event: what's on one house TV right now.
+struct TVWatch: Decodable {
+    var id: String
     var name: String?
+    var room: String?
+    var mediaEntity: String?
+    var playing: TVPlaying?
 }
 
 struct TVGuidePage: Decodable { var channels: [TVGuideChannel] }
@@ -432,6 +451,68 @@ struct PlayOnTVSheet: View {
         }
         store.perform("tv.play", target: tv.id, params: params, done: "Sent to \(tv.name)")
         dismiss()
+    }
+}
+
+/// Pick another room. The hub already ordered them: the room this person last used is first.
+struct MoveToSheet: View {
+    var from: String
+    var title: String
+    @Environment(\.dismiss) private var dismiss
+    @Environment(HomeStore.self) private var store
+
+    private var others: [TVPlayer] {
+        let mine = store.houseTVs.first { $0.id == from || $0.mediaEntity == from }?.id
+        return store.houseTVs.filter { $0.id != mine }
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(title).font(.headline).padding(.bottom, 4)
+                    if store.tvsLoadedAt == nil && store.houseTVs.isEmpty {
+                        LoadingCard()
+                    } else if others.isEmpty {
+                        EmptyCard(symbol: "tv", title: "Nowhere else to play it",
+                                  detail: "This is the only TV in the house right now.")
+                    } else {
+                        ForEach(others) { tv in
+                            Button {
+                                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                                store.moveTV(from: from, to: tv, title: title)
+                                dismiss()
+                            } label: {
+                                HStack(spacing: 12) {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(tv.name).font(.body.weight(.semibold)).foregroundStyle(Theme.fg)
+                                        Text(caption(tv)).font(.caption).foregroundStyle(Theme.dim).lineLimit(1)
+                                    }
+                                    Spacer()
+                                    Image(systemName: "arrow.right.square").font(.title3).foregroundStyle(Theme.accent)
+                                }
+                            }
+                            .buttonStyle(.plain).card()
+                        }
+                    }
+                }
+                .padding(16)
+                .animation(.snappy, value: others.map(\.id))
+            }
+            .background(Backdrop())
+            .navigationTitle("Move to")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
+        }
+        .presentationDetents([.medium, .large])
+        .task { await store.loadHouseTVs() }
+    }
+
+    private func caption(_ tv: TVPlayer) -> String {
+        if tv.usual == true { return "Where you usually move it" }
+        if tv.online == false { return "Asleep. It'll wake up." }
+        if let on = tv.playing?.title ?? tv.playing?.name, !on.isEmpty { return "On · \(on)" }
+        return "Ready"
     }
 }
 

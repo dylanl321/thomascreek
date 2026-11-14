@@ -24,6 +24,9 @@ final class HomeStore {
     /// Newest Frigate detections across all cameras (Home and the Cameras section).
     var recentEvents: [CameraEvent]?
     var recentEventsError: String?
+    /// Thomas Creek TVs, so Now playing can offer Move to… without another round trip.
+    var houseTVs: [TVPlayer] = []
+    var tvsLoadedAt: Date?
     var lastUpdate: Date?
     var reachable = true
     var unreachableSince: Date?
@@ -156,6 +159,7 @@ final class HomeStore {
             let (h, savedAt) = try await HubClient.shared.fetch("/v1/home", as: HomeSnapshot.self)
             home = h; cacheHome()
             if savedAt == nil { markReachable(); if previewing == nil { SpotlightIndex.update(h, me: me) } } else { markUnreachable() }
+            await loadHouseTVs()
         } catch HubClient.HubError.cancelled {
         } catch { markUnreachable() }
     }
@@ -218,11 +222,13 @@ final class HomeStore {
             if let i = h.printers?.firstIndex(where: { $0.id == st.id }) { h.printers?[i] = sum; home = h }
             NotificationCenter.default.post(name: .printerStatus, object: st)
         case "tv":
-            // A house TV reported how tv.play turned out.
-            guard case .object(let o)? = e.data, let cmd = o["command"]?.object else { return }
-            let name = o["name"]?.string ?? "The TV"
-            let ok = cmd["ok"]?.bool ?? false
-            show(ok ? "Playing on \(name)" : (cmd["error"]?.string ?? "\(name) didn't start it"), isError: !ok)
+            guard case .object(let o)? = e.data else { return }
+            if let watch = Self.decode(TVWatch.self, o) { noteTV(watch) }
+            if let cmd = o["command"]?.object {
+                let name = o["name"]?.string ?? "The TV"
+                let ok = cmd["ok"]?.bool ?? false
+                show(ok ? "Playing on \(name)" : (cmd["error"]?.string ?? "\(name) didn't start it"), isError: !ok)
+            }
             return
         case "watch":
             // "Watch this on that TV" finished in the background (Plex opened, title started, tracks picked).
@@ -413,6 +419,47 @@ final class HomeStore {
                 show(r.message, [r.audio, r.subtitles.map { "Subtitles: \($0)" }].compactMap { $0 }.joined(separator: " · "),
                      isError: r.ok == false)
             } catch { show(error.localizedDescription, isError: true) }
+        }
+    }
+
+    func loadHouseTVs() async {
+        guard let list: TVDeviceList = try? await HubClient.shared.get("/v1/tv/devices") else { return }
+        houseTVs = list.devices
+        tvsLoadedAt = .now
+        NowPlayingActivity.sync(list.devices)
+    }
+
+    private func noteTV(_ watch: TVWatch) {
+        if let i = houseTVs.firstIndex(where: { $0.id == watch.id }) {
+            houseTVs[i].playing = watch.playing
+            houseTVs[i].online = true
+            if let name = watch.name { houseTVs[i].name = name }
+        } else if watch.playing != nil {
+            houseTVs.append(TVPlayer(id: watch.id, name: watch.name ?? "TV", room: watch.room,
+                                     mediaEntity: watch.mediaEntity, online: true, playing: watch.playing))
+        }
+        NowPlayingActivity.sync(houseTVs)
+    }
+
+    /// Start the show on another TV from the same second. The card updates before the hub answers.
+    func moveTV(from: String, to: TVPlayer, title: String) {
+        let carried = houseTVs.first { $0.id == from || $0.mediaEntity == from }?.playing ?? TVPlaying(title: title)
+        if let i = houseTVs.firstIndex(where: { $0.id == from || $0.mediaEntity == from }) {
+            houseTVs[i].playing = nil
+        }
+        if let j = houseTVs.firstIndex(where: { $0.id == to.id }) {
+            houseTVs[j].playing = carried
+        }
+        show("Moving \(title) to \(to.name)")
+        Task {
+            do {
+                let reply: TVHandoffReply = try await HubClient.shared.post("/v1/tv/handoff",
+                                                                            ["from_device": from, "to_device": to.id])
+                if reply.ok == false { show(reply.message ?? "It's still where it was") }
+            } catch {
+                show(error.localizedDescription)
+            }
+            await loadHouseTVs()
         }
     }
 

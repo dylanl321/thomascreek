@@ -11,11 +11,14 @@ import time
 from typing import Any
 
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel, Field
 
+from ..actions import ActionError
 from ..adapters.base import AdapterError
 from ..policy import Target
 from ..state import Hub
 from ..tvapp import TvAppError
+from .. import tvhandoff
 from .deps import Caller, caller, error, hub, need
 from .media import _filter, _watch_cap
 
@@ -62,6 +65,28 @@ async def players(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[st
             "last_command": tv.get("last_command"),
         })
     return {"tvs": rows}
+
+
+@router.get("/devices")
+async def devices(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """TVs this person can move a show to. The room they last used is first."""
+    _media(h, c)
+    return {"devices": tvhandoff.devices(h, c.subject)}
+
+
+class HandoffIn(BaseModel):
+    from_device: str = Field(min_length=1, max_length=200)
+    to_device: str = Field(min_length=1, max_length=200)
+
+
+@router.post("/handoff")
+async def handoff(body: HandoffIn, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """Start what's playing on another TV from the same second, then stop the first one."""
+    _media(h, c)
+    try:
+        return await tvhandoff.handoff(h, c.subject, body.from_device, body.to_device)
+    except ActionError as exc:
+        raise error(exc.status, exc.error, exc.message, **exc.extra) from None
 
 
 @router.get("/guide")
