@@ -2,7 +2,7 @@ import ActivityKit
 import SwiftUI
 
 /// A doorbell or a person at the door, from the hub's `home_alert` event. The picture is a hub path.
-struct DoorNotice: Identifiable, Equatable {
+struct DoorNotice: Identifiable, Equatable, Decodable {
     var id: String
     var title: String
     var kind: String
