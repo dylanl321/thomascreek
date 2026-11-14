@@ -1,5 +1,6 @@
 import UIKit
 import UserNotifications
+import TVPhone
 
 final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
@@ -45,6 +46,14 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     // Show alerts while the app is open too.
     func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
         await HomeStore.shared.loadInbox()
+        let content = notification.request.content
+        // While the app is open the banner is the one surface, with the room already chosen.
+        // If the list doesn't answer, keep the system notification so the tap isn't lost.
+        if TVPairPush.isPairing(title: content.title, userInfo: content.userInfo) {
+            await TVPairingCenter.shared.refresh()
+            let showing = await MainActor.run { !TVPairingCenter.shared.asks.isEmpty }
+            if showing { return [] }
+        }
         return [.banner, .sound, .list]
     }
 
@@ -53,6 +62,20 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         let info = response.notification.request.content.userInfo
         let cat = info["cat"] as? String
         let inboxID = info["inbox_id"] as? String
+        let title = response.notification.request.content.title
+        if TVPairPush.isPairing(title: title, userInfo: info) {
+            switch response.actionIdentifier {
+            case TVPairPush.approve:
+                if let id = TVPairPush.pairID(userInfo: info) { await TVPairingCenter.shared.approve(pairID: id) }
+                else { await TVPairingCenter.shared.refresh() }
+            case TVPairPush.notNow:
+                if let id = TVPairPush.pairID(userInfo: info) { await TVPairingCenter.shared.notNow(pairID: id) }
+            default:
+                await MainActor.run { Router.shared.show(.home) }
+                await TVPairingCenter.shared.refresh()
+            }
+            return
+        }
         do {
             switch response.actionIdentifier {
             // Holiday lights (unchanged from the Christmas Lights app)
@@ -142,6 +165,11 @@ enum NotificationActions {
             .init(identifier: "CAMERA_CAR", actions: [liveA, wrong("Not a car")], intentIdentifiers: []),
             .init(identifier: "CAMERA_ANIMAL", actions: [liveA, wrong("Not an animal")], intentIdentifiers: []),
             .init(identifier: "CAMERA_PACKAGE", actions: [liveA, wrong("Not a package")], intentIdentifiers: []),
+            // A new TV. Approve uses the suggested room. Not now tells the hub no.
+            .init(identifier: TVPairPush.category, actions: [
+                UNNotificationAction(identifier: TVPairPush.approve, title: "Approve", options: [], icon: .init(systemImageName: "checkmark")),
+                UNNotificationAction(identifier: TVPairPush.notNow, title: "Not now", options: [], icon: .init(systemImageName: "xmark")),
+            ], intentIdentifiers: []),
         ]
         UNUserNotificationCenter.current().setNotificationCategories(Set(cats))
     }

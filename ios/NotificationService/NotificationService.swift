@@ -1,4 +1,5 @@
 import UserNotifications
+import TVPhone
 
 /// Adds the camera picture to an alert. The hub sends only a path (`image`); the picture is fetched
 /// from the hub with this phone's own sign-in, so nothing private passes through Apple.
@@ -11,6 +12,10 @@ final class NotificationService: UNNotificationServiceExtension {
         handler = contentHandler
         let content = (request.content.mutableCopy() as? UNMutableNotificationContent) ?? UNMutableNotificationContent()
         best = content
+        if TVPairPush.isPairing(title: content.title, userInfo: content.userInfo) {
+            content.categoryIdentifier = TVPairPush.category
+            if let id = TVPairPush.pairID(userInfo: content.userInfo) { content.userInfo["pair_id"] = id }
+        }
         guard let path = content.userInfo["image"] as? String, path.hasPrefix("/v1/") else {
             contentHandler(content); return
         }
