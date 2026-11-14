@@ -244,3 +244,27 @@ def test_pool_vpn_client_address_opens_the_web_page(hub, tmp_path):
     (drop / "vpn.pool.1.conf").write_text(_client_conf(1))  # Address = 10.11.12.2/32
     assert import_dropped(hub.vault, drop) == ["vpn.pool.1"]
     assert not hub.is_home("10.11.12.2") and hub.can_open_web("10.11.12.2")
+
+
+def test_test_button_waits_for_a_check_already_running_and_tests_again(hub):
+    """The check started right after a save must not swallow the Test button (it used to answer from the old result)."""
+    _plex_on(hub)
+    hub.vault.set("plex.token", "x" * 20)
+
+    async def go():
+        with respx.mock() as mock:
+            async def slow(request):
+                await asyncio.sleep(0.3)
+                return httpx.Response(401)
+
+            route = mock.get("http://plex.test/library/sections").mock(side_effect=slow)
+            first = asyncio.create_task(hub.keychecks.run(secret="plex.token"))
+            await asyncio.sleep(0.05)
+            route.mock(return_value=httpx.Response(200, json={}))
+            second = await hub.keychecks.run(secret="plex.token")
+            await first
+            return route.call_count, second
+
+    calls, second = asyncio.run(go())
+    assert calls == 2 and second[0][1]["state"] == "ok"
+    assert hub.keychecks.results["plex"]["state"] == "ok"

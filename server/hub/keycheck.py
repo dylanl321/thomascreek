@@ -445,9 +445,14 @@ class KeyChecks:
     async def run_one(self, c: Check) -> dict[str, Any]:
         if not _safe_ready(c, self.hub):
             r: dict[str, Any] = result("skip", "nothing saved to test")
-        elif c.id in self._running:
-            return self.results.get(c.id) or result("skip", "already being checked")
         else:
+            # A check of this key is already under way (say the one started right after a save):
+            # wait for it, then test again, so the answer is about the key as it is now.
+            deadline = time.monotonic() + TIMEOUT_S + 1
+            while c.id in self._running:
+                if time.monotonic() > deadline:
+                    return self.results.get(c.id) or result("skip", "already being checked")
+                await asyncio.sleep(0.05)
             self._running.add(c.id)
             t0 = time.monotonic()
             try:
