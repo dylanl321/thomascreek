@@ -436,6 +436,14 @@ class PlayingIn(BaseModel):
     title: str | None = Field(default=None, max_length=120)
     name: str | None = Field(default=None, max_length=80)
     number: int | None = None
+    # Where the show is, so another room can start at the same second. The ids are optional:
+    # a channel needs channel_key, a film needs movie_id, an episode needs episode_id.
+    position_s: float | None = None
+    kind: str | None = Field(default=None, max_length=20)
+    movie_id: str | None = Field(default=None, max_length=80)
+    series_id: str | None = Field(default=None, max_length=80)
+    episode_id: str | None = Field(default=None, max_length=80)
+    start: str | int | float | None = None
 
 
 class HealthIn(BaseModel):
@@ -482,6 +490,7 @@ async def tv_lineup(request: Request, c: Caller = Depends(caller), h: Hub = Depe
     if not (h.policy.has(c.subject, "media.all") or h.policy.has(c.subject, "media.own_tv")):
         raise error(403, "forbidden", "Not available", ask_parent=c.subject.is_child_like)
     lineup = h.tv_catalog.lineup(kids_only=c.subject.is_child_like) or h.tv_app.public_lineup(kids_only=c.subject.is_child_like)
+    h.source_health.annotate(lineup.get("channels") or [])
     return _cached(request, lineup)
 
 

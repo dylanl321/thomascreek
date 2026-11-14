@@ -147,6 +147,7 @@ ACTIONS: dict[str, ActionSpec] = {
         ActionSpec("light.set", "everyday", ("lights.all",), ("lights.own_room",), askable=True),
         ActionSpec("fan.set", "everyday", ("lights.all",), ("lights.own_room",), askable=True),
         ActionSpec("switch.set", "everyday", ("lights.all",), ("lights.own_room",), askable=True),
+        ActionSpec("select.set", "everyday", ("lights.all",), ("lights.own_room",), askable=True),
         ActionSpec("scene.run", "everyday", ("lights.all",), ("lights.own_room",), askable=True),
         ActionSpec("mode.run", "everyday", ("lights.all",)),
         ActionSpec("climate.set", "everyday", ("climate.all",), ("climate.own_room",), askable=True),

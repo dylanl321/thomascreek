@@ -208,3 +208,17 @@ async def test_mqtt_snapshot_replaces_and_false_positive_waits(hub, people):
     assert updates[0]["group_key"] == "cam:140_frontdoor"
     assert await hub.note_frigate_event(mqtt_to_event(pictured, (1280, 720))) == "dup"
     assert len(updates) == 2
+
+
+async def test_one_event_reaches_the_tvs_once(hub, people):
+    _front_door(hub, people)
+    noted = []
+
+    def note_frigate(event, now=None):
+        noted.append(event["id"])
+
+    hub.home_alerts.note_frigate = note_frigate  # type: ignore[method-assign]
+    assert await hub.note_frigate_event(_event("tv1")) == "new"
+    assert await hub.note_frigate_event(_event("tv1")) == "dup"
+    assert await hub.note_frigate_event(_event("already", start_time=1), backlog=True) == "backlog"
+    assert noted == ["tv1"]

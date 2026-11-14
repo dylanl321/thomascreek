@@ -21,6 +21,7 @@ from .adapters.base import AdapterError
 from .home import iso, kind_for
 from .policy import TIERS, Decision, Subject, Target
 from .tvapp import TvAppError
+from .upnext import remember
 
 if TYPE_CHECKING:
     from .state import Hub
@@ -30,6 +31,7 @@ log = logging.getLogger("hub.actions")
 # Which entity kinds each action may aim at.
 ACTION_KINDS: dict[str, tuple[str, ...]] = {
     "light.set": ("light",), "fan.set": ("fan",), "switch.set": ("switch",), "climate.set": ("climate",),
+    "select.set": ("select",),
     "lock.set": ("lock",), "garage.set": ("garage",), "media.command": ("media", "speaker"),
     "media.volume": ("media", "speaker"), "media.play": ("media", "speaker"), "speaker.group": ("speaker",),
     "vacuum.start": ("vacuum",), "valve.run": ("valve", "switch"), "shower.preheat": ("shower",),
@@ -352,6 +354,17 @@ class ActionRunner:
             return [("fan", "turn_on", t)]
         if action == "switch.set":
             return [("switch", "turn_on" if p.get("on", True) else "turn_off", t)]
+        if action == "select.set":
+            # Only a choice the device already publishes. Nothing else is sent to Home Assistant.
+            raw = p.get("option")
+            if not isinstance(raw, str) or not raw.strip():
+                raise ActionError(400, "bad_params", "Name one of this control's options")
+            offered = [str(x) for x in (self.hub.home.states.get(eid, {}).get("attributes", {}).get("options") or [])]
+            match = next((o for o in offered if o == raw or o.lower() == raw.strip().lower()), None)
+            if match is None:
+                listed = ", ".join(offered) if offered else "none"
+                raise ActionError(400, "bad_params", f"option must be one of: {listed}")
+            return [("select", "select_option", {**t, "option": match})]
         if action == "climate.set":
             calls = []
             if p.get("hvac"):
@@ -791,6 +804,9 @@ class ActionRunner:
         info = plan.custom
         command = self.hub.tv_app.enqueue_command(info["install_id"], info["command"])
         info["command_id"] = command["id"]
+        if command.get("action") == "play":
+            tv = self.hub.tv_app.tvs().get(info["install_id"]) or {}
+            remember(self.hub.db, "kids" if tv.get("profile") == "kids" else "adult", command)
         self.hub.bus.publish({"type": "tv_command", "data": command}, device_id=f"tv:{info['install_id']}")
         if plan.action == "tv.stop":
             return f"Told {plan.label} to stop"

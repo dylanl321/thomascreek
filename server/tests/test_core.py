@@ -122,6 +122,28 @@ def test_action_cannot_aim_at_wrong_kind(people, home_client):
     assert r.status_code == 400 and r.json()["error"] == "wrong_target"
 
 
+def test_select_only_accepts_an_offered_option(hub, people, home_client):
+    hub.config.hub.dry_run = False
+    hub.home.states["select.hood_light"] = {
+        "entity_id": "select.hood_light", "state": "Off",
+        "attributes": {"friendly_name": "Hood light", "options": ["Off", "Dim", "High"]},
+    }
+    hub.home.entity_area["select.hood_light"] = "kitchen"
+    dylan = people["phones"]["Dylan"]
+    r = _post(home_client, dylan, "select.set", "select.hood_light", {"option": "high"})
+    assert r.status_code == 200, r.text
+    assert ("select", "select_option", {"entity_id": "select.hood_light", "option": "High"}) in hub.calls
+    refused = _post(home_client, dylan, "select.set", "select.hood_light", {"option": "Party"})
+    assert refused.status_code == 400 and refused.json()["error"] == "bad_params"
+    assert "Off" in refused.json()["message"]
+    missing = _post(home_client, dylan, "select.set", "select.hood_light", {})
+    assert missing.status_code == 400
+    assert _post(home_client, dylan, "light.set", "select.hood_light", {"on": True}).status_code == 400
+    theo = people["phones"]["Theo"]
+    assert _post(home_client, theo, "select.set", "select.hood_light", {"option": "Dim"}).status_code == 403
+    assert hub.calls == [("select", "select_option", {"entity_id": "select.hood_light", "option": "High"})]
+
+
 def test_secure_tier_needs_biometric_signature(hub, people, home_client):
     avery = people["phones"]["Avery"]
     r = _post(home_client, avery, "garage.set", "cover.large_garage", {"open": True})

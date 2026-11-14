@@ -791,6 +791,129 @@ Channel logos are chosen in this order: the iptv-org logo for the iptv-org id or
 }],"on_deck":[],"recent":[]}
 ```
 
+### Send to another room
+
+`position_s` on `playing` is whole seconds from the start, 0 to 86400. The TV may omit it. These fields are also accepted on `playing` and ignored when absent: `kind` (`live`, `catchup`, `movie`, `episode`), `movie_id`, `series_id`, `episode_id`, `start`. A channel handoff needs `channel_key`. A film needs `movie_id`. An episode needs `episode_id`. If the TV only sends the title, the hub fills those in from the last `tv.play` it sent that TV.
+
+`POST /v1/tv/state`
+
+```json
+{"playing":{"channel_key":"xc:thomas-creek:10","title":"Newsroom","name":"CNN","number":20,"position_s":125},
+ "foreground":true,"health":{"app_version":"1.4.1","profile":"adult","epg_age_s":120,"last_error":null,"home_crashes":0}}
+```
+
+`GET /v1/tv/devices` uses the same bearer as `GET /v1/tv/players`. A child only sees a TV in their own room or their own set. The room they last moved something to is first, and that row has `"usual":true`. `media_entity` is present when the TV is linked to a Home Assistant player, so a phone can match the now-playing card. `room` is the area id.
+
+```json
+{"devices":[
+  {"id":"tv_bed_0123456789abcd","name":"Bedroom","room":"bedroom","online":true,"usual":true,
+   "playing":null},
+  {"id":"tv_office_0123456789","name":"Living room","room":"living_room","online":true,
+   "media_entity":"media_player.living",
+   "playing":{"channel_key":"xc:thomas-creek:10","title":"Newsroom","name":"CNN","number":20,"position_s":125}}
+]}
+```
+
+`POST /v1/tv/handoff` `{from_device, to_device}`. Either value is an install id or the linked `media_entity`. The hub reads what's playing and `position_s`, sends `tv.play` to `to_device` with `resume` set to that position, then `tv.stop` to `from_device`. Nothing is playing, or it's the same TV, answers 200 and does not send a command:
+
+```json
+{"ok":false,"moved":false,"message":"Nothing is playing on Living room","from":"tv_office_0123456789","to":"tv_bed_0123456789abcd"}
+```
+
+Moved:
+
+```json
+{"ok":true,"moved":true,"message":"Moved Newsroom to Bedroom","from":"tv_office_0123456789","to":"tv_bed_0123456789abcd",
+ "dry_run":false,"command_id":"tvc_ab12","stop_command_id":"tvc_ab13"}
+```
+
+The play command is the same `tv_command` as any other play, with `resume` set. A TV that hasn't checked in for two minutes still gets the command: `message` says it'll come on when that TV wakes up. A kids' TV asked to play something else answers `403` with `message` "Theo's TV only plays kids' shows". A room this person can't use answers `403` "That room isn't one you can use". Unknown TV is `404`.
+
+### Doorbell and the door cameras
+
+The hub finds the doorbell and the cameras by a door (the name or the room mentions a door, the porch, the driveway, or the entry). One camera in the house is used when none of them says so. Nothing has to be set. Quiet hours are 22:00 to 07:00 in the hub's timezone: a doorbell still shows, and a person or motion waits until morning. `00:00` to `00:00` turns quiet hours off. Motion is off until someone asks for it. The same camera does not alert again for a short while.
+
+`home_alert` on `GET /v1/events`, for every TV and for phones that aren't a guest:
+
+```json
+{"type":"home_alert","data":{"id":"ha_ab12cd34","kind":"doorbell","camera":"driveway","title":"Someone's at the door","snapshot_url":"/v1/tv/alerts/ha_ab12cd34/snapshot.jpg","stream_url":"/v1/tv/alerts/ha_ab12cd34/stream","ttl_s":90,"stream":"mjpeg"}}
+```
+
+`kind` is `doorbell`, `person` or `motion`. `ttl_s` is how long the card stays up (90, 45 or 20). `snapshot_url` and `stream_url` are omitted when no camera could be found; the title still shows. Both URLs are on the hub and need the same bearer. They contain no Home Assistant address and no password. `stream` is `mjpeg` or, when go2rtc is configured, `hls`.
+
+`GET /v1/tv/alerts/{id}/snapshot.jpg` is `image/jpeg`. A TV bearer works at home. A phone at home works. Away from home it needs `cameras`, the same as the other camera pictures. An alert older than ten minutes, or a camera that doesn't answer, is `404` `{"error":"gone","message":"That alert has passed"}`.
+
+`GET /v1/tv/alerts/{id}/stream` is `multipart/x-mixed-replace` (MJPEG) or, when `stream` is `hls`, `application/vnd.apple.mpegurl`. The playlist's segment URLs are `/v1/tv/alerts/{id}/media?src=` and need the same bearer. A segment path with `://` or `..` is ignored.
+
+`GET /v1/tv/alerts/settings` is what is in effect, including the cameras that were found:
+
+```json
+{"cameras":["driveway"],"rooms":null,"quiet":{"from":"22:00","to":"07:00"},"motion":false,"auto":true,
+ "found":[{"id":"driveway","name":"Driveway","room":"front","door":true}]}
+```
+
+`PUT /v1/tv/alerts/settings` is admin. `cameras: null` or `rooms: null` goes back to finding them. `cameras` lists ids such as `driveway`. The same block can live under `home_assistant.extra` as `door_cameras`, `door_rooms`, `alert_quiet` and `alert_motion`; a saved PUT wins.
+
+### Up Next
+
+`GET /v1/tv/upnext?profile=adult|kids`. The same bearer as the guide. A child, a guest or a kids' TV always gets the kids shelf, even if `profile=adult`. Anyone else asking `profile=kids` gets the kids shelf. With no profile, a child gets kids and everyone else gets adult.
+
+The shelf is ranked from plays this profile has made. A profile that has not watched anything gets `{"rows":[]}`.
+
+```json
+{"rows":[
+  {"id":"continue","title":"Continue watching","items":[
+    {"kind":"movie","movie_id":"vod:thomas-creek:101","title":"Kids Movie","subtitle":"10 min in","reason":"continue watching","poster_url":"/v1/art/poster/vod:thomas-creek:101","backdrop_url":"/v1/art/backdrop/vod:thomas-creek:101","progress":0.12}
+  ]},
+  {"id":"next","title":"New episodes","items":[
+    {"kind":"episode","episode_id":"ep:thomas-creek:901","series_id":"series:thomas-creek:50","title":"Next","subtitle":"Cartoon Show","reason":"new episode of a series you watch or record","poster_url":"/v1/art/poster/series:thomas-creek:50"}
+  ]},
+  {"id":"recordings","title":"Ready to watch","items":[
+    {"kind":"recording","recording_id":"dvr_abc123","channel_key":"xc:thomas-creek:10","title":"Newsroom","subtitle":"Recorded","reason":"recording ready","poster_url":"/v1/art/poster/prog:abc"}
+  ]},
+  {"id":"onnow","title":"On now","items":[
+    {"kind":"live","channel_key":"xc:thomas-creek:10","title":"Newsroom","subtitle":"CNN","reason":"starting now on a channel you watch","poster_url":"/v1/art/poster/prog:0b49a5b26ac1e2d3739f"}
+  ]},
+  {"id":"trending","title":"For you","items":[
+    {"kind":"live","channel_key":"xc:thomas-creek:12","title":"Sports","subtitle":"You watch this","reason":"trending in your history"}
+  ]}
+]}
+```
+
+An item carries only the ids it has. `progress` is 0 to 1 and only present when the hub knows how long the title is. `reason` is one of `continue watching`, `new episode of a series you watch or record`, `recording ready`, `starting now on a channel you watch`, `trending in your history`. On now is a programme that started within the last 20 minutes on a channel this profile watched in the last 30 days. A finished recording is one the DVR marked `done`. Rows with nothing in them are left out. The order is continue, new episodes, recordings, on now, for you.
+
+### Channel health
+
+The provider's lineup is far too large to check channel by channel. The score comes from plays. `POST /v1/tv/playback_events` with a TV or phone bearer:
+
+```json
+{"events":[{"channel_key":"xc:thomas-creek:10","source":"thomas-creek","ok":true,"startup_ms":400,"ts":1710000000}]}
+```
+
+`source` is a short name the TV already uses for that copy of the channel. It is not a URL. An event whose source or error contains `://` is ignored. At most 40 events are kept from one call. The answer is `{"ok":true,"accepted":1}`.
+
+Each source keeps the last 12 results. `score` is how often those worked, from 0 to 1, pulled down a little when startup is slow. `last_ok` is when it last worked, or null. Five failures in a row means the source is left off the default. It stays in the list. Nothing is deleted.
+
+On `GET /v1/tv/lineup` and `GET /v1/tv/guide`, a channel that has been played gains:
+
+```json
+{"health":{"score":0.9,"last_ok":"2026-11-14T01:00:00+00:00"},
+ "sources":[
+   {"source":"thomas-creek","score":0.9,"last_ok":"2026-11-14T01:00:00+00:00","default":true},
+   {"source":"slow","score":0,"last_ok":null,"default":false}
+ ]}
+```
+
+`sources` is best first. The TV's source switcher uses the first `default: true`. A channel with no plays is unchanged.
+
+`GET /v1/tv/health` is the same sources, worst first, for the phone:
+
+```json
+{"sources":[{"channel_key":"xc:thomas-creek:10","name":"CNN","source":"slow","score":0,"last_ok":null,"default":false}]}
+```
+
+Overnight, between 1am and 6am, the hub opens a stream for favorites, channels watched in the last 30 days, and at most the 200 most played. It checks one or two at a time, never more than the provider allows, and never the rest of the lineup. A check that fails is another play result. The address is not stored and not returned.
+
 ## Universal title search
 
 `GET /v1/titles/search?q=` (at least two letters). One card per title across Plex, the IPTV lineup and guide, and TMDB (Jellyseerr, which is what asks Sonarr and Radarr). The same title is one card: matched on TMDB id, then IMDb, then TVDB, then the cleaned name and year.

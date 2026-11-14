@@ -12,6 +12,7 @@ struct HomeView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 HeroHeader(title: greeting(me?.firstName), subtitle: dateLine, subtitleLink: home?.weather?.temp == nil ? nil : .weather, show3D: true)
+                if let alert = store.doorAlert { DoorAlertCard(alert: alert) }
                 VPNNotice()
                 ForEach(sections) { section($0) }
                 if !store.reachable, store.role == .admin, !sections.contains(.status) { OfflineCard() }
@@ -75,10 +76,8 @@ struct HomeView: View {
                 KidsOnlineRow(kids: kids)
             }
         case .playing:
-            if let np = home?.nowPlaying?.first {
-                SectionHeader("Now playing", live: true)
-                HouseNowPlayingCard(item: np)
-            }
+            NowPlayingSection()
+            UpNextStrip()
         // Printers (PR #34): `ForEach(home?.activePrinters ?? []) { PrinterNowCard(printer: $0) }`
         case .printer: ForEach(home?.activePrinters ?? []) { PrinterNowCard(printer: $0) }
         case .cameras:
@@ -356,9 +355,73 @@ struct HouseNowPlayingCard: View {
                 }
                 ChipButton(title: "Remote", symbol: "appletvremote.gen4") { router.show(.media, .remote(item.deviceId)) }
                 if let v = item.volume { ChipButton(title: "\(Int(v))%", symbol: "hifispeaker.fill") { router.show(.media, .music) } }
+                MoveToButton(from: item.deviceId, title: item.title)
             }
         }
         .card()
+    }
+}
+
+/// What's on in the house: the player Home Assistant already reports, and any Thomas Creek TV
+/// the hub says is playing that isn't that same set.
+struct NowPlayingSection: View {
+    @Environment(HomeStore.self) private var store
+
+    var body: some View {
+        let ha = store.home?.nowPlaying ?? []
+        let tvs = store.houseTVs.filter { tv in
+            guard let title = tv.playing?.title ?? tv.playing?.name, !title.isEmpty else { return false }
+            return !ha.contains { $0.deviceId == tv.id || $0.deviceId == tv.mediaEntity }
+        }
+        if ha.first != nil || !tvs.isEmpty {
+            SectionHeader("Now playing", live: true)
+            if let first = ha.first { HouseNowPlayingCard(item: first) }
+            ForEach(tvs) { tv in TVMoveCard(tv: tv) }
+        }
+    }
+}
+
+struct TVMoveCard: View {
+    var tv: TVPlayer
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                Image(systemName: "tv").font(.title2).foregroundStyle(Theme.accent)
+                    .frame(width: 54, height: 54).background(Theme.card2, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(tv.playing?.title ?? tv.playing?.name ?? "Playing").font(.headline).lineLimit(1)
+                    Text(tv.name).font(.caption).foregroundStyle(Theme.dim).lineLimit(1)
+                }
+            }
+            MoveToButton(from: tv.id, title: tv.playing?.title ?? tv.playing?.name ?? "It")
+        }
+        .card()
+    }
+}
+
+/// One tap when there's a single other TV. More than one opens the rooms.
+struct MoveToButton: View {
+    @Environment(HomeStore.self) private var store
+    var from: String
+    var title: String
+    @State private var sheet = false
+
+    private var mine: TVPlayer? { store.houseTVs.first { $0.id == from || $0.mediaEntity == from } }
+    private var others: [TVPlayer] { store.houseTVs.filter { $0.id != mine?.id } }
+
+    var body: some View {
+        if mine != nil, let only = others.count == 1 ? others.first : nil {
+            ChipButton(title: "Move to \(only.name)", symbol: "arrow.right.square") {
+                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                store.moveTV(from: from, to: only, title: title)
+            }
+        } else if mine != nil, others.count > 1 {
+            ChipButton(title: "Move to…", symbol: "arrow.right.square") {
+                UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+                sheet = true
+            }
+            .sheet(isPresented: $sheet) { MoveToSheet(from: from, title: title) }
+        }
     }
 }
 

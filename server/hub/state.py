@@ -114,6 +114,12 @@ class Hub:
         self.tv_catalog.artwork = self.artwork
         self.tv_app.artwork = self.artwork
         self.alerts = Alerts(self)
+        from .home_alerts import HomeAlerts
+
+        self.home_alerts = HomeAlerts(self)
+        from .channelhealth import SourceHealth
+
+        self.source_health = SourceHealth(self)
         self.actions = ActionRunner(self)
         self.timers = Timers(self)
         self.kitchen = Kitchen(self)
@@ -287,6 +293,7 @@ class Hub:
         self._prober = asyncio.create_task(self._probe_services())
         self.app_update.start()
         self.tv_app.start()
+        self.source_health.start()
         if self.config.artwork.enabled:
             self.artwork.start()
 
@@ -441,6 +448,12 @@ class Hub:
             except Exception as exc:  # noqa: BLE001
                 log.warning("camera alert failed: %s", exc)
                 n = 0
+            try:
+                # The TVs hear a person at the door from this same pass. A repeat id
+                # never gets here, so the phone and the TVs can't both double-alert.
+                self.home_alerts.note_frigate(e)
+            except Exception as exc:  # noqa: BLE001
+                log.warning("door alert failed: %s", exc)
             if n:
                 self._frigate_seen[eid]["alerted"] = True
             return "new"
@@ -503,3 +516,4 @@ class Hub:
         await self.apns.close()
         await self.app_update.stop()
         await self.tv_app.stop()
+        await self.source_health.stop()

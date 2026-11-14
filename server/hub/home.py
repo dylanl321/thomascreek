@@ -24,10 +24,12 @@ log = logging.getLogger("hub.home")
 DOMAIN_KIND = {
     "light": "light", "fan": "fan", "switch": "switch", "climate": "climate", "lock": "lock",
     "camera": "camera", "vacuum": "vacuum", "valve": "valve", "water_heater": "shower",
+    "select": "select",
 }
 
 KIND_ACTIONS = {
     "light": ["light.set"], "fan": ["fan.set"], "switch": ["switch.set"], "climate": ["climate.set"],
+    "select": ["select.set"],
     "lock": ["lock.set"], "garage": ["garage.set"], "media": ["media.command", "media.volume", "media.play"],
     "speaker": ["media.command", "media.volume", "speaker.group"], "vacuum": ["vacuum.start"],
     "valve": ["valve.run"], "shower": ["shower.preheat"], "oven": ["oven.set", "oven.timer"], "camera": ["camera.view"],
@@ -191,6 +193,11 @@ def device_state(kind: str, st: dict[str, Any], link: dict[str, Any] | None = No
         o = oven_state(st)
         out.update(on=o["on"], current_temp=o["current_temp"], target_temp=o["target_temp"], mode=o["mode"],
                    modes=o["modes"], remote_ready=o["remote_ready"], available=o["available"])
+    elif kind == "select":
+        options = [str(x) for x in (a.get("options") or [])]
+        current = None if s in ("unavailable", "unknown", None) else str(s)
+        out.update(value=current, options=options, on=bool(current) and current.lower() != "off",
+                   available=s not in ("unavailable", "unknown"))
     elif kind == "shower":
         out.update(current_temp=a.get("current_temperature"), target_temp=a.get("temperature"), on=s not in ("off",))
     return out

@@ -1,0 +1,15 @@
+<!doctype html><html><head><style>html,body{margin:0;overflow:hidden;background:#000}</style>
+<script type="importmap">{"imports":{"three":"/node_modules/three/build/three.module.js","three/addons/":"/node_modules/three/examples/jsm/"}}</script></head>
+<body><script type="module">
+import { createBedroom as createDen } from './bedroom.js';
+window.onerror = (m) => { window.__err = String(m); };
+try {
+const p = new URLSearchParams(location.search);
+const w = +p.get('w') || 1600, h = +p.get('h') || 1000;
+const app = createDen(document.body, { width: w, height: h });
+window.app = app;
+app.applyPreset(p.get('state') || 'all_off'); app.setView(p.get('view') || 'dollhouse');
+app.render(); app.render();
+window.__done = true;
+} catch (e) { window.__err = e.stack || String(e); }
+</script></body></html>

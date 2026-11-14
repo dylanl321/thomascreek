@@ -62,6 +62,7 @@ from .db import new_id
 from .home import iso
 from .policy import ALL_CAPABILITIES, Subject
 from .tvlineup import LineupError, normalize_channel, public_channel, valid_key
+from .upnext import remember
 
 log = logging.getLogger("hub.tvapp")
 
@@ -98,6 +99,37 @@ def token_message(install_id: str, ts: int, person_id: str | None) -> bytes:
     if person_id:
         return f"tvtoken:{install_id}:{int(ts)}:{person_id}".encode()
     return f"tvtoken:{install_id}:{int(ts)}".encode()
+
+
+def _position(value: object) -> int:
+    """Seconds into the title. The TV sends this so another room can resume."""
+    if isinstance(value, bool):
+        raise TvAppError(400, "bad_request", "position_s is a number of seconds")
+    try:
+        seconds = int(round(float(value)))  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        raise TvAppError(400, "bad_request", "position_s is a number of seconds") from None
+    if not 0 <= seconds <= 24 * 3600:
+        raise TvAppError(400, "bad_request", "position_s is too far into the title")
+    return seconds
+
+
+def _play_id(value: object) -> str | None:
+    text = _clip(value, 80)
+    if not text or "://" in text or any(ch.isspace() for ch in text):
+        return None
+    return text
+
+
+def _play_start(value: object) -> int | str | None:
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return int(value)
+    text = _clip(value, 40)
+    if text and "T" in text:
+        return text
+    return None
 
 
 def _clip(value: object, limit: int) -> str | None:
@@ -1083,6 +1115,8 @@ class TvApp:
         self.db.log("tvapp.state", "ok", device_id=f"tv:{install_id}", target=install_id,
                     params={"playing": (playing or {}).get("channel_key"), "foreground": foreground,
                             "command": None if command is None else command.get("id")}, source="tv")
+        if playing:
+            remember(self.db, "kids" if tv.get("profile") == "kids" else "adult", playing, now)
         event = self.watch_event(install_id)
         if command is not None:
             event["command"] = command
@@ -1123,9 +1157,28 @@ class TvApp:
                 raise TvAppError(400, "bad_request", "number is out of range")
         title = _clip(raw.get("title"), 120)
         name = _clip(raw.get("name"), 80)
-        if key is None and title is None and name is None and number is None:
+        position = _position(raw.get("position_s")) if "position_s" in raw and raw.get("position_s") is not None else None
+        movie = _play_id(raw.get("movie_id"))
+        series = _play_id(raw.get("series_id"))
+        episode = _play_id(raw.get("episode_id"))
+        if key is None and title is None and name is None and number is None and movie is None and episode is None:
             return None
-        return {"channel_key": key, "title": title, "name": name, "number": number}
+        out: dict[str, Any] = {"channel_key": key, "title": title, "name": name, "number": number}
+        if position is not None:
+            out["position_s"] = position
+        if movie:
+            out["movie_id"] = movie
+        if series:
+            out["series_id"] = series
+        if episode:
+            out["episode_id"] = episode
+        kind = raw.get("kind")
+        if kind in ("live", "catchup", "movie", "episode"):
+            out["kind"] = kind
+        start = _play_start(raw.get("start"))
+        if start is not None:
+            out["start"] = start
+        return out
 
     def _health(self, raw: object) -> dict[str, Any]:
         if raw is None:
@@ -1163,8 +1216,21 @@ class TvApp:
         queued.append(stored)
         all_commands[install_id] = queued[-MAX_COMMANDS:]
         self.db.kv_set(KV_COMMANDS, all_commands)
+        if stored["action"] == "play":
+            self._remember_play(install_id, stored)
         self.kick(install_id)
         return _public_command(stored)
+
+    def _remember_play(self, install_id: str, stored: dict[str, Any]) -> None:
+        """What the hub last asked this TV to play, so a title-only heartbeat can still move rooms."""
+        tvs = self.tvs()
+        tv = tvs.get(install_id)
+        if tv is None:
+            return
+        play = {key: stored[key] for key in _COMMAND_FIELDS if stored.get(key) is not None and key != "resume"}
+        tv["last_play"] = play
+        tvs[install_id] = tv
+        self._save_tvs(tvs)
 
     def pending_commands(self, install_id: str) -> list[dict[str, Any]]:
         now = time.time()

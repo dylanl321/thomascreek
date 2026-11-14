@@ -1,0 +1,401 @@
+{
+  "room": "kitchen",
+  "units": "meters",
+  "up": "+Y",
+  "origin": "corner of sink wall (x=0 plane, long) and cooktop wall (z=0 plane) at floor level; interior x<0, z>0",
+  "presets": {
+    "all_off": {},
+    "all_on": {
+      "under_cabinet_lights": 1,
+      "toe_kick_lights": 1,
+      "recessed_lights": 1,
+      "dining_pendant": 1,
+      "table_lamp_booth": 1,
+      "range_hood_light": 1,
+      "laundry_light": 1,
+      "washer": 1,
+      "dryer": 1
+    },
+    "evening": {
+      "under_cabinet_lights": 1,
+      "toe_kick_lights": 1,
+      "dining_pendant": 1,
+      "table_lamp_booth": 1
+    },
+    "laundry_running": {
+      "laundry_light": 1,
+      "washer": 1,
+      "dryer": 1
+    }
+  },
+  "devices": [
+    {
+      "name": "under_cabinet_lights",
+      "label": "Under-cabinet lights",
+      "type": "light",
+      "room": "kitchen",
+      "anchor_node": "anchor_under_cabinet_lights",
+      "position_m": [
+        -0.3,
+        1.38,
+        1
+      ],
+      "group_node": "under_cabinet_lights",
+      "light_nodes": [
+        "light_under_cabinet_1",
+        "light_under_cabinet_2",
+        "light_under_cabinet_3",
+        "light_under_cabinet_4"
+      ],
+      "light_on_intensity": [
+        1.2,
+        1.2,
+        1.2,
+        1.2
+      ],
+      "glow_decals": [
+        "glow_under_cabinet_1_backsplash",
+        "glow_under_cabinet_1_counter",
+        "glow_under_cabinet_2_backsplash",
+        "glow_under_cabinet_2_counter",
+        "glow_under_cabinet_3_backsplash",
+        "glow_under_cabinet_3_counter",
+        "glow_under_cabinet_4_backsplash",
+        "glow_under_cabinet_4_counter"
+      ],
+      "mesh_nodes": [
+        "light_under_cabinet_strip_1",
+        "light_under_cabinet_strip_2",
+        "light_under_cabinet_strip_3",
+        "light_under_cabinet_strip_4"
+      ],
+      "on_state": {
+        "emissive": [
+          6
+        ],
+        "shows": []
+      }
+    },
+    {
+      "name": "toe_kick_lights",
+      "label": "Toe-kick lights",
+      "type": "light",
+      "room": "kitchen",
+      "anchor_node": "anchor_toe_kick_lights",
+      "position_m": [
+        -0.6,
+        0.05,
+        2.1
+      ],
+      "group_node": "toe_kick_lights",
+      "light_nodes": [],
+      "light_on_intensity": [],
+      "glow_decals": [
+        "glow_toe_kick_cooktop_run_floor",
+        "glow_toe_kick_oven_tower_floor",
+        "glow_toe_kick_sink_run_floor",
+        "glow_toe_kick_island_front_floor",
+        "glow_toe_kick_island_back_floor"
+      ],
+      "mesh_nodes": [
+        "light_toe_kick_cooktop_run",
+        "light_toe_kick_sink_run",
+        "light_toe_kick_island_front",
+        "light_toe_kick_island_back",
+        "light_toe_kick_oven_tower"
+      ],
+      "on_state": {
+        "emissive": [
+          6
+        ],
+        "shows": []
+      }
+    },
+    {
+      "name": "recessed_lights",
+      "label": "Recessed lights",
+      "type": "light",
+      "room": "kitchen",
+      "anchor_node": "anchor_recessed_lights",
+      "position_m": [
+        -1.9,
+        2.67,
+        2.85
+      ],
+      "group_node": "recessed_lights",
+      "light_nodes": [
+        "light_recessed_row_1.3",
+        "light_recessed_row_2.85",
+        "light_recessed_row_4.4"
+      ],
+      "light_on_intensity": [
+        7,
+        7,
+        7
+      ],
+      "glow_decals": [
+        "glow_recessed_1_pool",
+        "glow_recessed_2_pool",
+        "glow_recessed_3_pool",
+        "glow_recessed_4_pool",
+        "glow_recessed_5_pool",
+        "glow_recessed_6_pool",
+        "glow_recessed_7_pool",
+        "glow_recessed_8_pool"
+      ],
+      "mesh_nodes": [
+        "recessed_light_1_trim",
+        "recessed_light_1",
+        "light_cone_recessed_1",
+        "recessed_light_2_trim",
+        "recessed_light_2",
+        "light_cone_recessed_2",
+        "recessed_light_3_trim",
+        "recessed_light_3",
+        "light_cone_recessed_3",
+        "recessed_light_4_trim",
+        "recessed_light_4",
+        "light_cone_recessed_4",
+        "recessed_light_5_trim",
+        "recessed_light_5",
+        "light_cone_recessed_5",
+        "recessed_light_6_trim",
+        "recessed_light_6",
+        "light_cone_recessed_6",
+        "recessed_light_7_trim",
+        "recessed_light_7",
+        "light_cone_recessed_7",
+        "recessed_light_8_trim",
+        "recessed_light_8",
+        "light_cone_recessed_8"
+      ],
+      "on_state": {
+        "emissive": [
+          6
+        ],
+        "shows": [
+          "light_cone_recessed_1",
+          "light_cone_recessed_2",
+          "light_cone_recessed_3",
+          "light_cone_recessed_4",
+          "light_cone_recessed_5",
+          "light_cone_recessed_6",
+          "light_cone_recessed_7",
+          "light_cone_recessed_8"
+        ]
+      }
+    },
+    {
+      "name": "dining_pendant",
+      "label": "Dining pendant",
+      "type": "light",
+      "room": "kitchen",
+      "anchor_node": "anchor_dining_pendant",
+      "position_m": [
+        -1.3,
+        1.77,
+        6.95
+      ],
+      "group_node": "dining_pendant",
+      "light_nodes": [
+        "light_dining_pendant"
+      ],
+      "light_on_intensity": [
+        3
+      ],
+      "glow_decals": [
+        "glow_dining_pendant_table",
+        "glow_dining_pendant_floor",
+        "glow_dining_pendant_wall"
+      ],
+      "mesh_nodes": [
+        "dining_pendant_canopy",
+        "dining_pendant_rod",
+        "dining_pendant_fitter_neck",
+        "dining_pendant_fitter",
+        "dining_pendant_glass_dome",
+        "dining_pendant_rim",
+        "dining_pendant_bulb"
+      ],
+      "on_state": {
+        "emissive": [
+          3,
+          0.22
+        ],
+        "shows": []
+      }
+    },
+    {
+      "name": "table_lamp_booth",
+      "label": "Booth table lamp",
+      "type": "light",
+      "room": "kitchen",
+      "anchor_node": "anchor_table_lamp_booth",
+      "position_m": [
+        -1.14,
+        1.146,
+        7.11
+      ],
+      "group_node": "table_lamp_booth",
+      "light_nodes": [
+        "light_table_lamp_booth"
+      ],
+      "light_on_intensity": [
+        1.2
+      ],
+      "glow_decals": [
+        "glow_table_lamp_booth_table",
+        "glow_table_lamp_booth_wall"
+      ],
+      "mesh_nodes": [
+        "table_lamp_booth_base",
+        "table_lamp_booth_stem",
+        "table_lamp_booth_shade",
+        "table_lamp_booth_bulb"
+      ],
+      "on_state": {
+        "emissive": [
+          5,
+          0.9
+        ],
+        "shows": []
+      }
+    },
+    {
+      "name": "range_hood_light",
+      "label": "Range hood light",
+      "type": "light",
+      "room": "kitchen",
+      "anchor_node": "anchor_range_hood_light",
+      "position_m": [
+        -1.67,
+        1.6,
+        0.4
+      ],
+      "group_node": "range_hood_light",
+      "light_nodes": [
+        "light_range_hood"
+      ],
+      "light_on_intensity": [
+        2.5
+      ],
+      "glow_decals": [
+        "glow_range_hood_cooktop",
+        "glow_range_hood_backsplash"
+      ],
+      "mesh_nodes": [
+        "range_hood_lamp_1",
+        "range_hood_lamp_2"
+      ],
+      "on_state": {
+        "emissive": [
+          6
+        ],
+        "shows": []
+      }
+    },
+    {
+      "name": "laundry_light",
+      "label": "Laundry light",
+      "type": "light",
+      "room": "kitchen",
+      "anchor_node": "anchor_laundry_light",
+      "position_m": [
+        -1.2,
+        2.65,
+        9.47
+      ],
+      "group_node": "laundry_light",
+      "light_nodes": [
+        "light_laundry"
+      ],
+      "light_on_intensity": [
+        3.5
+      ],
+      "glow_decals": [
+        "glow_laundry_floor",
+        "glow_laundry_wall"
+      ],
+      "mesh_nodes": [
+        "laundry_light_canopy",
+        "laundry_light_dome"
+      ],
+      "on_state": {
+        "emissive": [
+          2.2
+        ],
+        "shows": []
+      }
+    },
+    {
+      "name": "washer",
+      "label": "Washer",
+      "type": "appliance",
+      "room": "kitchen",
+      "anchor_node": "anchor_washer",
+      "position_m": [
+        -0.75,
+        0.6,
+        8.84
+      ],
+      "group_node": "washer",
+      "light_nodes": [],
+      "light_on_intensity": [],
+      "glow_decals": [
+        "glow_washer_drum"
+      ],
+      "mesh_nodes": [
+        "washer_body",
+        "washer_control_panel",
+        "washer_display",
+        "washer_dial",
+        "washer_door_ring",
+        "washer_door_glass",
+        "washer_status_arc"
+      ],
+      "on_state": {
+        "emissive": [
+          4,
+          0.7,
+          3
+        ],
+        "shows": []
+      }
+    },
+    {
+      "name": "dryer",
+      "label": "Dryer",
+      "type": "appliance",
+      "room": "kitchen",
+      "anchor_node": "anchor_dryer",
+      "position_m": [
+        -0.75,
+        0.6,
+        9.56
+      ],
+      "group_node": "dryer",
+      "light_nodes": [],
+      "light_on_intensity": [],
+      "glow_decals": [
+        "glow_dryer_drum"
+      ],
+      "mesh_nodes": [
+        "dryer_body",
+        "dryer_control_panel",
+        "dryer_display",
+        "dryer_dial",
+        "dryer_door_ring",
+        "dryer_door_glass",
+        "dryer_status_arc"
+      ],
+      "on_state": {
+        "emissive": [
+          4,
+          0.7,
+          3
+        ],
+        "shows": []
+      }
+    }
+  ]
+}

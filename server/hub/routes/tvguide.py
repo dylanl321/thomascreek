@@ -11,11 +11,15 @@ import time
 from typing import Any
 
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel, Field
 
+from ..actions import ActionError
 from ..adapters.base import AdapterError
 from ..policy import Target
 from ..state import Hub
 from ..tvapp import TvAppError
+from .. import tvhandoff
+from ..upnext import shelf
 from .deps import Caller, caller, error, hub, need
 from .media import _filter, _watch_cap
 
@@ -64,6 +68,56 @@ async def players(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[st
     return {"tvs": rows}
 
 
+@router.get("/devices")
+async def devices(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """TVs this person can move a show to. The room they last used is first."""
+    _media(h, c)
+    return {"devices": tvhandoff.devices(h, c.subject)}
+
+
+class HandoffIn(BaseModel):
+    from_device: str = Field(min_length=1, max_length=200)
+    to_device: str = Field(min_length=1, max_length=200)
+
+
+@router.post("/handoff")
+async def handoff(body: HandoffIn, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """Start what's playing on another TV from the same second, then stop the first one."""
+    _media(h, c)
+    try:
+        return await tvhandoff.handoff(h, c.subject, body.from_device, body.to_device)
+    except ActionError as exc:
+        raise error(exc.status, exc.error, exc.message, **exc.extra) from None
+
+
+@router.get("/upnext")
+async def up_next(profile: str | None = None, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """What to play next for this profile, ranked from what that profile watches."""
+    kids = _media(h, c)
+    if profile == "kids":
+        kids = True
+    elif profile == "adult" and kids:
+        kids = True
+    return shelf(h, "kids" if kids else "adult")
+
+
+@router.post("/playback_events")
+async def playback_events(body: dict[str, Any], c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """How a play actually went. The hub scores sources from these. It does not call the provider."""
+    _media(h, c)
+    events = body.get("events")
+    if not isinstance(events, list):
+        raise error(400, "bad_request", "events is a list")
+    return {"ok": True, "accepted": h.source_health.accept(events)}
+
+
+@router.get("/health")
+async def channel_health(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """Sources we have played, worst first. A source with no plays is not listed."""
+    _media(h, c)
+    return h.source_health.worst()
+
+
 @router.get("/guide")
 async def guide(start: float | None = None, end: float | None = None, channel: str | None = None,
                 c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
@@ -75,7 +129,9 @@ async def guide(start: float | None = None, end: float | None = None, channel: s
     finish = now + 6 * 3600 if end is None else end
     if finish <= begin or finish - begin > 48 * 3600:
         raise error(400, "bad_request", "Ask for a window of up to 48 hours")
-    return h.tv_catalog.guide(start=begin, end=finish, channel=channel or None, kids_only=kids, now=now)
+    body = h.tv_catalog.guide(start=begin, end=finish, channel=channel or None, kids_only=kids, now=now)
+    h.source_health.annotate(body.get("channels") or [])
+    return body
 
 
 @router.get("/series")
