@@ -1030,7 +1030,7 @@ A title is on the feed only when the household can play it, or when it can be as
 
 Kids titles are limited to the ratings in `child_policy.ratings`. A TMDB title with no US rating is left out of the kids feed unless it is already in a kids library category. An adult feed is not limited that way.
 
-With no `tmdb.api_key` in the vault, the hub does not call TMDB. The feed is one row from the library:
+With no `tmdb.api_key` in the vault, the hub does not call TMDB. The feed is one row from the library. `poster_url` and `backdrop_url` are still `/v1/art/poster/{id}` and `/v1/art/backdrop/{id}`. Those files are the provider picture already on the title (`stream_icon` or `cover`, and `backdrop_path` from the list or from `get_vod_info` / `get_series_info`), a Plex thumb or art fetched by the hub's Plex client, or a recording thumbnail. The TV only ever requests the hub path. A title with none of those is a 404, and the card is a plain tile.
 
 ```json
 {"hero":{"kind":"movie","title":"Kids Movie","year":2018,"overview":null,"tagline":null,

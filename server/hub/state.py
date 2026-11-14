@@ -111,6 +111,7 @@ class Hub:
         self.artwork = Artwork(vault, data / "art", tmdb_secret=config.artwork.tmdb_key_secret,
                                fanart_secret=config.artwork.fanart_key_secret)
         self.artwork.catalog = self.tv_catalog
+        self.artwork.plex = self.plex
         self.tv_catalog.artwork = self.artwork
         self.tv_app.artwork = self.artwork
         self.alerts = Alerts(self)

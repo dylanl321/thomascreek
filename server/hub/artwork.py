@@ -3,8 +3,10 @@
 Channel logos come from the iptv-org database (matched by iptv-org id or tvg-id),
 then a file in the tv-logo/tv-logos repository, then the provider's own logo.
 Posters and backdrops come from TMDB, with fanart.tv clear art when that key is
-set. Episode stills come from TVmaze. A missing key or a failed download leaves
-that image out; the guide itself still loads.
+set. With no TMDB key, a movie or series uses the provider picture already stored
+from the list or from get_vod_info / get_series_info, then a Plex thumb or art.
+Episode stills come from TVmaze. A missing picture leaves that image out; the
+guide itself still loads.
 
 Files are stored by the sha256 of their bytes. Indexes of the public logo
 databases refresh weekly.
@@ -161,6 +163,7 @@ class Artwork:
         self.files = self.dir / "files"
         self._transport = transport
         self.catalog: Any = None
+        self.plex: Any = None
         self._task: asyncio.Task[None] | None = None
         self._indexes: dict[str, Any] = {"at": 0, "channels": {}, "logos": {}, "tvlogos": {}}
         self._notes: dict[str, dict[str, Any]] = {}
@@ -190,9 +193,11 @@ class Artwork:
 
     def remember(self, key: str, **meta: Any) -> None:
         clean = {k: v for k, v in meta.items() if v is not None}
-        if self._notes.get(key) == clean:
+        current = dict(self._notes.get(key) or {})
+        current.update(clean)
+        if self._notes.get(key) == current:
             return
-        self._notes[key] = clean
+        self._notes[key] = current
         self._save_json("notes.json", self._notes)
 
     def note(self, key: str) -> dict[str, Any]:
@@ -212,6 +217,16 @@ class Artwork:
                 return path, f"\"{hit['sha']}\"", _EXT_TYPE.get(hit["ext"], "application/octet-stream")
         if hit and hit.get("miss") and now - float(hit.get("at") or 0) < MISS_TTL_S:
             raise ArtError(404, "not_found", "No artwork")
+        owned = await self._owned_bytes(kind, key)
+        if owned is not None:
+            data, ext = owned
+            digest = hashlib.sha256(data).hexdigest()
+            self.files.mkdir(parents=True, exist_ok=True)
+            path = self.files / f"{digest}.{ext}"
+            if not path.is_file():
+                path.write_bytes(data)
+            self._remember_cache(slot, {"sha": digest, "ext": ext, "at": now, "url": "plex"})
+            return path, f"\"{digest}\"", _EXT_TYPE.get(ext, "image/jpeg")
         url = await self._source_url(kind, key, variant)
         if not url:
             # A missing TMDB key is not a real miss: adding the key later should work the same day.
@@ -363,22 +378,43 @@ class Artwork:
 
     async def _title_url(self, kind: str, key: str, size: str) -> str | None:
         meta = self.note(key)
-        if not meta and self.catalog is not None:
-            meta = _meta_from_catalog(self.catalog, key)
-            if meta:
-                self.remember(key, **meta)
+        if self.catalog is not None:
+            fresh = {k: v for k, v in _meta_from_catalog(self.catalog, key).items() if v}
+            if fresh:
+                meta = {**meta, **fresh}
+                self.remember(key, **{k: meta.get(k) for k in ("title", "year", "kind", "poster", "backdrop") if meta.get(k)})
         title = meta.get("title") or meta.get("name")
+        local = _http_picture(meta.get("backdrop") if kind == "backdrop" else meta.get("poster"))
         if not title and not meta.get("imdb") and not meta.get("tmdb"):
-            return None
+            return local
         found = await self._tmdb(meta, title, year_of(meta.get("year")), meta.get("kind") or "tv")
         if not found:
-            return None
+            return local
         fanart = await self._fanart(found)
         if kind == "logo":
-            return (fanart or {}).get("logo")
+            return (fanart or {}).get("logo") or local
         if kind == "backdrop":
-            return (fanart or {}).get("backdrop") or _tmdb_image(found.get("backdrop_path"), "w780" if size == "w342" else size)
-        return (fanart or {}).get("poster") or _tmdb_image(found.get("poster_path"), size)
+            return (fanart or {}).get("backdrop") or _tmdb_image(found.get("backdrop_path"), "w780" if size == "w342" else size) or local
+        return (fanart or {}).get("poster") or _tmdb_image(found.get("poster_path"), size) or local
+
+    async def _owned_bytes(self, kind: str, key: str) -> tuple[bytes, str] | None:
+        """A Plex thumb or art. The hub fetches it; the TV only sees /v1/art/."""
+        if self.plex is None or kind not in ("poster", "backdrop"):
+            return None
+        meta = self.note(key)
+        path = meta.get("plex_art") if kind == "backdrop" else meta.get("plex_thumb")
+        if kind == "backdrop" and not path:
+            path = meta.get("plex_thumb")
+        if not isinstance(path, str) or not path.startswith("/library/"):
+            return None
+        try:
+            data, mime = await self.plex.art(path, width=780 if kind == "backdrop" else 500)
+        except Exception:  # noqa: BLE001
+            return None
+        if not data:
+            return None
+        ext = _TYPES.get(str(mime).split(";", 1)[0].strip(), "jpg")
+        return data, ext
 
     async def _still_url(self, key: str, size: str) -> str | None:
         meta = self.note(key)
@@ -559,6 +595,12 @@ def _safe_url(url: str) -> str:
     return parts._replace(query="", fragment="").geturl()
 
 
+def _http_picture(url: object) -> str | None:
+    if isinstance(url, str) and (url.startswith("https://") or url.startswith("http://")):
+        return url
+    return None
+
+
 def _tmdb_image(path: object, size: str) -> str | None:
     if not isinstance(path, str) or not path.startswith("/"):
         return None
@@ -610,12 +652,24 @@ def _meta_from_catalog(catalog: Any, key: str) -> dict[str, Any]:
         row = next((item for item in doc.get("movies") or [] if item.get("id") == key), None)
         if not row:
             return {}
-        return {"title": row.get("name"), "year": year_of(row.get("year")), "kind": "movie"}
+        detail = (catalog._details().get("movies") or {}).get(key) if hasattr(catalog, "_details") else {}
+        detail = detail if isinstance(detail, dict) else {}
+        return {
+            "title": row.get("name"), "year": year_of(row.get("year")), "kind": "movie",
+            "poster": detail.get("cover") or row.get("cover"),
+            "backdrop": detail.get("backdrop") or row.get("backdrop"),
+        }
     if key.startswith("series:"):
         row = next((item for item in doc.get("series") or [] if item.get("id") == key), None)
         if not row:
             return {}
-        return {"title": row.get("name"), "year": year_of(row.get("year")), "kind": "tv"}
+        detail = (catalog._details().get("series") or {}).get(key) if hasattr(catalog, "_details") else {}
+        detail = detail if isinstance(detail, dict) else {}
+        return {
+            "title": row.get("name"), "year": year_of(row.get("year")), "kind": "tv",
+            "poster": detail.get("cover") or row.get("cover"),
+            "backdrop": detail.get("backdrop") or row.get("backdrop"),
+        }
     if key.startswith("ep:"):
         details = catalog._details() if hasattr(catalog, "_details") else {}
         episode = (details.get("episodes") or {}).get(key) or {}

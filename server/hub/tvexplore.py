@@ -11,6 +11,7 @@ import logging
 import re
 import time
 from typing import Any
+from urllib.parse import parse_qs, unquote, urlsplit
 
 import httpx
 
@@ -45,6 +46,7 @@ async def refresh(h: Any) -> None:
     """Rebuild both feeds. A TMDB miss keeps the previous copy."""
     secret = h.config.artwork.tmdb_key_secret
     key = h.vault.get(secret) if h.vault.has(secret) else None
+    await remember_plex(h)
     if not key:
         publish(h, None, can_request=bool(h.jellyseerr.enabled))
         return
@@ -303,6 +305,10 @@ def _library(h: Any, kids: bool) -> list[dict[str, Any]]:
         if kids and row.get("rating") not in allowed and not row.get("kids"):
             continue
         items.append(row)
+    for row in _plex_shelf(h):
+        if kids and row.get("rating") not in allowed and not row.get("kids"):
+            continue
+        items.append(row)
     return items
 
 
@@ -326,6 +332,114 @@ def _from_library(h: Any, row: dict[str, Any], kind: str, kids: bool) -> dict[st
     return item
 
 
+PLEX_RECENT = "tv.plex.recent"
+
+
+async def remember_plex(h: Any) -> None:
+    """Keep a small Plex shelf so Explore can show its pictures without calling Plex on every open."""
+    plex = getattr(h, "plex", None)
+    if plex is None or not getattr(plex, "enabled", False):
+        return
+    try:
+        rows = await plex.recently_added(12)
+    except Exception as exc:  # noqa: BLE001
+        log.info("plex shelf: %s", exc)
+        return
+    art = getattr(h, "artwork", None)
+    stored = []
+    for row in rows or []:
+        if not isinstance(row, dict) or not row.get("id") or not row.get("title"):
+            continue
+        ident = str(row["id"])
+        if not ident.isalnum() or len(ident) > 80:
+            continue
+        kind = "series" if row.get("kind") in ("show", "series") else "movie"
+        key = f"{'series' if kind == 'series' else 'vod'}:plex:{ident}"
+        thumb = _plex_library_path(row.get("thumb_path")) or _plex_query_path(row.get("poster_url"))
+        scene = _plex_library_path(row.get("art_path")) or thumb
+        if art is not None and (thumb or scene):
+            art.remember(key, title=row.get("title"), year=row.get("year"), kind="tv" if kind == "series" else "movie",
+                         plex_thumb=thumb, plex_art=scene)
+        item = {
+            "kind": kind, "title": str(row["title"]), "year": _year(row.get("year")),
+            "overview": _text(row.get("summary")), "rating": _text(row.get("rating")),
+            "poster_url": art.public_url("poster", key) if art is not None else None,
+            "backdrop_url": art.public_url("backdrop", key) if art is not None else None,
+            "kids": str(row.get("rating") or "") in _allowed(h),
+        }
+        if kind == "movie":
+            item["movie_id"] = key
+        else:
+            item["series_id"] = key
+        item["plex_id"] = ident
+        stored.append(item)
+    h.db.kv_set(PLEX_RECENT, stored)
+
+
+def _plex_shelf(h: Any) -> list[dict[str, Any]]:
+    raw = h.db.kv_get(PLEX_RECENT) or []
+    if not isinstance(raw, list):
+        return []
+    out = []
+    for row in raw:
+        if not isinstance(row, dict) or not row.get("title"):
+            continue
+        out.append({
+            "kind": "series" if row.get("kind") == "series" else "movie",
+            "title": str(row["title"]), "year": _year(row.get("year")), "overview": _text(row.get("overview")),
+            "tagline": None, "poster_url": row.get("poster_url") if _hub_path(row.get("poster_url")) else None,
+            "backdrop_url": row.get("backdrop_url") if _hub_path(row.get("backdrop_url")) else None,
+            "logo_url": None, "rating": _text(row.get("rating")), "genres": [], "availability": "play",
+            "kids": bool(row.get("kids")), "tmdb_id": None,
+            **({"movie_id": row["movie_id"]} if row.get("movie_id") else {}),
+            **({"series_id": row["series_id"]} if row.get("series_id") else {}),
+            **({"plex_id": row["plex_id"]} if row.get("plex_id") else {}),
+        })
+    return out
+
+
+def _recording_art(h: Any, row: dict[str, Any]) -> tuple[str | None, str | None]:
+    poster = row.get("poster_url") if _hub_path(row.get("poster_url")) else None
+    backdrop = row.get("backdrop_url") if _hub_path(row.get("backdrop_url")) else None
+    thumb = row.get("thumb") or row.get("thumbnail")
+    if poster and backdrop:
+        return poster, backdrop
+    key = _rec_key(str(row.get("id") or ""))
+    art = getattr(h, "artwork", None)
+    if art is None or key is None:
+        return poster, backdrop
+    http_thumb = thumb if isinstance(thumb, str) and thumb.startswith(("http://", "https://")) else None
+    plex_thumb = thumb if isinstance(thumb, str) and thumb.startswith("/library/") else None
+    if http_thumb or plex_thumb:
+        art.remember(key, title=row.get("title"), kind="movie", poster=http_thumb, plex_thumb=plex_thumb, plex_art=plex_thumb)
+        poster = poster or art.public_url("poster", key)
+        backdrop = backdrop or art.public_url("backdrop", key)
+    return poster, backdrop
+
+
+def _rec_key(ident: str) -> str | None:
+    part = "".join(ch for ch in ident if ch.isalnum() or ch in "._+-")[:80]
+    if not part or not part[0].isalnum():
+        return None
+    return f"vod:rec:{part}"
+
+
+def _hub_path(value: object) -> bool:
+    return isinstance(value, str) and value.startswith("/v1/")
+
+
+def _plex_library_path(value: object) -> str | None:
+    return value if isinstance(value, str) and value.startswith("/library/") else None
+
+
+def _plex_query_path(value: object) -> str | None:
+    if not isinstance(value, str) or "path=" not in value:
+        return None
+    raw = parse_qs(urlsplit(value).query).get("path", [None])[0]
+    text = unquote(raw) if isinstance(raw, str) else ""
+    return text if text.startswith("/library/") else None
+
+
 def _recordings(h: Any) -> list[dict[str, Any]]:
     raw = h.db.kv_get("dvr.recordings") or []
     if not isinstance(raw, list):
@@ -334,10 +448,10 @@ def _recordings(h: Any) -> list[dict[str, Any]]:
     for row in raw:
         if not isinstance(row, dict) or row.get("status") != "done" or not row.get("title") or not row.get("id"):
             continue
-        poster = row.get("poster_url") if isinstance(row.get("poster_url"), str) and row["poster_url"].startswith("/v1/") else None
+        poster, backdrop = _recording_art(h, row)
         out.append({
             "kind": "movie", "title": str(row["title"]), "year": _year(row.get("year")), "overview": None,
-            "tagline": None, "poster_url": poster, "backdrop_url": None, "logo_url": None, "rating": None,
+            "tagline": None, "poster_url": poster, "backdrop_url": backdrop, "logo_url": None, "rating": None,
             "genres": [], "availability": "play", "recording_id": str(row["id"]), "kids": False, "tmdb_id": None,
         })
     return out
