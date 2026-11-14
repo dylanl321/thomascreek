@@ -225,6 +225,8 @@ struct HomeSnapshot: Codable, Hashable {
     struct Weather: Codable, Hashable {
         var temp: Double?; var condition: String?; var symbol: String?
         var high: Double?; var low: Double?; var sunset: String?; var sunrise: String?
+        /// Cloud cover 0-100, and the house's location rounded to 0.1 degree (for the sun in the dollhouse).
+        var clouds: Double?; var lat: Double?; var lon: Double?
         /// The most serious official alert for the house (warnings only for children).
         var alert: AlertRef?; var alertCount: Int?
         /// True just after the hub starts, before the first forecast arrives.

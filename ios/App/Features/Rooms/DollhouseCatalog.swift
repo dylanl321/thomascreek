@@ -14,6 +14,8 @@ struct DollhouseRoom: Identifiable {
     var appearance: DollhouseAppearance
     var views: DollhouseViews?
     var life: DollhouseLifeScript?
+    /// Real sunlight through the windows. Nil for rooms without windows (the basement).
+    var sun: DollhouseSunSpec?
 
     func presetIDs() -> [String] {
         let preferred = ["all_off", "all_on", "evening", "movie_night", "party", "bedtime", "reading", "laundry_running"]
@@ -218,6 +220,7 @@ enum DollhouseCatalog {
             var appearance: String
             var views: DollhouseViews?
             var life: String?
+            var sun: DollhouseSunSpec?
         }
         var rooms: [Row]
     }
@@ -240,7 +243,7 @@ enum DollhouseCatalog {
             }
             return DollhouseRoom(id: row.id, title: row.title, symbol: row.symbol, model: row.model,
                                  devicesName: row.devices, mappingName: row.mapping, appearanceName: row.appearance,
-                                 devices: devices, mapping: mapping, appearance: appearance, views: row.views, life: life)
+                                 devices: devices, mapping: mapping, appearance: appearance, views: row.views, life: life, sun: row.sun)
         }
     }
 

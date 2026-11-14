@@ -123,3 +123,23 @@ The app looks these up by name and skips anything missing. New clutter only need
 | Lived-in clutter | `prop_throw_blanket`, `prop_open_book`, `prop_mug`, `prop_kettle`, `prop_toy`, `prop_mail`, `prop_dishes`, `prop_cutting_board`, `prop_shoes`, `prop_laundry_basket`, `prop_detergent`, `prop_popcorn_bowl`, `prop_drink`, `prop_lamp`, `prop_catch_all_bowl`, `prop_table_runner`. A second copy takes `_2` (`prop_drink_2`). Each sits directly under the room root, pivoted on the surface under it |
 
 Pose groups and `prop_*` nodes can start hidden. The app fades them. A drum or a curtain whose pivot is the object's centre sways or spins around that centre, so keep the pivot on the fan hub, the drum axle, or the curtain heading.
+
+## Sunlight
+
+A room with windows can have a `sun` entry in `catalog.json`. The app then works out where the real sun is from the house's location (the hub's weather sends it rounded to 0.1 degree) and the clock, and shines a shadow-casting sun light through the glass. Frames, muntins, walls and furniture block it, so patches of light land on the floor and the counters and move through the day. Cloud cover fades it (overcast leaves a faint trace), rain, snow and fog take most of it away, and it is off at night or when the sun is on the other side of the house. It updates every minute while the page is showing.
+
+```json
+"sun": {
+  "bearing_x": 180,
+  "windows": ["french_doors", "arched_window", "glass_door_right"],
+  "floors": ["floor_carpet"],
+  "walls": ["wall_fireplace"]
+}
+```
+
+- `bearing_x` is the compass bearing (degrees clockwise from north) of the model's +X axis. In the living room and the kitchen, +X is the way the window wall faces outward, so it is simply the direction the French doors (or the sink window) look out to: 90 east, 180 south, 270 west.
+- `windows` are window and glass-door groups. Nodes inside them named `*glass*` or `*pane*` let the sun through; everything else in the group casts a shadow.
+- `floors` size the invisible shell that stands in for the ceiling and the cut-away walls, so the sun only gets in through the windows. The shell is never drawn, lights nothing and can't be tapped.
+- `walls` are the real walls holding the windows; the tallest one sets the shell's ceiling height.
+
+The basement rooms have no `sun`. `ios/scripts/dollhouse_snapshot.swift` takes an optional date, latitude, longitude and cloud cover to render a room offscreen with the sun at that moment.

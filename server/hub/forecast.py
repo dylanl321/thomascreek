@@ -952,7 +952,7 @@ class Forecasts:
             tonight = t  # same number as the Weather page
         out = {"temp": n.get("temp"), "condition": n.get("condition"), "symbol": n.get("symbol"),
                "high": d.get("high"), "low": tonight if fc.get("evening") else d.get("low"),
-               "sunrise": d.get("sunrise"), "sunset": d.get("sunset")}
+               "sunrise": d.get("sunrise"), "sunset": d.get("sunset"), "clouds": n.get("cloud")}
         return {k: v for k, v in out.items() if v is not None}
 
 

@@ -99,7 +99,7 @@ class Weather:
             try:
                 params = {
                     "latitude": loc[0], "longitude": loc[1],
-                    "current": "temperature_2m,weather_code,is_day",
+                    "current": "temperature_2m,weather_code,is_day,cloud_cover",
                     "hourly": "temperature_2m,precipitation_probability,weather_code",
                     "daily": "temperature_2m_max,temperature_2m_min,sunrise,sunset,precipitation_probability_max",
                     "temperature_unit": "fahrenheit", "precipitation_unit": "inch",
@@ -133,7 +133,7 @@ class Weather:
         d = self.data
         if not d:
             return None
-        out = {k: d.get(k) for k in ("temp", "condition", "symbol", "high", "low", "sunset", "sunrise")}
+        out = {k: d.get(k) for k in ("temp", "condition", "symbol", "high", "low", "sunset", "sunrise", "clouds")}
         return {k: v for k, v in out.items() if v is not None}
 
 
@@ -168,6 +168,7 @@ def shape(raw: dict[str, Any], now: datetime | None = None) -> dict[str, Any]:
         "condition": words,
         "symbol": day_sym if cur.get("is_day", 1) else night_sym,
         "code": code,
+        "clouds": cur.get("cloud_cover"),
         "high": at("temperature_2m_max", 0),
         "low": at("temperature_2m_min", 0),
         "tonight_low": min(tonight) if tonight else at("temperature_2m_min", 1),

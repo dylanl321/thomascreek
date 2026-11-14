@@ -24,6 +24,9 @@ final class DollhouseController {
     private var ambientLight: SCNNode?
     private var keyLight: SCNNode?
     private var windowLight: SCNNode?
+    private var sunlight: DollhouseSunlight?
+    private var sunWeather: DollhouseSunWeather?
+    private var sunTimer: Timer?
     /// The share of full strength each device lamp gets, from how many lamps are lit (see `Rig.lampShare`).
     private var lampShare: Double = 1
     private var restPosition = SCNVector3Zero
@@ -42,6 +45,7 @@ final class DollhouseController {
 
     deinit {
         life?.stop()
+        sunTimer?.invalidate()
     }
 
     func load() {
@@ -84,7 +88,9 @@ final class DollhouseController {
     private func deviceExactly(at point: CGPoint, in view: SCNView) -> String? {
         let hits = view.hitTest(point, options: [
             SCNHitTestOption.searchMode: SCNHitTestSearchMode.all.rawValue,
-            SCNHitTestOption.ignoreHiddenNodes: true
+            SCNHitTestOption.ignoreHiddenNodes: true,
+            // The sunlight shell is invisible and must not swallow taps.
+            SCNHitTestOption.categoryBitMask: ~DollhouseSunlight.shellCategory
         ])
         for hit in hits.prefix(8) {
             var node: SCNNode? = hit.node
@@ -119,6 +125,26 @@ final class DollhouseController {
     func setLifeRunning(_ on: Bool) {
         lifeRunning = on
         life?.setRunning(on)
+        armSunTimer()
+    }
+
+    /// The house's location and the cloud cover. The sun moves with the clock while the page is showing.
+    func noteWeather(_ weather: DollhouseSunWeather?) {
+        let changed = weather != sunWeather
+        sunWeather = weather
+        guard changed else { return }
+        sunlight?.update(weather: weather, animated: scene != nil && lifeRunning)
+    }
+
+    private func armSunTimer() {
+        sunTimer?.invalidate()
+        sunTimer = nil
+        guard lifeRunning, sunlight != nil else { return }
+        sunlight?.update(weather: sunWeather, animated: true)
+        sunTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            self.sunlight?.update(weather: self.sunWeather, animated: true)
+        }
     }
 
     func setReduceMotion(_ on: Bool) {
@@ -159,7 +185,8 @@ final class DollhouseController {
         var lo = SCNVector3(Float.greatestFiniteMagnitude, Float.greatestFiniteMagnitude, Float.greatestFiniteMagnitude)
         var hi = SCNVector3(-Float.greatestFiniteMagnitude, -Float.greatestFiniteMagnitude, -Float.greatestFiniteMagnitude)
         root.enumerateHierarchy { node, _ in
-            guard node.geometry != nil, !node.isHidden else { return }
+            guard node.geometry != nil, !node.isHidden,
+              node.categoryBitMask != DollhouseSunlight.shellCategory else { return }
             let (a, b) = node.boundingBox
             for x in [a.x, b.x] { for y in [a.y, b.y] { for z in [a.z, b.z] {
                 let w = node.convertPosition(SCNVector3(x, y, z), to: nil)
@@ -293,6 +320,7 @@ final class DollhouseController {
         key.light?.shadowRadius = 8
         key.light?.shadowMapSize = CGSize(width: 2048, height: 2048)
         key.light?.shadowColor = UIColor(white: 0, alpha: Rig.shadowAlpha)
+        key.light?.categoryBitMask = ~DollhouseSunlight.shellCategory
         key.light?.zNear = 0.5
         key.light?.zFar = 80
         let aim = room.shot(.dollhouse)
@@ -303,6 +331,10 @@ final class DollhouseController {
         scene.rootNode.addChildNode(key)
         keyLight = key
         placeWindowLight(in: scene)
+        if let spec = room.sun {
+            sunlight = DollhouseSunlight(scene: scene, spec: spec)
+            sunlight?.update(weather: sunWeather, animated: false)
+        }
 
         let camera = SCNNode()
         camera.camera = SCNCamera()
@@ -315,6 +347,7 @@ final class DollhouseController {
         camera.camera?.bloomIntensity = Rig.bloomIntensity
         camera.camera?.bloomThreshold = Rig.bloomThreshold
         camera.camera?.bloomBlurRadius = 12
+        camera.camera?.categoryBitMask = ~DollhouseSunlight.shellCategory
         camera.name = "dollhouse-camera"
         scene.rootNode.addChildNode(camera)
         cameraNode = camera

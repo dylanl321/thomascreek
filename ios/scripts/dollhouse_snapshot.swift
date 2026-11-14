@@ -1,7 +1,11 @@
 // Offscreen exposure check for the dollhouse rooms, on a Mac.
 // Mirrors the app's studio rig, device lights and emission rules closely enough to compare lighting changes.
-//   swiftc -O ios/scripts/dollhouse_snapshot.swift -o /tmp/dollhouse_snapshot
-//   /tmp/dollhouse_snapshot ios/Rooms <room_id> <off|allon|under> <morning|midday|dusk|night> ios/scripts/dollhouse_rig.json <out.png>
+// It compiles with the app's own sunlight code (top-level code must live in a file called main.swift):
+//   mkdir -p /tmp/dhsnap && cp ios/scripts/dollhouse_snapshot.swift /tmp/dhsnap/main.swift
+//   swiftc -O /tmp/dhsnap/main.swift ios/App/Features/Rooms/DollhouseSunlight.swift -o /tmp/dollhouse_snapshot
+//   /tmp/dollhouse_snapshot ios/Rooms <room_id> <off|allon|under> <morning|midday|dusk|night> ios/scripts/dollhouse_rig.json <out.png> [sun]
+// [sun] is optional: <ISO date>,<lat>,<lon>,<cloud %>, for example 2026-11-14T15:00:00-05:00,35.2,-80.8,10.
+// It lights rooms with a "sun" entry in catalog.json the way the app does at that moment.
 // dollhouse_rig.json holds the same numbers as `Rig` in DollhouseScene.swift. Change both together.
 // Prints: mean luminance (0-255, lit model pixels only), % near-white (Y >= 235), % clipped (any channel >= 254).
 import AppKit
@@ -41,7 +45,7 @@ func gradient(_ top: UInt32, _ bottom: UInt32) -> CGImage {
 }
 
 let a = CommandLine.arguments
-guard a.count == 7 else { print("usage: rooms room_id off|allon|under part rig.json out.png"); exit(2) }
+guard a.count == 7 || a.count == 8 else { print("usage: rooms room_id off|allon|under part rig.json out.png [date,lat,lon,clouds]"); exit(2) }
 let roomsDir = URL(fileURLWithPath: a[1]), roomId = a[2], mode = a[3], part = a[4]
 let rig = try JSONDecoder().decode(Rig.self, from: Data(contentsOf: URL(fileURLWithPath: a[5])))
 let catalog = try JSONSerialization.jsonObject(with: Data(contentsOf: roomsDir.appendingPathComponent("catalog.json"))) as! [String: Any]
@@ -167,10 +171,26 @@ win.position = origin ?? SCNVector3(CGFloat(tgt[0] + 4), CGFloat(tgt[1] + 3), CG
 win.look(at: SCNVector3(CGFloat(tgt[0]), CGFloat(tgt[1]), CGFloat(tgt[2])))
 scene.rootNode.addChildNode(win)
 
+// Real sun, per DollhouseSunlight (the same file the app builds).
+key.light!.categoryBitMask = ~DollhouseSunlight.shellCategory
+if a.count == 8, let raw = row["sun"] {
+    let snake = JSONDecoder(); snake.keyDecodingStrategy = .convertFromSnakeCase
+    let spec = try snake.decode(DollhouseSunSpec.self, from: JSONSerialization.data(withJSONObject: raw))
+    let f = a[7].split(separator: ",").map(String.init)
+    let when = ISO8601DateFormatter().date(from: f[0])!
+    let weather = DollhouseSunWeather(latitude: Double(f[1])!, longitude: Double(f[2])!, clouds: Double(f[3]), symbol: nil)
+    let p = SolarPosition.at(when, latitude: weather.latitude, longitude: weather.longitude)
+    print(String(format: "sun azimuth=%.1f elevation=%.1f strength=%.2f", p.azimuth, p.elevation,
+                 SolarPosition.strength(elevation: p.elevation, clouds: weather.clouds, symbol: nil)))
+    let sun = DollhouseSunlight(scene: scene, spec: spec)
+    sun?.update(weather: weather, at: when, animated: false)
+}
+
 // Fitted camera, per fitted(_:).
 var lo = SCNVector3(1e9, 1e9, 1e9), hi = SCNVector3(-1e9, -1e9, -1e9)
 scene.rootNode.enumerateHierarchy { n, _ in
-    guard n.geometry != nil, !n.isHidden else { return }
+    guard n.geometry != nil, !n.isHidden,
+      n.categoryBitMask != DollhouseSunlight.shellCategory else { return }
     let (p, q) = n.boundingBox
     for x in [p.x, q.x] { for y in [p.y, q.y] { for z in [p.z, q.z] {
         let w = n.convertPosition(SCNVector3(x, y, z), to: nil)
@@ -187,6 +207,7 @@ cam.camera!.zNear = 0.05; cam.camera!.zFar = 100; cam.camera!.fieldOfView = CGFl
 cam.camera!.wantsHDR = true; cam.camera!.wantsExposureAdaptation = false
 cam.camera!.exposureOffset = CGFloat(rig.exposure)
 cam.camera!.whitePoint = CGFloat(rig.whitePoint)
+cam.camera!.categoryBitMask = ~DollhouseSunlight.shellCategory
 cam.camera!.bloomIntensity = CGFloat(rig.bloomIntensity); cam.camera!.bloomThreshold = CGFloat(rig.bloomThreshold); cam.camera!.bloomBlurRadius = 12
 cam.position = SCNVector3(center.x + CGFloat(dir.x * dist), center.y + CGFloat(dir.y * dist), center.z + CGFloat(dir.z * dist))
 cam.look(at: center)

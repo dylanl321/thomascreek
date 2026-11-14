@@ -9,6 +9,12 @@
       "mapping": "LivingRoom/hub-mapping.json",
       "appearance": "LivingRoom/appearance.json",
       "life": "LivingRoom/life.json",
+      "sun": {
+        "bearing_x": 180,
+        "windows": ["french_doors", "arched_window", "glass_door_right"],
+        "floors": ["floor_carpet"],
+        "walls": ["wall_fireplace"]
+      },
       "views": {
         "dollhouse": { "position": [-8.4, 6.9, 8.6], "target": [-1.75, 0.95, 1.8], "fov": 30 },
         "close": { "position": [-6.6, 4.6, 6.9], "target": [-1.6, 1.15, 1.6], "fov": 30 },
@@ -24,6 +30,12 @@
       "mapping": "Kitchen/hub-mapping.json",
       "appearance": "Kitchen/appearance.json",
       "life": "Kitchen/life.json",
+      "sun": {
+        "bearing_x": 180,
+        "windows": ["arched_window_sink", "dining_glass_door", "bay_window"],
+        "floors": ["floor_hardwood", "bay_floor", "laundry_floor_tile"],
+        "walls": ["wall_sink_kitchen", "wall_sink_dining", "wall_sink_laundry"]
+      },
       "views": {
         "dollhouse": { "position": [-15.6, 10.9, 12.6], "target": [-2.3, 0.5, 5.0], "fov": 30 },
         "close": { "position": [-9.9, 7.4, 12.0], "target": [-1.9, 0.8, 4.0], "fov": 31 },

@@ -442,3 +442,14 @@ async def test_home_line_alert_has_when_and_pending_after_restart(hub, people, p
         await hub.forecasts.home_alerts()
     w = hub.home._weather_now(dylan)
     assert w["alert"]["event"] == "Severe Thunderstorm Warning" and w["alert"]["when"].startswith("Until ")
+
+
+def test_home_weather_carries_clouds_and_rounded_location(hub, people):
+    dylan = hub.subject_for(hub.db.device(people["phones"]["Dylan"].device_id), True)
+    hub.smart.weather.data = {"temp": 51.0, "condition": "Cloudy", "symbol": "cloud.fill", "clouds": 87}
+    hub.smart.weather._latlon = (35.2271234, -80.8431234)
+    hub.config.smart.latitude = None
+    hub.config.smart.longitude = None
+    w = hub.home._weather_now(dylan)
+    assert w["clouds"] == 87
+    assert (w["lat"], w["lon"]) == (35.2, -80.8)  # about 10 km: enough for the sun, not the address
