@@ -138,5 +138,6 @@ struct FamilyWidgets: WidgetBundle {
         GarageControl()
         LockDoorControl()
         DoorbellLiveActivity()
+        NowPlayingLiveActivity()
     }
 }

@@ -436,6 +436,14 @@ class PlayingIn(BaseModel):
     title: str | None = Field(default=None, max_length=120)
     name: str | None = Field(default=None, max_length=80)
     number: int | None = None
+    # Where the show is, so another room can start at the same second. The ids are optional:
+    # a channel needs channel_key, a film needs movie_id, an episode needs episode_id.
+    position_s: float | None = None
+    kind: str | None = Field(default=None, max_length=20)
+    movie_id: str | None = Field(default=None, max_length=80)
+    series_id: str | None = Field(default=None, max_length=80)
+    episode_id: str | None = Field(default=None, max_length=80)
+    start: str | int | float | None = None
 
 
 class HealthIn(BaseModel):

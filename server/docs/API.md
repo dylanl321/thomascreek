@@ -789,6 +789,44 @@ Channel logos are chosen in this order: the iptv-org logo for the iptv-org id or
 }],"on_deck":[],"recent":[]}
 ```
 
+### Send to another room
+
+`position_s` on `playing` is whole seconds from the start, 0 to 86400. The TV may omit it. These fields are also accepted on `playing` and ignored when absent: `kind` (`live`, `catchup`, `movie`, `episode`), `movie_id`, `series_id`, `episode_id`, `start`. A channel handoff needs `channel_key`. A film needs `movie_id`. An episode needs `episode_id`. If the TV only sends the title, the hub fills those in from the last `tv.play` it sent that TV.
+
+`POST /v1/tv/state`
+
+```json
+{"playing":{"channel_key":"xc:thomas-creek:10","title":"Newsroom","name":"CNN","number":20,"position_s":125},
+ "foreground":true,"health":{"app_version":"1.4.1","profile":"adult","epg_age_s":120,"last_error":null,"home_crashes":0}}
+```
+
+`GET /v1/tv/devices` uses the same bearer as `GET /v1/tv/players`. A child only sees a TV in their own room or their own set. The room they last moved something to is first, and that row has `"usual":true`. `media_entity` is present when the TV is linked to a Home Assistant player, so a phone can match the now-playing card. `room` is the area id.
+
+```json
+{"devices":[
+  {"id":"tv_bed_0123456789abcd","name":"Bedroom","room":"bedroom","online":true,"usual":true,
+   "playing":null},
+  {"id":"tv_office_0123456789","name":"Living room","room":"living_room","online":true,
+   "media_entity":"media_player.living",
+   "playing":{"channel_key":"xc:thomas-creek:10","title":"Newsroom","name":"CNN","number":20,"position_s":125}}
+]}
+```
+
+`POST /v1/tv/handoff` `{from_device, to_device}`. Either value is an install id or the linked `media_entity`. The hub reads what's playing and `position_s`, sends `tv.play` to `to_device` with `resume` set to that position, then `tv.stop` to `from_device`. Nothing is playing, or it's the same TV, answers 200 and does not send a command:
+
+```json
+{"ok":false,"moved":false,"message":"Nothing is playing on Living room","from":"tv_office_0123456789","to":"tv_bed_0123456789abcd"}
+```
+
+Moved:
+
+```json
+{"ok":true,"moved":true,"message":"Moved Newsroom to Bedroom","from":"tv_office_0123456789","to":"tv_bed_0123456789abcd",
+ "dry_run":false,"command_id":"tvc_ab12","stop_command_id":"tvc_ab13"}
+```
+
+The play command is the same `tv_command` as any other play, with `resume` set. A TV that hasn't checked in for two minutes still gets the command: `message` says it'll come on when that TV wakes up. A kids' TV asked to play something else answers `403` with `message` "Theo's TV only plays kids' shows". A room this person can't use answers `403` "That room isn't one you can use". Unknown TV is `404`.
+
 ## Universal title search
 
 `GET /v1/titles/search?q=` (at least two letters). One card per title across Plex, the IPTV lineup and guide, and TMDB (Jellyseerr, which is what asks Sonarr and Radarr). The same title is one card: matched on TMDB id, then IMDb, then TVDB, then the cleaned name and year.
