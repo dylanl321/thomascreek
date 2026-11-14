@@ -15,7 +15,10 @@ final class NotificationService: UNNotificationServiceExtension {
             contentHandler(content); return
         }
         task = Task {
-            if let data = try? await HubClient.shared.raw("GET", path), !data.isEmpty,
+            // A repeat of the same alert replaces the one on screen (apns-collapse-id). The new
+            // payload has to win, including its picture: ignore the cached download, and give the
+            // attachment a new id so Notification Center doesn't keep the previous snapshot.
+            if let data = try? await HubClient.shared.raw("GET", path, fresh: true), !data.isEmpty,
                let attachment = Self.attachment(data) {
                 content.attachments = [attachment]
             }
@@ -38,7 +41,7 @@ final class NotificationService: UNNotificationServiceExtension {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".jpg")
         do {
             try data.write(to: url)
-            return try UNNotificationAttachment(identifier: "picture", url: url, options: nil)
+            return try UNNotificationAttachment(identifier: UUID().uuidString, url: url, options: nil)
         } catch { return nil }
     }
 }

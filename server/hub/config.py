@@ -34,6 +34,14 @@ class FrigateConfig(ServiceConfig):
     go2rtc_url: str | None = None
     # Public URL the app uses for WebRTC signalling through the hub.
     cameras: list[str] = Field(default_factory=list)
+    # Broker from Frigate's own mqtt: config. Empty: poll the HTTP API about once a second.
+    mqtt_host: str | None = None
+    mqtt_port: int = 1883
+    mqtt_username: str | None = None
+    mqtt_password_secret: str = "frigate.mqtt_password"
+    mqtt_topic: str = "frigate/events"
+    mqtt_tls: bool = False
+    poll_s: float = 1.0
 
 
 class FirewallaConfig(BaseModel):

@@ -7,6 +7,7 @@ credential stays in the hub.
 
 from __future__ import annotations
 
+import json
 import time
 from typing import Any
 from urllib.parse import quote
@@ -33,6 +34,7 @@ class Frigate(Adapter):
         self._info: dict[str, dict[str, Any]] = {}
         self._info_at = 0.0
         self.last_event: dict[str, dict[str, Any]] = {}
+        self.mqtt_connected = False
 
     async def _login(self) -> None:
         # Only needed on Frigate's authenticated port (8971). Port 5000 is open.
@@ -197,3 +199,70 @@ class Frigate(Adapter):
         if stream is not None:
             await stream.aclose()
             self._stream = None
+
+
+def parse_frigate_mqtt(payload: bytes | str) -> tuple[str, dict[str, Any]] | None:
+    """`(type, after)` from a `frigate/events` payload, or None when it isn't one."""
+    try:
+        msg = json.loads(payload)
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(msg, dict):
+        return None
+    after = msg.get("after")
+    if isinstance(after, dict) and after.get("id"):
+        return str(msg.get("type") or "update"), after
+    if msg.get("id") and msg.get("camera"):
+        return str(msg.get("type") or "new"), msg
+    return None
+
+
+def _relative_box(box: Any, size: tuple[float, float] | None) -> list[float] | None:
+    """MQTT's pixel box `[x1, y1, x2, y2]` as the API's relative `[x, y, w, h]`.
+
+    A box that is already in 0..1 (the HTTP shape) is kept. Without a frame size,
+    a pixel box is dropped: suppression compares relative boxes, and a pixel box
+    would never match.
+    """
+    if not isinstance(box, (list, tuple)) or len(box) != 4:
+        return None
+    try:
+        x1, y1, x2, y2 = (float(v) for v in box)
+    except (TypeError, ValueError):
+        return None
+    if max(abs(x1), abs(y1), abs(x2), abs(y2)) <= 1.5:
+        return [round(x1, 4), round(y1, 4), round(x2, 4), round(y2, 4)]
+    if not size or size[0] <= 0 or size[1] <= 0:
+        return None
+    width, height = size
+    return [round(x1 / width, 4), round(y1 / height, 4), round((x2 - x1) / width, 4), round((y2 - y1) / height, 4)]
+
+
+def mqtt_to_event(after: dict[str, Any], size: tuple[float, float] | None = None) -> dict[str, Any]:
+    """Frigate's MQTT `after` object in the shape `/api/events` and the alerter use."""
+    box = _relative_box(after.get("box"), size)
+    data: dict[str, Any] = {}
+    if after.get("top_score") is not None:
+        data["top_score"] = after["top_score"]
+    if after.get("score") is not None:
+        data["score"] = after["score"]
+    if box:
+        data["box"] = box
+    zones = after.get("entered_zones")
+    if not isinstance(zones, list):
+        zones = after.get("zones") if isinstance(after.get("zones"), list) else []
+    return {
+        "id": after.get("id"),
+        "camera": after.get("camera") or "",
+        "label": after.get("label") or "",
+        "sub_label": after.get("sub_label"),
+        "top_score": after.get("top_score"),
+        "false_positive": bool(after.get("false_positive")),
+        "start_time": after.get("start_time"),
+        "end_time": after.get("end_time"),
+        "has_snapshot": bool(after.get("has_snapshot")),
+        "has_clip": bool(after.get("has_clip")),
+        "frame_time": after.get("frame_time"),
+        "zones": zones,
+        "data": data,
+    }

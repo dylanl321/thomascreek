@@ -12,7 +12,7 @@ import time
 from typing import TYPE_CHECKING, Any, Iterable
 
 from .db import new_id
-from .push import alert_payload
+from .push import alert_payload, collapse_identifier
 
 if TYPE_CHECKING:
     from .state import Hub
@@ -88,7 +88,7 @@ class Notifier:
                                  person_id=p["id"])
             await self._push_person(p["id"], title, body, cat=cat, level=level, inbox_id=iid, ref=ref,
                                     category=push_category, silent=silent, image=image,
-                                    interruption=interruption, extra=extra)
+                                    interruption=interruption, extra=extra, group_key=group_key)
         notice = self.tv_notice(level, cat, title, body, group_key, ref)
         if notice and ids:
             # One copy for every TV. No snapshot and no actions: a TV can show it, not approve it.
@@ -110,10 +110,19 @@ class Notifier:
             return None
         return {"level": level, "cat": shown, "title": title, "body": body, "ref": ref}
 
+    async def push_update(self, person_id: str, title: str, body: str | None = None, **kw: Any) -> None:
+        """Push again for an alert already in the inbox. The phone replaces the one on screen."""
+        await self._push_person(person_id, title, body, **kw)
+
     async def _push_person(self, person_id: str, title: str, body: str | None, **kw: Any) -> None:
         apns = self.hub.apns
         if not apns.enabled:
             return
+        # The group is both the collapse id (a repeat replaces the alert) and the
+        # thread (related alerts sit together). No group: still thread by category,
+        # and don't collapse unrelated alerts into one.
+        collapse = collapse_identifier(kw.get("group_key"))
+        thread = collapse or kw["cat"]
         for d in self.hub.db.all(
             "SELECT * FROM devices WHERE person_id=? AND status='active' AND apns_token IS NOT NULL", [person_id]
         ):
@@ -121,11 +130,11 @@ class Notifier:
             if not prefs.get(kw["cat"], True):
                 continue
             payload = alert_payload(title, body, cat=kw["cat"], inbox_id=kw.get("inbox_id"), ref=kw.get("ref"),
-                                    category=kw.get("category"), level=kw.get("level", "fyi"), thread=kw["cat"],
+                                    category=kw.get("category"), level=kw.get("level", "fyi"), thread=thread,
                                     silent=kw.get("silent", False), image=kw.get("image"),
                                     interruption=kw.get("interruption"), extra=kw.get("extra"))
             res = await apns.send(d["apns_token"], payload, env=d.get("apns_env") or "production",
-                                  collapse_id=kw.get("inbox_id"))
+                                  collapse_id=collapse)
             if res.token_dead:
                 self.hub.db.update("devices", "id", d["id"], {"apns_token": None})
 
