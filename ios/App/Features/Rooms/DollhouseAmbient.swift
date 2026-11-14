@@ -163,7 +163,7 @@ final class DollhouseAmbient {
     /// so a small turn about local X (the rod) is a sway, never a slide across the room.
     static let curtainNames = [
         "fireplace_curtain_1", "fireplace_curtain_2", "screen_curtain_1", "screen_curtain_2",
-        "rear_black_curtain_cut", "rear_black_curtain"
+        "rear_black_curtain_cut"
     ]
 
     private func syncCurtains(_ stage: DollhouseStage) {

@@ -8,6 +8,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
+import { splitMultiMaterialForExport } from './life.js';
 
 export const STYLE = {
   background: ['#f1ece4', '#d9d0c3'],
@@ -162,7 +163,8 @@ export function createApp(container, { build, views, presets, width = 1600, heig
   const resize = (w, h) => { camera.aspect = w / h; camera.updateProjectionMatrix(); renderer.setSize(w, h); composer.setSize(w, h); };
   const exportGLB = () => new Promise((res, rej) => {
     const hidden = [], shown = []; room.root.traverse(o => { if (o.userData.noExport && o.visible) { o.visible = false; hidden.push(o); } if (o.userData.exportForceVisible && !o.visible) { o.visible = true; shown.push(o); } });
-    const restore = () => { hidden.forEach(o => { o.visible = true; }); shown.forEach(o => { o.visible = false; }); };
+    const unsplit = splitMultiMaterialForExport(room.root);
+    const restore = () => { unsplit(); hidden.forEach(o => { o.visible = true; }); shown.forEach(o => { o.visible = false; }); };
     new GLTFExporter().parse(room.root, (buf) => { restore(); res(buf); }, (e) => { restore(); rej(e); }, { binary: true, onlyVisible: true, maxTextureSize: 1024 });
   });
   setView(Object.keys(views)[0]);

@@ -6,9 +6,12 @@ export function lifeInfo() {
   const out = { cat: null, cat_spots: [], props: [], drums: [], fan_blades: null, curtains: [], sparkles: [], exterior_nodes: [] };
   root.updateMatrixWorld(true);
   const r3 = (v) => v.toArray().map(x => +x.toFixed(3)), wp = (o) => r3(o.getWorldPosition(o.position.clone()));
+  // skip nodes that never reach the GLB (no-export or interior-only, on the node or any parent), so life lists only exported names
+  const notExported = (o) => { for (let p = o; p; p = p.parent) if (p.userData.noExport || p.userData.interiorOnly) return true; return false; };
   root.traverse(o => {
     const n = o.name;
-    if (/^exterior_|_glimpse$/.test(n) && !o.userData.noExport) out.exterior_nodes.push(n);
+    if (notExported(o)) return;
+    if (/^exterior_|_glimpse$/.test(n)) out.exterior_nodes.push(n);
     if (n === 'pet_cat') out.cat = { name: n, world_position_m: wp(o), yaw_rad: +o.rotation.y.toFixed(3),
       fallback_meshes: o.children.filter(c => c.isMesh).map(c => c.name),
       pose_groups: o.children.filter(c => c.name.startsWith('pet_cat_pose_')).map(c => ({ name: c.name, default_visible: c.userData.defaultVisible !== false,

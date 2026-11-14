@@ -9,7 +9,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
-import { makeLifeKit } from './life.js';
+import { makeLifeKit, splitMultiMaterialForExport } from './life.js';
 
 // ---------------------------------------------------------------- style tokens
 export const STYLE = {
@@ -692,7 +692,8 @@ export function createDen(container, { width = 1600, height = 1000, pixelRatio =
   const resize = (w, h) => { camera.aspect = w / h; camera.updateProjectionMatrix(); renderer.setSize(w, h); composer.setSize(w, h); };
   const exportGLB = () => new Promise((res, rej) => {
     const hidden = [], forced = []; den.root.traverse(o => { if (o.userData.noExport && o.visible) { o.visible = false; hidden.push(o); } if (o.userData.exportForceVisible && !o.visible) { o.visible = true; forced.push(o); } });
-    const restore = () => { hidden.forEach(o => { o.visible = true; }); forced.forEach(o => { o.visible = false; }); };
+    const unsplit = splitMultiMaterialForExport(den.root);   // the app's USDZ converter draws only primitive 0 of a mesh (see life.js)
+    const restore = () => { unsplit(); hidden.forEach(o => { o.visible = true; }); forced.forEach(o => { o.visible = false; }); };
     new GLTFExporter().parse(den.root, (buf) => { restore(); res(buf); }, (e) => { restore(); rej(e); }, { binary: true, onlyVisible: true, maxTextureSize: 1024 });
   });
   setView('dollhouse');

@@ -243,3 +243,26 @@ export function makeLifeKit() {
     g.scale.setScalar(scale); return g; };
   return { lstd, LG, LM, LB, LS, LC, limb, empty, tex, plaid, stripes, knit, cloth, P, decor, buildCatPose, catHead, catTail, catMats };
 }
+
+// Export-time fix for the app's USDZ converter (ios/scripts/gltf_to_usdz.py), which draws ONLY primitives[0] of each glTF mesh.
+// three's GLTFExporter writes a mesh with a material array (geometry groups) as one mesh with one primitive per material, so in the app
+// only the first material's faces were drawn (e.g. the movie-room stone surround showed just its front face, 0.45 m off the wall).
+// For the export we give each such mesh a single primitive: the node keeps its name and the material covering the largest area;
+// faces with any other material move to child meshes `<name>_part_<n>` (n = 2, 3, ...) with an identity transform. Restored afterwards.
+export function splitMultiMaterialForExport(root) {
+  const undo = [];
+  const triArea = (pos, a, b, c) => { const A = new THREE.Vector3().fromBufferAttribute(pos, a), B = new THREE.Vector3().fromBufferAttribute(pos, b), C = new THREE.Vector3().fromBufferAttribute(pos, c); return B.sub(A).cross(C.sub(A)).length() / 2; };
+  const meshes = []; root.traverse(o => { if (o.isMesh && Array.isArray(o.material) && o.geometry.groups.length) meshes.push(o); });
+  for (const m of meshes) {
+    const g = m.geometry, pos = g.attributes.position, idx = g.index, byMat = new Map();
+    for (const gr of g.groups) { const list = byMat.get(gr.materialIndex) || []; for (let i = gr.start; i < gr.start + gr.count; i++) list.push(idx ? idx.getX(i) : i); byMat.set(gr.materialIndex, list); }
+    const area = new Map([...byMat].map(([k, l]) => { let a = 0; for (let i = 0; i < l.length; i += 3) a += triArea(pos, l[i], l[i + 1], l[i + 2]); return [k, a]; }));
+    const order = [...byMat.keys()].sort((a, b) => area.get(b) - area.get(a));
+    const sub = (list) => { const ng = g.clone(); ng.setIndex(list); ng.clearGroups(); return ng; };
+    const orig = { geometry: g, material: m.material }, kids = [];
+    m.geometry = sub(byMat.get(order[0])); m.material = orig.material[order[0]];
+    order.slice(1).forEach((k, i) => { const c = new THREE.Mesh(sub(byMat.get(k)), orig.material[k]); c.name = `${m.name}_part_${i + 2}`; c.castShadow = m.castShadow; c.receiveShadow = m.receiveShadow; m.add(c); kids.push(c); });
+    undo.push(() => { kids.forEach(c => m.remove(c)); m.geometry = orig.geometry; m.material = orig.material; });
+  }
+  return () => undo.reverse().forEach(f => f());
+}

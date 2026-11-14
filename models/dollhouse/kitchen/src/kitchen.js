@@ -533,7 +533,7 @@ export function buildKitchen() {
       cone.receiveShadow = false; cone.visible = false; cone.renderOrder = 6; show.push(cone);
       decals.push(decal(`glow_recessed_${i + 1}_pool`, g, T.glow, STYLE.warm, 0.5, 1.3, 1.3, x, fy + 0.003, z, 'up'));
     });
-    for (const z of [1.3, 2.85, 4.4]) { const s = new THREE.SpotLight(STYLE.warm, 0, 5, 0.9, 0.7, 2); s.name = `light_recessed_row_${z}`; s.position.set(-1.9, H - 0.1, z); s.target.position.set(-1.9, 0, z); g.add(s); g.add(s.target); lights.push(s); }
+    for (const z of [1.3, 2.85, 4.4]) { const s = new THREE.SpotLight(STYLE.warm, 0, 5, 0.9, 0.7, 2); s.name = `light_recessed_row_${String(z).replace('.', '_')}`; /* no '.' in node names (USDZ) */ s.position.set(-1.9, H - 0.1, z); s.target.position.set(-1.9, 0, z); g.add(s); g.add(s.target); lights.push(s); }
     register('recessed_lights', { room, label: 'Recessed lights', type: 'light', group: g, emissive: [{ mat: m.bulb, on: 6 }], lights: lights.map(l => ({ light: l, on: 7 })), decals, show, anchor: new THREE.Vector3(-1.9, H - 0.08, 2.85) });
   }
   // dining pendant: ribbed clear-glass prismatic dome on a brass fitting, hanging from the tray beam

@@ -10,6 +10,7 @@ node render.mjs evening:dollhouse  # state:view[:w:h] -> renders/<view>_<state>.
 node build_viewer.mjs  # -> viewer.html (standalone, three from unpkg)
 npm run check          # lists life node names inside the GLBs (no deps)
 npm run smoke          # viewer + GLTFLoader reload check
+npm run refs           # every devices.json node reference vs the GLB node names (missing, renamed by USDZ, duplicated)
 ```
 
 `node render_life.mjs` renders each cat pose (`src/render.html?cat=<pose>`) and builds `renders/cat_poses_sheet.png`.

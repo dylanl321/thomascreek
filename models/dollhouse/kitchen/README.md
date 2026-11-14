@@ -10,6 +10,7 @@ node render.mjs evening:dollhouse  # state:view[:w:h] -> renders/<view>_<state>.
 node build_viewer.mjs  # -> viewer.html (standalone, three from unpkg)
 npm run check          # lists life node names inside the GLBs (no deps)
 npm run smoke          # viewer + GLTFLoader reload check
+npm run refs           # every devices.json node reference vs the GLB node names (missing, renamed by USDZ, duplicated)
 ```
 
 Files: `src/` builders (common.js, kitchen.js, life.js, life_viewer.js, render.html).

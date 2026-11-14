@@ -49,7 +49,7 @@ python3 ios/scripts/gltf_to_usdz.py \
   ios/Rooms/LivingRoom/appearance.json
 ```
 
-`usd-core` is the OpenUSD library. No Xcode, Reality Converter, or `usdzconvert` is required. The script writes a binary USD stage (Y up, metres), binds UsdPreviewSurface materials, packs the PNG textures into a USDZ, and writes `appearance.json` with the on-state colour and strength of every bulb, shade, glow, flame and the TV screen. Node names are kept. A repeated name (the sofa legs) gets a numeric suffix. A dot in a name would be a USD path separator, so it becomes an underscore. Device names have neither problem.
+`usd-core` is the OpenUSD library. No Xcode, Reality Converter, or `usdzconvert` is required. The script writes a binary USD stage (Y up, metres), binds UsdPreviewSurface materials, packs the PNG textures into a USDZ, and writes `appearance.json` with the on-state colour and strength of every bulb, shade, glow, flame and the TV screen. Node names are kept. A repeated name (the sofa legs) gets a numeric suffix. A dot in a name would be a USD path separator, so it becomes an underscore. Device names have neither problem. Every glTF primitive is written: a mesh with several materials (three.js writes one primitive per material) becomes the node's `mesh` child plus `mesh_p1`, `mesh_p2`, ..., each bound to its own material. The script fails if the USD mesh count differs from the GLB's primitive count. Model Generator's exports also split multi-material meshes into `<name>_part_N` child nodes, so in practice each node has one primitive.
 
 The script checks that the package still contains `anchor_tv`, `tv_screen`, `glow_chandelier_floor`, `fire_flame_1`, `soundbar_led` and `light_chandelier`, and the anchor sits at the position in `devices.json`.
 
@@ -116,7 +116,7 @@ The app looks these up by name and skips anything missing. New clutter only need
 | Fan blades | `ceiling_fan_blades` (spins on Y) |
 | Washer / dryer drum | `washer_drum`, `dryer_drum`: a solid drum pivoted on its axle, spinning about local +Z (out of the door). Glow decals never spin |
 | Screens | `tv_screen`, `screen_surface` |
-| Curtains | exact names `fireplace_curtain_1`, `fireplace_curtain_2`, `screen_curtain_1`, `screen_curtain_2`, `rear_black_curtain_cut`, `rear_black_curtain`; origin at the heading, sway about local X |
+| Curtains | exact names `fireplace_curtain_1`, `fireplace_curtain_2`, `screen_curtain_1`, `screen_curtain_2`, `rear_black_curtain_cut`; origin at the heading, sway about local X |
 | Window dust | a mesh whose name contains both `window` and `glass`, or `skylight_diffuser` |
 | Steam | the names in that scene's `steam` list (`prop_mug`, `prop_kettle`); the emitter sits at the top of the prop's bounds |
 | Night sparkles | one mesh at the lamp, not the group at the room origin: `table_lamp_shade`, `table_lamp_booth_shade`, `table_lamp_1_shade`, `table_lamp_2_shade`, `dresser_lamp_shade`, `sconce_left_shade`, `sconce_right_shade`, `sconce_left_bulb_1`, `sconce_right_bulb_1`, `chandelier_bulb_1`, `chandelier_bulb_4`, `chandelier_lower_bulb_1`, `dining_pendant_bulb`, `flower_light_head`, `flower_light_bloom_1`, `prop_lamp` |
