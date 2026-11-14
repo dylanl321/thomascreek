@@ -90,7 +90,7 @@ final class Enrollment {
     }
 }
 
-/// Bonjour browse for _thomascreek._tcp and resolve it to an IPv4 http URL.
+/// Bonjour browse for _thomascreek._tcp and resolve it to an IPv4 URL. HTTPS unless the hub's TXT says tls=0.
 enum Discovery {
     struct Found: Sendable { var url: String; var pin: String? }
 

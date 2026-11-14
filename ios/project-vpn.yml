@@ -25,6 +25,7 @@ targets:
         PRODUCT_NAME: ThomasCreekTunnel
         SKIP_INSTALL: YES
         ENABLE_BITCODE: NO
+    # WireGuard only, no HTTP, so no ATS exception.
     info:
       path: Tunnel/Info.plist
       properties:
