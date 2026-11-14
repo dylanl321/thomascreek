@@ -309,6 +309,11 @@ def _library(h: Any, kids: bool) -> list[dict[str, Any]]:
         if kids and row.get("rating") not in allowed and not row.get("kids"):
             continue
         items.append(row)
+    if not kids:
+        seen = {item.get("movie_id") or item.get("series_id") for item in items}
+        for row in _canonical_rows(h):
+            if (row.get("movie_id") or row.get("series_id")) not in seen:
+                items.append(row)
     return items
 
 
@@ -438,6 +443,33 @@ def _plex_query_path(value: object) -> str | None:
     raw = parse_qs(urlsplit(value).query).get("path", [None])[0]
     text = unquote(raw) if isinstance(raw, str) else ""
     return text if text.startswith("/library/") else None
+
+
+def _canonical_rows(h: Any) -> list[dict[str, Any]]:
+    """Cleaned titles from the folded catalog, so Explore can see past a messy provider name."""
+    from .iptvcanon import search
+
+    rows = []
+    for item in search(h.db)["items"]:
+        if item.get("kind") not in ("movie", "series"):
+            continue
+        sources = list(item.get("sources") or [])
+        if not sources:
+            continue
+        sources.sort(key=lambda source: {"2160p": 0, "1080p": 1, "720p": 2, "sd": 3}.get(str(source.get("quality") or ""), 4))
+        chosen = sources[0]
+        kind = item["kind"]
+        row = {
+            "kind": kind, "title": item.get("title"), "year": item.get("year"), "overview": None,
+            "tagline": None, "poster_url": None, "backdrop_url": None, "logo_url": None,
+            "rating": None, "genres": [], "availability": "play", "kids": False, "tmdb_id": None,
+        }
+        if kind == "movie":
+            row["movie_id"] = chosen.get("ref")
+        else:
+            row["series_id"] = chosen.get("ref")
+        rows.append(row)
+    return rows
 
 
 def _recordings(h: Any) -> list[dict[str, Any]]:

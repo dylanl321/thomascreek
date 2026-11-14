@@ -476,6 +476,47 @@ Default window is from one hour ago to six hours ahead, at most 48 hours. `catch
 
 Kids' categories (`PUT /v1/tvapp/kids-categories`) are the allow-list. A kids' caller sees a channel, series or movie only when its category name matches that list, or a lineup row is marked `kids`. An empty list means a kids' caller sees nothing.
 
+### One catalog
+
+Several providers are folded into one title. A movie, a series episode, and a live channel each have one canonical id. Every place that copy exists is a source. The TV keeps using the source ref it already has (`vod:`, `series:`, `ep:`, `xc:`). `canonical_id` is added when the hub has folded that row in. Explore treats a title as in the library when any source of its canonical item can be played. `GET /v1/tv/library/search` does the same.
+
+Matching runs in the background when a catalog refresh finds new or changed rows. A request does not match, and it does not check stream health. Providers with tens of thousands of channels are indexed by the cleaned name, not compared one by one.
+
+A pair is folded together only when the hub is sure. Anything less stays two titles.
+
+1. The same TMDB id, the same IMDb id, or the same `epg_channel_id` / `tvg-id`.
+2. The same cleaned title and year for a movie, or the same cleaned title and season and episode for a series.
+3. For a live channel, the same cleaned name and region, and logos that look like the same file.
+
+Cleaning removes quality tags (`4K`, `FHD`, `HD`, `SD`, `HEVC`), bracketed notes (`[MULTI]`, `ᴿᴬᵂ`), country prefixes (`US|`, `UK:`, `EN -`), punctuation, and accent marks. `ESPN`, `ESPN 2`, `ESPN Deportes`, an East feed, a West feed, and a `+1` timeshift stay separate.
+
+`GET /v1/tv/catalog?q=&kind=movie|series|live`
+
+```json
+{"items":[{
+  "id":"can_7f3a9c2b1d4e6f80",
+  "kind":"movie",
+  "title":"The Matrix",
+  "year":1999,
+  "sources":[
+    {"provider":"alpha","stream_id":"100","ref":"vod:alpha:100","quality":"2160p","language":null,"name":"US| The Matrix (1999) [4K] HEVC"},
+    {"provider":"beta","stream_id":"55","ref":"vod:beta:55","quality":"1080p","language":"en","name":"EN - The Matrix 1999 FHD"}
+  ]
+}]}
+```
+
+`kind` is `movie`, `series`, or `live`. A series row also has `season` and `episode` when those were in the name. A live row has `region` (`US`, `UK`, or null) and `variant` (`2`, `east`, `deportes`, or null) and `timeshift` (`0` or `1`). `sources` never includes a password or a stream URL. `quality` is `2160p`, `1080p`, `720p`, `sd`, or null. An empty catalog is `{"items":[]}`.
+
+Pairs the rules will not decide are left separate. When `anthropic.api_key` is saved, those pairs can be asked of the model in `iptv_match.model` (default `claude-haiku-4-5`). The model sees titles, years, and channel names only. Each answer is kept, so the same pair is never asked again. `iptv_match.daily_tokens` (default `20000`) is the day's cap. With no key, or once the cap is reached, the pair stays two titles and nothing is shown to the household.
+
+`GET /v1/tv/catalog/unsure` (`systems`) is the short list an admin can settle. At most 20.
+
+```json
+{"unsure":[{"left":"can_aaa","right":"can_bbb","title":"CNN","other":"Cable News Network","score":0.74}]}
+```
+
+`POST /v1/tv/catalog/merge` `{ids:["can_aaa","can_bbb"]}` and `POST /v1/tv/catalog/split` `{id:"can_7f3a9c2b1d4e6f80","provider":"beta","stream_id":"55"}` are `systems`. Merge answers `{"ok":true,"id":"can_aaa"}`. Split answers `{"ok":true,"id":"can_new"}`. A remembered choice wins over the rules and over the model. A second merge of the same pair answers the same id and does not ask the model. Unknown ids answer `404` "That title isn't in the catalog."
+
 ### TVs a phone can target
 
 `GET /v1/tv/players`

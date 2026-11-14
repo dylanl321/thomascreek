@@ -181,6 +181,13 @@ class YouTubeConfig(BaseModel):
     starter: list[YouTubeStarter] = Field(default_factory=_starter)  # suggestions on the wizard's start page
 
 
+class IptvMatchConfig(BaseModel):
+    """Folding several IPTV providers into one catalog. The model is asked only when the rules are not sure."""
+
+    model: str = "claude-haiku-4-5"
+    daily_tokens: int = 20000
+
+
 class AssistantConfig(BaseModel):
     """Ask Thomas Creek (hub/assistant.py)."""
 
@@ -400,6 +407,7 @@ class Config(BaseModel):
     tv_app: TvAppConfig = Field(default_factory=TvAppConfig)
     artwork: ArtworkConfig = Field(default_factory=ArtworkConfig)
     assistant: AssistantConfig = Field(default_factory=AssistantConfig)
+    iptv_match: IptvMatchConfig = Field(default_factory=IptvMatchConfig)
     printers: PrintersConfig = Field(default_factory=PrintersConfig)
     child_policy: ChildPolicy = Field(default_factory=ChildPolicy)
     smart: SmartConfig = Field(default_factory=SmartConfig)
