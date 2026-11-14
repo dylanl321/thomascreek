@@ -158,9 +158,9 @@ final class DollhouseSunlight {
             let geo = SCNBox(width: CGFloat(ax1 - ax0), height: CGFloat(ay1 - ay0), length: CGFloat(az1 - az0), chamferRadius: 0)
             let mat = SCNMaterial()
             mat.lightingModel = .constant
+            // Cameras skip the shell's category, so it is never drawn. It must write depth, or SceneKit leaves
+            // it out of the sun's shadow map too.
             mat.colorBufferWriteMask = []
-            mat.writesToDepthBuffer = false
-            mat.readsFromDepthBuffer = false
             geo.materials = [mat]
             let node = SCNNode(geometry: geo)
             node.simdPosition = SIMD3((ax0 + ax1) / 2, (ay0 + ay1) / 2, (az0 + az1) / 2)
@@ -183,7 +183,9 @@ final class DollhouseSunlight {
         sun.type = .directional
         sun.intensity = 0
         sun.castsShadow = true
-        sun.shadowMode = .deferred
+        // Forward, not deferred: a deferred shadow darkens the whole frame (studio light included) wherever the
+        // sun is blocked, which turned every room black. Forward only takes away the sun's own light.
+        sun.shadowMode = .forward
         sun.shadowSampleCount = 16
         sun.shadowRadius = 2.5
         sun.shadowMapSize = CGSize(width: 2048, height: 2048)
