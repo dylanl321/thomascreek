@@ -1,4 +1,5 @@
 import SceneKit
+import SwiftUI
 import UIKit
 
 /// The cutaway, drawn with SceneKit from the room's USDZ.
@@ -130,7 +131,7 @@ final class DollhouseController {
             node.geometry = copy
             let picture = texture(look.baseTexture) ?? texture(look.emissiveTexture) ?? image(from: copy.firstMaterial?.diffuse.contents)
             prepared[name] = Prepared(node: node, materials: copy.materials, look: look, picture: picture)
-            rest(name, on: false)
+            rest(name, level: 0)
             if look.kind == "glow" || look.kind == "flame" || look.kind == "cone" { node.isHidden = true }
         }
     }
@@ -185,7 +186,7 @@ final class DollhouseController {
         key.light?.zNear = 0.5
         key.light?.zFar = 80
         let aim = room.shot(.dollhouse)
-        let span = max(CGFloat(8), abs(aim.position.x - aim.target.x))
+        let span = Double(max(Float(8), Float(abs(aim.position.x - aim.target.x))))
         key.light?.orthographicScale = span
         key.position = SCNVector3(aim.target.x - 5, aim.target.y + 10, aim.target.z + 4)
         key.look(at: aim.target)
@@ -368,7 +369,7 @@ final class DollhouseController {
 
     private func image(from contents: Any?) -> UIImage? {
         if let image = contents as? UIImage { return image }
-        if let image = contents as? CGImage { return UIImage(cgImage: image) }
+        if let contents, CFGetTypeID(contents as CFTypeRef) == CGImage.typeID { return UIImage(cgImage: contents as! CGImage) }
         return nil
     }
 
@@ -414,7 +415,7 @@ extension DollhouseRoom {
     }
 }
 
-private struct DollhouseShot {
+struct DollhouseShot {
     var position: SCNVector3
     var target: SCNVector3
     var fov: CGFloat
