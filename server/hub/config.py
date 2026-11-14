@@ -280,6 +280,16 @@ class TvAppConfig(BaseModel):
     downloader_code: str | None = None
 
 
+class TvFleetConfig(BaseModel):
+    """How the hub watches its own TVs. Shell stays off until someone turns it on."""
+
+    shell: bool = False
+    retain_days: int = 30
+    offline_after_min: int = 30
+    hot_c: float = 80
+    low_battery_pct: int = 15
+
+
 class PrinterEntry(BaseModel):
     """One Bambu printer. Host, serial and access code can live in the vault as
     printer.<id>.host / .serial / .access_code so they're added on the admin page."""
@@ -452,6 +462,7 @@ class Config(BaseModel):
     youtube: YouTubeConfig = Field(default_factory=YouTubeConfig)
     app_update: AppUpdateConfig = Field(default_factory=AppUpdateConfig)
     tv_app: TvAppConfig = Field(default_factory=TvAppConfig)
+    tv_fleet: TvFleetConfig = Field(default_factory=TvFleetConfig)
     artwork: ArtworkConfig = Field(default_factory=ArtworkConfig)
     assistant: AssistantConfig = Field(default_factory=AssistantConfig)
     iptv_match: IptvMatchConfig = Field(default_factory=IptvMatchConfig)
