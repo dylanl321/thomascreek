@@ -1,0 +1,16 @@
+{
+  "name": "basement-bedroom-life",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "puppeteer-core": "^25.17.0",
+    "three": "^0.170.0"
+  },
+  "scripts": {
+    "serve": "python3 -m http.server 8766",
+    "export": "node render.mjs export",
+    "viewer": "node build_viewer.mjs",
+    "check": "node check_life_names.mjs bedroom.glb bedroom_all_on.glb",
+    "smoke": "node smoke_life.mjs . bedroom.glb bedroom_all_on.glb"
+  }
+}

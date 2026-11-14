@@ -3,7 +3,8 @@
 // Interior 0<x<W, z>0. Camera-side walls (left wall x=0 with the doorway, front wall z=L) are cut at 1.1 m; upper parts interior-only.
 // Photo note: the two nightstand table lamps in photo.png are NOT real; brushed-brass cone sconces (sconce_ref.jpg) replace them.
 import * as THREE from 'three';
-import { STYLE, rng, canvasTex, makeBaseTextures, std, makeKit, createApp } from '../../kitchen/src/common.js';
+import { STYLE, rng, canvasTex, makeBaseTextures, std, makeKit, createApp } from './common.js';
+import { makeLifeKit } from './life.js';
 
 export const BROOM = { W: 4.0, L: 4.5, H: 2.45 };
 
@@ -162,6 +163,19 @@ export function buildBedroom() {
     const bowl = mesh('dresser_bowl', new THREE.SphereGeometry(0.1, 20, 10, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2), M.walnutDark, g, W - 0.26, DRY + 0.06, DRZ1 - 0.48); bowl.material = std('#5a3a22', 0.5, 0, { side: THREE.DoubleSide }); }
 
   // ================= DEVICES
+  // ---------------- life: props (unmade throw, bedside book, kicked-off shoes, laundry basket)
+  { const L = makeLifeKit();
+    const knit = L.lstd('#ffffff', 1, 0, { map: L.knit('#6f8a6a'), side: THREE.DoubleSide });
+    const g = L.LG('prop_throw_blanket', root, BC + 0.12, 0.662, 1.78, 0.32);                // crumpled on the duvet near the foot of the bed
+    L.cloth('pm_throw_blanket_cloth', g, knit, 1.0, 0.62, (u, v) => {
+      const r = 0.035 * Math.max(0, Math.sin(u * 9.0 + 0.6) * Math.sin(v * 6.5 + 1.1)) + 0.022 * Math.max(0, Math.sin(u * 17 + v * 5)) + 0.05 * Math.exp(-((u - 0.62) ** 2 + (v - 0.4) ** 2) / 0.02);
+      return [0.02 * Math.sin(v * 9), 0.006 + r, 0.015 * Math.sin(u * 7)]; }, 28);
+    L.P.book('prop_open_book', root, 2.88, 0.6, 0.22, -0.35, '#35506b', true);              // left open, face-up, on the right nightstand
+    L.P.lamp('prop_lamp', root, 0.6, 0.6, 0.2, 0.3);                                       // little moon night-lamp on the left nightstand (night sparkle)
+    L.P.shoes('prop_shoes', root, 2.85, 0.0, 2.6, 0.5, '#3f6fb0');                          // kicked off beside the bed
+    L.P.laundryBasket('prop_laundry_basket', root, 0.45, 0.0, 4.1, 0.2);                    // corner past the doorway
+  }
+
   // ---- brushed brass cone sconces (one each side of the bed), per sconce_ref.jpg
   const sconce = (name, label, x) => {
     const g = G(name, devGroup), y = 1.3, zA = 0.13;
@@ -210,6 +224,8 @@ export function buildBedroom() {
     cyl('ceiling_fan_downrod', g, black, 0.012, 0.012, 0.2, FX, H - 0.16, FZ, 10);
     cyl('ceiling_fan_motor', g, black, 0.115, 0.125, 0.11, FX, H - 0.31, FZ, 28);
     const blades = G('ceiling_fan_blades', g); blades.position.set(FX, H - 0.31, FZ);
+    // app spins ceiling_fan_blades on Y (ios/Rooms/README.md): origin = the fan hub on the motor axis
+    blades.userData = { pivotAxis: 'y', pivotNote: 'origin at the fan hub on the motor axis; spin rotation.y' };
     for (let i = 0; i < 5; i++) { const a = i / 5 * Math.PI * 2, arm = new THREE.Group(); arm.name = `ceiling_fan_blade_arm_${i + 1}`; arm.rotation.y = a; blades.add(arm);
       B(`ceiling_fan_iron_${i + 1}`, arm, black, 0.08, 0.2, -0.012, 0.0, -0.02, 0.02);
       const bl = B(`ceiling_fan_blade_${i + 1}`, arm, M.blackMatte, 0.18, 0.74, -0.018, -0.008, -0.075, 0.075, 0.004); bl.rotation.x = 0.12; }
@@ -279,6 +295,8 @@ export const VIEWS = {
   ceiling: { pos: [0.6, 1.0, 4.2], target: [2.5, 2.45, 1.4], fov: 62, interior: true },
   dresser: { pos: [1.3, 1.55, 2.2], target: [4.0, 0.95, 3.7], fov: 55, interior: true },
   top: { pos: [2.0, 15.5, 7.0], target: [2.0, 0, 2.25], fov: 32 },
+  life_props: { pos: [3.15, 1.8, 4.42], target: [1.35, 0.35, 2.3], fov: 72, interior: true },
+  life_bedside: { pos: [1.65, 1.45, 1.55], target: [1.65, 0.6, 0.2], fov: 62, interior: true },
 };
 
 export const createBedroom = (container, opts = {}) => createApp(container, { build: buildBedroom, views: VIEWS, presets: PRESETS, shadow: { center: [2.0, 0, 2.25], half: 6 }, ...opts });

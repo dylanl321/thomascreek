@@ -1,7 +1,9 @@
 import fs from 'fs';
-const common = fs.readFileSync('../kitchen/src/common.js', 'utf8').replace(/^export /gm, '');
+const common = fs.readFileSync('src/common.js', 'utf8').replace(/^export /gm, '');
 const kitchen = fs.readFileSync('src/movie_room.js', 'utf8').replace(/^import .*$/gm, '').replace(/^export /gm, '');
-const scene = common + '\n' + kitchen;
+const life = fs.readFileSync('src/life.js', 'utf8').replace(/^import .*$/gm, '').replace(/^export /gm, '');
+const lifeViewer = fs.readFileSync('src/life_viewer.js', 'utf8').replace(/^export /gm, '');
+const scene = common + '\n' + life + '\n' + lifeViewer + '\n' + kitchen;
 const html = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Movie Room · Smart Home Dollhouse</title>
@@ -59,14 +61,15 @@ Object.values(app.devices).forEach(d => {
 const setActive = (id, key) => document.querySelectorAll('#' + id + ' button').forEach(b => b.classList.toggle('active', b.dataset.k === key));
 const mk = (id, entries, fn) => entries.forEach(([k, label]) => { const b = document.createElement('button'); b.textContent = label; b.dataset.k = k; b.onclick = () => { fn(k); setActive(id, k); }; document.getElementById(id).appendChild(b); });
 mk('presets', [['all_off', 'All off'], ['all_on', 'All on'], ['movie_night', 'Movie night'], ['party', 'Party']], k => { app.applyPreset(k); refresh(); });
-mk('views', [['dollhouse', 'Dollhouse'], ['hero', 'Closer'], ['screen', 'Screen'], ['fireplace', 'Fireplace'], ['riser', 'Seating'], ['seats_from_screen', 'From screen'], ['rear_panels', 'Glass panels'], ['candy_wall', 'Candy wall'], ['flower', 'Flower light'], ['top', 'Top']], goView);
+mk('views', [['dollhouse', 'Dollhouse'], ['hero', 'Closer'], ['screen', 'Screen'], ['fireplace', 'Fireplace'], ['riser', 'Seating'], ['seats_from_screen', 'From screen'], ['rear_panels', 'Glass panels'], ['candy_wall', 'Candy wall'], ['flower', 'Flower light'], ['top', 'Top'], ['life_props', 'Lived-in'], ['life_curtains', 'Curtains']], goView);
 app.applyPreset('movie_night'); refresh(); setActive('presets', 'movie_night'); setActive('views', 'dollhouse');
 addEventListener('resize', () => app.resize(innerWidth, innerHeight));
+const lifeTick = setupLife(app, { spin: {} });
 const v = new THREE.Vector3();
 const flames = []; app.scene.traverse(o => { if (o.name.startsWith('fire_flame_')) flames.push([o, o.scale.y, Math.random() * 6]); });
 const clock = new THREE.Clock();
 (function loop() {
-  requestAnimationFrame(loop); controls.update();
+  requestAnimationFrame(loop); controls.update(); lifeTick();
   const t = clock.getElapsedTime();
   flames.forEach(([o, s0, p]) => { o.scale.y = s0 * (0.85 + 0.2 * Math.sin(t * 9 + p) + 0.08 * Math.sin(t * 23 + p * 2)); });
   const fl = app.scene.getObjectByName('light_fireplace'); if (app.devices.fireplace.on) fl.intensity = 3.5 * (0.85 + 0.15 * Math.sin(t * 13));

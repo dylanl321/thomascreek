@@ -3,25 +3,102 @@
     {
       "id": "lazy_morning",
       "title": "Lazy morning",
-      "weights": { "morning": 2.2, "midday": 1.2, "dusk": 0.3, "night": 0.1 },
-      "devices": { "ceiling_fan": 0.45, "skylight_glow": 0.55 },
-      "props": ["prop_throw_blanket", "prop_open_book"],
-      "while_on": ["ceiling_fan"]
+      "weights": {
+        "morning": 2.2,
+        "midday": 1.2,
+        "dusk": 0.3,
+        "night": 0.1
+      },
+      "devices": {
+        "ceiling_fan": 0.45,
+        "skylight_glow": 0.55
+      },
+      "props": [
+        "prop_throw_blanket",
+        "prop_open_book",
+        "prop_shoes"
+      ],
+      "while_on": [
+        "ceiling_fan"
+      ]
     },
     {
       "id": "night_lamp",
       "title": "Lamp lit",
-      "weights": { "morning": 0.15, "midday": 0.1, "dusk": 1.4, "night": 2.2 },
-      "devices": { "dresser_lamp": 0.8, "sconce_left": 0.4, "sconce_right": 0.4 },
-      "props": ["prop_open_book"],
-      "while_on": ["dresser_lamp", "sconce_left", "sconce_right"]
+      "weights": {
+        "morning": 0.15,
+        "midday": 0.1,
+        "dusk": 1.4,
+        "night": 2.2
+      },
+      "devices": {
+        "dresser_lamp": 0.8,
+        "sconce_left": 0.4,
+        "sconce_right": 0.4
+      },
+      "props": [
+        "prop_open_book",
+        "prop_lamp",
+        "prop_shoes"
+      ],
+      "while_on": [
+        "dresser_lamp",
+        "sconce_left",
+        "sconce_right"
+      ]
     },
     {
       "id": "still_afternoon",
       "title": "Still afternoon",
-      "weights": { "morning": 0.6, "midday": 1.8, "dusk": 0.5, "night": 0.1 },
-      "devices": { "skylight_glow": 0.35 },
-      "props": ["prop_mail", "prop_shoes"]
+      "weights": {
+        "morning": 0.6,
+        "midday": 1.8,
+        "dusk": 0.5,
+        "night": 0.1
+      },
+      "devices": {
+        "skylight_glow": 0.35
+      },
+      "props": [
+        "prop_shoes"
+      ]
+    },
+    {
+      "id": "reading_in_bed",
+      "title": "Reading in bed",
+      "weights": {
+        "morning": 0.4,
+        "midday": 0.3,
+        "dusk": 1,
+        "night": 1.6
+      },
+      "devices": {
+        "sconce_left": 1,
+        "sconce_right": 1
+      },
+      "props": [
+        "prop_open_book",
+        "prop_throw_blanket"
+      ]
+    },
+    {
+      "id": "laundry_pile",
+      "title": "Laundry to fold",
+      "weights": {
+        "morning": 1.3,
+        "midday": 1.4,
+        "dusk": 0.6,
+        "night": 0.2
+      },
+      "devices": {
+        "skylight_glow": 1,
+        "ceiling_fan": 1
+      },
+      "props": [
+        "prop_laundry_basket",
+        "prop_throw_blanket",
+        "prop_shoes"
+      ]
     }
   ]
 }

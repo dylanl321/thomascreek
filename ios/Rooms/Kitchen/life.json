@@ -3,25 +3,88 @@
     {
       "id": "morning_coffee",
       "title": "Morning coffee",
-      "weights": { "morning": 2.2, "midday": 0.45, "dusk": 0.2, "night": 0.15 },
-      "props": ["prop_mug", "prop_open_book"],
-      "steam": ["prop_mug", "prop_kettle"]
+      "weights": {
+        "morning": 2.2,
+        "midday": 0.45,
+        "dusk": 0.2,
+        "night": 0.15
+      },
+      "props": [
+        "prop_mug",
+        "prop_kettle",
+        "prop_mail"
+      ],
+      "steam": [
+        "prop_mug",
+        "prop_kettle"
+      ]
     },
     {
       "id": "laundry_day",
       "title": "Laundry day",
-      "weights": { "morning": 1.1, "midday": 1.3, "dusk": 0.5, "night": 0.2 },
-      "devices": { "washer": 1, "dryer": 0.65 },
-      "props": ["prop_laundry_basket", "prop_detergent"],
-      "while_on": ["washer", "dryer"]
+      "weights": {
+        "morning": 1.1,
+        "midday": 1.3,
+        "dusk": 0.5,
+        "night": 0.2
+      },
+      "devices": {
+        "washer": 1,
+        "dryer": 0.65
+      },
+      "props": [
+        "prop_laundry_basket",
+        "prop_detergent",
+        "prop_mug"
+      ],
+      "while_on": [
+        "washer",
+        "dryer"
+      ],
+      "steam": [
+        "prop_mug"
+      ]
     },
     {
       "id": "dinner_prep",
       "title": "Dinner prep",
-      "weights": { "morning": 0.2, "midday": 0.5, "dusk": 2.0, "night": 1.1 },
-      "props": ["prop_dishes", "prop_cutting_board", "prop_mug"],
-      "steam": ["prop_kettle"],
-      "while_on": ["range_hood_light"]
+      "weights": {
+        "morning": 0.2,
+        "midday": 0.5,
+        "dusk": 2.0,
+        "night": 1.1
+      },
+      "props": [
+        "prop_dishes",
+        "prop_cutting_board",
+        "prop_mug",
+        "prop_kettle"
+      ],
+      "steam": [
+        "prop_kettle"
+      ],
+      "while_on": [
+        "range_hood_light"
+      ]
+    },
+    {
+      "id": "after_dinner",
+      "title": "Dishes waiting",
+      "weights": {
+        "morning": 0.2,
+        "midday": 0.5,
+        "dusk": 1,
+        "night": 1.4
+      },
+      "devices": {
+        "toe_kick_lights": 1,
+        "dining_pendant": 0.5,
+        "table_lamp_booth": 1
+      },
+      "props": [
+        "prop_dishes",
+        "prop_mail"
+      ]
     }
   ]
 }

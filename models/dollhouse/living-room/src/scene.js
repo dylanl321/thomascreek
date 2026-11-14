@@ -9,6 +9,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
+import { makeLifeKit } from './life.js';
 
 // ---------------------------------------------------------------- style tokens
 export const STYLE = {
@@ -427,6 +428,8 @@ export function buildDen() {
     S('pet_cat_haunch', black, 0.11, -0.1, 0.1, -0.05, 1, 0.85, 1);
     S('pet_cat_belly_white', white, 0.09, 0.02, 0.055, 0.1, 1.3, 0.55, 0.6);
     S('pet_cat_chest_white', white, 0.075, 0.16, 0.1, 0.06, 0.8, 1, 0.9);
+    // app fallback meshes (ios/Rooms/README.md): pet_cat_body/_head/_tail/_tail_tip_white/_ear_* are DIRECT children of pet_cat.
+    // pet_cat_head = head ball (origin at its centre); pet_cat_tail = tube whose origin is the tail root (geometry offset), so a turn swings it from the base.
     S('pet_cat_head', black, 0.085, 0.2, 0.2, 0.02, 1.05, 0.95, 1.05);
     S('pet_cat_muzzle_white', white, 0.035, 0.275, 0.18, 0.03, 0.8, 0.7, 1.1);
     S('pet_cat_nose', pink, 0.009, 0.3, 0.195, 0.03);
@@ -437,13 +440,51 @@ export function buildDen() {
     }
     S('pet_cat_paw_front_white', white, 0.035, 0.29, 0.03, 0.09, 1.4, 0.7, 1);   // one white front paw tucked forward
     S('pet_cat_paw_front_black', black, 0.033, 0.26, 0.03, -0.05, 1.4, 0.7, 1);
-    const tail = new THREE.CatmullRomCurve3([[-0.2, 0.07, -0.06], [-0.22, 0.05, 0.08], [-0.08, 0.04, 0.17], [0.1, 0.04, 0.18], [0.24, 0.04, 0.14]].map(p => new THREE.Vector3(...p)));
-    mesh('pet_cat_tail', new THREE.TubeGeometry(tail, 24, 0.032, 10), black, cat);
+    const tail = new THREE.CatmullRomCurve3([[-0.2, 0.07, -0.06], [-0.22, 0.05, 0.08], [-0.08, 0.04, 0.17], [0.1, 0.04, 0.18], [0.24, 0.04, 0.14]].map(p => new THREE.Vector3(p[0] + 0.2, p[1] - 0.07, p[2] + 0.06)));
+    mesh('pet_cat_tail', new THREE.TubeGeometry(tail, 24, 0.032, 10), black, cat, -0.2, 0.07, -0.06);
     S('pet_cat_tail_tip_white', white, 0.034, 0.24, 0.04, 0.14, 1.3, 0.95, 1);
     cat.position.set(-4.5, 0.54, 1.92); cat.rotation.y = -2.0; cat.scale.setScalar(1.15);
     cat.traverse(o => { if (o.isMesh) o.castShadow = true; });
   }
   B('rug', furn, M.rug, -4.95, -1.35, 0, 0.012, 2.25, 5.15).castShadow = false;
+
+  // ---------------- LIFE: cat poses, cat spots, lived-in props (see /workspace/handoff/LIFE_NOTE.md)
+  { const L = makeLifeKit(), life = root;
+    // low window seat in the French-door reveal: a sill the cat can reach (the arched window sill is at y=2.98)
+    { const wg = G('window_sill_low', furn), z0 = DZ0 + 0.05, z1 = DZ1 - 0.05;
+      B('window_sill_low_top', wg, M.walnut, -0.62, -0.02, 0.42, 0.47, z0, z1, 0.01);
+      B('window_sill_low_face', wg, M.panel, -0.6, -0.04, 0.0, 0.42, z0 + 0.02, z1 - 0.02, 0.006);
+      B('window_sill_low_cushion', wg, std('#c9b9a0', 0.95), -0.58, -0.06, 0.47, 0.52, z0 + 0.04, z1 - 0.04, 0.025); }
+    // cat spots: Object3D, position = where pet_cat's origin goes (cat stands on it), rotation.y = yaw (the cat's head is local +X)
+    const spots = {
+      sofa: L.empty('cat_spot_sofa', life, -4.5, 0.54, 1.92, -2.0),                 // pet_cat's own sofa place (curled on the return end)
+      sofa_main: L.empty('cat_spot_sofa_main', life, -5.72, 0.54, 3.55, 0.0),       // sectional's main run, facing the fireplace
+      rug: L.empty('cat_spot_rug', life, -3.0, 0.012, 3.9, 0.35),                   // middle of the rug
+      window: L.empty('cat_spot_window', life, -0.3, 0.52, 1.35, 0.0),              // on the low window seat cushion, looking out through the French doors
+      fireplace: L.empty('cat_spot_fireplace', life, -1.05, 0.0, 3.65, Math.PI),    // warming its back by the hearth, facing into the room
+    };
+    // pose groups: children of pet_cat at its origin (they move with it), hidden by default (extras.defaultVisible=false); pet_cat already scales 1.15
+    const cat = root.getObjectByName('pet_cat');
+    ['sleep', 'sit', 'stretch', 'walk_1', 'walk_2'].forEach(pose => { const g = L.buildCatPose(`pet_cat_pose_${pose}`, cat, pose, 1);
+      g.visible = false; g.userData = { catPose: pose, defaultVisible: false, exportForceVisible: true }; });
+    // lived-in props
+    const knit = L.lstd('#ffffff', 1, 0, { map: L.plaid('#5f7f86', '#e9dcc2', '#b5523b'), side: THREE.DoubleSide });
+    { const g = L.LG('prop_throw_blanket', life);    // draped over the end arm of the sectional's main run, spilling onto the seat
+      const SX0 = -6.2, SZ1 = 5.3;
+      // folded corner of the throw spilling onto the end seat (soft slab + rolled edge)
+      const dg = L.LG('pm_throw_blanket_spill', g, SX0 + 0.56, 0.6, SZ1 - 0.38); dg.rotation.y = 0.28;
+      L.LB('pm_throw_blanket_drape', dg, knit, -0.24, 0.24, 0.002, 0.046, -0.18, 0.18, 0.02);
+      const roll = L.LC('pm_throw_blanket_roll', dg, knit, 0.032, 0.032, 0.38, 0.23, 0.03, 0, 12); roll.rotation.x = Math.PI / 2;
+      L.LB('pm_throw_blanket_fold', g, knit, SX0 + 0.3, SX0 + 0.9, 0.68, 0.73, SZ1 - 0.2, SZ1 + 0.02, 0.02);
+      L.LB('pm_throw_blanket_hang', g, knit, SX0 + 0.3, SX0 + 0.9, 0.25, 0.7, SZ1 + 0.0, SZ1 + 0.035, 0.012);
+      // re-origin the prop group onto the end arm top (children keep their world placement)
+      const o = new THREE.Vector3(SX0 + 0.6, 0.68, SZ1 - 0.1); g.position.copy(o); g.children.forEach(c => c.position.sub(o)); }
+    L.P.book('prop_open_book', life, -5.7, 0.545, 2.7, 0.4, '#2f4a5a', true);                 // left face-up on the sectional seat
+    L.P.mug('prop_mug', life, -3.3, 0.6, 1.2, '#e9e1d1', null, 0.6);                           // on the side table, next to the lamp (steam = prop_mug itself)
+    L.P.slippers('prop_shoes', life, -4.55, 0.012, 2.75, 0.5, '#c98c8c');                      // slippers kicked off by the sofa, on the rug
+    L.P.toy('prop_toy', life, -3.55, 0.012, 3.25, 0.6);                                        // cat toy: yarn ball + felt mouse on the rug
+    L.decor(L.P.remote('prop_remote', life, -1.92, 0.69, 5.85, 0.9), 'armchair_remote');       // not in the app vocabulary: permanent decor
+  }
 
   // ---------------- devices
   const devices = {};
@@ -543,7 +584,7 @@ export function buildDen() {
         const tip = P(radius, hubY + rise);
         cyl(`chandelier_${tName}_cup_${i + 1}`, g, M.brass, 0.04, 0.02, 0.035, tip.x, tip.y + 0.017, tip.z, 14);
         cyl(`chandelier_${tName}_candle_${i + 1}`, g, M.ceramic, 0.015, 0.015, 0.13, tip.x, tip.y + 0.1, tip.z, 10);
-        const b = sphere(`chandelier_${tName}_bulb_${i + 1}`, g, m.bulb, 0.02, tip.x, tip.y + 0.185, tip.z); b.scale.set(0.8, 1.5, 0.8); b.castShadow = false;
+        const b = sphere(tName === 'upper' ? `chandelier_bulb_${i + 1}` : `chandelier_${tName}_bulb_${i + 1}`, g, m.bulb, 0.02, tip.x, tip.y + 0.185, tip.z); b.scale.set(0.8, 1.5, 0.8); b.castShadow = false;
       }
     };
     tier('lower', 8, 0.6, body0 + 0.2, 0.06, 0);
@@ -608,6 +649,8 @@ export const VIEWS = {
   photo: { pos: [-5.6, 1.65, 6.2], target: [-1.2, 2.0, 2.0], fov: 80 },
   door_detail: { pos: [-3.2, 1.55, 3.0], target: [0, 1.6, 1.35], fov: 52 },
   cat_detail: { pos: [-3.4, 1.5, 3.3], target: [-4.45, 0.6, 1.95], fov: 35 },
+  life_props: { pos: [-2.6, 1.9, 4.6], target: [-4.6, 0.5, 2.9], fov: 52 },
+  life_blanket: { pos: [-4.1, 1.5, 6.2], target: [-5.6, 0.55, 4.8], fov: 45 },
   top: { pos: [-6.5, 15, 8.5], target: [-3.0, 0.5, 3.0], fov: 34 },
 };
 
@@ -642,8 +685,9 @@ export function createDen(container, { width = 1600, height = 1000, pixelRatio =
   const render = () => composer.render();
   const resize = (w, h) => { camera.aspect = w / h; camera.updateProjectionMatrix(); renderer.setSize(w, h); composer.setSize(w, h); };
   const exportGLB = () => new Promise((res, rej) => {
-    const hidden = []; den.root.traverse(o => { if (o.userData.noExport && o.visible) { o.visible = false; hidden.push(o); } });
-    new GLTFExporter().parse(den.root, (buf) => { hidden.forEach(o => { o.visible = true; }); res(buf); }, (e) => { hidden.forEach(o => { o.visible = true; }); rej(e); }, { binary: true, onlyVisible: true, maxTextureSize: 1024 });
+    const hidden = [], forced = []; den.root.traverse(o => { if (o.userData.noExport && o.visible) { o.visible = false; hidden.push(o); } if (o.userData.exportForceVisible && !o.visible) { o.visible = true; forced.push(o); } });
+    const restore = () => { hidden.forEach(o => { o.visible = true; }); forced.forEach(o => { o.visible = false; }); };
+    new GLTFExporter().parse(den.root, (buf) => { restore(); res(buf); }, (e) => { restore(); rej(e); }, { binary: true, onlyVisible: true, maxTextureSize: 1024 });
   });
   setView('dollhouse');
   return { renderer, scene, camera, composer, bloomPass, den, devices: den.devices, setDevice: den.setDevice, setView, applyPreset, render, resize, exportGLB };

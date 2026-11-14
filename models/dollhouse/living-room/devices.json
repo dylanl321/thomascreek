@@ -347,27 +347,27 @@
         "chandelier_upper_arm_1",
         "chandelier_upper_cup_1",
         "chandelier_upper_candle_1",
-        "chandelier_upper_bulb_1",
+        "chandelier_bulb_1",
         "chandelier_upper_arm_2",
         "chandelier_upper_cup_2",
         "chandelier_upper_candle_2",
-        "chandelier_upper_bulb_2",
+        "chandelier_bulb_2",
         "chandelier_upper_arm_3",
         "chandelier_upper_cup_3",
         "chandelier_upper_candle_3",
-        "chandelier_upper_bulb_3",
+        "chandelier_bulb_3",
         "chandelier_upper_arm_4",
         "chandelier_upper_cup_4",
         "chandelier_upper_candle_4",
-        "chandelier_upper_bulb_4",
+        "chandelier_bulb_4",
         "chandelier_upper_arm_5",
         "chandelier_upper_cup_5",
         "chandelier_upper_candle_5",
-        "chandelier_upper_bulb_5",
+        "chandelier_bulb_5",
         "chandelier_upper_arm_6",
         "chandelier_upper_cup_6",
         "chandelier_upper_candle_6",
-        "chandelier_upper_bulb_6",
+        "chandelier_bulb_6",
         "chandelier_lower_ring"
       ],
       "on_state": {
@@ -484,5 +484,209 @@
         "shows": []
       }
     }
-  ]
+  ],
+  "life": {
+    "cat": {
+      "name": "pet_cat",
+      "world_position_m": [
+        -4.5,
+        0.54,
+        1.92
+      ],
+      "yaw_rad": -2,
+      "fallback_meshes": [
+        "pet_cat_body",
+        "pet_cat_haunch",
+        "pet_cat_belly_white",
+        "pet_cat_chest_white",
+        "pet_cat_head",
+        "pet_cat_muzzle_white",
+        "pet_cat_nose",
+        "pet_cat_eye_left",
+        "pet_cat_ear_left",
+        "pet_cat_ear_inner_left",
+        "pet_cat_eye_right",
+        "pet_cat_ear_right",
+        "pet_cat_ear_inner_right",
+        "pet_cat_paw_front_white",
+        "pet_cat_paw_front_black",
+        "pet_cat_tail",
+        "pet_cat_tail_tip_white"
+      ],
+      "pose_groups": [
+        {
+          "name": "pet_cat_pose_sleep",
+          "default_visible": false,
+          "head_joint": "pet_cat_pose_sleep_head",
+          "tail_joint": "pet_cat_pose_sleep_tail"
+        },
+        {
+          "name": "pet_cat_pose_sit",
+          "default_visible": false,
+          "head_joint": "pet_cat_pose_sit_head",
+          "tail_joint": "pet_cat_pose_sit_tail"
+        },
+        {
+          "name": "pet_cat_pose_stretch",
+          "default_visible": false,
+          "head_joint": "pet_cat_pose_stretch_head",
+          "tail_joint": "pet_cat_pose_stretch_tail"
+        },
+        {
+          "name": "pet_cat_pose_walk_1",
+          "default_visible": false,
+          "head_joint": "pet_cat_pose_walk_1_head",
+          "tail_joint": "pet_cat_pose_walk_1_tail"
+        },
+        {
+          "name": "pet_cat_pose_walk_2",
+          "default_visible": false,
+          "head_joint": "pet_cat_pose_walk_2_head",
+          "tail_joint": "pet_cat_pose_walk_2_tail"
+        }
+      ]
+    },
+    "cat_spots": [
+      {
+        "name": "cat_spot_sofa",
+        "world_position_m": [
+          -4.5,
+          0.54,
+          1.92
+        ],
+        "yaw_rad": -2
+      },
+      {
+        "name": "cat_spot_sofa_main",
+        "world_position_m": [
+          -5.72,
+          0.54,
+          3.55
+        ],
+        "yaw_rad": 0
+      },
+      {
+        "name": "cat_spot_rug",
+        "world_position_m": [
+          -3,
+          0.012,
+          3.9
+        ],
+        "yaw_rad": 0.35
+      },
+      {
+        "name": "cat_spot_window",
+        "world_position_m": [
+          -0.3,
+          0.52,
+          1.35
+        ],
+        "yaw_rad": 0
+      },
+      {
+        "name": "cat_spot_fireplace",
+        "world_position_m": [
+          -1.05,
+          0,
+          3.65
+        ],
+        "yaw_rad": 3.142
+      }
+    ],
+    "props": [
+      {
+        "name": "prop_throw_blanket",
+        "world_position_m": [
+          -5.6,
+          0.68,
+          5.2
+        ],
+        "parent": "den"
+      },
+      {
+        "name": "prop_open_book",
+        "world_position_m": [
+          -5.7,
+          0.545,
+          2.7
+        ],
+        "parent": "den"
+      },
+      {
+        "name": "prop_mug",
+        "world_position_m": [
+          -3.3,
+          0.6,
+          1.2
+        ],
+        "parent": "den"
+      },
+      {
+        "name": "prop_shoes",
+        "world_position_m": [
+          -4.55,
+          0.012,
+          2.75
+        ],
+        "parent": "den"
+      },
+      {
+        "name": "prop_toy",
+        "world_position_m": [
+          -3.55,
+          0.012,
+          3.25
+        ],
+        "parent": "den"
+      }
+    ],
+    "drums": [],
+    "fan_blades": null,
+    "curtains": [],
+    "sparkles": [
+      {
+        "name": "sconce_left_bulb_1",
+        "world_position_m": [
+          -0.39,
+          2.105,
+          2.385
+        ]
+      },
+      {
+        "name": "sconce_right_bulb_1",
+        "world_position_m": [
+          -0.39,
+          2.105,
+          4.695
+        ]
+      },
+      {
+        "name": "table_lamp_shade",
+        "world_position_m": [
+          -3.45,
+          1.08,
+          1.05
+        ]
+      },
+      {
+        "name": "chandelier_lower_bulb_1",
+        "world_position_m": [
+          -2.5,
+          3.915,
+          3.3
+        ]
+      },
+      {
+        "name": "chandelier_bulb_1",
+        "world_position_m": [
+          -2.788,
+          4.335,
+          3.48
+        ]
+      }
+    ],
+    "exterior_nodes": [
+      "exterior_deck"
+    ]
+  }
 }

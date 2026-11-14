@@ -1,4 +1,3 @@
-import CoreMotion
 import SceneKit
 import SwiftUI
 import UIKit
@@ -28,19 +27,11 @@ final class DollhouseController {
     private var restPosition = SCNVector3Zero
     private var restTarget = SCNVector3Zero
     private var restFov: CGFloat = 30
-    private var driftPhase: CGFloat = 0
-    private var cameraMotion = false
     private var simulationRunning = true
-    private let motionManager = CMMotionManager()
-    private var parallaxPitch: Float = 0
-    private var parallaxRoll: Float = 0
-    private var motionOriginPitch: Double?
-    private var motionOriginRoll: Double?
 
     init(room: DollhouseRoom) { self.room = room }
 
     deinit {
-        motionManager.stopDeviceMotionUpdates()
         life?.stop()
     }
 
@@ -56,6 +47,7 @@ final class DollhouseController {
             ])
             scene = loaded
             Self.dropSurroundings(loaded.rootNode)
+            DollhouseCat.hidePoses(in: loaded.rootNode)
             index(loaded.rootNode)
             buildHitNames()
             prepareMaterials()
@@ -114,12 +106,8 @@ final class DollhouseController {
         restFov = shot.fov
         let move = {
             camera.fieldOfView = shot.fov
-            if self.cameraMotion {
-                self.applyDrift(phase: self.driftPhase)
-            } else {
-                cameraNode.position = shot.position
-                cameraNode.look(at: shot.target)
-            }
+            cameraNode.position = shot.position
+            cameraNode.look(at: shot.target)
         }
         if animated {
             SCNTransaction.begin()
@@ -481,29 +469,21 @@ extension DollhouseController: DollhouseStage {
         scene?.isPaused = !running
         viewport?.scene?.isPaused = !running
         viewport?.rendersContinuously = running && animated
-        if !running {
-            cameraNode?.removeAction(forKey: "life-drift")
-            cameraMotion = false
-            stopMotionUpdates()
-        }
+        holdCamera()
     }
 
+    /// The camera never moves on its own. Build 36 orbited it a few degrees every 48 s and tilted it with
+    /// the phone's gyro, which read as the whole room spinning. Life only moves small parts now.
     func setCameraMotion(enabled: Bool) {
-        let allow = enabled && simulationRunning
-        guard allow != cameraMotion else { return }
-        cameraMotion = allow
-        viewport?.rendersContinuously = allow
-        guard allow else {
-            cameraNode?.removeAction(forKey: "life-drift")
-            stopMotionUpdates()
-            guard let cameraNode else { return }
-            cameraNode.position = restPosition
-            cameraNode.look(at: restTarget)
-            cameraNode.camera?.fieldOfView = restFov
-            return
-        }
-        startDrift()
-        startMotionUpdates()
+        holdCamera()
+    }
+
+    private func holdCamera() {
+        guard let cameraNode else { return }
+        cameraNode.removeAllActions()
+        cameraNode.position = restPosition
+        cameraNode.look(at: restTarget)
+        cameraNode.camera?.fieldOfView = restFov
     }
 
     private func placeWindowLight(in scene: SCNScene) {
@@ -527,63 +507,6 @@ extension DollhouseController: DollhouseStage {
         node.look(at: aim)
         scene.rootNode.addChildNode(node)
         windowLight = node
-    }
-
-    /// A few degrees of orbit around the fitted shot, plus a small tilt from how the phone is held.
-    private func applyDrift(phase: CGFloat) {
-        guard let cameraNode else { return }
-        let swing = sin(Float(phase) * Float.pi * 2) * (3 * Float.pi / 180)
-        let dx = restPosition.x - restTarget.x
-        let dy = restPosition.y - restTarget.y
-        let dz = restPosition.z - restTarget.z
-        let turn = cos(swing)
-        let side = sin(swing)
-        let ox = dx * turn - dz * side
-        let oz = dx * side + dz * turn
-        cameraNode.position = SCNVector3(restTarget.x + ox, restTarget.y + dy, restTarget.z + oz)
-        cameraNode.look(at: restTarget)
-        var euler = cameraNode.eulerAngles
-        euler.x += parallaxPitch
-        euler.z += parallaxRoll
-        cameraNode.eulerAngles = euler
-        cameraNode.camera?.fieldOfView = restFov
-    }
-
-    private func startDrift() {
-        guard let cameraNode else { return }
-        cameraNode.removeAction(forKey: "life-drift")
-        let spin = SCNAction.customAction(duration: 48) { [weak self] _, elapsed in
-            guard let self else { return }
-            self.driftPhase = elapsed / 48
-            self.applyDrift(phase: self.driftPhase)
-        }
-        cameraNode.runAction(.repeatForever(spin), forKey: "life-drift")
-    }
-
-    private func startMotionUpdates() {
-        guard motionManager.isDeviceMotionAvailable, !motionManager.isDeviceMotionActive else { return }
-        motionOriginPitch = nil
-        motionOriginRoll = nil
-        motionManager.deviceMotionUpdateInterval = 1.0 / 12.0
-        motionManager.startDeviceMotionUpdates(using: .xArbitraryZVertical, to: .main) { [weak self] data, _ in
-            guard let self, let attitude = data?.attitude else { return }
-            if self.motionOriginPitch == nil {
-                self.motionOriginPitch = attitude.pitch
-                self.motionOriginRoll = attitude.roll
-            }
-            let dp = Float(attitude.pitch - (self.motionOriginPitch ?? attitude.pitch))
-            let dr = Float(attitude.roll - (self.motionOriginRoll ?? attitude.roll))
-            self.parallaxPitch = min(0.035, max(-0.035, dp * 0.35))
-            self.parallaxRoll = min(0.035, max(-0.035, dr * 0.35))
-        }
-    }
-
-    private func stopMotionUpdates() {
-        if motionManager.isDeviceMotionActive { motionManager.stopDeviceMotionUpdates() }
-        parallaxPitch = 0
-        parallaxRoll = 0
-        motionOriginPitch = nil
-        motionOriginRoll = nil
     }
 }
 

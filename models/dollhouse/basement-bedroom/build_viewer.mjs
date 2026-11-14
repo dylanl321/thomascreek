@@ -1,7 +1,9 @@
 import fs from 'fs';
-const common = fs.readFileSync('../kitchen/src/common.js', 'utf8').replace(/^export /gm, '');
+const common = fs.readFileSync('src/common.js', 'utf8').replace(/^export /gm, '');
 const kitchen = fs.readFileSync('src/bedroom.js', 'utf8').replace(/^import .*$/gm, '').replace(/^export /gm, '');
-const scene = common + '\n' + kitchen;
+const life = fs.readFileSync('src/life.js', 'utf8').replace(/^import .*$/gm, '').replace(/^export /gm, '');
+const lifeViewer = fs.readFileSync('src/life_viewer.js', 'utf8').replace(/^export /gm, '');
+const scene = common + '\n' + life + '\n' + lifeViewer + '\n' + kitchen;
 const html = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Basement Bedroom · Smart Home Dollhouse</title>
@@ -59,15 +61,16 @@ Object.values(app.devices).forEach(d => {
 const setActive = (id, key) => document.querySelectorAll('#' + id + ' button').forEach(b => b.classList.toggle('active', b.dataset.k === key));
 const mk = (id, entries, fn) => entries.forEach(([k, label]) => { const b = document.createElement('button'); b.textContent = label; b.dataset.k = k; b.onclick = () => { fn(k); setActive(id, k); }; document.getElementById(id).appendChild(b); });
 mk('presets', [['all_off', 'All off'], ['all_on', 'All on'], ['bedtime', 'Bedtime'], ['reading', 'Reading']], k => { app.applyPreset(k); refresh(); });
-mk('views', [['dollhouse', 'Dollhouse'], ['hero', 'Closer'], ['photo', 'Photo angle'], ['sconces', 'Bed wall'], ['sconce_close', 'Sconce'], ['ceiling', 'Fan + skylight'], ['dresser', 'Dresser'], ['top', 'Top']], goView);
+mk('views', [['dollhouse', 'Dollhouse'], ['hero', 'Closer'], ['photo', 'Photo angle'], ['sconces', 'Bed wall'], ['sconce_close', 'Sconce'], ['ceiling', 'Fan + skylight'], ['dresser', 'Dresser'], ['top', 'Top'], ['life_props', 'Lived-in'], ['life_bedside', 'Bedside']], goView);
 app.applyPreset('reading'); refresh(); setActive('presets', 'reading'); setActive('views', 'dollhouse');
 addEventListener('resize', () => app.resize(innerWidth, innerHeight));
+const lifeTick = setupLife(app, { spin: { ceiling_fan_blades: ['ceiling_fan', 9] } });
 const v = new THREE.Vector3();
 const blades = app.scene.getObjectByName('ceiling_fan_blades');
 const clock = new THREE.Clock();
 (function loop() {
-  requestAnimationFrame(loop); controls.update();
-    const dt = Math.min(clock.getDelta(), 0.05); if (app.devices.ceiling_fan.on) blades.rotation.y += dt * 9;
+  requestAnimationFrame(loop); controls.update(); lifeTick();
+    // fan spin now handled by setupLife (fan_blades pivot)
   Object.values(app.devices).forEach(d => { v.copy(d.anchor).project(app.camera); const el = dots[d.name];
     el.style.display = v.z < 1 ? 'grid' : 'none'; el.style.left = ((v.x + 1) / 2 * innerWidth) + 'px'; el.style.top = ((1 - v.y) / 2 * innerHeight) + 'px'; });
   app.render();

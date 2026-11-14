@@ -4,9 +4,11 @@ import SceneKit
 /// Life for the living-room cat (`pet_cat`).
 ///
 /// Pose groups from Model Generator win when they are in the file: `pet_cat_pose_sleep`,
-/// `pet_cat_pose_sit`, `pet_cat_pose_stretch`, and `pet_cat_pose_walk` / `pet_cat_pose_walk_*`.
-/// The app fades those on and off. Until they exist, the same cues drive the mesh that is
-/// already in the room: a slow breath, a tail flick, an ear twitch, and a short walk.
+/// `pet_cat_pose_sit`, `pet_cat_pose_stretch`, `pet_cat_pose_walk_1` and `pet_cat_pose_walk_2`,
+/// all direct children of `pet_cat` at its origin. GLB has no hidden flag, so they arrive visible
+/// and are hidden on load; the app fades one on at a time. Each pose has joints `<pose>_head` and
+/// `<pose>_tail` (identity at rest; head yaw is local Y, tail swish is local Y). Without poses, the
+/// same cues drive the fallback mesh: a slow breath, a tail flick, an ear twitch, and a short walk.
 final class DollhouseCat {
     private var cat: SCNNode?
     private var body: SCNNode?
@@ -17,6 +19,25 @@ final class DollhouseCat {
     private var procedural: [SCNNode] = []
     private var walkTimer: Timer?
     private var token = 0
+    private var fadeToken = 0
+    private var tails: [SCNNode] = []
+    private var heads: [SCNNode] = []
+    private let motion = DollhouseMotion()
+
+    /// Exact pose group names. Child meshes share the prefix (`pet_cat_pose_sit_body`), so never match by prefix.
+    static let poseNames: Set<String> = [
+        "pet_cat_pose_sleep", "pet_cat_pose_sit", "pet_cat_pose_stretch",
+        "pet_cat_pose_walk", "pet_cat_pose_walk_1", "pet_cat_pose_walk_2"
+    ]
+
+    /// Called right after the model loads, before life starts, so the five poses never draw on top of each other.
+    static func hidePoses(in root: SCNNode) {
+        root.enumerateHierarchy { node, _ in
+            guard let name = node.name, poseNames.contains(name) else { return }
+            node.opacity = 0
+            node.isHidden = true
+        }
+    }
 
     func prepare(stage: DollhouseStage) {
         guard let cat = stage.node(named: "pet_cat") else { return }
@@ -27,18 +48,18 @@ final class DollhouseCat {
             .compactMap { stage.node(named: $0) }
         if let body, bodyScale == nil { bodyScale = body.scale }
         poses = [:]
-        stage.eachNamedNode { name, node in
-            guard name.hasPrefix("pet_cat_pose_") else { return }
-            node.isHidden = false
+        for name in Self.poseNames {
+            guard let node = stage.node(named: name) else { continue }
+            node.opacity = 0
+            node.isHidden = true
             poses[name] = node
         }
         procedural = cat.childNodes.filter { node in
             guard let name = node.name else { return true }
-            return !name.hasPrefix("pet_cat_pose_")
+            return !Self.poseNames.contains(name)
         }
-        if !poses.isEmpty {
-            for node in poses.values { node.opacity = 0 }
-        }
+        tails = ([tail] + poses.keys.sorted().map { stage.node(named: $0 + "_tail") }).compactMap { $0 }
+        heads = poses.keys.sorted().compactMap { stage.node(named: $0 + "_head") }
     }
 
     func stop() {
@@ -48,9 +69,14 @@ final class DollhouseCat {
         cat?.removeAction(forKey: "life-walk")
         cat?.removeAction(forKey: "life-after-stretch")
         body?.removeAction(forKey: "life-breath")
-        tail?.removeAction(forKey: "life-tail")
-        ears.forEach { $0.removeAction(forKey: "life-ear") }
+        restoreParts()
         if let body, let bodyScale { body.scale = bodyScale }
+    }
+
+    private func restoreParts() {
+        tails.forEach { motion.restore($0, key: "life-tail") }
+        heads.forEach { motion.restore($0, key: "life-head") }
+        ears.forEach { motion.restore($0, key: "life-ear") }
     }
 
     /// `motion` is false under Reduce Motion. The cat still ends on the right spot, already curled up.
@@ -224,11 +250,20 @@ final class DollhouseCat {
     private func crossfade(showing: [String], duration: TimeInterval) {
         guard !poses.isEmpty else { return }
         let wanted = Set(showing)
+        fadeToken += 1
+        let ticket = fadeToken
+        for (name, node) in poses where wanted.contains(name) { node.isHidden = false }
         SCNTransaction.begin()
         SCNTransaction.animationDuration = duration
         let posed = !wanted.isEmpty
         for node in procedural { node.opacity = posed ? 0 : 1 }
         for (name, node) in poses { node.opacity = wanted.contains(name) ? 1 : 0 }
+        SCNTransaction.completionBlock = { [weak self] in
+            DispatchQueue.main.async {
+                guard let self, self.fadeToken == ticket else { return }
+                for (name, node) in self.poses where !wanted.contains(name) { node.isHidden = true }
+            }
+        }
         SCNTransaction.commit()
     }
 
@@ -253,36 +288,31 @@ final class DollhouseCat {
     }
 
     private func fidget(earEvery: TimeInterval, tailEvery: TimeInterval) {
-        guard let tail else { earTwitch(every: earEvery); return }
-        tail.removeAction(forKey: "life-tail")
-        let flick = SCNAction.sequence([
-            .wait(duration: tailEvery),
-            .rotateBy(x: 0, y: 0.45, z: 0, duration: 0.16),
-            .rotateBy(x: 0, y: -0.45, z: 0, duration: 0.28)
-        ])
-        tail.runAction(.repeatForever(flick), forKey: "life-tail")
+        for (index, node) in tails.enumerated() {
+            motion.every(node, key: "life-tail", wait: tailEvery + Double(index) * 0.13, jitter: 1.2,
+                         axis: SCNVector3(0, 1, 0), duration: 0.44) { phase in 0.45 * sin(phase * .pi) }
+        }
+        for node in heads {
+            motion.every(node, key: "life-head", wait: 6.5, jitter: 4, axis: SCNVector3(0, 1, 0), duration: 2.4) { phase in
+                0.35 * sin(phase * 2 * .pi)
+            }
+        }
         earTwitch(every: earEvery)
     }
 
     private func fasterTail() {
-        guard let tail else { return }
-        tail.removeAction(forKey: "life-tail")
-        let flick = SCNAction.sequence([
-            .rotateBy(x: 0.15, y: 0.2, z: 0, duration: 0.18),
-            .rotateBy(x: -0.15, y: -0.2, z: 0, duration: 0.18)
-        ])
-        tail.runAction(.repeatForever(flick), forKey: "life-tail")
+        for node in tails {
+            motion.loop(node, key: "life-tail", axis: SCNVector3(0, 1, 0), period: 0.72) { phase in
+                0.25 * sin(phase * 2 * .pi)
+            }
+        }
     }
 
     private func earTwitch(every: TimeInterval) {
         for ear in ears {
-            ear.removeAction(forKey: "life-ear")
-            let twitch = SCNAction.sequence([
-                .wait(duration: every + Double.random(in: 0...1.4)),
-                .rotateBy(x: 0, y: 0, z: 0.22, duration: 0.08),
-                .rotateBy(x: 0, y: 0, z: -0.22, duration: 0.14)
-            ])
-            ear.runAction(.repeatForever(twitch), forKey: "life-ear")
+            motion.every(ear, key: "life-ear", wait: every, jitter: 1.4, axis: SCNVector3(0, 0, 1), duration: 0.22) { phase in
+                0.22 * sin(phase * .pi)
+            }
         }
     }
 
@@ -292,8 +322,7 @@ final class DollhouseCat {
         cat?.removeAction(forKey: "life-walk")
         cat?.removeAction(forKey: "life-after-stretch")
         body?.removeAction(forKey: "life-breath")
-        tail?.removeAction(forKey: "life-tail")
-        ears.forEach { $0.removeAction(forKey: "life-ear") }
+        restoreParts()
         if let body, let bodyScale { body.scale = bodyScale }
     }
 }

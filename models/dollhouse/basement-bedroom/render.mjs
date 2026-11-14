@@ -1,5 +1,6 @@
 import puppeteer from 'puppeteer-core';
 import fs from 'fs';
+import { lifeInfo } from './life_collect.mjs';
 const jobs = process.argv.slice(2).length ? process.argv.slice(2) : ['all_off:dollhouse'];
 const browser = await puppeteer.launch({ executablePath: '/usr/bin/google-chrome', headless: 'new',
   args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--no-sandbox'] });
@@ -9,7 +10,7 @@ fs.mkdirSync('renders', { recursive: true });
 for (const job of jobs) {
   const [state, view, w = 1600, h = 1000] = job.split(':');
   if (state === 'export') {
-    await page.goto(`http://localhost:8766/basement-bedroom/src/render.html?state=all_off&w=400&h=300`);
+    await page.goto(`http://localhost:8766/src/render.html?state=all_off&w=400&h=300`);
     await page.waitForFunction('window.__done || window.__err', { timeout: 120000 });
     for (const preset of ['all_off', 'all_on']) {
       const b64 = await page.evaluate(async (preset) => { app.applyPreset(preset); const buf = await app.exportGLB(); let s = ''; const u = new Uint8Array(buf); for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode(...u.subarray(i, i + 0x8000)); return btoa(s); }, preset);
@@ -26,13 +27,13 @@ for (const job of jobs) {
         on_state: { emissive: d.emissive.map(e => e.on), shows: d.show.map(m => m.name) } };
     }));
     const presets = await page.evaluate(async () => (await import('./bedroom.js')).PRESETS);
-    fs.writeFileSync('devices.json', JSON.stringify({ room: "basement_bedroom", units: 'meters', up: '+Y', origin: 'floor-level corner of the bed wall (z=0 plane) and the left/doorway wall (x=0 plane); prints wall is x=4.0; interior 0<x<4.0, 0<z<4.5. Preset values are 0..1 levels (0.3 = dimmed)', presets, devices: info }, null, 2));
+    fs.writeFileSync('devices.json', JSON.stringify({ room: "basement_bedroom", units: 'meters', up: '+Y', origin: 'floor-level corner of the bed wall (z=0 plane) and the left/doorway wall (x=0 plane); prints wall is x=4.0; interior 0<x<4.0, 0<z<4.5. Preset values are 0..1 levels (0.3 = dimmed)', presets, devices: info, life: await page.evaluate(lifeInfo) }, null, 2));
     console.log('wrote devices.json');
     continue;
   }
   await page.setViewport({ width: +w, height: +h });
   const t0 = Date.now();
-  await page.goto(`http://localhost:8766/basement-bedroom/src/render.html?state=${state}&view=${view}&w=${w}&h=${h}`);
+  await page.goto(`http://localhost:8766/src/render.html?state=${state}&view=${view}&w=${w}&h=${h}`);
   await page.waitForFunction('window.__done || window.__err', { timeout: 300000 });
   const err = await page.evaluate('window.__err'); if (err) { console.log('ERR', err); continue; }
   const out = `renders/${view}_${state}.png`;

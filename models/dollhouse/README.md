@@ -94,3 +94,6 @@ A preset value between 0 and 1 is a dim level. The app multiplies emission, lamp
 
 `ios/Rooms/README.md` is the same note from the app side.
 
+## Room life
+
+Each room folder also has `life.json` (draft scenes), `check_life_names.mjs` (`node check_life_names.mjs <glb>` fails on a missing or retired life name), `smoke_life.mjs`, and `src/life_viewer.js`, the browser reference for what the app animates. `LIFE_NOTE.md` has the node names, pivots, and the rename table from the life pass. The app's own `ios/Rooms/<Room>/life.json` is merged from these drafts and is what ships.

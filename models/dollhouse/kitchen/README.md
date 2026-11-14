@@ -1,0 +1,15 @@
+# kitchen — life build
+
+Self-contained copy of the room builder with the life-scene nodes (see ../LIFE_NOTE.md).
+
+```bash
+npm install            # three@0.170 + puppeteer-core (Chrome at /usr/bin/google-chrome)
+npm run serve &        # serves THIS folder as the web root on :8766
+node render.mjs export # -> GLBs + devices.json (devices.json has a "life" section)
+node render.mjs evening:dollhouse  # state:view[:w:h] -> renders/<view>_<state>.png
+node build_viewer.mjs  # -> viewer.html (standalone, three from unpkg)
+npm run check          # lists life node names inside the GLBs (no deps)
+npm run smoke          # viewer + GLTFLoader reload check
+```
+
+Files: `src/` builders (common.js, kitchen.js, life.js, life_viewer.js, render.html).

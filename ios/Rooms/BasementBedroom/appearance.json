@@ -823,6 +823,61 @@
       "metallic": 0.0,
       "double_sided": true,
       "base_texture": "tex_9.png"
+    },
+    "pm_lamp_stand": {
+      "kind": "bulb",
+      "base_srgb": [
+        0.7882352941127764,
+        0.643137254893753,
+        0.4156862744963647
+      ],
+      "opacity": 1.0,
+      "emissive_srgb": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "strength": 0.0,
+      "roughness": 0.5,
+      "metallic": 0.3,
+      "double_sided": false
+    },
+    "pm_lamp_stem": {
+      "kind": "bulb",
+      "base_srgb": [
+        0.7882352941127764,
+        0.643137254893753,
+        0.4156862744963647
+      ],
+      "opacity": 1.0,
+      "emissive_srgb": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "strength": 0.0,
+      "roughness": 0.5,
+      "metallic": 0.3,
+      "double_sided": false
+    },
+    "pm_lamp_moon": {
+      "kind": "bulb",
+      "base_srgb": [
+        0.9999999999999999,
+        0.9999999999999999,
+        0.9999999999999999
+      ],
+      "opacity": 1.0,
+      "emissive_srgb": [
+        0.9999999999999999,
+        0.8509803921534352,
+        0.6274509803835882
+      ],
+      "strength": 0.55,
+      "roughness": 0.85,
+      "metallic": 0.0,
+      "double_sided": false,
+      "base_texture": "tex_14.png"
     }
   },
   "lights": {

@@ -1,9 +1,10 @@
-// Kitchen + dining + laundry — Room 02 of the dollhouse. Follows ../living-room/style.md.
+// Kitchen + dining + laundry — Room 02 of the dollhouse. Follows /workspace/room/style.md.
 // Coordinates: metres, Y up. Corner at origin. Kept walls: SINK WALL = plane x=0 (long, runs +z toward
 // dining and laundry), COOKTOP WALL = plane z=0. Interior x<0, z>0. Handedness matches the photo
 // (standing at the cooktop looking toward the dining, the sink wall is on your left).
 import * as THREE from 'three';
 import { STYLE, rng, canvasTex, makeBaseTextures, std, makeKit, createApp } from './common.js';
+import { makeLifeKit } from './life.js';
 
 export const KROOM = { W: 4.6, KL: 5.2, DL: 3.0, LW: 2.6, LL: 2.3, H: 2.75 };
 
@@ -440,6 +441,18 @@ export function buildKitchen() {
     mesh(`${name}_door_ring`, new THREE.TorusGeometry(0.19, 0.028, 10, 40), M.chrome, g, uc, 0.41, 0.735);
     const glassMat = std('#1a2026', 0.08, 0.2, { emissive: new THREE.Color(accent), emissiveIntensity: 0 });
     mesh(`${name}_door_glass`, new THREE.CircleGeometry(0.17, 40), glassMat, g, uc, 0.41, 0.74, false);
+    // life: solid drum `${name}_drum` (washer_drum / dryer_drum): a closed cylinder mesh, origin at the drum centre on the axle,
+    // local +Z = out of the door (laundry-frame w = world -X); spin rotation.z. Front face + laundry show through the tinted door glass.
+    glassMat.transparent = true; glassMat.opacity = 0.42; glassMat.depthWrite = false;
+    { const DR = 0.165, DD = 0.3, front = 0.731, perf = canvasTex(128, 128, (c, w, h) => { c.fillStyle = '#4a5058'; c.fillRect(0, 0, w, h); c.fillStyle = '#2a2e33'; for (let y = 4; y < h; y += 9) for (let x = (y / 9 % 2) * 4.5 + 4; x < w; x += 9) { c.beginPath(); c.arc(x, y, 1.6, 0, 7); c.fill(); } });
+      const geo = new THREE.CylinderGeometry(DR, DR, DD, 40); geo.rotateX(Math.PI / 2);          // axis along local Z; +Z cap = door side
+      const steelM = std('#ffffff', 0.35, 0.6, { map: perf });
+      const drum = mesh(`${name}_drum`, geo, steelM, g, uc, 0.41, front - DD / 2, false);
+      drum.userData = { pivotAxis: 'z', pivotNote: 'origin at the drum centre on the axle; local +Z points out of the door; spin rotation.z' };
+      for (let i = 0; i < 3; i++) { const bf = B(`${name}_drum_baffle_${i + 1}`, drum, M.chrome, -0.012, 0.012, 0.12, 0.163, -0.004, 0.006, 0.004); bf.geometry.translate(0, 0.1415, 0); bf.position.set(0, 0, DD / 2); bf.rotation.z = i * 2 * Math.PI / 3; }
+      const cols = name === 'washer' ? [['#c54b4b', -0.05, -0.08, 0.075], ['#f2f2f2', 0.05, -0.095, 0.07], ['#4d76b0', 0.0, -0.04, 0.065], ['#e3c35a', -0.09, -0.02, 0.05], ['#7aa36a', 0.09, -0.03, 0.05]]
+        : [['#f0e6d8', -0.04, -0.085, 0.08], ['#9ec3d8', 0.06, -0.08, 0.07], ['#f0e6d8', 0.01, -0.03, 0.06], ['#d9a3b8', -0.09, -0.03, 0.05]];
+      cols.forEach(([c, x, y, r], i) => { const m = sphere(`${name}_drum_laundry_${i + 1}`, drum, std(c, 0.95), r, x, y, DD / 2 + 0.002); m.scale.set(1.15, 0.8, 0.09); m.castShadow = false; }); }
     const ringMat = std('#8f949a', 0.4, 0, { emissive: new THREE.Color(accent), emissiveIntensity: 0 });
     const ring = mesh(`${name}_status_arc`, new THREE.TorusGeometry(0.235, 0.007, 6, 48, Math.PI * 1.35), ringMat, g, uc, 0.41, 0.738, false); ring.rotation.z = -Math.PI * 0.175 + Math.PI / 2;
     return { g, dispMat, glassMat, ringMat, uc };
@@ -457,6 +470,19 @@ export function buildKitchen() {
     for (let z = ZA, i = 0; z < ZB; z += 0.13, i++) E(`deck_baluster_${i + 1}`, railDark, RX - 0.015, RX + 0.015, 0.12, 1.02, z, z + 0.03);
     const sky = extMesh(mesh('exterior_night_sky', new THREE.PlaneGeometry(26, 10), extMat('#ffffff', { map: T.sky }), exterior, 6.0, 3.0, LZ1 / 2, false));
     sky.rotation.y = -Math.PI / 2; sky.userData.noExport = true;
+  }
+
+  // ---------------- life: props (app vocabulary prop_*; every prop node is a direct child of the room root, its origin AT the object)
+  { const L = makeLifeKit(), A = (g) => { root.updateMatrixWorld(true); root.attach(g); return g; };
+    L.P.mug('prop_mug', root, ISX + 0.22, 0.92, 2.35, '#d9a441', null, 2.4);                            // island, sink side (steam = prop_mug itself)
+    L.decor(L.P.fruitBowl('prop_fruit_bowl', root, ISX - 0.05, 0.92, 3.3), 'island_fruit_bowl');           // not in the app vocabulary: permanent decor
+    L.P.mailStack('prop_mail', root, ISX + 0.12, 0.92, 4.02, 0.35);                                        // island end by the dining side
+    A(L.P.sinkDishes('prop_dishes', sinkF, SC + 0.1, 0.926, 0.32, 0.3));                                   // in the sink basin
+    L.decor(L.P.towel('prop_dish_towel', sinkF, 2.7, 0.807, 0.614, -Math.PI / 2, 0.24, 0.3), 'dishwasher_towel');   // permanent decor
+    A(L.P.kettle('prop_kettle', cookF, CK + 0.25, 0.966, 0.2, -2.3, null));                                // back-right burner (steam = prop_kettle itself)
+    A(L.P.cuttingBoard('prop_cutting_board', cookF, CK - 0.72, 0.92, 0.36, 0.08));                         // counter left of the cooktop, mid-chop
+    A(L.P.detergent('prop_detergent', lauF, LZ0 + 0.62, 0.94, 0.4, 0.3));                                   // laundry counter above the washer
+    L.P.laundryBasket('prop_laundry_basket', root, -1.3, 0.0, 10.15, 0.4);                                  // laundry floor in front of the machines
   }
 
   // ---------------- devices
@@ -581,6 +607,10 @@ export const VIEWS = {
   island_sink_side: { pos: [-0.75, 1.55, 5.7], target: [-2.5, 0.55, 3.3], fov: 55, interior: true },
   laundry_detail: { pos: [-4.2, 2.4, 12.4], target: [-0.6, 0.8, 9.5], fov: 42 },
   top: { pos: [-6.0, 21, 12.5], target: [-2.3, 0, 5.3], fov: 34 },
+  life_props: { pos: [-1.05, 1.8, 5.0], target: [-1.55, 0.8, 2.55], fov: 56, interior: true },
+  life_kettle: { pos: [-1.9, 1.6, 1.45], target: [-1.85, 0.95, 0.3], fov: 58, interior: true },
+  life_laundry: { pos: [-2.25, 1.55, 10.2], target: [-0.75, 0.6, 9.0], fov: 52, interior: true },
+  life_washer: { pos: [-1.9, 0.85, 9.15], target: [-0.7, 0.45, 8.84], fov: 42, interior: true },
 };
 
 export const createKitchen = (container, opts = {}) => createApp(container, { build: buildKitchen, views: VIEWS, presets: PRESETS, shadow: { center: [-2.3, 0, 5.3], half: 9 }, ...opts });

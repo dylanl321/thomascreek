@@ -1,7 +1,9 @@
 import fs from 'fs';
 const common = fs.readFileSync('src/common.js', 'utf8').replace(/^export /gm, '');
 const kitchen = fs.readFileSync('src/kitchen.js', 'utf8').replace(/^import .*$/gm, '').replace(/^export /gm, '');
-const scene = common + '\n' + kitchen;
+const life = fs.readFileSync('src/life.js', 'utf8').replace(/^import .*$/gm, '').replace(/^export /gm, '');
+const lifeViewer = fs.readFileSync('src/life_viewer.js', 'utf8').replace(/^export /gm, '');
+const scene = common + '\n' + life + '\n' + lifeViewer + '\n' + kitchen;
 const html = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Kitchen · Smart Home Dollhouse</title>
@@ -59,14 +61,15 @@ Object.values(app.devices).forEach(d => {
 const setActive = (id, key) => document.querySelectorAll('#' + id + ' button').forEach(b => b.classList.toggle('active', b.dataset.k === key));
 const mk = (id, entries, fn) => entries.forEach(([k, label]) => { const b = document.createElement('button'); b.textContent = label; b.dataset.k = k; b.onclick = () => { fn(k); setActive(id, k); }; document.getElementById(id).appendChild(b); });
 mk('presets', [['all_off', 'All off'], ['all_on', 'All on'], ['evening', 'Evening'], ['laundry_running', 'Laundry running']], k => { app.applyPreset(k); refresh(); });
-mk('views', [['dollhouse', 'Dollhouse'], ['hero', 'Kitchen'], ['photo', 'Photo angle'], ['nook', 'Booth'], ['bay_and_door', 'Bay + sunroom door'], ['oven', 'Ovens'], ['island_sink_side', 'Island'], ['laundry_detail', 'Laundry'], ['top', 'Top']], goView);
+mk('views', [['dollhouse', 'Dollhouse'], ['hero', 'Kitchen'], ['photo', 'Photo angle'], ['nook', 'Booth'], ['bay_and_door', 'Bay + sunroom door'], ['oven', 'Ovens'], ['island_sink_side', 'Island'], ['laundry_detail', 'Laundry'], ['top', 'Top'], ['life_props', 'Lived-in'], ['life_kettle', 'Kettle + board'], ['life_laundry', 'Laundry'], ['life_washer', 'Washer drum']], goView);
 app.applyPreset('evening'); refresh(); setActive('presets', 'evening'); setActive('views', 'dollhouse');
 addEventListener('resize', () => app.resize(innerWidth, innerHeight));
+const lifeTick = setupLife(app, { spin: { washer_drum: ['washer', 6], dryer_drum: ['dryer', 4] } });
 const v = new THREE.Vector3();
 const drums = ['washer', 'dryer'].map((n, i) => [n, app.scene.getObjectByName('glow_' + n + '_drum'), i * 1.7]);
 const clock = new THREE.Clock();
 (function loop() {
-  requestAnimationFrame(loop); controls.update();
+  requestAnimationFrame(loop); controls.update(); lifeTick();
   const t = clock.getElapsedTime();
   drums.forEach(([n, o, p]) => { if (o && app.devices[n].on) { o.material.opacity = 0.35 * (0.75 + 0.25 * Math.sin(t * 5 + p)); o.rotation.z = t * 2; } });
   Object.values(app.devices).forEach(d => { v.copy(d.anchor).project(app.camera); const el = dots[d.name];

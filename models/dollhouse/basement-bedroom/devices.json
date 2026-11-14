@@ -291,5 +291,102 @@
         "shows": []
       }
     }
-  ]
+  ],
+  "life": {
+    "cat": null,
+    "cat_spots": [],
+    "props": [
+      {
+        "name": "prop_throw_blanket",
+        "world_position_m": [
+          1.77,
+          0.662,
+          1.78
+        ],
+        "parent": "basement_bedroom"
+      },
+      {
+        "name": "prop_open_book",
+        "world_position_m": [
+          2.88,
+          0.6,
+          0.22
+        ],
+        "parent": "basement_bedroom"
+      },
+      {
+        "name": "prop_lamp",
+        "world_position_m": [
+          0.6,
+          0.6,
+          0.2
+        ],
+        "parent": "basement_bedroom"
+      },
+      {
+        "name": "prop_shoes",
+        "world_position_m": [
+          2.85,
+          0,
+          2.6
+        ],
+        "parent": "basement_bedroom"
+      },
+      {
+        "name": "prop_laundry_basket",
+        "world_position_m": [
+          0.45,
+          0,
+          4.1
+        ],
+        "parent": "basement_bedroom"
+      }
+    ],
+    "drums": [],
+    "fan_blades": {
+      "name": "ceiling_fan_blades",
+      "world_position_m": [
+        1.85,
+        2.14,
+        2.35
+      ],
+      "spin_axis_local": "y"
+    },
+    "curtains": [],
+    "sparkles": [
+      {
+        "name": "sconce_left_shade",
+        "world_position_m": [
+          0.49,
+          1.09,
+          0.13
+        ]
+      },
+      {
+        "name": "sconce_right_shade",
+        "world_position_m": [
+          2.81,
+          1.09,
+          0.13
+        ]
+      },
+      {
+        "name": "dresser_lamp_shade",
+        "world_position_m": [
+          3.64,
+          1.15,
+          3.28
+        ]
+      },
+      {
+        "name": "prop_lamp",
+        "world_position_m": [
+          0.6,
+          0.6,
+          0.2
+        ]
+      }
+    ],
+    "exterior_nodes": []
+  }
 }
