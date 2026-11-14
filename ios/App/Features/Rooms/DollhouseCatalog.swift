@@ -13,6 +13,7 @@ struct DollhouseRoom: Identifiable {
     var mapping: HubMapping
     var appearance: DollhouseAppearance
     var views: DollhouseViews?
+    var life: DollhouseLifeScript?
 
     func presetIDs() -> [String] {
         let preferred = ["all_off", "all_on", "evening", "movie_night", "party", "bedtime", "reading", "laundry_running"]
@@ -216,6 +217,7 @@ enum DollhouseCatalog {
             var mapping: String
             var appearance: String
             var views: DollhouseViews?
+            var life: String?
         }
         var rooms: [Row]
     }
@@ -232,9 +234,13 @@ enum DollhouseCatalog {
                   let mapping = try? decoder.decode(HubMapping.self, from: Data(contentsOf: mappingURL)),
                   let appearance = try? decoder.decode(DollhouseAppearance.self, from: Data(contentsOf: appearanceURL))
             else { return nil }
+            let life = row.life.flatMap { name -> DollhouseLifeScript? in
+                guard let url = DollhouseFiles.url(name), let data = try? Data(contentsOf: url) else { return nil }
+                return try? decoder.decode(DollhouseLifeScript.self, from: data)
+            }
             return DollhouseRoom(id: row.id, title: row.title, symbol: row.symbol, model: row.model,
                                  devicesName: row.devices, mappingName: row.mapping, appearanceName: row.appearance,
-                                 devices: devices, mapping: mapping, appearance: appearance, views: row.views)
+                                 devices: devices, mapping: mapping, appearance: appearance, views: row.views, life: life)
         }
     }
 

@@ -1,0 +1,27 @@
+{
+  "scenes": [
+    {
+      "id": "lazy_morning",
+      "title": "Lazy morning",
+      "weights": { "morning": 2.2, "midday": 1.2, "dusk": 0.3, "night": 0.1 },
+      "devices": { "ceiling_fan": 0.45, "skylight_glow": 0.55 },
+      "props": ["prop_throw_blanket", "prop_open_book"],
+      "while_on": ["ceiling_fan"]
+    },
+    {
+      "id": "night_lamp",
+      "title": "Lamp lit",
+      "weights": { "morning": 0.15, "midday": 0.1, "dusk": 1.4, "night": 2.2 },
+      "devices": { "dresser_lamp": 0.8, "sconce_left": 0.4, "sconce_right": 0.4 },
+      "props": ["prop_open_book"],
+      "while_on": ["dresser_lamp", "sconce_left", "sconce_right"]
+    },
+    {
+      "id": "still_afternoon",
+      "title": "Still afternoon",
+      "weights": { "morning": 0.6, "midday": 1.8, "dusk": 0.5, "night": 0.1 },
+      "devices": { "skylight_glow": 0.35 },
+      "props": ["prop_mail", "prop_shoes"]
+    }
+  ]
+}
