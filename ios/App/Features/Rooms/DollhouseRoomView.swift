@@ -8,7 +8,7 @@ struct DollhouseRoomView: View {
 
     var body: some View {
         if let room = DollhouseCatalog.room(roomID) {
-            DollhouseRoomPage(room: room)
+            DollhouseRoomPage(room: room).id(room.id)   // a new room from a deep link gets its own scene
         } else {
             ContentUnavailableView("This room doesn't have a model yet", systemImage: "cube.transparent",
                                     description: Text("Add it to Rooms/catalog.json when the model is ready."))
