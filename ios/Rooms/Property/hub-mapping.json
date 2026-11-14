@@ -2,17 +2,6 @@
   "room_id": "property",
   "title": "Property",
   "climate_entity_id": null,
-  "notes": "The whole lot. A null id means Not set up: the model's field light follows the time of day (on from dusk to sunrise) and the hub is not called. Put the entity id in and a tap on the pole toggles the real light.",
-  "devices": {
-    "light_pole": {
-      "control": "light",
-      "note": "No outdoor, yard or pole light was found in the hub mappings yet. Set this to the field light's entity (light.* or switch.* with switch.set).",
-      "entities": [
-        {
-          "id": null,
-          "action": "light.set"
-        }
-      ]
-    }
-  }
+  "notes": "The whole lot. No hub devices are on the property model yet. Add one here (and to devices.json) the same way as a room.",
+  "devices": {}
 }

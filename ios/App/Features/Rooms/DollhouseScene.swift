@@ -183,7 +183,8 @@ final class DollhouseController {
         guard len > 0, radius > 0 else { return shot }
         dir = SCNVector3(dir.x / len, dir.y / len, dir.z / len)
         let half = Float(shot.fov) * .pi / 360
-        let distance = radius / sin(half) * 0.92
+        // The lot is long and the hero is narrower than it is tall, so the property backs off a little more.
+        let distance = radius / sin(half) * (room.isProperty ? 1.0 : 0.92)
         return DollhouseShot(position: SCNVector3(center.x + dir.x * distance, center.y + dir.y * distance, center.z + dir.z * distance),
                              target: center, fov: shot.fov)
     }
