@@ -165,6 +165,9 @@ class Hub:
         from .brain import Brain
 
         self.brain = Brain(self)
+        from .keycheck import KeyChecks
+
+        self.keychecks = KeyChecks(self)
         self._home_nets = [ipaddress.ip_network(n, strict=False) for n in config.hub.home_networks]
         self._proxies = [ipaddress.ip_network(n, strict=False) for n in config.hub.trusted_proxies]
         self.started_at = time.time()
@@ -309,6 +312,10 @@ class Hub:
         self.alerts.start()
         self.household.start()
         self.brain.start()
+        from .recentlog import install
+
+        install()
+        self.keychecks.start()
         from .dropbox import watch
 
         self._dropbox = asyncio.create_task(watch(self.vault))
@@ -352,6 +359,7 @@ class Hub:
     async def probe_once(self) -> None:
         """Touch each enabled service so the status page shows a real answer, not "never checked"."""
         async def one(a: Any) -> None:
+            t0 = time.monotonic()
             try:
                 await asyncio.wait_for(a.ping(), timeout=20)
             except asyncio.CancelledError:
@@ -360,6 +368,15 @@ class Hub:
                 a.last_error = f"{a.title} did not answer"
             except Exception:  # noqa: BLE001
                 pass  # the adapter recorded why
+            # For the admin page: how long it took, when it was asked, and since when it has been failing.
+            now = time.time()
+            a.last_ms = int((time.monotonic() - t0) * 1000)
+            a.last_checked = now
+            if a.last_error:
+                if not getattr(a, "down_since", None):
+                    a.down_since = now
+            else:
+                a.down_since = None
 
         await asyncio.gather(*(one(a) for a in self.adapters if a.enabled and hasattr(a, "ping")))
 
@@ -558,6 +575,7 @@ class Hub:
         await self.alerts.stop()
         await self.household.stop()
         await self.brain.stop()
+        await self.keychecks.stop()
         await self.onepassword.stop()
         if getattr(self, "_dropbox", None):
             self._dropbox.cancel()

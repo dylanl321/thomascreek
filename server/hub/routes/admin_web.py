@@ -33,6 +33,7 @@ from ..bambu_cloud import token_expiry
 from ..crypto import CryptoError
 from ..onepassword import NAME_RE
 from ..state import Hub
+from . import admin_health
 from .deps import Caller, caller, caller_ip, error, hub, need, require_confirm
 
 pages = APIRouter(tags=["admin-web"], include_in_schema=False)
@@ -242,11 +243,18 @@ nav.nav a.on{color:var(--fg)}
 .qr svg{width:168px;height:168px;background:#fff;border-radius:12px}
 .dl{display:flex;gap:20px;align-items:flex-start;flex-wrap:wrap}
 a.btn{display:inline-block;font:inherit;padding:7px 14px;border-radius:8px;border:1px solid var(--acc);background:var(--acc);color:#fff;text-decoration:none}
+:root{--warn:#b7791f}@media (prefers-color-scheme:dark){:root{--warn:#e0b04f}}
+.warn .dot,.kstate.warn .dot,.kstate.down .dot{background:var(--warn)}.warn .msg{color:var(--warn)}.kstate.ok .dot{background:var(--ok)}.kstate.bad .dot{background:var(--bad)}.kstate.bad{color:var(--bad)}
+.pill-warn{font-size:12px;padding:2px 8px;border-radius:999px;white-space:nowrap;background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--warn)}
+button.ghost2{background:transparent;color:var(--acc);border-color:var(--line)}
+select,.fform input:not([type]),.fform input[type=email],.fform input[type=number]{font:inherit;padding:6px 8px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--fg)}
+.tag{font-size:11px;padding:1px 6px;border-radius:6px;border:1px solid var(--line);color:var(--dim);margin-left:6px}
+a{color:var(--acc)}
 """
 
 
 def _nav(here: str) -> str:
-    links = (("/admin", "Hub"), ("/admin/devices", "Devices"), ("/admin/downloads", "Downloads"))
+    links = (("/admin", "Hub"), ("/admin/people", "People"), ("/admin/devices", "TVs"), ("/admin/downloads", "Downloads"))
     return "<nav class=nav>" + "".join(
         f"<a href={href}{' class=on' if href == here else ''}>{html.escape(label)}</a>" for href, label in links) + "</nav>"
 
@@ -406,7 +414,9 @@ def _section_on(h: Hub, sec: dict[str, Any]) -> bool:
 def _field_html(h: Hub, csrf: str, name: str, label: str, kind: str, note: str) -> str:
     e = html.escape
     have = h.vault.has(name)
-    badge = "<span class=pill-ok>Saved</span>" if have else "<span class=pill-miss>Missing</span>"
+    state = admin_health.key_state(h, name) if have else None
+    badge = admin_health.key_pill(state) if have else "<span class=pill-miss>Missing</span>"
+    tested = h.keychecks.for_secret(name) if have else []
     if kind == "file":
         inp = "<input type=file name=file required>"
     else:
@@ -414,8 +424,10 @@ def _field_html(h: Hub, csrf: str, name: str, label: str, kind: str, note: str) 
     remove = (f"<form method=post action=/admin/secrets/delete class=inline><input type=hidden name=csrf value={csrf}>"
               f"<input type=hidden name=name value='{e(name)}'><button class=ghost "
               f"onclick=\"return confirm('Remove the saved {e(label)}?')\">Remove</button></form>" if have else "")
-    return f"""<details class=key><summary><span>{e(label)}</span>{badge}</summary><div class=kbody><div class=dim>{e(note)}</div>
-<div class=factions><form method=post action=/admin/secrets enctype=multipart/form-data class=fform>
+    line = admin_health.key_line(state) if tested else ""
+    test = admin_health.test_button(csrf, name) if tested else ""
+    return f"""<details class=key><summary><span>{e(label)}</span>{badge}</summary><div class=kbody><div class=dim>{e(note)}</div>{line}
+<div class=factions>{test}<form method=post action=/admin/secrets enctype=multipart/form-data class=fform>
 <input type=hidden name=csrf value={csrf}><input type=hidden name=name value='{e(name)}'>{inp}<button>{'Replace' if have else 'Save'}</button></form>{remove}</div></div></details>"""
 
 
@@ -628,15 +640,6 @@ Turning a key off removes every simulator it let in.</div>{shown}
 def _status_page(h: Hub, claims: dict[str, Any], flash: str | None, new_key: str | None = None) -> str:
     e = html.escape
     csrf = _csrf(claims)
-    # Services
-    svc_rows = []
-    for s in h.health():
-        if not s["enabled"]:
-            continue
-        cls = "ok" if s["ok"] else ("bad" if s["error"] else "")
-        msg = e(s["error"]) if s["error"] else ("OK" if s["ok"] else "not checked yet")
-        svc_rows.append(f"<div class='row {cls}'><div><span class=dot></span>{e(s['title'])} <span class=dim>({e(s['id'])})</span></div>"
-                        f"<div class='msg dim'>{msg} · {_ago(s['last_ok'])}</div></div>")
     sections_html = _sections_html(h, csrf)
     # Push, VPN, hub
     push = "on" if h.apns.enabled else "off (add the Apple push key and its key ID below)"
@@ -645,6 +648,7 @@ def _status_page(h: Hub, claims: dict[str, Any], flash: str | None, new_key: str
            if h.config.vpn.provider == "pool" else h.config.vpn.provider)
     devices = h.db.all("SELECT status, COUNT(*) AS n FROM devices GROUP BY status")
     dev = ", ".join(f"{r['n']} {r['status']}" for r in devices) or "none"
+    people_n = len(h.db.people())
     up = int(time.time() - h.started_at)
     pin = getattr(h, "_tls_pin", None)
     flash_html = f"<div class=flash>{e(flash)}</div>" if flash else ""
@@ -654,18 +658,23 @@ def _status_page(h: Hub, claims: dict[str, Any], flash: str | None, new_key: str
 <div><h1>Thomas Creek Hub</h1><div class=dim>v{e(__version__)} · up {up // 3600} h {up % 3600 // 60} min · {'practice mode' if h.config.hub.dry_run else 'live'}</div></div>
 <form method=post action=/admin/logout><input type=hidden name=csrf value={csrf}><button class=ghost>Sign out</button></form></div>
 {flash_html}
-<h2>Services</h2><div class=card>{''.join(svc_rows) or '<div class=row>No services set up</div>'}</div>
+{admin_health.attention_html(h)}
+<div id=services>{admin_health.services_html(h, csrf)}</div>
 <h2>Hub</h2><div class=card>
+{admin_health.hub_rows(h)}
 <div class=row><div>Push notifications</div><div class=dim>{e(push)}</div></div>
 <div class=row><div>VPN</div><div class=dim>{e(vpn)}</div></div>
 <div class=row><div>Private VPN (PIA)</div><div class=dim>{e(h.pia.status())} · {e(', '.join(h.config.vpn.pia.roles))}</div></div>
-<div class=row><div>Devices</div><div class=dim>{e(dev)}</div></div>
+<div class=row><div>People and devices</div><div class=dim>{people_n} people · {e(dev)} · <a href=/admin/people>Manage</a></div></div>
 <div class=row><div>TLS pin</div><div class=dim><code>{e(pin or '')}</code></div></div></div>
+{admin_health.ai_html(h)}
+{admin_health.warnings_html(h)}
 {_catalog_html(h, csrf)}
 {_app_update_html(h, csrf)}
 {_test_keys_html(h, csrf, new_key)}
-<h2>Keys and files</h2><p class=dim>Values are never shown again; saving replaces the old one right away.</p>
-<div class=card><details class=key><summary><span>Upload several files at once</span><span class=dim>VPN, push key, house model…</span></summary>
+<h2 id=keys>Keys and files</h2><p class=dim>Values are never shown again; saving replaces the old one right away and tests it.</p>
+{admin_health.keys_overview(h, csrf)}
+<div class=card style="margin-top:10px"><details class=key><summary><span>Upload several files at once</span><span class=dim>VPN, push key, house model…</span></summary>
 <div class=kbody><div class=dim>Choose any mix: the Firewalla VPN .conf files, the AuthKey_….p8 push key, house-model-web.json,
 or text files named after a key (for example trek.api_key.txt). Each goes to the right place.</div>
 <div class=factions><form method=post action=/admin/upload enctype=multipart/form-data class=fform>
@@ -690,7 +699,8 @@ async def status_json(request: Request, h: Hub = Depends(hub)) -> JSONResponse:
         except Exception as exc:  # noqa: BLE001
             ver = f"failed: {type(exc).__name__}"
         dl = getattr(h, "downloads", None)
-        return JSONResponse({"services": rows, "build": os.environ.get("HUB_BUILD"), "ffmpeg": ver,
+        keys = [{k: r.get(k) for k in ("id", "state", "detail", "expires", "at")} for r in h.keychecks.summary() if r["ready"]]
+        return JSONResponse({"services": rows, "keys": keys, "version": __version__, "build": os.environ.get("HUB_BUILD"), "ffmpeg": ver,
                              "download_failures": list(getattr(dl, "failures", [])),
                              "youtube": h.youtube.summary() if getattr(h, "youtube", None) else None})
     return JSONResponse(rows)
@@ -791,6 +801,8 @@ async def set_secret(request: Request, h: Hub = Depends(hub)) -> Response:
              source="web")
     if name == h.config.onepassword.token_secret and h.onepassword.enabled:
         asyncio.create_task(h.onepassword.sync_safely())
+    for n in {name, *saved}:
+        h.keychecks.after_save(n)
     label = next((f[1] for sec in SECTIONS for f in sec["fields"] if f[0] == name), " and ".join(saved))
     return _back(f"Saved {label}.")
 
@@ -803,6 +815,9 @@ async def delete_secret(request: Request, h: Hub = Depends(hub)) -> Response:
         return _back(f"{name} was not removed.")
     if name.startswith(h.config.vpn.pool_prefix):
         h.vpn._pool = None
+    from ..keycheck import forget_cached
+
+    forget_cached(h, name)
     h.db.log("admin.secret_delete", "ok", person_id=claims.get("per"), device_id=claims.get("dev"), target=name, source="web")
     return _back(f"Removed {name}.")
 
@@ -921,11 +936,13 @@ def _store_any(h: Hub, fname: str, raw: bytes) -> str:
         h.vault.set("appstore.key_id", m.group(1))
         h.app_update._jwt = None
         asyncio.create_task(h.app_update.check())
+        h.keychecks.after_save("appstore.auth_key_p8")
         return "App Store Connect key"
     if m or "BEGIN PRIVATE KEY" in text and base.lower().endswith(".p8"):
         h.vault.set("apns.auth_key_p8", text.strip() + "\n")
         if m:
             h.vault.set("apns.key_id", m.group(1))
+        h.keychecks.after_save("apns.auth_key_p8")
         return "push key"
     if base.lower().endswith(".conf") or "[Interface]" in text:
         return "VPN " + _store_vpn(h, base, text)
@@ -934,6 +951,7 @@ def _store_any(h: Hub, fname: str, raw: bytes) -> str:
     if name in known and name not in NEVER_EDIT:
         value = text.strip()
         h.vault.set(name, value + ("\n" if "\n" in value else ""))
+        h.keychecks.after_save(name)
         return name
     raise ValueError("unknown file")
 
@@ -1050,3 +1068,36 @@ async def remove_test_device(request: Request, h: Hub = Depends(hub)) -> Respons
         return _back("That isn't a test simulator.")
     h.revoke_device(d, reason="test simulator removed on the web page")
     return _back(f"Removed {d['name']}.")
+
+
+@pages.post("/admin/keys/test")
+async def test_keys(request: Request, h: Hub = Depends(hub)) -> Response:
+    """Try a saved key (or every key) against its service now. Says whether it works, never what it is."""
+    claims, form = await _form_session(request, h)
+    name = str(form.get("name", "")).strip()
+    if name == "all":
+        done = await h.keychecks.run()
+        bad = [c.title for c, r in done if r.get("state") == "bad"]
+        warn = [c.title for c, r in done if r.get("state") in ("warn", "down")]
+        msg = f"Tested {len(done)} keys: {len(done) - len(bad) - len(warn)} work"
+        msg += (f"; not working: {', '.join(bad)}" if bad else "") + (f"; to check: {', '.join(warn)}" if warn else "") + "."
+    else:
+        if not NAME_RE.match(name) or not h.vault.has(name):
+            return _back("Nothing saved there to test.")
+        done = await h.keychecks.run(secret=name)
+        if not done:
+            return _back("The hub has no way to test that one.")
+        msg = " ".join(f"{c.title}: {r.get('detail') or r.get('state')}." for c, r in done)
+    h.db.log("admin.key_test", "ok", person_id=claims.get("per"), device_id=claims.get("dev"), target=name, source="web")
+    return _back(msg)
+
+
+@pages.post("/admin/services/check")
+async def check_services(request: Request, h: Hub = Depends(hub)) -> Response:
+    await _form_session(request, h)
+    try:
+        await asyncio.wait_for(h.probe_once(), timeout=25)
+    except asyncio.TimeoutError:
+        pass
+    down = [s["title"] for s in admin_health.service_rows(h) if s.get("error")]
+    return _back(f"Checked every service. Down: {', '.join(down)}." if down else "Checked every service: all OK.")
