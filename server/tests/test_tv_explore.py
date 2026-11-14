@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from hub.routes.home import shape_event
-from hub.tvexplore import advance, publish
+import asyncio
+
+from hub.tvexplore import advance, publish, remember_plex
 
 LISTS = {
     "new": [{
@@ -97,6 +99,51 @@ def test_the_feed_is_the_contract(hub, people):
     assert kids["rows"][0]["items"][0]["availability"] in ("play", "request")
     assert dylan.client.get("/v1/tv/explore/art/poster/movie/603", headers=dylan.h).status_code == 404
     assert dylan.client.get("/v1/tv/explore/art/poster/movie/603", headers=dylan.h).json()["message"] == "No artwork"
+
+
+def test_a_plex_shelf_remembers_the_thumb_and_the_art(hub):
+    hub.plex.cfg.enabled = True
+    hub.plex.cfg.url = "http://plex.test"
+
+    async def recently_added(limit=20):
+        return [{
+            "id": "42", "title": "WALL-E", "year": 2008, "kind": "movie", "rating": "G",
+            "thumb_path": "/library/metadata/42/thumb/1",
+            "art_path": "/library/metadata/42/art/1",
+            "poster_url": "/v1/media/art?path=%2Flibrary%2Fmetadata%2F42%2Fthumb%2F1",
+        }]
+
+    hub.plex.recently_added = recently_added
+    asyncio.run(remember_plex(hub))
+    note = hub.artwork.note("vod:plex:42")
+    assert note["plex_thumb"] == "/library/metadata/42/thumb/1"
+    assert note["plex_art"] == "/library/metadata/42/art/1"
+    stored = hub.db.kv_get("tv.plex.recent")
+    assert stored[0]["poster_url"] == "/v1/art/poster/vod:plex:42"
+    assert stored[0]["backdrop_url"] == "/v1/art/backdrop/vod:plex:42"
+
+
+def test_plex_and_a_recording_thumbnail_join_the_library(hub, people):
+    hub.db.kv_set("dvr.recordings", [{
+        "id": "clip1", "title": "Evening News", "status": "done",
+        "thumb": "https://cdn.example/news.jpg",
+    }])
+    hub.db.kv_set("tv.plex.recent", [{
+        "kind": "movie", "title": "WALL-E", "year": 2008, "movie_id": "vod:plex:42", "plex_id": "42",
+        "poster_url": "/v1/art/poster/vod:plex:42", "backdrop_url": "/v1/art/backdrop/vod:plex:42",
+    }])
+    publish(hub, None, can_request=False)
+    dylan = people["phones"]["Dylan"]
+    titles = {
+        item["title"]: item
+        for row in dylan.client.get("/v1/tv/explore", headers=dylan.h).json()["rows"]
+        for item in row["items"]
+    }
+    assert titles["Evening News"]["poster_url"] == "/v1/art/poster/vod:rec:clip1"
+    assert titles["Evening News"]["backdrop_url"] == "/v1/art/backdrop/vod:rec:clip1"
+    assert titles["WALL-E"]["poster_url"] == "/v1/art/poster/vod:plex:42"
+    assert titles["WALL-E"]["backdrop_url"] == "/v1/art/backdrop/vod:plex:42"
+    assert titles["WALL-E"]["availability"] == "play"
 
 
 def test_no_tmdb_key_uses_the_library(hub, people):

@@ -110,6 +110,47 @@ def test_logo_source_order_and_cached_etag(hub, people):
     assert now["backdrop_url"] == "/v1/art/backdrop/" + programme_key("Newsroom")
 
 
+def test_plex_thumb_bytes_are_cached_on_the_hub(hub, people):
+    class Plex:
+        async def art(self, path: str, width: int = 400):
+            assert path.startswith("/library/")
+            return PNG, "image/png"
+
+    hub.artwork.plex = Plex()
+    hub.artwork.remember(
+        "vod:plex:42", title="WALL-E", kind="movie",
+        plex_thumb="/library/metadata/42/thumb/1", plex_art="/library/metadata/42/art/1",
+    )
+    dylan = people["phones"]["Dylan"]
+    poster = dylan.client.get("/v1/art/poster/vod:plex:42", headers=dylan.h)
+    assert poster.status_code == 200 and poster.content == PNG
+    backdrop = dylan.client.get("/v1/art/backdrop/vod:plex:42", headers=dylan.h)
+    assert backdrop.status_code == 200 and backdrop.content == PNG
+
+
+def test_a_library_title_uses_the_provider_picture_when_tmdb_is_unset(hub, people):
+    hub.tv_catalog.ingest(vod=[{
+        "stream_id": 101, "name": "Kids Movie", "year": "2018", "category_id": "4",
+        "stream_icon": "https://provider.example/kids.png",
+        "backdrop_path": ["https://provider.example/kids-wide.jpg"],
+    }], vod_categories=[{"category_id": "4", "category_name": "Kids"}])
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "provider.example":
+            return httpx.Response(200, content=PNG, headers={"content-type": "image/png"})
+        return httpx.Response(404)
+
+    hub.artwork._transport = httpx.MockTransport(handler)
+    dylan = people["phones"]["Dylan"]
+    poster = dylan.client.get("/v1/art/poster/vod:thomas-creek:101", headers=dylan.h)
+    assert poster.status_code == 200 and poster.content == PNG
+    backdrop = dylan.client.get("/v1/art/backdrop/vod:thomas-creek:101", headers=dylan.h)
+    assert backdrop.status_code == 200 and backdrop.content == PNG
+    feed = dylan.client.get("/v1/tv/explore", headers=dylan.h).json()
+    assert feed["hero"]["poster_url"] == "/v1/art/poster/vod:thomas-creek:101"
+    assert feed["hero"]["backdrop_url"] == "/v1/art/backdrop/vod:thomas-creek:101"
+
+
 def urlsplit_host(request: httpx.Request) -> str:
     if request.url.host == "image.tmdb.org":
         return str(request.url)

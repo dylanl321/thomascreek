@@ -52,6 +52,12 @@ def _art(url: object) -> str | None:
         return None
 
 
+def _first_art(value: object) -> str | None:
+    if isinstance(value, list):
+        value = value[0] if value else None
+    return _art(value)
+
+
 def _id_part(value: object) -> str | None:
     text = str(value or "").strip()
     if not text or "/" in text or ":" in text or "@" in text or len(text) > 80:
@@ -305,7 +311,7 @@ class TvCatalog:
         record = {
             "id": series_id, "name": known.get("name") or _clip(info.get("name"), 120),
             "cover": _art(info.get("cover")) or known.get("cover"),
-            "backdrop": _art((info.get("backdrop_path") or [None])[0] if isinstance(info.get("backdrop_path"), list) else None),
+            "backdrop": _first_art(info.get("backdrop_path")),
             "plot": _clip(info.get("plot"), 600), "genre": _clip(info.get("genre"), 80),
             "year": _clip(info.get("releaseDate") or info.get("year"), 20),
             "category": known.get("category"), "kids": kids, "seasons": seasons, "fetched_at": time.time(),
@@ -321,7 +327,7 @@ class TvCatalog:
         record = {
             "id": movie_id, "name": known.get("name") or _clip(info.get("name"), 120),
             "cover": _art(info.get("movie_image")) or known.get("cover"),
-            "backdrop": _art((info.get("backdrop_path") or [None])[0] if isinstance(info.get("backdrop_path"), list) else None),
+            "backdrop": _first_art(info.get("backdrop_path")),
             "plot": _clip(info.get("plot"), 600), "genre": _clip(info.get("genre"), 80),
             "year": _clip(info.get("releasedate") or info.get("year"), 20),
             "duration_s": _duration(info.get("duration_secs")),
@@ -646,12 +652,20 @@ def _title(row: dict[str, Any], key_of: Any, categories: dict[str, str], art_fie
     key = key_of(row.get(id_field))
     if key is None:
         return None
-    return {
+    backdrop = row.get("backdrop_path")
+    if isinstance(backdrop, list):
+        backdrop = backdrop[0] if backdrop else None
+    item = {
         "id": key, "name": _clip(row.get("name") or row.get("title"), 120) or "Untitled",
-        "cover": _art(row.get(art_field)), "category": categories.get(str(row.get("category_id") or "")),
+        "cover": _art(row.get(art_field)),
+        "category": categories.get(str(row.get("category_id") or "")),
         "year": _clip(row.get("year") or row.get("releaseDate"), 20),
         "genre": _clip(row.get("genre"), 80), "rating": _clip(row.get("rating"), 8),
     }
+    wide = _art(backdrop)
+    if wide:
+        item["backdrop"] = wide
+    return item
 
 
 def _parse_xmltv(xml: bytes, epg_ids: dict[str, str], now: float) -> dict[str, list[dict[str, Any]]]:
