@@ -69,7 +69,7 @@ final class DollhouseController {
 
     func place(_ preset: CameraPreset, animated: Bool) {
         guard let cameraNode, let camera = cameraNode.camera else { return }
-        let shot = room.shot(preset)
+        let shot = preset == .dollhouse ? fitted(room.shot(preset)) : room.shot(preset)
         let move = {
             cameraNode.position = shot.position
             cameraNode.look(at: shot.target)
@@ -84,6 +84,35 @@ final class DollhouseController {
         } else {
             move()
         }
+    }
+
+    /// Keeps the catalog's viewing angle but backs the camera off until the whole model,
+    /// floor edge and wall tops included, sits inside the frame with a little air around it.
+    private func fitted(_ shot: DollhouseShot) -> DollhouseShot {
+        guard let root = scene?.rootNode else { return shot }
+        var lo = SCNVector3(Float.greatestFiniteMagnitude, Float.greatestFiniteMagnitude, Float.greatestFiniteMagnitude)
+        var hi = SCNVector3(-Float.greatestFiniteMagnitude, -Float.greatestFiniteMagnitude, -Float.greatestFiniteMagnitude)
+        root.enumerateHierarchy { node, _ in
+            guard node.geometry != nil, !node.isHidden else { return }
+            let (a, b) = node.boundingBox
+            for x in [a.x, b.x] { for y in [a.y, b.y] { for z in [a.z, b.z] {
+                let w = node.convertPosition(SCNVector3(x, y, z), to: nil)
+                lo = SCNVector3(min(lo.x, w.x), min(lo.y, w.y), min(lo.z, w.z))
+                hi = SCNVector3(max(hi.x, w.x), max(hi.y, w.y), max(hi.z, w.z))
+            } } }
+        }
+        guard lo.x <= hi.x else { return shot }
+        let center = SCNVector3((lo.x + hi.x) / 2, (lo.y + hi.y) / 2, (lo.z + hi.z) / 2)
+        let dx = hi.x - lo.x, dy = hi.y - lo.y, dz = hi.z - lo.z
+        let radius = sqrt(dx * dx + dy * dy + dz * dz) / 2
+        var dir = SCNVector3(shot.position.x - shot.target.x, shot.position.y - shot.target.y, shot.position.z - shot.target.z)
+        let len = sqrt(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z)
+        guard len > 0, radius > 0 else { return shot }
+        dir = SCNVector3(dir.x / len, dir.y / len, dir.z / len)
+        let half = Float(shot.fov) * .pi / 360
+        let distance = radius / sin(half) * 0.92
+        return DollhouseShot(position: SCNVector3(center.x + dir.x * distance, center.y + dir.y * distance, center.z + dir.z * distance),
+                             target: center, fov: shot.fov)
     }
 
     // MARK: load
