@@ -19,6 +19,7 @@ from ..policy import Target
 from ..state import Hub
 from ..tvapp import TvAppError
 from .. import tvhandoff
+from ..upnext import shelf
 from .deps import Caller, caller, error, hub, need
 from .media import _filter, _watch_cap
 
@@ -87,6 +88,17 @@ async def handoff(body: HandoffIn, c: Caller = Depends(caller), h: Hub = Depends
         return await tvhandoff.handoff(h, c.subject, body.from_device, body.to_device)
     except ActionError as exc:
         raise error(exc.status, exc.error, exc.message, **exc.extra) from None
+
+
+@router.get("/upnext")
+async def up_next(profile: str | None = None, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """What to play next for this profile, ranked from what that profile watches."""
+    kids = _media(h, c)
+    if profile == "kids":
+        kids = True
+    elif profile == "adult" and kids:
+        kids = True
+    return shelf(h, "kids" if kids else "adult")
 
 
 @router.get("/guide")

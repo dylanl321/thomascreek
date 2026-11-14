@@ -62,6 +62,7 @@ from .db import new_id
 from .home import iso
 from .policy import ALL_CAPABILITIES, Subject
 from .tvlineup import LineupError, normalize_channel, public_channel, valid_key
+from .upnext import remember
 
 log = logging.getLogger("hub.tvapp")
 
@@ -1114,6 +1115,8 @@ class TvApp:
         self.db.log("tvapp.state", "ok", device_id=f"tv:{install_id}", target=install_id,
                     params={"playing": (playing or {}).get("channel_key"), "foreground": foreground,
                             "command": None if command is None else command.get("id")}, source="tv")
+        if playing:
+            remember(self.db, "kids" if tv.get("profile") == "kids" else "adult", playing, now)
         event = self.watch_event(install_id)
         if command is not None:
             event["command"] = command
