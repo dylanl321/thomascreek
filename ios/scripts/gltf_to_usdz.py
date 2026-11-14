@@ -301,7 +301,8 @@ def main() -> None:
         raise SystemExit(f"could not reopen {dst}")
     names = {p.GetName() for p in opened.Traverse()}
     anchors = [n for n in names if n.startswith("anchor_")]
-    if "anchor_tv" in names:
+    # The living room is the room with the chandelier; the bedroom also has a TV now.
+    if "anchor_chandelier" in names:
         missing = [n for n in ("tv_screen", "glow_chandelier_floor", "fire_flame_1", "soundbar_led", "light_chandelier") if n not in names]
     elif "anchor_washer" in names:
         missing = [n for n in ("anchor_under_cabinet_lights", "glow_washer_drum", "light_laundry") if n not in names]

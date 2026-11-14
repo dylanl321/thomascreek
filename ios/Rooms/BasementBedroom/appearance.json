@@ -824,6 +824,45 @@
       "double_sided": true,
       "base_texture": "tex_9.png"
     },
+    "tv_screen": {
+      "kind": "screen",
+      "base_srgb": [
+        0.9999999999999999,
+        0.9999999999999999,
+        0.9999999999999999
+      ],
+      "opacity": 1.0,
+      "emissive_srgb": [
+        0.9999999999999999,
+        0.9999999999999999,
+        0.9999999999999999
+      ],
+      "strength": 1.2,
+      "roughness": 0.4,
+      "metallic": 0.0,
+      "double_sided": false,
+      "base_texture": "tex_13.png",
+      "emissive_texture": "tex_13.png"
+    },
+    "glow_tv_room": {
+      "kind": "glow",
+      "base_srgb": [
+        0.623529411756047,
+        0.7647058823475292,
+        0.9999999999999999
+      ],
+      "opacity": 0.35,
+      "emissive_srgb": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "strength": 0.0,
+      "roughness": 0.9,
+      "metallic": 0.0,
+      "double_sided": true,
+      "base_texture": "tex_9.png"
+    },
     "pm_lamp_stand": {
       "kind": "bulb",
       "base_srgb": [
@@ -877,7 +916,7 @@
       "roughness": 0.85,
       "metallic": 0.0,
       "double_sided": false,
-      "base_texture": "tex_14.png"
+      "base_texture": "tex_15.png"
     }
   },
   "lights": {
@@ -978,6 +1017,16 @@
       ],
       "intensity": 1.4,
       "range": 2.6
+    },
+    "light_tv": {
+      "type": "point",
+      "color_srgb": [
+        0.623529411756047,
+        0.7647058823475292,
+        0.9999999999999999
+      ],
+      "intensity": 0.8,
+      "range": 3.0
     }
   }
 }

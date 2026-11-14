@@ -7,7 +7,6 @@
     "all_off": {},
     "all_on": {
       "under_cabinet_lights": 1,
-      "toe_kick_lights": 1,
       "recessed_lights": 1,
       "dining_pendant": 1,
       "table_lamp_booth": 1,
@@ -18,7 +17,6 @@
     },
     "evening": {
       "under_cabinet_lights": 1,
-      "toe_kick_lights": 1,
       "dining_pendant": 1,
       "table_lamp_booth": 1
     },
@@ -31,7 +29,7 @@
   "devices": [
     {
       "name": "under_cabinet_lights",
-      "label": "Under-cabinet lights",
+      "label": "Under-cabinet + toe-kick lights",
       "type": "light",
       "room": "kitchen",
       "anchor_node": "anchor_under_cabinet_lights",
@@ -61,47 +59,24 @@
         "glow_under_cabinet_3_backsplash",
         "glow_under_cabinet_3_counter",
         "glow_under_cabinet_4_backsplash",
-        "glow_under_cabinet_4_counter"
+        "glow_under_cabinet_4_counter",
+        "glow_toe_kick_cooktop_run_floor",
+        "glow_toe_kick_oven_tower_floor",
+        "glow_toe_kick_sink_run_floor",
+        "glow_toe_kick_island_front_floor",
+        "glow_toe_kick_island_back_floor",
+        "glow_toe_kick_laundry_cabinet_floor"
       ],
       "mesh_nodes": [
         "light_under_cabinet_strip_1",
         "light_under_cabinet_strip_2",
         "light_under_cabinet_strip_3",
-        "light_under_cabinet_strip_4"
-      ],
-      "on_state": {
-        "emissive": [
-          6
-        ],
-        "shows": []
-      }
-    },
-    {
-      "name": "toe_kick_lights",
-      "label": "Toe-kick lights",
-      "type": "light",
-      "room": "kitchen",
-      "anchor_node": "anchor_toe_kick_lights",
-      "position_m": [
-        -0.6,
-        0.05,
-        2.1
-      ],
-      "group_node": "toe_kick_lights",
-      "light_nodes": [],
-      "light_on_intensity": [],
-      "glow_decals": [
-        "glow_toe_kick_cooktop_run_floor",
-        "glow_toe_kick_oven_tower_floor",
-        "glow_toe_kick_sink_run_floor",
-        "glow_toe_kick_island_front_floor",
-        "glow_toe_kick_island_back_floor"
-      ],
-      "mesh_nodes": [
+        "light_under_cabinet_strip_4",
         "light_toe_kick_cooktop_run",
         "light_toe_kick_sink_run",
         "light_toe_kick_island_front",
         "light_toe_kick_island_back",
+        "light_toe_kick_laundry_cabinet",
         "light_toe_kick_oven_tower"
       ],
       "on_state": {
@@ -422,7 +397,7 @@
       {
         "name": "prop_mug",
         "world_position_m": [
-          -2.28,
+          -2.23,
           0.92,
           2.35
         ],
@@ -431,8 +406,26 @@
       {
         "name": "prop_mail",
         "world_position_m": [
-          -2.38,
+          -2.2,
           0.92,
+          3.62
+        ],
+        "parent": "kitchen"
+      },
+      {
+        "name": "prop_table_runner",
+        "world_position_m": [
+          -2.5,
+          0.92,
+          3.02
+        ],
+        "parent": "kitchen"
+      },
+      {
+        "name": "prop_catch_all_bowl",
+        "world_position_m": [
+          -2.52,
+          0.923,
           4.02
         ],
         "parent": "kitchen"

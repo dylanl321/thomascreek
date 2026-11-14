@@ -111,7 +111,7 @@ The app looks these up by name and skips anything missing. New clutter only need
 | Fallback mesh, direct children of the root | `pet_cat_body`, `pet_cat_head`, `pet_cat_tail`, `pet_cat_tail_tip_white`, `pet_cat_ear_left`, `pet_cat_ear_right`, `pet_cat_ear_inner_left`, `pet_cat_ear_inner_right` |
 | Pose groups, direct children of `pet_cat` at its origin, matched by exact name | `pet_cat_pose_sleep`, `pet_cat_pose_sit`, `pet_cat_pose_stretch`, `pet_cat_pose_walk_1`, `pet_cat_pose_walk_2` (walk alternates 1 and 2). They export visible; the app hides them on load |
 | Pose joints | `<pose>_head` (neck; yaw on local Y), `<pose>_tail` (tail root; swish on local Y), identity at rest |
-| Cat spots | `life.json` → `spots`; living room: `sofa`, `sofa_main`, `rug`, `window` (on `window_sill_low`), `fireplace` |
+| Cat spots | `life.json` → `spots`; living room: `sofa`, `sofa_main`, `rug`, `window` (the floor at the French doors), `fireplace`, `armchair` |
 | Flames | `fire_flame_1` … and the light `light_fireplace` |
 | Fan blades | `ceiling_fan_blades` (spins on Y) |
 | Washer / dryer drum | `washer_drum`, `dryer_drum`: a solid drum pivoted on its axle, spinning about local +Z (out of the door). Glow decals never spin |
@@ -120,6 +120,6 @@ The app looks these up by name and skips anything missing. New clutter only need
 | Window dust | a mesh whose name contains both `window` and `glass`, or `skylight_diffuser` |
 | Steam | the names in that scene's `steam` list (`prop_mug`, `prop_kettle`); the emitter sits at the top of the prop's bounds |
 | Night sparkles | one mesh at the lamp, not the group at the room origin: `table_lamp_shade`, `table_lamp_booth_shade`, `table_lamp_1_shade`, `table_lamp_2_shade`, `dresser_lamp_shade`, `sconce_left_shade`, `sconce_right_shade`, `sconce_left_bulb_1`, `sconce_right_bulb_1`, `chandelier_bulb_1`, `chandelier_bulb_4`, `chandelier_lower_bulb_1`, `dining_pendant_bulb`, `flower_light_head`, `flower_light_bloom_1`, `prop_lamp` |
-| Lived-in clutter | `prop_throw_blanket`, `prop_open_book`, `prop_mug`, `prop_kettle`, `prop_toy`, `prop_mail`, `prop_dishes`, `prop_cutting_board`, `prop_shoes`, `prop_laundry_basket`, `prop_detergent`, `prop_popcorn_bowl`, `prop_drink`, `prop_lamp`. A second copy takes `_2` (`prop_drink_2`). Each sits directly under the room root, pivoted on the surface under it |
+| Lived-in clutter | `prop_throw_blanket`, `prop_open_book`, `prop_mug`, `prop_kettle`, `prop_toy`, `prop_mail`, `prop_dishes`, `prop_cutting_board`, `prop_shoes`, `prop_laundry_basket`, `prop_detergent`, `prop_popcorn_bowl`, `prop_drink`, `prop_lamp`, `prop_catch_all_bowl`, `prop_table_runner`. A second copy takes `_2` (`prop_drink_2`). Each sits directly under the room root, pivoted on the surface under it |
 
 Pose groups and `prop_*` nodes can start hidden. The app fades them. A drum or a curtain whose pivot is the object's centre sways or spins around that centre, so keep the pivot on the fan hub, the drum axle, or the curtain heading.

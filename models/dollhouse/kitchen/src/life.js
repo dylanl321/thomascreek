@@ -63,6 +63,39 @@ export function makeLifeKit() {
       .forEach(([c, r, fx, fy, fz], i) => LS(`${s}_fruit_${i + 1}`, g, lstd(c, 0.45), r, fx, fy, fz));
     const ban = LM(`${s}_banana`, new THREE.TorusGeometry(0.09, 0.017, 8, 20, Math.PI * 0.75), lstd('#f2cf3e', 0.5), g, -0.01, 0.16, -0.01); ban.rotation.set(-1.2, 0, 0.6);
     return g; };
+  // big turned-wood catch-all bowl (keys, sunglasses, a wallet); origin on the counter under the bowl's centre
+  P.catchAllBowl = (name, parent, x, y, z, ry = 0) => { const g = LG(name, parent, x, y, z, ry), s = name.replace(/^prop_/, 'pm_');
+    const wood = lstd('#ffffff', 0.55, 0, { map: tex(256, 64, (c, w, h) => { c.fillStyle = '#8a5530'; c.fillRect(0, 0, w, h); for (let i = 0; i < 14; i++) { c.fillStyle = i % 2 ? 'rgba(60,30,12,0.22)' : 'rgba(190,130,80,0.18)'; c.fillRect(0, (i * h) / 14 + Math.sin(i) * 1.5, w, 2); } }), side: THREE.DoubleSide });
+    const prof = [[0, 0.0], [0.08, 0.0], [0.085, 0.012], [0.16, 0.035], [0.205, 0.075], [0.222, 0.11], [0.214, 0.112], [0.196, 0.08], [0.15, 0.045], [0.0, 0.03]].map(([r, h]) => new THREE.Vector2(r, h));
+    LM(`${s}_bowl`, new THREE.LatheGeometry(prof, 40), wood, g, 0, 0, 0);
+    const brass = lstd('#c9a046', 0.3, 0.9);
+    LM(`${s}_key_ring`, new THREE.TorusGeometry(0.022, 0.003, 6, 20), brass, g, -0.05, 0.05, 0.02).rotation.x = Math.PI / 2 - 0.2;
+    LB(`${s}_key_1`, g, brass, -0.03, 0.025, 0.047, 0.051, 0.012, 0.024, 0.001).rotation.y = 0.4;
+    LB(`${s}_key_fob`, g, lstd('#1f2a44', 0.5), -0.1, -0.06, 0.044, 0.056, 0.0, 0.03, 0.005);
+    LB(`${s}_wallet`, g, lstd('#5a3420', 0.6), 0.0, 0.11, 0.035, 0.055, -0.09, -0.02, 0.006).rotation.y = -0.25;
+    const sg = LG(`${s}_sunglasses`, g, 0.04, 0.06, 0.07, 0.5); const lens = lstd('#16181c', 0.15, 0.3);
+    LM(`${s}_sunglasses_lens_l`, new THREE.CylinderGeometry(0.022, 0.022, 0.004, 18), lens, sg, -0.026, 0, 0).rotation.x = 0.25;
+    LM(`${s}_sunglasses_lens_r`, new THREE.CylinderGeometry(0.022, 0.022, 0.004, 18), lens, sg, 0.026, 0, 0).rotation.x = 0.25;
+    LB(`${s}_sunglasses_bridge`, sg, lens, -0.006, 0.006, 0.0, 0.004, -0.002, 0.002);
+    return g; };
+  // holiday table runner (requested exception to the no-seasonal rule): red linen, green bands, gold pinstripes, white snowflakes + little trees,
+  // tasselled ends that drape over the counter edge. Origin at the runner's centre on the counter; long axis = local Z.
+  P.tableRunner = (name, parent, x, y, z, ry, len = 2.3, wid = 0.34, drop = 0.1) => { const g = LG(name, parent, x, y, z, ry), s = name.replace(/^prop_/, 'pm_');
+    const t = tex(128, 512, (c, w, h) => { c.fillStyle = '#a3212b'; c.fillRect(0, 0, w, h);
+      c.fillStyle = '#1f5a3a'; c.fillRect(0, 0, 16, h); c.fillRect(w - 16, 0, 16, h);
+      c.fillStyle = '#d8b04a'; c.fillRect(18, 0, 3, h); c.fillRect(w - 21, 0, 3, h);
+      for (let i = 0; i < 6; i++) { const cy = 40 + i * 86;
+        if (i % 2) { c.fillStyle = '#2e6b45'; c.beginPath(); c.moveTo(w / 2, cy - 22); c.lineTo(w / 2 + 16, cy + 14); c.lineTo(w / 2 - 16, cy + 14); c.closePath(); c.fill(); c.fillStyle = '#6b3f22'; c.fillRect(w / 2 - 3, cy + 14, 6, 7); c.fillStyle = '#e8c55a'; c.beginPath(); c.arc(w / 2, cy - 23, 3, 0, 7); c.fill(); }
+        else { c.strokeStyle = '#f4efe6'; c.lineWidth = 3; for (let k = 0; k < 3; k++) { const a = k * Math.PI / 3; c.beginPath(); c.moveTo(w / 2 - Math.cos(a) * 18, cy - Math.sin(a) * 18); c.lineTo(w / 2 + Math.cos(a) * 18, cy + Math.sin(a) * 18); c.stroke(); } } } });
+    t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(1, len / 1.15);
+    const cloth = lstd('#ffffff', 0.95, 0, { map: t, side: THREE.DoubleSide });
+    LB(`${s}_top`, g, cloth, -wid / 2, wid / 2, 0, 0.003, -len / 2, len / 2).castShadow = false;
+    const gold = lstd('#d8b04a', 0.5, 0.2);
+    for (const [k, sg] of [['a', -1], ['b', 1]]) {
+      const end = LB(`${s}_end_${k}`, g, cloth, -wid / 2, wid / 2, -drop, 0.003, sg * len / 2, sg * len / 2 + sg * 0.004); end.castShadow = false;
+      for (let i = 0; i < 5; i++) LC(`${s}_tassel_${k}_${i + 1}`, g, gold, 0.005, 0.009, 0.035, -wid / 2 + 0.03 + i * (wid - 0.06) / 4, -drop - 0.017, sg * (len / 2 + 0.002), 8);
+    }
+    return g; };
   P.mailStack = (name, parent, x, y, z, ry) => { const g = LG(name, parent, x, y, z, ry), s = name.replace(/^prop_/, 'pm_');
     LB(`${s}_magazine`, g, lstd('#ffffff', 0.6, 0, { map: tex(64, 84, (c, w, h) => { c.fillStyle = '#e7d6b8'; c.fillRect(0, 0, w, h); c.fillStyle = '#2f6f8f'; c.fillRect(0, 0, w, 20); c.fillStyle = '#c0262c'; c.fillRect(8, 30, 48, 34); }) }), -0.105, 0.105, 0, 0.008, -0.14, 0.14);
     [['#f6f3ec', 0.1, 0.12], ['#d8b98a', -0.2, 0.1], ['#f6f3ec', 0.35, 0.11], ['#cfe0f0', -0.05, 0.095]].forEach(([c, rot, w], i) => { const e = LB(`${s}_envelope_${i + 1}`, g, lstd(c, 0.85), -w, w, 0.008 + i * 0.004, 0.011 + i * 0.004, -0.055, 0.055); e.rotation.y = rot; e.position.x += (i - 1.5) * 0.012; });

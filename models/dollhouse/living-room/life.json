@@ -26,11 +26,19 @@
     },
     "window": {
       "position": [
-        -0.3,
-        0.52,
+        -0.42,
+        0.012,
         1.35
       ],
       "yaw": 0
+    },
+    "armchair": {
+      "position": [
+        -3.61,
+        0.55,
+        5.59
+      ],
+      "yaw": 1.451
     },
     "fireplace": {
       "position": [
@@ -70,7 +78,7 @@
     },
     {
       "id": "window_watch",
-      "title": "Watching the yard",
+      "title": "Watching the deck",
       "weights": {
         "morning": 1.6,
         "midday": 1.2,
@@ -88,6 +96,32 @@
       "cat": {
         "activity": "sit",
         "spot": "window"
+      }
+    },
+    {
+      "id": "armchair_nap",
+      "title": "Armchair nap",
+      "weights": {
+        "morning": 0.8,
+        "midday": 1.5,
+        "dusk": 1,
+        "night": 0.9
+      },
+      "devices": {
+        "table_lamp": 0.5,
+        "shelf_lights": 1
+      },
+      "props": [
+        "prop_open_book",
+        "prop_mug",
+        "prop_throw_blanket"
+      ],
+      "steam": [
+        "prop_mug"
+      ],
+      "cat": {
+        "activity": "sleep",
+        "spot": "armchair"
       }
     },
     {

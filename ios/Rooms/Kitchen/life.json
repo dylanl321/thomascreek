@@ -12,12 +12,17 @@
       "props": [
         "prop_mug",
         "prop_kettle",
-        "prop_mail"
+        "prop_mail",
+        "prop_catch_all_bowl",
+        "prop_table_runner"
       ],
       "steam": [
         "prop_mug",
         "prop_kettle"
-      ]
+      ],
+      "devices": {
+        "under_cabinet_lights": 1
+      }
     },
     {
       "id": "laundry_day",
@@ -30,12 +35,15 @@
       },
       "devices": {
         "washer": 1,
-        "dryer": 0.65
+        "dryer": 0.65,
+        "laundry_light": 1
       },
       "props": [
         "prop_laundry_basket",
         "prop_detergent",
-        "prop_mug"
+        "prop_mug",
+        "prop_catch_all_bowl",
+        "prop_table_runner"
       ],
       "while_on": [
         "washer",
@@ -58,14 +66,21 @@
         "prop_dishes",
         "prop_cutting_board",
         "prop_mug",
-        "prop_kettle"
+        "prop_kettle",
+        "prop_catch_all_bowl",
+        "prop_table_runner"
       ],
       "steam": [
         "prop_kettle"
       ],
       "while_on": [
         "range_hood_light"
-      ]
+      ],
+      "devices": {
+        "under_cabinet_lights": 1,
+        "range_hood_light": 1,
+        "recessed_lights": 0.7
+      }
     },
     {
       "id": "after_dinner",
@@ -77,13 +92,15 @@
         "night": 1.4
       },
       "devices": {
-        "toe_kick_lights": 1,
         "dining_pendant": 0.5,
-        "table_lamp_booth": 1
+        "table_lamp_booth": 1,
+        "under_cabinet_lights": 1
       },
       "props": [
         "prop_dishes",
-        "prop_mail"
+        "prop_mail",
+        "prop_catch_all_bowl",
+        "prop_table_runner"
       ]
     }
   ]

@@ -1,5 +1,5 @@
 // Basement bedroom — Room 04 of the dollhouse. Follows /workspace/room/style.md and reuses kitchen/src/common.js.
-// Coordinates: metres, Y up. Kept (standing) walls: BED WALL = plane z=0 (headboard) and PRINTS WALL = plane x=W (two framed prints, dresser).
+// Coordinates: metres, Y up. Kept (standing) walls: BED WALL = plane z=0 (headboard) and PRINTS WALL = plane x=W (two framed prints). Dresser + wall TV on the front wall z=L, facing the bed.
 // Interior 0<x<W, z>0. Camera-side walls (left wall x=0 with the doorway, front wall z=L) are cut at 1.1 m; upper parts interior-only.
 // Photo note: the two nightstand table lamps in photo.png are NOT real; brushed-brass cone sconces (sconce_ref.jpg) replace them.
 import * as THREE from 'three';
@@ -149,18 +149,20 @@ export function buildBedroom() {
     B(`framed_print_${k}_frame`, g, M.frameWood, W - 0.035, W, y0, y1, z0, z1, 0.005);
     const p = mesh(`framed_print_${k}_paper`, new THREE.PlaneGeometry(z1 - z0 - 0.05, y1 - y0 - 0.05), std('#ffffff', 0.9, 0, { map: tex }), g, W - 0.037, (y0 + y1) / 2, (z0 + z1) / 2, false); p.rotation.y = -Math.PI / 2; }
 
-  // ---------------- walnut dresser on the prints wall (plant, bowl, small brass lamp)
-  const DRZ0 = 3.0, DRZ1 = 4.35, DRX0 = W - 0.5, DRY = 0.82;
+  // ---------------- walnut dresser on the FRONT wall (z = L), opposite the bed and facing it (plant, bowl, small brass lamp); wall-mounted TV above
+  // (Dylan's correction: dresser on the wall opposite the bed, TV on the wall above it). Drawer fronts face -Z (toward the bed).
+  const DRX0 = BC - 0.675, DRX1 = BC + 0.675, DRZF = L - 0.5, DRY = 0.82;
   { const g = G('dresser', furn);
-    B('dresser_body', g, M.walnut, DRX0, W - 0.01, 0.1, DRY, DRZ0, DRZ1, 0.01);
-    for (let r = 0; r < 3; r++) for (let c = 0; c < 2; c++) { const y0 = 0.14 + r * 0.225, z0 = DRZ0 + 0.03 + c * (DRZ1 - DRZ0 - 0.06) / 2;
-      B(`dresser_drawer_${r + 1}_${c + 1}`, g, M.walnutV, DRX0 - 0.012, DRX0 + 0.002, y0, y0 + 0.2, z0 + 0.01, z0 + (DRZ1 - DRZ0 - 0.06) / 2 - 0.01, 0.004);
-      B(`dresser_pull_${r + 1}_${c + 1}`, g, M.brass, DRX0 - 0.025, DRX0 - 0.012, y0 + 0.17, y0 + 0.18, z0 + 0.22, z0 + 0.42, 0.003); }
-    for (const [k, z] of [[1, DRZ0 + 0.06], [2, DRZ1 - 0.06]]) for (const [j, x] of [[1, DRX0 + 0.06], [2, W - 0.06]]) cyl(`dresser_leg_${k}_${j}`, g, M.walnut, 0.02, 0.014, 0.1, x, 0.05, z, 10);
-    // plant in white ceramic pot + wooden bowl
-    cyl('dresser_plant_pot', g, M.ceramic, 0.08, 0.07, 0.16, W - 0.22, DRY + 0.08, DRZ1 - 0.2, 20);
-    for (let i = 0; i < 9; i++) { const a = i / 9 * Math.PI * 2; const lf = mesh(`dresser_plant_leaf_${i + 1}`, new THREE.SphereGeometry(0.05, 8, 6), i % 2 ? M.leaf : M.leaf2, g, W - 0.22 + Math.cos(a) * 0.05, DRY + 0.24 + (i % 3) * 0.03, DRZ1 - 0.2 + Math.sin(a) * 0.05); lf.scale.set(0.55, 1.6, 0.55); lf.rotation.z = Math.cos(a) * 0.45; lf.rotation.x = -Math.sin(a) * 0.45; }
-    const bowl = mesh('dresser_bowl', new THREE.SphereGeometry(0.1, 20, 10, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2), M.walnutDark, g, W - 0.26, DRY + 0.06, DRZ1 - 0.48); bowl.material = std('#5a3a22', 0.5, 0, { side: THREE.DoubleSide }); }
+    B('dresser_body', g, M.walnut, DRX0, DRX1, 0.1, DRY, DRZF, L - 0.01, 0.01);
+    for (let r = 0; r < 3; r++) for (let c = 0; c < 2; c++) { const y0 = 0.14 + r * 0.225, cw = (DRX1 - DRX0 - 0.06) / 2, x0 = DRX0 + 0.03 + c * cw;
+      B(`dresser_drawer_${r + 1}_${c + 1}`, g, M.walnutV, x0 + 0.01, x0 + cw - 0.01, y0, y0 + 0.2, DRZF - 0.002, DRZF + 0.012, 0.004);
+      B(`dresser_pull_${r + 1}_${c + 1}`, g, M.brass, x0 + cw / 2 - 0.1, x0 + cw / 2 + 0.1, y0 + 0.17, y0 + 0.18, DRZF - 0.015, DRZF - 0.002, 0.003); }
+    for (const [k, x] of [[1, DRX0 + 0.06], [2, DRX1 - 0.06]]) for (const [j, z] of [[1, DRZF + 0.06], [2, L - 0.06]]) cyl(`dresser_leg_${k}_${j}`, g, M.walnut, 0.02, 0.014, 0.1, x, 0.05, z, 10);
+    // plant in white ceramic pot (right end) + wooden bowl (centre-right); the lamp sits on the left end
+    const px = DRX1 - 0.2, pz = L - 0.24;
+    cyl('dresser_plant_pot', g, M.ceramic, 0.08, 0.07, 0.16, px, DRY + 0.08, pz, 20);
+    for (let i = 0; i < 9; i++) { const a = i / 9 * Math.PI * 2; const lf = mesh(`dresser_plant_leaf_${i + 1}`, new THREE.SphereGeometry(0.05, 8, 6), i % 2 ? M.leaf : M.leaf2, g, px + Math.cos(a) * 0.05, DRY + 0.24 + (i % 3) * 0.03, pz + Math.sin(a) * 0.05); lf.scale.set(0.55, 1.6, 0.55); lf.rotation.z = Math.cos(a) * 0.45; lf.rotation.x = -Math.sin(a) * 0.45; }
+    const bowl = mesh('dresser_bowl', new THREE.SphereGeometry(0.1, 20, 10, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2), M.walnutDark, g, DRX1 - 0.5, DRY + 0.06, L - 0.27); bowl.material = std('#5a3a22', 0.5, 0, { side: THREE.DoubleSide }); }
 
   // ================= DEVICES
   // ---------------- life: props (unmade throw, bedside book, kicked-off shoes, laundry basket)
@@ -259,19 +261,43 @@ export function buildBedroom() {
     register('skylight_glow', { room, label: 'Skylight glow', type: 'light', group: g, emissive: [{ mat: dif, on: 3.2 }], lights: [{ light: l, on: 2.2 }], decals, show: [shaft], anchor: new THREE.Vector3((x0 + x1) / 2, H - 0.05, (z0 + z1) / 2) });
   }
 
-  // ---- small brass lamp on the dresser (dome shade)
-  { const g = G('dresser_lamp', devGroup), x = W - 0.24, z = DRZ0 + 0.28, y0 = DRY;
-    cyl('dresser_lamp_base', g, M.brass, 0.07, 0.075, 0.02, x, y0 + 0.01, z, 28);
-    cyl('dresser_lamp_stem', g, M.brass, 0.008, 0.008, 0.3, x, y0 + 0.17, z, 10);
-    const arm = cyl('dresser_lamp_arm', g, M.brass, 0.007, 0.007, 0.12, x - 0.05, y0 + 0.33, z, 10); arm.rotation.z = Math.PI / 2 - 0.4;
+  // ---- small brass lamp on the dresser (dome shade), left end; the arm reaches toward the bed (-Z).
+  // Built in the lamp's own frame (arm along local -X) inside `dresser_lamp_body`, turned -90° so local -X = world -Z.
+  { const g = G('dresser_lamp', devGroup), y0 = DRY, LX = DRX0 + 0.26, LZ = L - 0.24;
+    const body = G('dresser_lamp_body', g); body.position.set(LX, 0, LZ); body.rotation.y = -Math.PI / 2;
+    const x = 0, z = 0;
+    cyl('dresser_lamp_base', body, M.brass, 0.07, 0.075, 0.02, x, y0 + 0.01, z, 28);
+    cyl('dresser_lamp_stem', body, M.brass, 0.008, 0.008, 0.3, x, y0 + 0.17, z, 10);
+    const arm = cyl('dresser_lamp_arm', body, M.brass, 0.007, 0.007, 0.12, x - 0.05, y0 + 0.33, z, 10); arm.rotation.z = Math.PI / 2 - 0.4;
     const shadeY = y0 + 0.33, sx = x - 0.12;
-    const shade = cyl('dresser_lamp_shade', g, M.brass, 0.03, 0.075, 0.1, sx, shadeY, z, 32, true); shade.rotation.z = 0.35;
+    const shade = cyl('dresser_lamp_shade', body, M.brass, 0.03, 0.075, 0.1, sx, shadeY, z, 32, true); shade.rotation.z = 0.35;
     const inner = std('#f3ead8', 0.6, 0, { side: THREE.BackSide, emissive: new THREE.Color(STYLE.warmHot), emissiveIntensity: 0 });
-    const lin = cyl('dresser_lamp_shade_lining', g, inner, 0.028, 0.072, 0.096, sx, shadeY, z, 32, true); lin.rotation.z = 0.35; lin.castShadow = false;
-    const decals = [decal('glow_dresser_lamp_top', g, T.glow, STYLE.warm, 0.75, 0.7, 0.7, sx - 0.05, y0 + 0.004, z + 0.05, 'up'),
-      decal('glow_dresser_lamp_wall', g, T.glow, STYLE.warm, 0.4, 0.9, 0.8, W - 0.004, y0 + 0.35, z, '-x')];
-    const l = pl('light_dresser_lamp', g, STYLE.warm, sx - 0.03, shadeY - 0.06, z, 2.6);
-    register('dresser_lamp', { room, label: 'Dresser lamp', type: 'light', group: g, emissive: [{ mat: inner, on: 2.5 }], lights: [{ light: l, on: 1.4 }], decals, anchor: new THREE.Vector3(sx, shadeY + 0.12, z) });
+    const lin = cyl('dresser_lamp_shade_lining', body, inner, 0.028, 0.072, 0.096, sx, shadeY, z, 32, true); lin.rotation.z = 0.35; lin.castShadow = false;
+    const decals = [decal('glow_dresser_lamp_top', body, T.glow, STYLE.warm, 0.75, 0.7, 0.7, sx - 0.05, y0 + 0.004, z - 0.05, 'up'),
+      decal('glow_dresser_lamp_wall', body, T.glow, STYLE.warm, 0.4, 0.9, 0.8, 0.236, y0 + 0.35, z, '-x')];
+    const l = pl('light_dresser_lamp', body, STYLE.warm, sx - 0.03, shadeY - 0.06, z, 2.6);
+    // world anchor = body frame point (sx, shadeY + 0.12, 0): local -X -> world -Z
+    register('dresser_lamp', { room, label: 'Dresser lamp', type: 'light', group: g, emissive: [{ mat: inner, on: 2.5 }], lights: [{ light: l, on: 1.4 }], decals, anchor: new THREE.Vector3(LX, shadeY + 0.12, LZ + sx) });
+  }
+  // ---- wall-mounted TV above the dresser (front wall, facing the bed). The front wall is cut at 1.1 m in dollhouse views, so the TV
+  // floats on its bracket there (like the recessed cans); interior views show it on the full wall. tv_screen glows when on.
+  { const g = G('tv', devGroup), TW = 1.23, TH = 0.70, TY = 1.62, TZ = L - 0.07, cx = BC;
+    const tvTex = canvasTex(1024, 576, (c, w, h) => { const sky = c.createLinearGradient(0, 0, 0, h); sky.addColorStop(0, '#1d3557'); sky.addColorStop(0.55, '#457b9d'); sky.addColorStop(1, '#a8dadc'); c.fillStyle = sky; c.fillRect(0, 0, w, h);
+      c.fillStyle = '#f1faee'; c.beginPath(); c.arc(w * 0.72, h * 0.3, 46, 0, 7); c.fill();
+      c.fillStyle = '#2a4a3a'; c.beginPath(); c.moveTo(0, h * 0.75); for (let x = 0; x <= w; x += 32) c.lineTo(x, h * (0.68 + 0.06 * Math.sin(x / 90))); c.lineTo(w, h); c.lineTo(0, h); c.fill();
+      c.fillStyle = '#1b3328'; c.beginPath(); c.moveTo(0, h * 0.86); for (let x = 0; x <= w; x += 32) c.lineTo(x, h * (0.82 + 0.04 * Math.sin(x / 60 + 1))); c.lineTo(w, h); c.lineTo(0, h); c.fill(); });
+    B('tv_wall_bracket', g, M.black, cx - 0.2, cx + 0.2, TY - 0.15, TY + 0.15, TZ + 0.025, L, 0.004);
+    B('tv_body', g, std('#111113', 0.5), cx - TW / 2, cx + TW / 2, TY - TH / 2, TY + TH / 2, TZ - 0.025, TZ + 0.025, 0.006);
+    const scrMat = std('#060607', 0.12, 0.3);
+    const scr = mesh('tv_screen', new THREE.PlaneGeometry(TW - 0.03, TH - 0.03), scrMat, g, cx, TY, TZ - 0.026, false); scr.rotation.y = Math.PI;
+    B('tv_logo', g, std('#8a8d92', 0.3, 0.8), cx + TW / 2 - 0.06, cx + TW / 2 - 0.05, TY - TH / 2 + 0.005, TY - TH / 2 + 0.012, TZ - 0.028, TZ - 0.025);
+    const glow = decal('glow_tv_room', g, T.glow, '#9fc3ff', 0.35, 2.4, 1.6, cx, 0.006, TZ - 1.0, 'up');
+    const l = pl('light_tv', g, '#9fc3ff', cx, TY, TZ - 0.6, 3.0);
+    register('tv', { room, label: 'TV', type: 'media', group: g, lights: [{ light: l, on: 0.8 }], decals: [glow], anchor: new THREE.Vector3(cx, TY, TZ - 0.06),
+      custom: (on) => {
+        if (on) { scrMat.color.set('#ffffff'); scrMat.map = tvTex; scrMat.emissive.set('#ffffff'); scrMat.emissiveMap = tvTex; scrMat.emissiveIntensity = 1.2; scrMat.roughness = 0.4; scrMat.metalness = 0; }
+        else { scrMat.color.set('#060607'); scrMat.map = null; scrMat.emissive.set('#000000'); scrMat.emissiveMap = null; scrMat.emissiveIntensity = 0; scrMat.roughness = 0.12; scrMat.metalness = 0.3; }
+        scrMat.needsUpdate = true; } });
   }
 
   Object.keys(K.devices).forEach(n => K.setDevice(n, false));
@@ -281,8 +307,8 @@ export function buildBedroom() {
 // Preset values: 1 = on, fractions = dimmed (common.js setDevice accepts a 0..1 level)
 export const PRESETS = {
   all_off: {},
-  all_on: { sconce_left: 1, sconce_right: 1, recessed_lights: 1, ceiling_fan: 1, skylight_glow: 1, dresser_lamp: 1 },
-  bedtime: { sconce_left: 0.3, sconce_right: 0.3 },
+  all_on: { sconce_left: 1, sconce_right: 1, recessed_lights: 1, ceiling_fan: 1, skylight_glow: 1, dresser_lamp: 1, tv: 1 },
+  bedtime: { sconce_left: 0.3, sconce_right: 0.3 },              // TV off at bedtime
   reading: { sconce_left: 1, sconce_right: 1 },
 };
 
@@ -293,7 +319,7 @@ export const VIEWS = {
   sconces: { pos: [1.65, 1.35, 2.6], target: [1.65, 1.05, 0.0], fov: 58, interior: true },
   sconce_close: { pos: [2.35, 1.2, 0.95], target: [2.81, 1.05, 0.05], fov: 40, interior: true },
   ceiling: { pos: [0.6, 1.0, 4.2], target: [2.5, 2.45, 1.4], fov: 62, interior: true },
-  dresser: { pos: [1.3, 1.55, 2.2], target: [4.0, 0.95, 3.7], fov: 55, interior: true },
+  dresser: { pos: [1.65, 1.5, 1.1], target: [1.65, 1.15, 4.5], fov: 62, interior: true },        // from the bed toward the dresser + TV
   top: { pos: [2.0, 15.5, 7.0], target: [2.0, 0, 2.25], fov: 32 },
   life_props: { pos: [3.15, 1.8, 4.42], target: [1.35, 0.35, 2.3], fov: 72, interior: true },
   life_bedside: { pos: [1.65, 1.45, 1.55], target: [1.65, 0.6, 0.2], fov: 62, interior: true },

@@ -11,7 +11,8 @@
       },
       "devices": {
         "ceiling_fan": 0.45,
-        "skylight_glow": 0.55
+        "skylight_glow": 0.55,
+        "dresser_lamp": 1
       },
       "props": [
         "prop_throw_blanket",
@@ -98,6 +99,28 @@
         "prop_laundry_basket",
         "prop_throw_blanket",
         "prop_shoes"
+      ]
+    },
+    {
+      "id": "tv_in_bed",
+      "title": "TV in bed",
+      "weights": {
+        "morning": 0.2,
+        "midday": 0.4,
+        "dusk": 1,
+        "night": 1.5
+      },
+      "devices": {
+        "tv": 1,
+        "sconce_left": 0.2,
+        "sconce_right": 0.2
+      },
+      "props": [
+        "prop_throw_blanket",
+        "prop_shoes"
+      ],
+      "while_on": [
+        "tv"
       ]
     }
   ]

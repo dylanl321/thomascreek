@@ -283,7 +283,7 @@ export function buildDen() {
   B('french_door_casing_right', openings, M.trim, -RD - 0.03, -RD + 0.01, 0, 2.76, DZ1 - 0.01, DZ1 + 0.12, 0.006);
   B('french_door_casing_head', openings, M.trim, -RD - 0.03, -RD + 0.01, DH - 0.02, 2.76, DZ0 - 0.12, DZ1 + 0.12, 0.006);
   B('french_door_crown', openings, M.trim, -RD - 0.07, 0, 2.76, 2.84, DZ0 - 0.16, DZ1 + 0.16, 0.01);
-  glassUnit('french_doors', DZ0, DZ1, DH, { leaves: 2, rows: 5 });
+  glassUnit('french_doors', DZ0, DZ1, DH, { leaves: 2, rows: 6 });   // same muntin grid as the glass door to the deck
   // tall arched window above the French doors
   { const g = G('arched_window', openings), r = (WZ1 - WZ0) / 2, sy = WY1 - r, cz = (WZ0 + WZ1) / 2;
     const archPath = (inset) => { const s = new THREE.Shape(); s.moveTo(WZ0 + inset, WY0 + inset); s.lineTo(WZ1 - inset, WY0 + inset); s.lineTo(WZ1 - inset, sy); s.absarc(cz, sy, r - inset, 0, Math.PI, false); s.lineTo(WZ0 + inset, WY0 + inset); return s; };
@@ -409,18 +409,28 @@ export function buildDen() {
   B('side_table_shelf', table, M.walnut, -0.24, 0.24, 0.12, 0.15, -0.24, 0.24, 0.005);
   for (const [a, b] of [[-1, -1], [-1, 1], [1, -1], [1, 1]]) B('side_table_leg', table, M.trim, a * 0.22 - 0.025, a * 0.22 + 0.025, 0, 0.56, b * 0.22 - 0.025, b * 0.22 + 0.025, 0.006);
   table.position.set(STX, 0, STZ);
-  // brown leather armchair, front right
-  const chair = G('armchair_leather', furn);
-  { const D = 0.95, W = 1.0;
-    B('armchair_base', chair, M.leather, -D / 2, D / 2, 0.1, 0.42, -W / 2, W / 2, 0.06);
-    B('armchair_seat_cushion', chair, M.leather, -D / 2 + 0.2, D / 2 - 0.02, 0.42, 0.55, -W / 2 + 0.17, W / 2 - 0.17, 0.06);
-    B('armchair_back', chair, M.leather, -D / 2, -D / 2 + 0.22, 0.42, 1.0, -W / 2, W / 2, 0.09);
-    for (const s of [-1, 1]) { B(`armchair_arm_${s < 0 ? 'left' : 'right'}`, chair, M.leather, -D / 2, D / 2, 0.1, 0.68, s * (W / 2 - 0.085) - 0.085, s * (W / 2 - 0.085) + 0.085, 0.08);
-      const roll = cyl(`armchair_arm_roll_${s < 0 ? 'left' : 'right'}`, chair, M.leather, 0.1, 0.1, D, 0, 0.68, s * (W / 2 - 0.085), 16); roll.rotation.z = Math.PI / 2; }
-    for (const [lx, lz] of [[-1, -1], [-1, 1], [1, -1], [1, 1]]) B('armchair_leg', chair, M.legs, lx * (D / 2 - 0.07) - 0.03, lx * (D / 2 - 0.07) + 0.03, 0, 0.1, lz * (W / 2 - 0.07) - 0.03, lz * (W / 2 - 0.07) + 0.03);
-    const p = B('armchair_pillow', chair, M.pillowCream, -0.07, 0.07, -0.19, 0.19, -0.22, 0.22, 0.07); p.position.set(-D / 2 + 0.32, 0.75, 0); p.rotation.z = -0.25;
-  }
-  chair.position.set(-1.85, 0, 5.85); chair.rotation.y = 2.5;
+  // second end table at the other end of the couch (end of the sectional's main run); same design as side_table, no lamp
+  const table2 = G('end_table_2', furn);
+  B('end_table_2_top', table2, M.walnut, -0.27, 0.27, 0.56, 0.6, -0.27, 0.27, 0.01);
+  B('end_table_2_apron', table2, M.walnut, -0.25, 0.25, 0.48, 0.56, -0.25, 0.25, 0.005);
+  B('end_table_2_shelf', table2, M.walnut, -0.24, 0.24, 0.12, 0.15, -0.24, 0.24, 0.005);
+  for (const [a, b] of [[-1, -1], [-1, 1], [1, -1], [1, 1]]) B('end_table_2_leg', table2, M.trim, a * 0.22 - 0.025, a * 0.22 + 0.025, 0, 0.56, b * 0.22 - 0.025, b * 0.22 + 0.025, 0.006);
+  table2.position.set(-5.68, 0, 5.64);
+  // pair of matching brown leather armchairs on the rug's far edge, facing the bookshelves (and the sectional's return)
+  const armchair = (gname, pre, x, z, ry) => {
+    const chair = G(gname, furn), D = 0.95, W = 1.0;
+    B(`${pre}_base`, chair, M.leather, -D / 2, D / 2, 0.1, 0.42, -W / 2, W / 2, 0.06);
+    B(`${pre}_seat_cushion`, chair, M.leather, -D / 2 + 0.2, D / 2 - 0.02, 0.42, 0.55, -W / 2 + 0.17, W / 2 - 0.17, 0.06);
+    B(`${pre}_back`, chair, M.leather, -D / 2, -D / 2 + 0.22, 0.42, 1.0, -W / 2, W / 2, 0.09);
+    for (const s of [-1, 1]) { B(`${pre}_arm_${s < 0 ? 'left' : 'right'}`, chair, M.leather, -D / 2, D / 2, 0.1, 0.68, s * (W / 2 - 0.085) - 0.085, s * (W / 2 - 0.085) + 0.085, 0.08);
+      const roll = cyl(`${pre}_arm_roll_${s < 0 ? 'left' : 'right'}`, chair, M.leather, 0.1, 0.1, D, 0, 0.68, s * (W / 2 - 0.085), 16); roll.rotation.z = Math.PI / 2; }
+    for (const [lx, lz] of [[-1, -1], [-1, 1], [1, -1], [1, 1]]) B(`${pre}_leg`, chair, M.legs, lx * (D / 2 - 0.07) - 0.03, lx * (D / 2 - 0.07) + 0.03, 0, 0.1, lz * (W / 2 - 0.07) - 0.03, lz * (W / 2 - 0.07) + 0.03);
+    const p = B(`${pre}_pillow`, chair, M.pillowCream, -0.07, 0.07, -0.19, 0.19, -0.22, 0.22, 0.07); p.position.set(-D / 2 + 0.32, 0.75, 0); p.rotation.z = -0.25;
+    chair.position.set(x, 0, z); chair.rotation.y = ry; return chair;
+  };
+  // chair local +X = facing; ry = PI/2 faces -Z (the bookshelf wall). Slight toe-in toward each other.
+  armchair('armchair_leather', 'armchair', -3.62, 5.68, Math.PI / 2 - 0.12);
+  armchair('armchair_leather_2', 'armchair_2', -2.32, 5.68, Math.PI / 2 + 0.12);
   // pet_cat: fat black cat curled on the sectional's return end (near side table / bookshelves). Not a device.
   { const cat = G('pet_cat', furn), black = std('#17161a', 0.75), white = std('#f2efe8', 0.85), pink = std('#d9a0a0', 0.8), eye = std('#c9b53a', 0.3, 0, { emissive: new THREE.Color('#5a4d10'), emissiveIntensity: 0.4 });
     const S = (n, mat, r, x, y, z, sx = 1, sy = 1, sz = 1) => { const m = sphere(n, cat, mat, r, x, y, z); m.scale.set(sx, sy, sz); return m; };
@@ -450,17 +460,13 @@ export function buildDen() {
 
   // ---------------- LIFE: cat poses, cat spots, lived-in props (see /workspace/handoff/LIFE_NOTE.md)
   { const L = makeLifeKit(), life = root;
-    // low window seat in the French-door reveal: a sill the cat can reach (the arched window sill is at y=2.98)
-    { const wg = G('window_sill_low', furn), z0 = DZ0 + 0.05, z1 = DZ1 - 0.05;
-      B('window_sill_low_top', wg, M.walnut, -0.62, -0.02, 0.42, 0.47, z0, z1, 0.01);
-      B('window_sill_low_face', wg, M.panel, -0.6, -0.04, 0.0, 0.42, z0 + 0.02, z1 - 0.02, 0.006);
-      B('window_sill_low_cushion', wg, std('#c9b9a0', 0.95), -0.58, -0.06, 0.47, 0.52, z0 + 0.04, z1 - 0.04, 0.025); }
     // cat spots: Object3D, position = where pet_cat's origin goes (cat stands on it), rotation.y = yaw (the cat's head is local +X)
     const spots = {
       sofa: L.empty('cat_spot_sofa', life, -4.5, 0.54, 1.92, -2.0),                 // pet_cat's own sofa place (curled on the return end)
       sofa_main: L.empty('cat_spot_sofa_main', life, -5.72, 0.54, 3.55, 0.0),       // sectional's main run, facing the fireplace
       rug: L.empty('cat_spot_rug', life, -3.0, 0.012, 3.9, 0.35),                   // middle of the rug
-      window: L.empty('cat_spot_window', life, -0.3, 0.52, 1.35, 0.0),              // on the low window seat cushion, looking out through the French doors
+      window: L.empty('cat_spot_window', life, -0.42, 0.012, 1.35, 0.0),            // on the floor of the French-door reveal, nose to the glass, looking out at the deck
+      armchair: L.empty('cat_spot_armchair', life, -3.61, 0.55, 5.59, Math.PI / 2 - 0.12), // curled on the seat of the first leather armchair
       fireplace: L.empty('cat_spot_fireplace', life, -1.05, 0.0, 3.65, Math.PI),    // warming its back by the hearth, facing into the room
     };
     // pose groups: children of pet_cat at its origin (they move with it), hidden by default (extras.defaultVisible=false); pet_cat already scales 1.15
@@ -483,7 +489,7 @@ export function buildDen() {
     L.P.mug('prop_mug', life, -3.3, 0.6, 1.2, '#e9e1d1', null, 0.6);                           // on the side table, next to the lamp (steam = prop_mug itself)
     L.P.slippers('prop_shoes', life, -4.55, 0.012, 2.75, 0.5, '#c98c8c');                      // slippers kicked off by the sofa, on the rug
     L.P.toy('prop_toy', life, -3.55, 0.012, 3.25, 0.6);                                        // cat toy: yarn ball + felt mouse on the rug
-    L.decor(L.P.remote('prop_remote', life, -1.92, 0.69, 5.85, 0.9), 'armchair_remote');       // not in the app vocabulary: permanent decor
+    L.decor(L.P.remote('prop_remote', life, -2.30, 0.69, 5.62, 1.6), 'armchair_remote');       // on the second armchair; not in the app vocabulary: permanent decor
   }
 
   // ---------------- devices

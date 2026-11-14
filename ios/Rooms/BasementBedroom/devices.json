@@ -11,7 +11,8 @@
       "recessed_lights": 1,
       "ceiling_fan": 1,
       "skylight_glow": 1,
-      "dresser_lamp": 1
+      "dresser_lamp": 1,
+      "tv": 1
     },
     "bedtime": {
       "sconce_left": 0.3,
@@ -262,9 +263,9 @@
       "room": "basement_bedroom",
       "anchor_node": "anchor_dresser_lamp",
       "position_m": [
-        3.64,
+        1.235,
         1.27,
-        3.28
+        4.14
       ],
       "group_node": "dresser_lamp",
       "light_nodes": [
@@ -288,6 +289,38 @@
         "emissive": [
           2.5
         ],
+        "shows": []
+      }
+    },
+    {
+      "name": "tv",
+      "label": "TV",
+      "type": "media",
+      "room": "basement_bedroom",
+      "anchor_node": "anchor_tv",
+      "position_m": [
+        1.65,
+        1.62,
+        4.37
+      ],
+      "group_node": "tv",
+      "light_nodes": [
+        "light_tv"
+      ],
+      "light_on_intensity": [
+        0.8
+      ],
+      "glow_decals": [
+        "glow_tv_room"
+      ],
+      "mesh_nodes": [
+        "tv_wall_bracket",
+        "tv_body",
+        "tv_screen",
+        "tv_logo"
+      ],
+      "on_state": {
+        "emissive": [],
         "shows": []
       }
     }
@@ -373,9 +406,9 @@
       {
         "name": "dresser_lamp_shade",
         "world_position_m": [
-          3.64,
+          1.235,
           1.15,
-          3.28
+          4.14
         ]
       },
       {

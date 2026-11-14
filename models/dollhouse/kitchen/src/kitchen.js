@@ -86,7 +86,7 @@ export function buildKitchen() {
     wallK: std('#6a4a4f', 0.9), wallD: std('#86807a', 0.9), wallL: std('#dcd8d0', 0.9), whiteTrim: std('#efece6', 0.5),
     floor: std('#ffffff', 0.55, 0, { map: T.planks }), tile: std('#ffffff', 0.6, 0, { map: T.tile }),
     runner: std('#ffffff', 1, 0, { map: T.runner }), tableWood: std('#2e2019', 0.5), chairFabric: std('#d6cdbf', 0.95),
-    faucet: std('#151515', 0.4, 0.3), applianceWhite: std('#eeece8', 0.35), panelGrey: std('#d4d2ce', 0.4), chrome: std('#cfd3d6', 0.2, 0.95),
+    faucet: std('#151515', 0.4, 0.3), applianceWhite: std('#eeece8', 0.35), panelGrey: std('#d4d2ce', 0.4), applianceBlack: std('#1c1d20', 0.32, 0.15), panelBlack: std('#2b2d31', 0.35, 0.2), chrome: std('#cfd3d6', 0.2, 0.95),
     doorGlass: new THREE.MeshPhysicalMaterial({ color: '#a9bfd6', roughness: 0.05, metalness: 0, transparent: true, opacity: 0.1, depthWrite: false }),
     basket: std('#b08a5a', 0.95), shelfWhite: std('#f1efea', 0.6),
     upholstery: std('#ece4d4', 0.92), lightWood: std('#c99a62', 0.55), brass: std('#c09a52', 0.3, 0.85), burgundy: std('#6e1f2c', 0.8),
@@ -429,12 +429,12 @@ export function buildKitchen() {
   for (const [k, u] of [[1, LZ0 + 0.35], [2, LZ0 + 0.9], [3, LZ0 + 1.45]]) B(`laundry_basket_${k}`, lauF, M.basket, u - 0.18, u + 0.18, 1.65, 1.88, 0.04, 0.3, 0.03);
   [['#3c7fb8', 0.12], ['#e2e2e2', 0.1], ['#7cb87a', 0.09]].forEach(([c, r], k) => cyl(`laundry_bottle_${k + 1}`, lauF, std(c, 0.4), r * 0.5, r * 0.55, 0.24, LZ0 + 1.8 + k * 0.16, 1.77, 0.16, 12));
   { const g = G('laundry_utility_cabinet', lauF), u0 = LZ1 - 0.6, u1 = LZ1 - 0.05;
-    B('laundry_utility_cabinet_box', g, M.shelfWhite, u0, u1, 0.1, 0.9, 0, 0.58); B('laundry_utility_cabinet_top', g, std('#8a6a4c', 0.5), u0 - 0.01, u1 + 0.01, 0.9, 0.94, 0, 0.62, 0.006);
+    B('laundry_utility_cabinet_box', g, M.shelfWhite, u0, u1, 0.1, 0.9, 0, 0.58); B('laundry_utility_cabinet_toekick', g, M.whiteTrim, u0, u1, 0, 0.1, 0, 0.52); B('laundry_utility_cabinet_top', g, std('#8a6a4c', 0.5), u0 - 0.01, u1 + 0.01, 0.9, 0.94, 0, 0.62, 0.006);
     B('laundry_utility_cabinet_door', g, M.whiteTrim, u0 + 0.01, u1 - 0.01, 0.12, 0.86, 0.58, 0.6, 0.006); }
   const washerParts = (name, R, accent) => {
     const g = G(name, lauF), uc = (R.u0 + R.u1) / 2;
-    B(`${name}_body`, g, M.applianceWhite, R.u0, R.u1, 0.02, 0.86, 0.05, 0.72, 0.025);
-    B(`${name}_control_panel`, g, M.panelGrey, R.u0 + 0.02, R.u1 - 0.02, 0.74, 0.84, 0.72, 0.73, 0.004);
+    B(`${name}_body`, g, M.applianceBlack, R.u0, R.u1, 0.02, 0.86, 0.05, 0.72, 0.025);
+    B(`${name}_control_panel`, g, M.panelBlack, R.u0 + 0.02, R.u1 - 0.02, 0.74, 0.84, 0.72, 0.73, 0.004);
     const dispMat = std('#1c2328', 0.3, 0, { emissive: new THREE.Color(accent), emissiveIntensity: 0 });
     B(`${name}_display`, g, dispMat, uc + 0.04, uc + 0.2, 0.765, 0.815, 0.73, 0.734, 0.003);
     cyl(`${name}_dial`, g, M.chrome, 0.03, 0.03, 0.02, uc - 0.16, 0.79, 0.735, 16).rotation.x = Math.PI / 2;
@@ -474,9 +474,13 @@ export function buildKitchen() {
 
   // ---------------- life: props (app vocabulary prop_*; every prop node is a direct child of the room root, its origin AT the object)
   { const L = makeLifeKit(), A = (g) => { root.updateMatrixWorld(true); root.attach(g); return g; };
-    L.P.mug('prop_mug', root, ISX + 0.22, 0.92, 2.35, '#d9a441', null, 2.4);                            // island, sink side (steam = prop_mug itself)
-    L.decor(L.P.fruitBowl('prop_fruit_bowl', root, ISX - 0.05, 0.92, 3.3), 'island_fruit_bowl');           // not in the app vocabulary: permanent decor
-    L.P.mailStack('prop_mail', root, ISX + 0.12, 0.92, 4.02, 0.35);                                        // island end by the dining side
+    L.P.mug('prop_mug', root, ISX + 0.27, 0.92, 2.35, '#d9a441', null, 2.4);                            // island, sink side, beside the runner (steam = prop_mug itself)
+    L.decor(L.P.fruitBowl('prop_fruit_bowl', root, ISX - 0.02, 0.923, 3.15), 'island_fruit_bowl');         // on the runner; not in the app vocabulary: permanent decor
+    L.P.mailStack('prop_mail', root, ISX + 0.3, 0.92, 3.62, 0.35);                                         // island, sink side, next to the catch-all bowl
+    // holiday runner down the middle of the island (Dylan's requested seasonal exception), ends draped over both island ends
+    L.P.tableRunner('prop_table_runner', root, ISX, 0.92, (IZ0 + IZ1) / 2, 0, (IZ1 - IZ0) + 0.08 + 0.008, 0.34, 0.09);
+    // big wooden catch-all bowl on the island end facing the fridge (z = IZ1 end), sitting on the runner
+    L.P.catchAllBowl('prop_catch_all_bowl', root, ISX - 0.02, 0.923, IZ1 - 0.3, 0.6);
     A(L.P.sinkDishes('prop_dishes', sinkF, SC + 0.1, 0.926, 0.32, 0.3));                                   // in the sink basin
     L.decor(L.P.towel('prop_dish_towel', sinkF, 2.7, 0.807, 0.614, -Math.PI / 2, 0.24, 0.3), 'dishwasher_towel');   // permanent decor
     A(L.P.kettle('prop_kettle', cookF, CK + 0.25, 0.966, 0.2, -2.3, null));                                // back-right burner (steam = prop_kettle itself)
@@ -487,7 +491,8 @@ export function buildKitchen() {
 
   // ---------------- devices
   const room = 'kitchen';
-  // under-cabinet LED strips
+  // under-cabinet LED strips + toe-kick LED strips: ONE device (Dylan: the toe-kicks are on the under-cabinet switch).
+  // Toe-kicks run under every cabinet run: cooktop run, sink run, oven tower, both island sides, laundry utility cabinet.
   { const g = G('under_cabinet_lights', devGroup), m = lightMats(), decals = [], lights = [];
     const fr = { cook: G('under_cabinet_lights_cook', g), sink: G('under_cabinet_lights_sink', g) }; fr.sink.rotation.y = -Math.PI / 2;
     [['cook', -1.25, -0.02], ['cook', -2.62, -2.09], ['sink', 0.35, 1.45], ['sink', 2.4, 3.62]].forEach(([f, u0, u1], i) => {
@@ -497,22 +502,22 @@ export function buildKitchen() {
       decals.push(decal(`glow_under_cabinet_${i + 1}_counter`, p, T.glow, STYLE.warm, 0.55, len * 1.1, 0.6, uc, 0.923, 0.3, 'up'));
       lights.push(pl(`light_under_cabinet_${i + 1}`, p, STYLE.warm, uc, 1.3, 0.3, 1.4));
     });
-    register('under_cabinet_lights', { room, label: 'Under-cabinet lights', type: 'light', group: g, emissive: [{ mat: m.bulb, on: 6 }], lights: lights.map(l => ({ light: l, on: 1.2 })), decals, anchor: new THREE.Vector3(-0.3, 1.38, 1.0) });
-  }
-  // toe-kick LED strips (base runs, towers, island)
-  { const g = G('toe_kick_lights', devGroup), m = lightMats(), decals = [];
-    const fr = { cook: G('toe_kick_cook', g), sink: G('toe_kick_sink', g), isl: G('toe_kick_island', g) }; fr.sink.rotation.y = -Math.PI / 2;
-    fr.isl.position.set(ISX, 0, 0); fr.isl.rotation.y = -Math.PI / 2;
+    // toe-kick strips (same bulb material, so they light with the under-cabinet strips)
+    const tk = G('under_cabinet_toe_kick', g);
+    const tf = { cook: G('under_cabinet_toe_kick_cook', tk), sink: G('under_cabinet_toe_kick_sink', tk), isl: G('under_cabinet_toe_kick_island', tk), lau: G('under_cabinet_toe_kick_laundry', tk) };
+    tf.sink.rotation.y = -Math.PI / 2; tf.lau.rotation.y = -Math.PI / 2;
+    tf.isl.position.set(ISX, 0, 0); tf.isl.rotation.y = -Math.PI / 2;
     const strip = (p, n, u0, u1, w, flip) => {
       B(`light_toe_kick_${n}`, p, m.bulb, u0 + 0.02, u1 - 0.02, 0.012, 0.022, w - 0.012, w).castShadow = false;
       const d = decal(`glow_toe_kick_${n}_floor`, p, T.wash, STYLE.warm, 0.75, u1 - u0, 0.42, (u0 + u1) / 2, 0.006, flip ? w - 0.21 : w + 0.21, 'up');
       if (flip) d.rotation.z = Math.PI; decals.push(d);
     };
-    strip(fr.cook, 'cooktop_run', -2.62, 0, D - 0.08);
-    const gh = G('toe_kick_ghost', g); gh.position.x = -W; gh.rotation.y = Math.PI / 2; strip(gh, 'oven_tower', OVT.u0, OVT.u1, 0.54);
-    strip(fr.sink, 'sink_run', 0.62, 3.62, D - 0.08);
-    strip(fr.isl, 'island_front', IZ0 + 0.06, IZ1 - 0.06, IHW - 0.06); strip(fr.isl, 'island_back', IZ0 + 0.06, IZ1 - 0.06, -IHW + 0.06, true);
-    register('toe_kick_lights', { room, label: 'Toe-kick lights', type: 'light', group: g, emissive: [{ mat: m.bulb, on: 6 }], decals, anchor: new THREE.Vector3(-0.6, 0.05, 2.1) });
+    strip(tf.cook, 'cooktop_run', -2.62, 0, D - 0.08);
+    const gh = G('under_cabinet_toe_kick_ghost', tk); gh.position.x = -W; gh.rotation.y = Math.PI / 2; strip(gh, 'oven_tower', OVT.u0, OVT.u1, 0.54);
+    strip(tf.sink, 'sink_run', 0.62, 3.62, D - 0.08);
+    strip(tf.isl, 'island_front', IZ0 + 0.06, IZ1 - 0.06, IHW - 0.06); strip(tf.isl, 'island_back', IZ0 + 0.06, IZ1 - 0.06, -IHW + 0.06, true);
+    strip(tf.lau, 'laundry_cabinet', LZ1 - 0.6, LZ1 - 0.05, 0.52);
+    register('under_cabinet_lights', { room, label: 'Under-cabinet + toe-kick lights', type: 'light', group: g, emissive: [{ mat: m.bulb, on: 6 }], lights: lights.map(l => ({ light: l, on: 1.2 })), decals, anchor: new THREE.Vector3(-0.3, 1.38, 1.0) });
   }
   // recessed ceiling lights (ceiling removed -> floating can housings; ON adds a soft light cone + pools)
   { const g = G('recessed_lights', devGroup), m = lightMats(), decals = [], lights = [], show = [];
@@ -592,8 +597,8 @@ export function buildKitchen() {
 
 export const PRESETS = {
   all_off: {},
-  all_on: { under_cabinet_lights: 1, toe_kick_lights: 1, recessed_lights: 1, dining_pendant: 1, table_lamp_booth: 1, range_hood_light: 1, laundry_light: 1, washer: 1, dryer: 1 },
-  evening: { under_cabinet_lights: 1, toe_kick_lights: 1, dining_pendant: 1, table_lamp_booth: 1 },
+  all_on: { under_cabinet_lights: 1, recessed_lights: 1, dining_pendant: 1, table_lamp_booth: 1, range_hood_light: 1, laundry_light: 1, washer: 1, dryer: 1 },
+  evening: { under_cabinet_lights: 1, dining_pendant: 1, table_lamp_booth: 1 },
   laundry_running: { laundry_light: 1, washer: 1, dryer: 1 },
 };
 

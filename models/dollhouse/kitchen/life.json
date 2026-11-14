@@ -16,7 +16,9 @@
       "props": [
         "prop_mug",
         "prop_kettle",
-        "prop_mail"
+        "prop_mail",
+        "prop_catch_all_bowl",
+        "prop_table_runner"
       ],
       "steam": [
         "prop_mug",
@@ -40,7 +42,9 @@
       "props": [
         "prop_cutting_board",
         "prop_kettle",
-        "prop_dishes"
+        "prop_dishes",
+        "prop_catch_all_bowl",
+        "prop_table_runner"
       ],
       "steam": [
         "prop_kettle"
@@ -56,13 +60,15 @@
         "night": 1.4
       },
       "devices": {
-        "toe_kick_lights": 1,
+        "under_cabinet_lights": 1,
         "dining_pendant": 0.5,
         "table_lamp_booth": 1
       },
       "props": [
         "prop_dishes",
-        "prop_mail"
+        "prop_mail",
+        "prop_catch_all_bowl",
+        "prop_table_runner"
       ]
     },
     {
@@ -82,7 +88,9 @@
       "props": [
         "prop_laundry_basket",
         "prop_detergent",
-        "prop_mug"
+        "prop_mug",
+        "prop_catch_all_bowl",
+        "prop_table_runner"
       ],
       "steam": [
         "prop_mug"

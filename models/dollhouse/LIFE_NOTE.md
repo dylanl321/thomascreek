@@ -1,6 +1,7 @@
 # Life scenes: final node names (all 4 rooms)
 
 Updated 2026-11-13 21:30 (America/New_York) to match the app's lookup rules in `ios/Rooms/README.md` (dylanl321/thomascreek).
+**Revised 2026-11-13 22:57 (America/New_York)** for Dylan's model corrections (relayed by Thomas Crreek). See **Changes 2026-11-13 (corrections pass)** at the end for every node added and removed per room and the toe-kick device change.
 The "Room life" and "Node names for Model Generator" sections are on `main`. The PR #87 branch (`cursor/living-room-dollhouse-86f1`) has an older README without them, so `main` was followed.
 Units are metres, +Y is up, and each room keeps its existing origin (see `devices.json` → `origin`).
 
@@ -43,7 +44,7 @@ Units are metres, +Y is up, and each room keeps its existing origin (see `device
 - **Exterior (app drops these):**
   - den: `exterior_deck`
   - kitchen: `exterior_yard`, plus its children `living_room_glimpse` and `sunroom_glimpse`
-  - movie room: `exterior_patio`
+  - movie room: `exterior_patio`, plus `french_door_1_porch_glimpse` / `french_door_2_porch_glimpse` (flat painted night-porch planes behind the door glass; export-only, the web viewer shows the 3D patio through its stencil portal instead)
   - bedroom: none
 
 ## Living room (den)
@@ -71,17 +72,20 @@ Units are metres, +Y is up, and each room keeps its existing origin (see `device
 - Tail (extends toward −X): `rotation.y` = swish, `rotation.z` − = lift.
 - Internal children: `<pose>_head_shape` (resting tilt), `<pose>_tail_tube`, `<pose>_tail_tip_white`.
 
-**Cat spots:** `cat_spot_*` empties, mirrored in `life.json` → `spots` with keys `sofa`, `sofa_main`, `rug`, `window`, `fireplace`. Position = the world position for `pet_cat`; yaw = `rotation.y`.
+**Cat spots:** `cat_spot_*` empties, mirrored in `life.json` → `spots` with keys `sofa`, `sofa_main`, `rug`, `window`, `armchair`, `fireplace`. Position = the world position for `pet_cat`; yaw = `rotation.y`.
 
 | spot | position | yaw |
 |---|---|---|
 | `sofa` | (-4.50, 0.54, 1.92) | −2.0 (pet_cat's own place) |
 | `sofa_main` | (-5.72, 0.54, 3.55) | 0 |
 | `rug` | (-3.00, 0.012, 3.90) | 0.35 |
-| `window` | (-0.30, 0.52, 1.35) | 0 (on the new low window seat, looking out the French doors) |
+| `window` | (-0.42, 0.012, 1.35) | 0 (sitting on the floor of the French-door reveal, nose to the glass, looking out at the deck; the window seat is gone) |
+| `armchair` | (-3.61, 0.55, 5.59) | 1.451 (**new**: curled on the seat of the first leather armchair, facing the bookshelves) |
 | `fireplace` | (-1.05, 0, 3.65) | π |
 
-**`window_sill_low` (new):** a walnut window seat with a cushion (`window_sill_low_top`, `_face`, `_cushion`) inside the French-door reveal. Cushion top at y = 0.52, x −0.58…−0.06, z 0.84…1.86. The arched window sill stays at y = 2.98.
+**`window_sill_low`: removed** (Dylan: the bench in front of the French doors was unclear). The opening is now plain French doors (`french_doors`, 2 leaves, 6-row muntin grid matching `glass_door_right`) in the walnut reveal. The arched window sill stays at y = 2.98.
+
+**Furniture (decor, not looked up by the app):** `side_table` (lamp end, with `table_lamp`) and **`end_table_2`** (other end of the sectional's main run, no lamp); **`armchair_leather`** and **`armchair_leather_2`**, a matching pair on the rug's far edge facing the bookshelves (`armchair_remote` sits on the second).
 
 **Props:**
 
@@ -106,13 +110,15 @@ Units are metres, +Y is up, and each room keeps its existing origin (see `device
 
 | node | where |
 |---|---|
-| `prop_mug` | island; steam |
+| `prop_mug` | island, beside the runner; steam |
 | `prop_kettle` | back-right burner; steam |
-| `prop_mail` | island, dining end |
+| `prop_mail` | island, sink side, next to the catch-all bowl (moved in the corrections pass) |
 | `prop_dishes` | in the sink |
 | `prop_cutting_board` | **new**: counter left of the cooktop, with onion/tomato slices and a knife |
 | `prop_detergent` | **new**: orange jug on the laundry counter above the washer |
 | `prop_laundry_basket` | **new**: laundry floor by the utility cabinet |
+| **`prop_catch_all_bowl`** | **new (corrections pass)**: big turned-wood catch-all bowl (keys, sunglasses, wallet) on the island end facing the fridge |
+| **`prop_table_runner`** | **new (corrections pass)**: holiday runner (red, green bands, gold pinstripes, snowflakes and little trees, tasselled ends draped over both island ends) down the middle of the island. Dylan's requested exception to the no-seasonal rule |
 
 **Drums:** `washer_drum` (world -0.581, 0.41, 8.84) and `dryer_drum` (world -0.581, 0.41, 9.56).
 - Each is a **solid closed cylinder mesh** (r 0.165, depth 0.30).
@@ -120,10 +126,15 @@ Units are metres, +Y is up, and each room keeps its existing origin (see `device
 - **Local +Z points out of the door** (world −X); spin = `rotation.z`.
 - Children: 3 baffles and laundry lumps on the door-side face, seen through the now see-through door glass.
 - The `glow_washer_drum` / `glow_dryer_drum` decals are unchanged.
+- Washer and dryer bodies are now **black** (`washer_body` / `dryer_body` #1c1d20, control panels #2b2d31); node names unchanged.
+
+**Toe-kick lights** are part of the **`under_cabinet_lights`** device (see the changes section). Their strips `light_toe_kick_*` and floor glows `glow_toe_kick_*_floor` sit under `under_cabinet_lights/under_cabinet_toe_kick/…`.
 
 **Sparkles:** `table_lamp_booth_shade`, `dining_pendant_bulb`.
 
 ## Movie room
+**French doors** `french_door_1` / `french_door_2`: dark-stained wood leaves, stiles, rails and muntins (#3b2516), walnut jambs and casing, brass levers, roses and threshold, tinted glass (#2a3a52, 32 % opacity). Behind each glass is `french_door_<n>_porch_glimpse`, which the app drops by name. The round side table and the mid-century dresser on the right wall are gone.
+
 **Props:**
 - `prop_popcorn_bowl` (ottoman)
 - `prop_popcorn_bowl_2` (back-row seat)
@@ -144,6 +155,8 @@ Units are metres, +Y is up, and each room keeps its existing origin (see `device
 - **`flower_light_head`** (new): a glowing bud atop the tallest bloom; it lights with the `flower_light` device
 
 ## Basement bedroom
+**Dresser + TV (corrections pass):** `dresser` now stands on the front wall (z = L), opposite the bed and facing it. **`tv`** is a new `media` device mounted on that wall above the dresser (`tv_body`, `tv_screen`, `tv_wall_bracket`, `tv_logo`, `light_tv`, `glow_tv_room`, `anchor_tv`). `tv_screen` shows a picture and glows when on, like the den's TV. The front wall is cut at 1.1 m in the dollhouse, so the TV floats on its bracket there, like the recessed cans. `dresser_lamp` (and `anchor_dresser_lamp`) moved with the dresser; its meshes are now under `dresser_lamp/dresser_lamp_body`.
+
 **Props:**
 
 | node | where |
@@ -193,3 +206,54 @@ Units are metres, +Y is up, and each room keeps its existing origin (see `device
 - sways the curtain meshes from their heading
 - steams above `prop_mug` / `prop_kettle`
 - adds a Props on/off toggle
+
+## Changes 2026-11-13 (corrections pass)
+Dylan's corrections, relayed by Thomas Crreek. Every name below comes from diffing the GLB node lists before and after (the off and all-on GLBs differ only in the glow decals).
+
+### Living room (den)
+- **Removed:** `window_sill_low`, `window_sill_low_top`, `window_sill_low_face`, `window_sill_low_cushion` (the bench in front of the French doors).
+- **Added:**
+  - `cat_spot_armchair` (life.json spot `armchair`; new scene `armchair_nap`)
+  - `end_table_2`, `end_table_2_top`, `end_table_2_apron`, `end_table_2_shelf`, `end_table_2_leg` (end table at the other end of the sectional)
+  - `armchair_leather_2` with `armchair_2_base`, `armchair_2_seat_cushion`, `armchair_2_back`, `armchair_2_arm_left`, `armchair_2_arm_right`, `armchair_2_arm_roll_left`, `armchair_2_arm_roll_right`, `armchair_2_leg`, `armchair_2_pillow` (second matching armchair)
+  - `french_doors_leaf_1_muntin_h_5`, `french_doors_leaf_2_muntin_h_5` (the French doors now use the same 6-row grid as `glass_door_right`)
+- **Moved (same names):** `cat_spot_window` from the window seat (-0.30, 0.52, 1.35) to the reveal floor (-0.42, 0.012, 1.35). `armchair_leather` from (-1.85, 5.85) to (-3.62, 5.68), now facing the bookshelves. `armchair_remote` onto the second armchair.
+
+### Kitchen
+- **Removed:** `toe_kick_lights` (device group), `anchor_toe_kick_lights`, `toe_kick_cook`, `toe_kick_sink`, `toe_kick_island`, `toe_kick_ghost`.
+- **Added:**
+  - `prop_catch_all_bowl` with `pm_catch_all_bowl_bowl`, `_key_ring`, `_key_1`, `_key_fob`, `_wallet`, `_sunglasses`, `_sunglasses_lens_l`, `_sunglasses_lens_r`, `_sunglasses_bridge`
+  - `prop_table_runner` with `pm_table_runner_top`, `_end_a`, `_end_b`, `_tassel_a_1…5`, `_tassel_b_1…5`
+  - `under_cabinet_toe_kick`, `under_cabinet_toe_kick_cook`, `under_cabinet_toe_kick_sink`, `under_cabinet_toe_kick_island`, `under_cabinet_toe_kick_ghost`, `under_cabinet_toe_kick_laundry` (frame groups replacing the `toe_kick_*` ones)
+  - `light_toe_kick_laundry_cabinet`, `glow_toe_kick_laundry_cabinet_floor` (all-on only), `laundry_utility_cabinet_toekick`. The laundry utility cabinet gets a toe-kick so the strips run under every cabinet.
+- **Kept, re-parented:** `light_toe_kick_cooktop_run`, `light_toe_kick_oven_tower`, `light_toe_kick_sink_run`, `light_toe_kick_island_front`, `light_toe_kick_island_back` and their `glow_toe_kick_*_floor` decals, now under `under_cabinet_lights`.
+- **Moved:** `prop_mail` to (ISX+0.30, 0.92, 3.62); `prop_mug` 5 cm toward the sink side; `island_fruit_bowl` onto the runner.
+- **Restyled (same names):** `washer_body`, `dryer_body`, `washer_control_panel`, `dryer_control_panel` are now black.
+
+**Toe-kick device mapping change (`devices.json`):**
+
+| before | after |
+|---|---|
+| device `toe_kick_lights` ("Toe-kick lights", anchor `anchor_toe_kick_lights` at (-0.6, 0.05, 2.1), group `toe_kick_lights`) | **removed** |
+| device `under_cabinet_lights` ("Under-cabinet lights"): 4 under-cabinet strips | `under_cabinet_lights` ("Under-cabinet + toe-kick lights"): the same 4 strips **plus** the 6 toe-kick strips. Same anchor (`anchor_under_cabinet_lights`, (-0.3, 1.38, 1.0)), same 4 point lights. `glow_decals` and `mesh_nodes` now include the `light_toe_kick_*` and `glow_toe_kick_*_floor` names |
+| presets `all_on` / `evening`: `toe_kick_lights: 1` | removed (covered by `under_cabinet_lights: 1`) |
+| life.json `after_dinner` devices: `toe_kick_lights: 1` | `under_cabinet_lights: 1` |
+
+In the app, `hub-mapping.json` should drop the `toe_kick_lights` entry. The under-cabinet hub entity now drives the toe-kicks too.
+
+### Movie room
+- **Removed:**
+  - round side table: `round_side_table`, `round_side_table_top`, `round_side_table_pedestal`, `round_side_table_base`
+  - dresser on the right wall toward the screen: `mid_century_dresser`, `dresser_body`, `dresser_drawer_1_1…1_3`, `dresser_drawer_2_1…2_3`, `dresser_pull_1_1…1_3`, `dresser_pull_2_1…2_3`, `dresser_leg`, `dresser_lamp_base`
+- **Added:** `french_door_1_porch_glimpse`, `french_door_2_porch_glimpse`, `french_door_1_threshold`, `french_door_2_threshold`, `french_door_1_meeting_astragal`, `french_door_2_meeting_astragal`, `french_door_1_leaf1_rose`, `french_door_1_leaf2_rose`, `french_door_2_leaf1_rose`, `french_door_2_leaf2_rose`.
+- **Restyled (same names):** every `french_door_<n>_*` frame part is now dark wood or walnut instead of cream trim. The `_glass` parts use the new tinted glass.
+- The candy wall's `sideboard_*` and the sofa side tables with their lamps are unchanged.
+
+### Basement bedroom
+- **Removed:** none.
+- **Added:** `tv`, `tv_body`, `tv_screen`, `tv_wall_bracket`, `tv_logo`, `light_tv`, `glow_tv_room` (all-on only), `anchor_tv`, `dresser_lamp_body`.
+- **Moved (same names):** `dresser` (and all its parts) from the prints wall to the front wall, facing the bed. `dresser_lamp` and `anchor_dresser_lamp` moved from (3.64, 1.27, 3.28) to (1.235, 1.27, 4.14).
+- **devices.json:** new device `tv` (type `media`, anchor (1.65, 1.62, 4.37)). Preset `all_on` gains `tv: 1`. `bedtime` and `reading` leave it off. **life.json:** new scene `tv_in_bed` (`devices: { tv: 1, sconces 0.2 }`, `while_on: ["tv"]`).
+
+### Prop vocabulary
+`prop_catch_all_bowl` and `prop_table_runner` are new names. `check_life_names.mjs` now accepts them. The README says new clutter needs only a `prop_*` node and a line in `life.json`, and both are in the kitchen's scenes.

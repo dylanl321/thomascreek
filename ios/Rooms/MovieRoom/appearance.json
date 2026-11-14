@@ -54,24 +54,6 @@
       "metallic": 0.0,
       "double_sided": false
     },
-    "dresser_lamp_base": {
-      "kind": "bulb",
-      "base_srgb": [
-        0.7568627450924469,
-        0.603921568618341,
-        0.31372549018029405
-      ],
-      "opacity": 1.0,
-      "emissive_srgb": [
-        0.0,
-        0.0,
-        0.0
-      ],
-      "strength": 0.0,
-      "roughness": 0.3,
-      "metallic": 0.85,
-      "double_sided": false
-    },
     "side_table_front_row_shelf": {
       "kind": "bulb",
       "base_srgb": [
@@ -197,7 +179,7 @@
       "roughness": 0.9,
       "metallic": 0.0,
       "double_sided": true,
-      "base_texture": "tex_7.png"
+      "base_texture": "tex_8.png"
     },
     "glow_projector_floor_spill": {
       "kind": "glow",
@@ -216,7 +198,7 @@
       "roughness": 0.9,
       "metallic": 0.0,
       "double_sided": true,
-      "base_texture": "tex_7.png"
+      "base_texture": "tex_8.png"
     },
     "light_bias_strip_top": {
       "kind": "bulb",
@@ -307,7 +289,7 @@
       "roughness": 0.9,
       "metallic": 0.0,
       "double_sided": true,
-      "base_texture": "tex_8.png"
+      "base_texture": "tex_9.png"
     },
     "recessed_light_1": {
       "kind": "bulb",
@@ -344,7 +326,7 @@
       "roughness": 0.9,
       "metallic": 0.0,
       "double_sided": true,
-      "base_texture": "tex_9.png"
+      "base_texture": "tex_10.png"
     },
     "glow_recessed_1_pool": {
       "kind": "glow",
@@ -363,7 +345,7 @@
       "roughness": 0.9,
       "metallic": 0.0,
       "double_sided": true,
-      "base_texture": "tex_7.png"
+      "base_texture": "tex_8.png"
     },
     "recessed_light_2": {
       "kind": "bulb",
@@ -400,7 +382,7 @@
       "roughness": 0.9,
       "metallic": 0.0,
       "double_sided": true,
-      "base_texture": "tex_9.png"
+      "base_texture": "tex_10.png"
     },
     "glow_recessed_2_pool": {
       "kind": "glow",
@@ -419,7 +401,7 @@
       "roughness": 0.9,
       "metallic": 0.0,
       "double_sided": true,
-      "base_texture": "tex_7.png"
+      "base_texture": "tex_8.png"
     },
     "recessed_light_3": {
       "kind": "bulb",
@@ -456,7 +438,7 @@
       "roughness": 0.9,
       "metallic": 0.0,
       "double_sided": true,
-      "base_texture": "tex_9.png"
+      "base_texture": "tex_10.png"
     },
     "glow_recessed_3_pool": {
       "kind": "glow",
@@ -475,7 +457,7 @@
       "roughness": 0.9,
       "metallic": 0.0,
       "double_sided": true,
-      "base_texture": "tex_7.png"
+      "base_texture": "tex_8.png"
     },
     "recessed_light_4": {
       "kind": "bulb",
@@ -512,7 +494,7 @@
       "roughness": 0.9,
       "metallic": 0.0,
       "double_sided": true,
-      "base_texture": "tex_9.png"
+      "base_texture": "tex_10.png"
     },
     "glow_recessed_4_pool": {
       "kind": "glow",
@@ -531,7 +513,7 @@
       "roughness": 0.9,
       "metallic": 0.0,
       "double_sided": true,
-      "base_texture": "tex_7.png"
+      "base_texture": "tex_8.png"
     },
     "recessed_light_5": {
       "kind": "bulb",
@@ -568,7 +550,7 @@
       "roughness": 0.9,
       "metallic": 0.0,
       "double_sided": true,
-      "base_texture": "tex_9.png"
+      "base_texture": "tex_10.png"
     },
     "glow_recessed_5_pool": {
       "kind": "glow",
@@ -587,7 +569,7 @@
       "roughness": 0.9,
       "metallic": 0.0,
       "double_sided": true,
-      "base_texture": "tex_7.png"
+      "base_texture": "tex_8.png"
     },
     "recessed_light_6": {
       "kind": "bulb",
@@ -624,7 +606,7 @@
       "roughness": 0.9,
       "metallic": 0.0,
       "double_sided": true,
-      "base_texture": "tex_9.png"
+      "base_texture": "tex_10.png"
     },
     "glow_recessed_6_pool": {
       "kind": "glow",
@@ -643,7 +625,7 @@
       "roughness": 0.9,
       "metallic": 0.0,
       "double_sided": true,
-      "base_texture": "tex_7.png"
+      "base_texture": "tex_8.png"
     },
     "recessed_light_7": {
       "kind": "bulb",
@@ -680,7 +662,7 @@
       "roughness": 0.9,
       "metallic": 0.0,
       "double_sided": true,
-      "base_texture": "tex_9.png"
+      "base_texture": "tex_10.png"
     },
     "glow_recessed_7_pool": {
       "kind": "glow",
@@ -699,7 +681,7 @@
       "roughness": 0.9,
       "metallic": 0.0,
       "double_sided": true,
-      "base_texture": "tex_7.png"
+      "base_texture": "tex_8.png"
     },
     "recessed_light_8": {
       "kind": "bulb",
@@ -736,7 +718,7 @@
       "roughness": 0.9,
       "metallic": 0.0,
       "double_sided": true,
-      "base_texture": "tex_9.png"
+      "base_texture": "tex_10.png"
     },
     "glow_recessed_8_pool": {
       "kind": "glow",
@@ -755,7 +737,7 @@
       "roughness": 0.9,
       "metallic": 0.0,
       "double_sided": true,
-      "base_texture": "tex_7.png"
+      "base_texture": "tex_8.png"
     },
     "fire_flame_1": {
       "kind": "flame",
@@ -918,7 +900,7 @@
       "roughness": 0.9,
       "metallic": 0.0,
       "double_sided": true,
-      "base_texture": "tex_7.png"
+      "base_texture": "tex_8.png"
     },
     "glow_fireplace_floor": {
       "kind": "glow",
@@ -937,7 +919,7 @@
       "roughness": 0.9,
       "metallic": 0.0,
       "double_sided": true,
-      "base_texture": "tex_7.png"
+      "base_texture": "tex_8.png"
     },
     "glow_fireplace_opening": {
       "kind": "glow",
@@ -956,7 +938,7 @@
       "roughness": 0.9,
       "metallic": 0.0,
       "double_sided": true,
-      "base_texture": "tex_7.png"
+      "base_texture": "tex_8.png"
     },
     "light_string_bulb_1": {
       "kind": "bulb",
@@ -1371,7 +1353,7 @@
       "roughness": 0.9,
       "metallic": 0.0,
       "double_sided": true,
-      "base_texture": "tex_7.png"
+      "base_texture": "tex_8.png"
     },
     "light_riser_step_1": {
       "kind": "bulb",
@@ -1408,7 +1390,7 @@
       "roughness": 0.9,
       "metallic": 0.0,
       "double_sided": true,
-      "base_texture": "tex_7.png"
+      "base_texture": "tex_8.png"
     },
     "light_riser_step_2": {
       "kind": "bulb",
@@ -1445,7 +1427,7 @@
       "roughness": 0.9,
       "metallic": 0.0,
       "double_sided": true,
-      "base_texture": "tex_7.png"
+      "base_texture": "tex_8.png"
     },
     "light_riser_step_3": {
       "kind": "bulb",
@@ -1482,7 +1464,7 @@
       "roughness": 0.9,
       "metallic": 0.0,
       "double_sided": true,
-      "base_texture": "tex_7.png"
+      "base_texture": "tex_8.png"
     },
     "light_riser_step_4": {
       "kind": "bulb",
@@ -1519,7 +1501,7 @@
       "roughness": 0.9,
       "metallic": 0.0,
       "double_sided": true,
-      "base_texture": "tex_7.png"
+      "base_texture": "tex_8.png"
     },
     "light_riser_step_5": {
       "kind": "bulb",
@@ -1556,7 +1538,7 @@
       "roughness": 0.9,
       "metallic": 0.0,
       "double_sided": true,
-      "base_texture": "tex_7.png"
+      "base_texture": "tex_8.png"
     },
     "light_riser_step_6": {
       "kind": "bulb",
@@ -1593,7 +1575,7 @@
       "roughness": 0.9,
       "metallic": 0.0,
       "double_sided": true,
-      "base_texture": "tex_7.png"
+      "base_texture": "tex_8.png"
     },
     "table_lamp_1_base": {
       "kind": "bulb",
@@ -1684,7 +1666,7 @@
       "roughness": 0.9,
       "metallic": 0.0,
       "double_sided": true,
-      "base_texture": "tex_7.png"
+      "base_texture": "tex_8.png"
     },
     "glow_table_lamp_1_floor": {
       "kind": "glow",
@@ -1703,7 +1685,7 @@
       "roughness": 0.9,
       "metallic": 0.0,
       "double_sided": true,
-      "base_texture": "tex_7.png"
+      "base_texture": "tex_8.png"
     },
     "table_lamp_2_base": {
       "kind": "bulb",
@@ -1794,7 +1776,7 @@
       "roughness": 0.9,
       "metallic": 0.0,
       "double_sided": true,
-      "base_texture": "tex_7.png"
+      "base_texture": "tex_8.png"
     },
     "glow_table_lamp_2_floor": {
       "kind": "glow",
@@ -1813,7 +1795,7 @@
       "roughness": 0.9,
       "metallic": 0.0,
       "double_sided": true,
-      "base_texture": "tex_7.png"
+      "base_texture": "tex_8.png"
     },
     "flower_light_petal_1_1": {
       "kind": "led",
@@ -2462,7 +2444,7 @@
       "roughness": 0.9,
       "metallic": 0.0,
       "double_sided": true,
-      "base_texture": "tex_7.png"
+      "base_texture": "tex_8.png"
     },
     "glow_flower_light_wall_side": {
       "kind": "glow",
@@ -2481,7 +2463,7 @@
       "roughness": 0.9,
       "metallic": 0.0,
       "double_sided": true,
-      "base_texture": "tex_7.png"
+      "base_texture": "tex_8.png"
     },
     "glow_flower_light_floor": {
       "kind": "glow",
@@ -2500,7 +2482,7 @@
       "roughness": 0.9,
       "metallic": 0.0,
       "double_sided": true,
-      "base_texture": "tex_7.png"
+      "base_texture": "tex_8.png"
     },
     "light_candy_shelf_1": {
       "kind": "bulb",
@@ -2537,7 +2519,7 @@
       "roughness": 0.9,
       "metallic": 0.0,
       "double_sided": true,
-      "base_texture": "tex_10.png"
+      "base_texture": "tex_11.png"
     },
     "glow_candy_shelf_1_under": {
       "kind": "glow",
@@ -2556,7 +2538,7 @@
       "roughness": 0.9,
       "metallic": 0.0,
       "double_sided": true,
-      "base_texture": "tex_10.png"
+      "base_texture": "tex_11.png"
     },
     "light_candy_shelf_2": {
       "kind": "bulb",
@@ -2593,7 +2575,7 @@
       "roughness": 0.9,
       "metallic": 0.0,
       "double_sided": true,
-      "base_texture": "tex_10.png"
+      "base_texture": "tex_11.png"
     },
     "glow_candy_shelf_2_under": {
       "kind": "glow",
@@ -2612,7 +2594,7 @@
       "roughness": 0.9,
       "metallic": 0.0,
       "double_sided": true,
-      "base_texture": "tex_10.png"
+      "base_texture": "tex_11.png"
     },
     "light_candy_shelf_3": {
       "kind": "bulb",
@@ -2649,7 +2631,7 @@
       "roughness": 0.9,
       "metallic": 0.0,
       "double_sided": true,
-      "base_texture": "tex_10.png"
+      "base_texture": "tex_11.png"
     },
     "glow_candy_shelf_3_under": {
       "kind": "glow",
@@ -2668,7 +2650,7 @@
       "roughness": 0.9,
       "metallic": 0.0,
       "double_sided": true,
-      "base_texture": "tex_10.png"
+      "base_texture": "tex_11.png"
     },
     "glow_popcorn_floor": {
       "kind": "glow",
@@ -2687,7 +2669,7 @@
       "roughness": 0.9,
       "metallic": 0.0,
       "double_sided": true,
-      "base_texture": "tex_7.png"
+      "base_texture": "tex_8.png"
     },
     "pm_popcorn_bowl_bowl": {
       "kind": "shade",
@@ -2706,7 +2688,7 @@
       "roughness": 0.5,
       "metallic": 0.0,
       "double_sided": true,
-      "base_texture": "tex_11.png"
+      "base_texture": "tex_12.png"
     },
     "pm_popcorn_bowl_2_bowl": {
       "kind": "shade",
@@ -2725,7 +2707,7 @@
       "roughness": 0.5,
       "metallic": 0.0,
       "double_sided": true,
-      "base_texture": "tex_12.png"
+      "base_texture": "tex_13.png"
     }
   },
   "lights": {
