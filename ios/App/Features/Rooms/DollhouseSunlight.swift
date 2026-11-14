@@ -102,7 +102,7 @@ final class DollhouseSunlight {
     /// The shell's category. Cameras leave it out, so it is never drawn; lights other than the sun leave it out too.
     static let shellCategory = 1 << 5
     /// Lux-like SceneKit intensity at full sun. The studio key is 420; sun patches read clearly brighter.
-    static let peak: Double = 1000
+    static let peak: Double = 1600
 
     let light: SCNNode
     private let spec: DollhouseSunSpec
@@ -187,7 +187,7 @@ final class DollhouseSunlight {
         // sun is blocked, which turned every room black. Forward only takes away the sun's own light.
         sun.shadowMode = .forward
         sun.shadowSampleCount = 16
-        sun.shadowRadius = 2.5
+        sun.shadowRadius = 1.5
         sun.shadowMapSize = CGSize(width: 2048, height: 2048)
         sun.shadowColor = CGColor(gray: 0, alpha: 1)
         sun.shadowBias = 2
