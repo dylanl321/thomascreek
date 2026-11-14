@@ -30,6 +30,7 @@ final class DollhouseController {
                 SCNSceneSource.LoadingOption.animationImportPolicy: SCNSceneSource.AnimationImportPolicy.doNotPlay
             ])
             scene = loaded
+            Self.dropSurroundings(loaded.rootNode)
             index(loaded.rootNode)
             buildHitNames()
             prepareMaterials()
@@ -113,6 +114,18 @@ final class DollhouseController {
         let distance = radius / sin(half) * 0.92
         return DollhouseShot(position: SCNVector3(center.x + dir.x * distance, center.y + dir.y * distance, center.z + dir.z * distance),
                              target: center, fov: shot.fov)
+    }
+
+    /// The page shows the room alone, like a dollhouse on a table. The generators also build what is outside
+    /// the room (deck, yard, patio, lawn, shrubs, glimpses of the next room). Those stay in the source models
+    /// for the full-house view, and are dropped here.
+    private static func dropSurroundings(_ root: SCNNode) {
+        var doomed: [SCNNode] = []
+        root.enumerateHierarchy { node, stop in
+            guard let name = node.name?.lowercased() else { return }
+            if name.hasPrefix("exterior_") || name.hasSuffix("_glimpse") { doomed.append(node) }
+        }
+        doomed.forEach { $0.removeFromParentNode() }
     }
 
     // MARK: load
