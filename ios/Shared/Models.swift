@@ -208,6 +208,8 @@ struct HomeSnapshot: Codable, Hashable {
         var level: String
         var line: String
         var items: [StatusItem]?
+        /// The hub's live link to Home Assistant is up (nil from an older hub).
+        var haLive: Bool?
     }
     struct StatusItem: Codable, Hashable, Identifiable {
         var id: String

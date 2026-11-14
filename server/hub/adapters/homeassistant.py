@@ -120,7 +120,20 @@ class HomeAssistant(Adapter):
             params["entity"] = ",".join(entities)
         return await self.get_json(f"/api/logbook/{start_iso}", params=params or None)
 
+    # The hub's shared websocket (hub.ha_ws), when it's up. Set by the hub.
+    ws: Any = None
+
     async def call_service(self, domain: str, service: str, data: dict[str, Any]) -> Any:
+        """Over the websocket when it's connected (its state changes arrive as events), else REST, whose reply
+        lists the states the call changed. Returns that list, or None over the websocket."""
+        ws = self.ws
+        if ws is not None and ws.ready:
+            from ..ha_ws import NotConnected
+
+            try:
+                return await ws.call_service(domain, service, data)
+            except NotConnected:
+                pass  # nothing was sent: REST is safe
         return await self.post_json(f"/api/services/{domain}/{service}", data)
 
     async def camera_proxy(self, entity_id: str) -> bytes:

@@ -79,6 +79,7 @@ private struct DollhouseRoomPage: View {
         .navigationTitle(room.title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            ToolbarItem(placement: .topBarLeading) { LivePill() }
             ToolbarItem(placement: .primaryAction) {
                 Button("Advanced") { router.go(.room(room.mapping.roomId)) }
             }

@@ -114,6 +114,10 @@ class Hub:
         self.tv_catalog.artwork = self.artwork
         self.tv_app.artwork = self.artwork
         self.alerts = Alerts(self)
+        from .ha_ws import HAConnection
+
+        self.ha_ws = HAConnection(self)
+        self.ha.ws = self.ha_ws
         from .home_alerts import HomeAlerts
 
         self.home_alerts = HomeAlerts(self)
@@ -289,6 +293,7 @@ class Hub:
             self.vpn.bring_up()
         except Exception as exc:  # noqa: BLE001
             log.error("VPN did not come up: %s", exc)
+        self.ha_ws.start()
         self.home.start()
         self.timers.start()
         self.youtube.start()
@@ -507,6 +512,7 @@ class Hub:
                 self._frigate_seen.pop(key, None)
 
     async def stop(self) -> None:
+        await self.ha_ws.stop()
         await self.home.stop()
         await self.timers.stop()
         await self.youtube.stop()
