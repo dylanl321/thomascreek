@@ -126,7 +126,15 @@ def linear_to_srgb(c: float) -> float:
 
 
 def srgb_tuple(rgb: list[float]) -> tuple[float, float, float]:
+    """For appearance.json only: the app builds UIColors from these, and UIColor components are sRGB."""
     return tuple(max(0.0, min(1.0, linear_to_srgb(float(c)))) for c in rgb[:3])
+
+
+def linear_tuple(rgb: list[float]) -> tuple[float, float, float]:
+    """For the USD itself. glTF factors are linear and UsdPreviewSurface colours are linear, so they pass
+    through unchanged. Writing the sRGB-encoded value here lifted every flat colour toward white
+    (a 0.5 grey became 0.74), which is what washed the dollhouse out."""
+    return tuple(max(0.0, min(1.0, float(c))) for c in rgb[:3])
 
 
 class Converter:
@@ -165,7 +173,7 @@ class Converter:
         shader.CreateIdAttr("UsdPreviewSurface")
         pbr = mat.get("pbrMetallicRoughness", {})
         base = pbr.get("baseColorFactor", [1, 1, 1, 1])
-        color = srgb_tuple(base)
+        color = linear_tuple(base)
         if "baseColorTexture" in pbr:
             tex_index = self.gltf["textures"][pbr["baseColorTexture"]["index"]]["source"]
             reader = self._texture(path, "diffuseTex", self.textures[tex_index])
@@ -182,7 +190,7 @@ class Converter:
         strength = float(mat.get("extensions", {}).get("KHR_materials_emissive_strength", {}).get("emissiveStrength", 1 if emissive else 0))
         if emissive and strength > 0:
             # Keep the on-state in the file. The app multiplies it back down when the device is off.
-            em = srgb_tuple(emissive)
+            em = linear_tuple(emissive)
             shader.CreateInput("emissiveColor", Sdf.ValueTypeNames.Color3f).Set(
                 Gf.Vec3f(em[0] * strength, em[1] * strength, em[2] * strength))
         if "emissiveTexture" in mat:
