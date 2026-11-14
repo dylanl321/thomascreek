@@ -245,7 +245,8 @@ class BrainConfig(BaseModel):
     briefing_push: bool = False
     mute_after_ignored: int = 6        # a job whose last N cards were all ignored or "Not now" mutes itself
     layout_enabled: bool = True        # arrange each person's Home (brain/layout.py); off = everyone's own order
-    layout_cooldown_min: float = 10    # at most one layout model call per person in this long
+    layout_cooldown_min: float = 3     # at most one layout model call per person in this long
+    layout_tier: str = "smart"         # smart (Sonnet) or cheap (Haiku); Dylan: quality over cost (2026-11-14)
     jobs: dict[str, BrainJobConfig] = Field(default_factory=dict)
 
 

@@ -247,7 +247,7 @@ why?, generated_at?}`. `smart` comes back in the plan's card order (safety cards
   otherwise its own order as before. Kids' sections are only reordered, never hidden.
 - A fresh plan arrives as `{"type":"smart"}` after the model answers (the request never waits).
 - Hub: hub/brain/layout.py (guard rails), hub/brain/layout_examples.py (example screens the model copies).
-  Config `brain.layout_enabled` (default true), `brain.layout_cooldown_min` (10). Runs are costed in `ai_runs` as
+  Config `brain.layout_enabled` (default true), `brain.layout_cooldown_min` (3), `brain.layout_tier` (smart = Sonnet). Runs are costed in `ai_runs` as
   job `layout`; `/v1/brain/summary` has `layout {enabled, runs, cost_usd, people}`.
 - Settings: `home.ai` (bool) is new, and `home.order`/`home.hidden` now accept `weather` (it was refused before).
 

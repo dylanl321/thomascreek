@@ -1,6 +1,6 @@
 """Each person's Home, arranged by the house brain.
 
-The model (the brain's cheap tier) decides which sections a person's Home shows, in what order, which
+The model (the brain's smart tier by default, brain.layout_tier) decides which sections a person's Home shows, in what order, which
 "Right now" cards lead and how many show, from the situation: time of day, weekday or weekend, home or
 away, the cards the rules found, what's playing, a trip coming up, which services are down. It bases its
 choices on a set of example screens (layout_examples.py).
@@ -371,8 +371,9 @@ class Planner:
             payload = {"examples": [{"situation": e["situation"], "screen": e["plan"]} for e in EXAMPLES
                                     if e["situation"].get("home") == sit["home"]],
                        "now": sit}
-            thought = await self.brain.router.think(system=SYSTEM, payload=payload, schema=SCHEMA, tier="cheap",
-                                                    max_tokens=600)
+            thought = await self.brain.router.think(system=SYSTEM, payload=payload, schema=SCHEMA,
+                                                    tier="cheap" if self.cfg.layout_tier == "cheap" else "smart",
+                                                    escalate=False, max_tokens=600)
             words = thought.data
             if not isinstance(words, dict) or not isinstance(words.get("sections"), list) or not words["sections"]:
                 words = None
