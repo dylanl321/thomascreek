@@ -68,8 +68,9 @@ targets:
         NSBonjourServices: [_thomascreek._tcp]
         CoreSpotlightContinuation: true
         LSApplicationQueriesSchemes: [itms-beta]
+        # The hub is HTTPS. Cleartext is limited to local networking (an IP, a .local name, or a single name).
         NSAppTransportSecurity:
-          NSAllowsArbitraryLoads: true
+          NSAllowsArbitraryLoads: false
           NSAllowsLocalNetworking: true
         CFBundleURLTypes:
           - CFBundleURLName: thomascreek
@@ -115,8 +116,9 @@ targets:
         AppGroup: $(APP_GROUP)
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
+        # Same rule as the app. Widgets call the hub on the LAN and on the published address.
         NSAppTransportSecurity:
-          NSAllowsArbitraryLoads: true
+          NSAllowsArbitraryLoads: false
           NSAllowsLocalNetworking: true
     entitlements:
       path: Widgets/HomeWidgets.entitlements
@@ -143,8 +145,9 @@ targets:
         NSExtension:
           NSExtensionPointIdentifier: com.apple.usernotifications.service
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).NotificationService
+        # Same rule as the app. The extension downloads alert pictures from the hub.
         NSAppTransportSecurity:
-          NSAllowsArbitraryLoads: true
+          NSAllowsArbitraryLoads: false
           NSAllowsLocalNetworking: true
     entitlements:
       path: NotificationService/NotificationService.entitlements

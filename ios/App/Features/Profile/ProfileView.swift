@@ -8,6 +8,7 @@ struct ProfileView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var alerts = AlertsModel.shared
     @State private var hubLAN = AppSettings.hubLAN
+    @State private var hubError: String?
     @State private var editHome = false
 
     var body: some View {
@@ -98,24 +99,59 @@ struct ProfileView: View {
                         Text("See the app exactly as a kid or guest does. Nothing in the house changes while you look.")
                     }
                     Section {
-                        TextField("http://hub.local:8443", text: $hubLAN).keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
-                            .onSubmit { AppSettings.hubLAN = hubLAN; Task { await store.refreshAll() } }
+                        TextField("https://10.0.0.5:8443", text: $hubLAN).keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
+                            .onSubmit { _ = commitHub() }
+                        if let hubError {
+                            Text(hubError).font(.footnote).foregroundStyle(Theme.warn)
+                        }
                         if VPN.shared.isAvailable {
                             Button("Get fresh VPN settings") { Task { do { try await VPN.shared.reinstall(); store.show("Tunnel updated") } catch { store.show(error.localizedDescription, isError: true) } } }
                         }
                     } header: { Text("Hub") } footer: {
-                        Text("Found automatically on home Wi-Fi. Only change this if the hub moved.")
+                        Text("Found automatically on home Wi-Fi. Only change this if the hub moved. Use https. Plain http is only kept for an IP, a .local name, or a single name on the home network.")
                     }
                 }
             }
             .navigationTitle("Profile")
             .sheet(isPresented: $editHome) { EditHomeSheet().personalStyle() }
-            .toolbar { Button("Done") { dismiss() } }
-            .onDisappear { if hubLAN != AppSettings.hubLAN { AppSettings.hubLAN = hubLAN } }
+            .toolbar {
+                Button("Done") {
+                    if commitHub() { dismiss() }
+                }
+            }
+            .onAppear {
+                if case .rejected(let message) = HubAddress.parse(hubLAN) { hubError = message }
+            }
+            .onDisappear { _ = commitHub() }
             .task {
                 PushRegistration.shared.send()
                 await alerts.load()
             }
+        }
+    }
+
+    /// Saves a usable address. A rejected edit stays on screen so the error is visible, unless it is
+    /// the address already stored (opening Profile must not trap someone there).
+    private func commitHub() -> Bool {
+        switch HubAddress.parse(hubLAN) {
+        case .empty:
+            hubError = nil
+            if hubLAN != "" { hubLAN = "" }
+            guard !AppSettings.hubLAN.isEmpty else { return true }
+            AppSettings.hubLAN = ""
+            Task { await store.refreshAll() }
+            return true
+        case .url(let url):
+            hubError = nil
+            let stored = HubAddress.canonical(url)
+            if hubLAN != stored { hubLAN = stored }
+            guard stored != AppSettings.hubLAN else { return true }
+            AppSettings.hubLAN = stored
+            Task { await store.refreshAll() }
+            return true
+        case .rejected(let message):
+            hubError = message
+            return hubLAN.trimmingCharacters(in: .whitespacesAndNewlines) == AppSettings.hubLAN
         }
     }
 
