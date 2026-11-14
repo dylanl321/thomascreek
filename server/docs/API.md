@@ -986,7 +986,104 @@ The shelf is ranked from plays this profile has made. A profile that has not wat
 ]}
 ```
 
-An item carries only the ids it has. `progress` is 0 to 1 and only present when the hub knows how long the title is. `reason` is one of `continue watching`, `new episode of a series you watch or record`, `recording ready`, `starting now on a channel you watch`, `trending in your history`. On now is a programme that started within the last 20 minutes on a channel this profile watched in the last 30 days. A finished recording is one the DVR marked `done`. Rows with nothing in them are left out. The order is continue, new episodes, recordings, on now, for you.
+An item carries only the ids it has. `progress` is 0 to 1 and only present when the hub knows how long the title is. `reason` is one of `continue watching`, `new episode of a series you watch or record`, `recording ready`, `ready to watch`, `starting now on a channel you watch`, `trending in your history`. On now is a programme that started within the last 20 minutes on a channel this profile watched in the last 30 days. A finished recording is one the DVR marked `done`. A title asked for from Explore, once it can be played, is added to Ready to watch with `reason` `ready to watch` and `movie_id` or `series_id`. Rows with nothing in them are left out. The order is continue, new episodes, recordings, on now, for you.
+
+### Explore
+
+`GET /v1/tv/explore?profile=adult|kids`. The same bearer as the guide. A child, a guest or a kids' TV always gets the kids feed, even if `profile=adult`. Anyone else asking `profile=kids` gets the kids feed. The answer is the last built feed. It does not call TMDB or the provider while the TV is waiting. The hub rebuilds it about every six hours.
+
+A title is on the feed only when the household can play it, or when it can be asked for and the request stack can actually take it. Playable means it is in the IPTV movie or series library, in Plex's recently added list, or a finished DVR recording. The live channel lineup is not scanned. Askable means Jellyseerr is set up and the title has a TMDB id. Anything else is left off.
+
+```json
+{"hero":{
+  "kind":"movie","title":"The Matrix","year":1999,"overview":"A hacker.","tagline":"Welcome to the Real World",
+  "poster_url":"/v1/tv/explore/art/poster/movie/603","backdrop_url":"/v1/tv/explore/art/backdrop/movie/603",
+  "logo_url":"/v1/tv/explore/art/logo/movie/603","rating":"R","genres":["Action","Science Fiction"],
+  "reason":"New this week","badges":["New"],"availability":"play","movie_id":"vod:thomas-creek:100"
+ },
+ "rows":[
+  {"id":"new","title":"New releases","items":[
+    {"kind":"movie","title":"The Matrix","year":1999,"overview":"A hacker.","tagline":"Welcome to the Real World",
+     "poster_url":"/v1/tv/explore/art/poster/movie/603","backdrop_url":"/v1/tv/explore/art/backdrop/movie/603",
+     "logo_url":"/v1/tv/explore/art/logo/movie/603","rating":"R","genres":["Action","Science Fiction"],
+     "reason":"New this week","badges":["New"],"availability":"play","movie_id":"vod:thomas-creek:100"}
+  ]},
+  {"id":"popular","title":"Popular","items":[
+    {"kind":"series","title":"Bluey","year":2018,"overview":"A puppy.","tagline":null,
+     "poster_url":"/v1/tv/explore/art/poster/tv/82728","backdrop_url":"/v1/tv/explore/art/backdrop/tv/82728",
+     "logo_url":null,"rating":"TV-Y","genres":["Kids"],
+     "reason":"Popular this week","badges":["Popular","Top 10"],"availability":"request",
+     "tmdb_id":82728,"media_id":"tv:82728"}
+  ]},
+  {"id":"acclaimed","title":"Must watch","items":[
+    {"kind":"movie","title":"Spirited Away","year":2001,"overview":"A girl.","tagline":null,
+     "poster_url":"/v1/tv/explore/art/poster/movie/129","backdrop_url":"/v1/tv/explore/art/backdrop/movie/129",
+     "logo_url":null,"rating":"PG","genres":["Animation"],
+     "reason":"Acclaimed","badges":["Top 10"],"availability":"play","movie_id":"vod:thomas-creek:129"}
+  ]}
+ ]}
+```
+
+`kind` is `movie` or `series`. `availability` is `play` or `request`. A playable movie has `movie_id`. A playable series has `series_id`. A Plex title also has `plex_id`. A finished recording has `recording_id`. A request has `tmdb_id` and `media_id` (`movie:603` or `tv:82728`). `request_id` is present once someone has asked. `logo_url` and `tagline` are null when the hub does not have them. `poster_url`, `backdrop_url` and `logo_url` are hub paths. Fetch them with the bearer. A missing file is `404` "No artwork". The card still shows the title.
+
+`badges` is any of `New`, `Popular`, `Top 10`, `Requested`. `reason` is `New this week`, `Popular this week`, `Acclaimed`, or `In your library`. Rows with nothing in them are left out. The order is New releases, Popular, Must watch. The hero is the first new title that has a backdrop, or the first playable title. With nothing to show, the feed is `{"hero":null,"rows":[]}`.
+
+Kids titles are limited to the ratings in `child_policy.ratings`. A TMDB title with no US rating is left out of the kids feed unless it is already in a kids library category. An adult feed is not limited that way.
+
+With no `tmdb.api_key` in the vault, the hub does not call TMDB. The feed is one row from the library:
+
+```json
+{"hero":{"kind":"movie","title":"Kids Movie","year":2018,"overview":null,"tagline":null,
+  "poster_url":"/v1/art/poster/vod:thomas-creek:101","backdrop_url":"/v1/art/backdrop/vod:thomas-creek:101",
+  "logo_url":null,"rating":"G","genres":["Kids"],"reason":"In your library","badges":["New"],
+  "availability":"play","movie_id":"vod:thomas-creek:101"},
+ "rows":[{"id":"library","title":"Recently added","items":[
+   {"kind":"movie","title":"Kids Movie","year":2018,"overview":null,"tagline":null,
+    "poster_url":"/v1/art/poster/vod:thomas-creek:101","backdrop_url":"/v1/art/backdrop/vod:thomas-creek:101",
+    "logo_url":null,"rating":"G","genres":["Kids"],"reason":"In your library","badges":["New"],
+    "availability":"play","movie_id":"vod:thomas-creek:101"}
+ ]}]}
+```
+
+`POST /v1/tv/explore/request` `{tmdb_id, kind}`. `kind` is `movie` or `series`. One tap. The answer is always a sentence, not an error code, except a body that does not name a title (`400` "Say which title.").
+
+Already in the library:
+
+```json
+{"ok":true,"status":"play","movie_id":"vod:thomas-creek:100","message":"It's already in the library."}
+```
+
+An adult, with Jellyseerr set up:
+
+```json
+{"ok":true,"status":"requested","request_id":"88","tmdb_id":603,"kind":"movie","media_id":"movie:603","message":"Asked for The Matrix."}
+```
+
+A child:
+
+```json
+{"ok":true,"status":"waiting","request_id":"req_ab12","tmdb_id":603,"kind":"movie","media_id":"movie:603","message":"Asked a parent."}
+```
+
+Jellyseerr is not set up, or the title is not one it can take:
+
+```json
+{"ok":false,"status":"unavailable","message":"That isn't something we can ask for yet."}
+```
+
+A kids' profile asking for a grown-up rating:
+
+```json
+{"ok":false,"status":"unavailable","message":"That one needs a grown-up."}
+```
+
+Progress is an SSE event on `GET /v1/events`, for phones and TVs. No push. `status` is `requested`, `downloading`, or `ready`.
+
+```json
+{"type":"explore","data":{"tmdb_id":603,"kind":"movie","title":"The Matrix","status":"ready","profile":"adult","movie_id":"vod:thomas-creek:100"}}
+```
+
+`series_id` is used instead of `movie_id` for a series. `profile` is `adult` or `kids`. A kids' TV and a child only receive the kids profile. The same event is what moves the card, and a `ready` title is the Up Next item above.
 
 ### Channel health
 
