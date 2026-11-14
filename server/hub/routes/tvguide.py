@@ -101,6 +101,23 @@ async def up_next(profile: str | None = None, c: Caller = Depends(caller), h: Hu
     return shelf(h, "kids" if kids else "adult")
 
 
+@router.post("/playback_events")
+async def playback_events(body: dict[str, Any], c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """How a play actually went. The hub scores sources from these. It does not call the provider."""
+    _media(h, c)
+    events = body.get("events")
+    if not isinstance(events, list):
+        raise error(400, "bad_request", "events is a list")
+    return {"ok": True, "accepted": h.source_health.accept(events)}
+
+
+@router.get("/health")
+async def channel_health(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """Sources we have played, worst first. A source with no plays is not listed."""
+    _media(h, c)
+    return h.source_health.worst()
+
+
 @router.get("/guide")
 async def guide(start: float | None = None, end: float | None = None, channel: str | None = None,
                 c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
@@ -112,7 +129,9 @@ async def guide(start: float | None = None, end: float | None = None, channel: s
     finish = now + 6 * 3600 if end is None else end
     if finish <= begin or finish - begin > 48 * 3600:
         raise error(400, "bad_request", "Ask for a window of up to 48 hours")
-    return h.tv_catalog.guide(start=begin, end=finish, channel=channel or None, kids_only=kids, now=now)
+    body = h.tv_catalog.guide(start=begin, end=finish, channel=channel or None, kids_only=kids, now=now)
+    h.source_health.annotate(body.get("channels") or [])
+    return body
 
 
 @router.get("/series")
