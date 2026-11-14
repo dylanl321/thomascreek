@@ -912,6 +912,30 @@ On `GET /v1/tv/lineup` and `GET /v1/tv/guide`, a channel that has been played ga
 
 Overnight, between 1am and 6am, the hub opens a stream for favorites, channels watched in the last 30 days, and at most the 200 most played. It checks one or two at a time, never more than the provider allows, and never the rest of the lineup. A check that fails is another play result. The address is not stored and not returned.
 
+### Kids' bedtime
+
+A kids profile starts with 90 minutes a day and the household bedtime window (`child_policy.bedtime`, default 20:30, until `smart.wake_time`, default 07:00). A warning comes 10 minutes before either limit. An adult profile has no limit until someone sets one. Nothing has to be configured.
+
+`GET /v1/tv/bedtime?profile=kids`
+
+```json
+{"profile":"kids","daily_minutes":90,"from":"20:30","to":"07:00","warn_minutes":10,"scene":"scene.good_night","state":"warning","minutes_left":10}
+```
+
+`state` is `unlocked`, `warning`, or `locked`. `minutes_left` is present on a warning, and `0` when the daily minutes are used up. `scene` is a Home Assistant scene the hub found (a name like bedtime, good night, or dim), or null. `PUT /v1/tv/bedtime` is admin and accepts `profile`, `daily_minutes`, `from`, `to`, `warn_minutes`, and `scene`. `scene: ""` means don't touch the lights.
+
+`bedtime` on `GET /v1/events`:
+
+```json
+{"type":"bedtime","data":{"state":"warning","minutes_left":10,"profile":"kids"}}
+```
+
+A kids' TV receives the kids profile. An adult TV receives the adult profile. Phones receive both. The older person-bedtime event, which has no `data.state`, is unchanged.
+
+When the state becomes `locked`, the hub runs that scene if `scene.run` is a live action. If the scene is missing or the house doesn't answer, the TV still locks.
+
+`POST /v1/tv/bedtime/extend` `{profile,minutes}` is a parent (admin or adult). `minutes` is 5 to 120. It adds that much time and lifts the night window for that long. A child gets `403` "Ask a parent". A warning also tells parents once, in the app.
+
 ## Universal title search
 
 `GET /v1/titles/search?q=` (at least two letters). One card per title across Plex, the IPTV lineup and guide, and TMDB (Jellyseerr, which is what asks Sonarr and Radarr). The same title is one card: matched on TMDB id, then IMDb, then TVDB, then the cleaned name and year.
