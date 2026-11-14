@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -44,7 +45,10 @@ def test_a_doorbell_reaches_the_tv_and_the_picture_stays_on_the_hub(hub, home_cl
     phones = hub.bus.subscribe(lambda ev: shape_event(hub, subject, ev), subject.person_id)
     tvs = hub.bus.subscribe(lambda ev: shape_event(hub, tv_subject, ev), None, device_id=f"tv:{TV_ID}", tv=True)
 
-    alert = hub.home_alerts.note_doorbell("binary_sensor.front_doorbell", now=_afternoon())
+    # The doorbell ignores quiet hours, and the picture route checks the alert's age against the real clock,
+    # so ring it now (a fixed afternoon went stale 90 s after it passed).
+    rang = time.time()
+    alert = hub.home_alerts.note_doorbell("binary_sensor.front_doorbell", now=rang)
     assert alert["kind"] == "doorbell" and alert["title"] == "Someone's at the door"
     assert alert["camera"] == "driveway"
     assert alert["snapshot_url"].startswith("/v1/tv/alerts/") and alert["stream_url"].endswith("/stream")
@@ -52,7 +56,7 @@ def test_a_doorbell_reaches_the_tv_and_the_picture_stays_on_the_hub(hub, home_cl
     assert "ha.test" not in str(alert) and "token" not in str(alert)
     assert phones.queue.get_nowait()["type"] == "home_alert"
     assert tvs.queue.get_nowait()["data"]["id"] == alert["id"]
-    assert hub.home_alerts.note_doorbell("binary_sensor.front_doorbell", now=_afternoon()) is None
+    assert hub.home_alerts.note_doorbell("binary_sensor.front_doorbell", now=rang) is None
 
     async def proxy(_entity):
         return b"\xff\xd8picture"
@@ -112,7 +116,7 @@ def test_the_playlist_points_back_at_the_hub():
 
 def test_a_phone_away_from_home_does_not_get_the_picture(hub, home_client, away_client, people):
     _door(hub)
-    alert = hub.home_alerts.note_doorbell("binary_sensor.front_doorbell", now=_afternoon())
+    alert = hub.home_alerts.note_doorbell("binary_sensor.front_doorbell", now=time.time())
 
     async def proxy(_entity):
         return b"\xff\xd8picture"
