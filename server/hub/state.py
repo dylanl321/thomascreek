@@ -109,6 +109,9 @@ class Hub:
         self.tv_catalog.artwork = self.artwork
         self.tv_app.artwork = self.artwork
         self.alerts = Alerts(self)
+        from .home_alerts import HomeAlerts
+
+        self.home_alerts = HomeAlerts(self)
         self.actions = ActionRunner(self)
         self.timers = Timers(self)
         self.kitchen = Kitchen(self)
@@ -333,6 +336,10 @@ class Hub:
                             await self.alerts.on_frigate(e)
                         except Exception as exc:  # noqa: BLE001
                             log.warning("camera alert failed: %s", exc)
+                        try:
+                            self.home_alerts.note_frigate(e)
+                        except Exception as exc:  # noqa: BLE001
+                            log.warning("door alert failed: %s", exc)
                     seen.add(e["id"])
                 if rows:
                     after = max([after or 0] + [r.get("start_time") or 0 for r in rows])
