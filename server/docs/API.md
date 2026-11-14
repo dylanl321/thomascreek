@@ -28,7 +28,7 @@ Every error is JSON: `{"error": "<code>", "message": "<plain words>", ...}`.
 ## Discovery and TLS pinning
 
 Bonjour `_thomascreek._tcp`, TXT `api=v1`, `id=<hub id>`, `pin=<hex sha256 of the
-hub certificate's SubjectPublicKeyInfo>`. Pin that value at enrollment (on home
+hub certificate's SubjectPublicKeyInfo>`, `pair=/v1/tv/pair`. Pin that value at enrollment (on home
 Wi-Fi) and require it for every later connection, including through the tunnel
 and `remote_url`. `GET /v1/ping` (no auth) returns `{ok, id, name, api, version}`.
 `GET /v1/hello` (no auth) returns `{name, id, api, version, pin}`, the same pin as
@@ -964,6 +964,67 @@ Play `<thing>` in `<room>`. `GET /v1/search?q=` first. If that hit is already a 
 Move the TV to `<room>`. `GET /v1/tv/devices`, then `POST /v1/tv/handoff` from the TV that is playing to the TV in that room. Nothing playing answers with that sentence and does not send a command.
 
 Turn off the TV in `<room>`. `POST /v1/actions` `tv.stop` on that TV.
+
+### Zero-setup pairing
+
+The hub advertises `_thomascreek._tcp` on the home network. A new TV posts here with no bearer. Home network only. Eight requests from one address in ten minutes; the next answer is `429` `{"error":"rate_limited","message":"Wait a moment and try again."}`. A pending request expires after 15 minutes.
+
+`POST /v1/tv/pair`
+
+```json
+{"install_id":"tv_office_0123456789","name":"Living room TV","model":"onn 4K","app_version":"1.5.0","suggested_room":"living_room","public_key":"<base64 P-256>"}
+```
+
+`install_id` is 16 to 64 letters, digits, `-` or `_`, and it is the stable identity. `public_key` is the same encoding as `POST /v1/tv/enroll`. `suggested_room` is an area id such as `living_room`, or a room name. A brand-new TV:
+
+```json
+{"status":"pending","pair_id":"pair_ab12cd34ef567890abcd","expires_at":"2026-11-14T01:15:00+00:00","poll_after_s":2}
+```
+
+`GET /v1/tv/pair/{pair_id}` (no bearer, home network) is how the TV waits. Still waiting:
+
+```json
+{"status":"pending","pair_id":"pair_ab12cd34ef567890abcd","expires_at":"2026-11-14T01:15:00+00:00","poll_after_s":2}
+```
+
+Approved:
+
+```json
+{"status":"approved","access_token":"eyJ…","token_type":"bearer","expires_at":"2026-11-14T01:30:00+00:00","expires_in":900,
+ "role":"tablet","profile":"adult","room":"living_room","capabilities":["climate.own_room","family.view","lights.own_room","media.own_tv"],
+ "tv":{"id":"tv_office_0123456789","name":"Living room TV"},
+ "config":{"status":"approved","version":3,"name":"Living room TV","profile":"adult","room":"living_room","media_entity":null,
+  "playlists":[{"type":"xtream","name":"Thomas Creek","server":"http://iptv.example:8080","username":"household","password":"s3cret"}],
+  "epg_url":null,"lineup_version":12,"theme":null,"favorites":["xc:thomas-creek:10"]}}
+```
+
+`config` is the same approved `POST /v1/tv/config` body, plus `favorites` (channel keys starred in the house). A kids profile also has `kids_categories`. Denied, or a request older than 15 minutes:
+
+```json
+{"status":"denied"}
+```
+
+```json
+{"status":"expired"}
+```
+
+Both are `200`. The TV starts the request again. It does not show an error code.
+
+The same `install_id` that was already approved, posting again from home (a wiped TV with a new key), is approved on this call. The new `public_key` replaces the old one. Room, profile, name, and favorites stay. The body is the approved object above, with no `pair_id`.
+
+Phones hear one SSE event, and one push when push is configured. Repeating the post does not send another.
+
+```json
+{"type":"tv_pair","data":{"pair_id":"pair_ab12cd34ef567890abcd","install_id":"tv_office_0123456789","name":"Living room TV","model":"onn 4K","suggested_room":"living_room","status":"pending"}}
+```
+
+`GET /v1/tv/pair` with an admin bearer:
+
+```json
+{"pending":[{"pair_id":"pair_ab12cd34ef567890abcd","install_id":"tv_office_0123456789","name":"Living room TV","model":"onn 4K","suggested_room":"living_room","suggested_room_name":"Living Room","expires_at":"2026-11-14T01:15:00+00:00"}]}
+```
+
+`POST /v1/tv/pair/{pair_id}/approve` `{room?, profile?, name?}` and `POST /v1/tv/pair/{pair_id}/deny` are admin. Approve answers `{"ok":true,"status":"approved"}`. Deny answers `{"ok":true,"status":"denied"}`. A second tap on an expired request answers `{"ok":false,"status":"expired"}` and does not raise. `profile` is `adult` or `kids`. `room` is an area id. The signed `POST /v1/tv/enroll` path is unchanged.
 
 ## Universal title search
 

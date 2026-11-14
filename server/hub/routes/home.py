@@ -47,6 +47,10 @@ def shape_event(h: Hub, s: Subject, ev: dict[str, Any]) -> dict[str, Any] | None
         if s.role in ("pending", "guest"):
             return None
         return ev
+    if ev.get("type") == "tv_pair":
+        if s.role != "admin":
+            return None
+        return ev
     if ev.get("type") == "bedtime" and (ev.get("data") or {}).get("state"):
         if s.role in ("pending", "guest"):
             return None

@@ -94,6 +94,29 @@ _MEDIA = re.compile(r"^media_player\.[a-z0-9_]+$")
 _URL = re.compile(r"https?://\S+", re.I)
 
 
+def _favorite_channels(db: Any) -> list[str]:
+    """Channel keys someone has starred. Pairing includes them so a new TV opens on the familiar ones."""
+    found: list[str] = []
+    try:
+        rows = db.all("SELECT value FROM person_settings WHERE key=?", ["fav.media"])
+    except Exception:  # noqa: BLE001
+        return found
+    for row in rows:
+        value = row.get("value")
+        if isinstance(value, str):
+            try:
+                value = json.loads(value)
+            except json.JSONDecodeError:
+                continue
+        if not isinstance(value, list):
+            continue
+        for item in value:
+            ident = item.get("id") if isinstance(item, dict) else None
+            if isinstance(ident, str) and valid_key(ident) and ident not in found:
+                found.append(ident)
+    return found[:40]
+
+
 def token_message(install_id: str, ts: int, person_id: str | None) -> bytes:
     """Bytes the TV signs for POST /v1/tv/token. person_id is omitted when it isn't narrowing."""
     if person_id:
@@ -869,6 +892,29 @@ class TvApp:
             "epg_url": src["epg_url"],
             "lineup_version": self.lineup_version(),
             "theme": self.theme(),
+        }
+        if out["profile"] == "kids":
+            out["kids_categories"] = self.kids_categories()
+        return out
+
+    def approved_config(self, install_id: str) -> dict[str, Any]:
+        """The config body for a TV that is already approved. Pairing returns this with the token."""
+        tv = self.tvs().get(install_id) or {}
+        if tv.get("status") != "approved":
+            return {"status": "pending"}
+        src = self._source()
+        out: dict[str, Any] = {
+            "status": "approved",
+            "version": self.config_version(),
+            "name": tv.get("name"),
+            "profile": tv.get("profile", "adult"),
+            "room": tv.get("room"),
+            "media_entity": tv.get("media_entity"),
+            "playlists": src["playlists"],
+            "epg_url": src["epg_url"],
+            "lineup_version": self.lineup_version(),
+            "theme": self.theme(),
+            "favorites": _favorite_channels(self.db),
         }
         if out["profile"] == "kids":
             out["kids_categories"] = self.kids_categories()
