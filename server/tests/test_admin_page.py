@@ -189,3 +189,84 @@ def test_people_page_roles_and_adding(hub, people, home_client):
 def test_people_page_needs_sign_in_and_home(people, home_client, away_client):
     assert away_client.get("/admin/people").status_code == 403
     assert "Sign in with the app" in home_client.get("/admin/people").text
+
+
+def test_web_page_opens_over_the_home_vpn_but_never_from_the_internet(hub, people, app):
+    """Dylan on the Firewalla WireGuard VPN can open /admin; the public hostname stays closed."""
+    import ipaddress
+
+    from starlette.testclient import TestClient
+
+    vpn_ip = "10.77.0.5"  # inside vpn.subnet (the test default)
+    assert not hub.is_home(vpn_ip) and hub.can_open_web(vpn_ip)
+    with TestClient(app, client=(vpn_ip, 50000), base_url="https://hub.test") as vpn:
+        assert vpn.get("/admin").status_code == 200
+        url = people["phones"]["Dylan"].secure_post("/v1/admin/web-link", {}).json()["url"]
+        assert vpn.get(url, follow_redirects=False).status_code == 303
+        assert "name=csrf" in vpn.get("/admin").text
+        # Still "away" for everything else: enrolling a new phone needs home Wi-Fi.
+        r = vpn.post("/v1/enroll", json={"public_key": "x", "device_name": "x", "model": "x"})
+        assert r.status_code == 403 and r.json()["error"] == "not_home"
+
+    # Through the reverse proxy only the address the proxy saw counts.
+    hub._proxies = [ipaddress.ip_network("172.20.0.0/16")]
+    with TestClient(app, client=("172.20.0.5", 40000), base_url="https://hub.test") as proxied:
+        assert proxied.get("/admin", headers={"X-Forwarded-For": "203.0.113.9"}).status_code == 403
+        forged = {"X-Forwarded-For": f"{vpn_ip}, 203.0.113.9"}
+        assert proxied.get("/admin", headers=forged).status_code == 403
+        assert proxied.get("/admin", headers={"X-Forwarded-For": vpn_ip}).status_code == 200
+    # A stranger can't claim a VPN address without a trusted proxy in front.
+    with TestClient(app, client=("203.0.113.9", 40000), base_url="https://hub.test") as stranger:
+        assert stranger.get("/admin", headers={"X-Forwarded-For": vpn_ip}).status_code == 403
+
+    # Turned off, the VPN is away for the web page too.
+    hub.config.hub.web_over_vpn = False
+    assert not hub.can_open_web(vpn_ip)
+
+
+def test_web_networks_add_ranges_but_never_public_ones(hub):
+    import ipaddress
+
+    assert not hub.can_open_web("10.189.25.4")
+    hub._web_nets = [ipaddress.ip_network("10.189.25.0/24"), ipaddress.ip_network("0.0.0.0/0")]
+    assert hub.can_open_web("10.189.25.4")
+    assert not hub.can_open_web("8.8.8.8")  # even a catch-all range never lets the internet in
+    assert not hub.can_open_web("127.0.0.1")
+    assert not hub.can_open_web(None)
+
+
+def test_pool_vpn_client_address_opens_the_web_page(hub, tmp_path):
+    from hub.dropbox import import_dropped
+
+    from .test_services import _client_conf
+
+    hub.config.vpn.provider = "pool"
+    drop = tmp_path / "import"
+    drop.mkdir()
+    (drop / "vpn.pool.1.conf").write_text(_client_conf(1))  # Address = 10.11.12.2/32
+    assert import_dropped(hub.vault, drop) == ["vpn.pool.1"]
+    assert not hub.is_home("10.11.12.2") and hub.can_open_web("10.11.12.2")
+
+
+def test_test_button_waits_for_a_check_already_running_and_tests_again(hub):
+    """The check started right after a save must not swallow the Test button (it used to answer from the old result)."""
+    _plex_on(hub)
+    hub.vault.set("plex.token", "x" * 20)
+
+    async def go():
+        with respx.mock() as mock:
+            async def slow(request):
+                await asyncio.sleep(0.3)
+                return httpx.Response(401)
+
+            route = mock.get("http://plex.test/library/sections").mock(side_effect=slow)
+            first = asyncio.create_task(hub.keychecks.run(secret="plex.token"))
+            await asyncio.sleep(0.05)
+            route.mock(return_value=httpx.Response(200, json={}))
+            second = await hub.keychecks.run(secret="plex.token")
+            await first
+            return route.call_count, second
+
+    calls, second = asyncio.run(go())
+    assert calls == 2 and second[0][1]["state"] == "ok"
+    assert hub.keychecks.results["plex"]["state"] == "ok"
