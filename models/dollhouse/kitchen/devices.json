@@ -99,9 +99,9 @@
       ],
       "group_node": "recessed_lights",
       "light_nodes": [
-        "light_recessed_row_1.3",
-        "light_recessed_row_2.85",
-        "light_recessed_row_4.4"
+        "light_recessed_row_1_3",
+        "light_recessed_row_2_85",
+        "light_recessed_row_4_4"
       ],
       "light_on_intensity": [
         7,

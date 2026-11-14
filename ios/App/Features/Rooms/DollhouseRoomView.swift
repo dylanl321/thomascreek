@@ -337,7 +337,11 @@ private struct DollhouseRoomPage: View {
         if entity.action == "media.command" {
             guard let device = store.home?.device(id) else { return }
             if device.isOn == on { return }
-            store.perform("media.command", target: id, params: ["command": entity.command ?? "power"], confirm: confirm, optimistic: {
+            let command = entity.command ?? "power"
+            // Power says which way: the hub turns it on or off instead of toggling, so a repeat can't undo it.
+            var params: [String: Any] = ["command": command]
+            if command == "power" { params["on"] = on }
+            store.perform("media.command", target: id, params: params, confirm: confirm, optimistic: {
                 $0.state["on"] = .bool(on)
                 $0.state["state"] = .string(on ? "on" : "off")
             })

@@ -230,6 +230,9 @@ class HomeModel:
         self.ha_ok_at: float | None = None
         self.slow_at = 0.0
         self._task: asyncio.Task | None = None
+        # Entities changed since the last `device` events went out (see publish_soon).
+        self._dirty: set[str] = set()
+        self._flush: asyncio.Task | None = None
 
     # -- refresh loop ------------------------------------------------------
     def start(self) -> None:
@@ -398,6 +401,56 @@ class HomeModel:
         for eid in changed:
             if eid in self.entity_area or eid in self.hub.config.favorites:
                 self.hub.bus.publish({"type": "device", "entity_id": eid})
+
+    # -- live changes --------------------------------------------------------
+    # Seconds a burst of changes is gathered before `device` events go out: a dimming light reports several
+    # brightness steps, and a group switch reports every member, within a few hundred milliseconds.
+    PUBLISH_DEBOUNCE_S = 0.15
+
+    def merge_states(self, states: list[dict[str, Any]] | None) -> list[str]:
+        """Fold fresh states into the model now instead of waiting for the next poll.
+
+        They come from a service call's reply (Home Assistant lists what the call changed) and from its
+        event stream. Only entities the model already knows are taken; a new entity waits for the poll,
+        which also works out its room. Returns the entities that changed.
+        """
+        changed: list[str] = []
+        for st in states or []:
+            if not isinstance(st, dict):
+                continue
+            eid = st.get("entity_id")
+            old = self.states.get(eid) if isinstance(eid, str) else None
+            if old is None:
+                continue
+            stamp = st.get("last_updated")
+            if stamp and stamp == old.get("last_updated"):
+                continue
+            self.states[eid] = {**old, **st}  # type: ignore[index]
+            changed.append(eid)  # type: ignore[arg-type]
+        return changed
+
+    def publish_soon(self, eids: list[str] | set[str]) -> None:
+        """Send `device` events for these entities after a short gathering pause (one per entity)."""
+        for eid in eids:
+            if eid in self.entity_area or eid in self.hub.config.favorites:
+                self._dirty.add(eid)
+        if not self._dirty or (self._flush is not None and not self._flush.done()):
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self._flush_now()
+            return
+        self._flush = loop.create_task(self._flush_later())
+
+    async def _flush_later(self) -> None:
+        await asyncio.sleep(self.PUBLISH_DEBOUNCE_S)
+        self._flush_now()
+
+    def _flush_now(self) -> None:
+        dirty, self._dirty = self._dirty, set()
+        for eid in sorted(dirty):
+            self.hub.bus.publish({"type": "device", "entity_id": eid})
 
     def _learn_apps(self, first: bool) -> None:
         """Sideloaded apps (TREX) have no fixed package name: remember it once any box shows it open."""

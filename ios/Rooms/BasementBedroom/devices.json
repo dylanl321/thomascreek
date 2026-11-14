@@ -127,8 +127,8 @@
       ],
       "group_node": "recessed_lights",
       "light_nodes": [
-        "light_recessed_1.2_1.2",
-        "light_recessed_2.6_3.4"
+        "light_recessed_1_2_1_2",
+        "light_recessed_2_6_3_4"
       ],
       "light_on_intensity": [
         6,

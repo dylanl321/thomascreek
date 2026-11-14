@@ -753,10 +753,9 @@ class Alerts:
                             continue
                         d = (msg.get("event") or {}).get("data") or {}
                         eid = d.get("entity_id") or ""
-                        if eid in self.hub.home.states and d.get("new_state"):
-                            self.hub.home.states[eid] = {**self.hub.home.states[eid], "state": d["new_state"].get("state"),
-                                                         "attributes": d["new_state"].get("attributes"),
-                                                         "last_changed": d["new_state"].get("last_changed")}
+                        if isinstance(d.get("new_state"), dict):
+                            # Phones hear about it now, not at the next 15 s poll.
+                            self.hub.home.publish_soon(self.hub.home.merge_states([d["new_state"]]))
                         try:
                             await self.on_state(eid, d.get("old_state"), d.get("new_state"))
                         except Exception as exc:  # noqa: BLE001

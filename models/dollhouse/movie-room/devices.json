@@ -120,8 +120,8 @@
       ],
       "group_node": "recessed_lights",
       "light_nodes": [
-        "light_recessed_2.4",
-        "light_recessed_6.6"
+        "light_recessed_2_4",
+        "light_recessed_6_6"
       ],
       "light_on_intensity": [
         7,
@@ -236,13 +236,13 @@
       "position_m": [
         2.7,
         2.45,
-        8.38
+        8.62
       ],
       "group_node": "rear_string_lights",
       "light_nodes": [
-        "light_string_1.4",
+        "light_string_1_4",
         "light_string_3",
-        "light_string_4.6"
+        "light_string_4_6"
       ],
       "light_on_intensity": [
         0.9,
@@ -253,7 +253,7 @@
         "glow_string_floor"
       ],
       "mesh_nodes": [
-        "rear_track",
+        "rear_curtain_track",
         "light_string_bulb_1",
         "light_string_bulb_2",
         "light_string_bulb_3",
@@ -611,15 +611,6 @@
           4.37,
           2.43,
           0.12
-        ],
-        "sway_axis_local": "x"
-      },
-      {
-        "name": "rear_black_curtain",
-        "heading_world_m": [
-          2.7,
-          2.56,
-          8.72
         ],
         "sway_axis_local": "x"
       },
