@@ -104,13 +104,7 @@ private struct DollhouseRoomPage: View {
                 }
                 .frame(maxWidth: .infinity)
                 .frame(height: 440)
-                // No card: the room sits on the app background and its edges fade into it.
-                .mask(
-                    EllipticalGradient(stops: [.init(color: .black, location: 0),
-                                               .init(color: .black, location: 0.62),
-                                               .init(color: .clear, location: 1)],
-                                       center: .center, startRadiusFraction: 0, endRadiusFraction: 0.5)
-                )
+                // No card and no mask: the cutaway sits on the app background like a dollhouse.
 
                 Menu {
                     Button("Dollhouse", systemImage: "cube.transparent") { controller.place(.dollhouse, animated: true) }
