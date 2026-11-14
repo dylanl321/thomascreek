@@ -19,6 +19,7 @@ hub:
 home_assistant:
   url: http://HOME_ASSISTANT:8123
   token_secret: home_assistant.token      # long-lived token of a dedicated "hub" HA user
+  websocket: true                         # one live connection for states, rooms and calls; false = REST + 15 s poll
   extra:
     tts_entity: tts.home_assistant_cloud
     shower_preheat_script: null

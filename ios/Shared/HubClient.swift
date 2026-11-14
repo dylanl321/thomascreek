@@ -302,7 +302,11 @@ actor HubClient {
         // longer at home: it isn't sent again elsewhere once it may have arrived.
         let atHome = base.absoluteString == AppSettings.hubLAN && bases().count > 1
         r.timeoutInterval = atHome ? (method == "GET" ? 3 : 5) : 10
-        if let requestID { r.setValue(requestID, forHTTPHeaderField: "X-TC-Request-Id") }
+        if let requestID {
+            r.setValue(requestID, forHTTPHeaderField: "X-TC-Request-Id")
+            // A slow light may be answered 202 "accepted"; the outcome then arrives over the event stream.
+            r.setValue("202", forHTTPHeaderField: "X-TC-Accept")
+        }
         if body != nil { r.setValue("application/json", forHTTPHeaderField: "Content-Type") }
         if let bearer { r.setValue("Bearer \(bearer)", forHTTPHeaderField: "Authorization") }
         if let confirmHeader { r.setValue(confirmHeader, forHTTPHeaderField: "X-TC-Confirm") }

@@ -7,7 +7,7 @@ import json
 from typing import Any
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from ..actions import ActionError
@@ -193,10 +193,39 @@ async def perform(request: Request, c: Caller, h: Hub, action: str, target: str 
         await require_confirm(request, h, c, d.tier)
     try:
         via = "ask" if request.headers.get("x-tc-via") == "ask" else "quick" if quick_ok else "app"
-        return await h.dedupe.run(c.device["id"], request.headers.get("x-tc-request-id"),
-                                  lambda: h.actions.run(c.subject, plan, source=via))
+        return await run_once(request, h, c, action, lambda: h.actions.run(c.subject, plan, source=via))
     except ActionError as exc:
         raise error(exc.status, exc.error, exc.message) from None
+
+
+# Simple device changes that may be answered "accepted" when Home Assistant is slow (the phone opts in).
+ACCEPTABLE_ACTIONS = frozenset({"light.set", "switch.set", "fan.set"})
+
+
+async def run_once(request: Request, h: Hub, c: Caller, action: str, make: Any) -> Any:
+    """Run an action once per request id. A light, switch or fan that is slow to answer gets 202 "accepted" after
+    `accept_after_s` when the phone asked for it (X-TC-Accept: 202); the call carries on, and the phone hears how
+    it ended from the device's own event, or an `action_result` event if it failed."""
+    rid = request.headers.get("x-tc-request-id")
+    job = h.dedupe.run(c.device["id"], rid, make)
+    wait = h.config.hub.accept_after_s
+    if not (rid and action in ACCEPTABLE_ACTIONS and wait > 0 and request.headers.get("x-tc-accept") == "202"):
+        return await job
+    task = asyncio.ensure_future(job)
+    done, _ = await asyncio.wait({task}, timeout=wait)
+    if done:
+        return task.result()
+    device_id = c.device["id"]
+
+    def report(t: asyncio.Task) -> None:
+        if t.cancelled():
+            return
+        exc = t.exception()
+        msg = exc.message if isinstance(exc, ActionError) else (None if exc is None else "That didn't go through.")
+        h.bus.publish({"type": "action_result", "data": {"request_id": rid, "ok": exc is None, "message": msg}},
+                      device_id=device_id)
+    task.add_done_callback(report)
+    return JSONResponse({"ok": True, "accepted": True, "request_id": rid, "message": "On its way"}, status_code=202)
 
 
 # Actions a phone may send for several devices at once (a dollhouse preset, a lamp made of several bulbs).
@@ -250,11 +279,13 @@ async def actions_batch(body: BatchBody, request: Request, c: Caller = Depends(c
     combined = h.actions.combine(plans)
     try:
         via = "quick" if quick_ok else "app"
-        out = await h.dedupe.run(c.device["id"], request.headers.get("x-tc-request-id"),
-                                 lambda: h.actions.run(c.subject, combined, source=via))
+        out = await run_once(request, h, c, body.action, lambda: h.actions.run(c.subject, combined, source=via))
     except ActionError as exc:
         raise error(exc.status, exc.error, exc.message) from None
-    return {**out, "targets": [p.target.entity_id for p in plans], "skipped": skipped}
+    extra = {"targets": [p.target.entity_id for p in plans], "skipped": skipped}
+    if isinstance(out, JSONResponse):
+        return JSONResponse({**json.loads(bytes(out.body)), **extra}, status_code=out.status_code)
+    return {**out, **extra}
 
 
 def dumps(v: Any) -> str:

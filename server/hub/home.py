@@ -229,6 +229,8 @@ class HomeModel:
         self.calendar: list[dict[str, Any]] = []
         self.ha_ok_at: float | None = None
         self.slow_at = 0.0
+        self.areas_at = 0.0
+        self.rest_at = 0.0
         self._task: asyncio.Task | None = None
         # Entities changed since the last `device` events went out (see publish_soon).
         self._dirty: set[str] = set()
@@ -256,15 +258,25 @@ class HomeModel:
                 log.warning("refresh failed: %s", exc)
             await asyncio.sleep(self.hub.config.hub.poll_interval_s)
 
+    # With the websocket up, states arrive as they change; the REST read of every state is only a safety net.
+    REST_SAFETY_S = 300.0
+
+    def _ws(self):
+        ws = getattr(self.hub, "ha_ws", None)
+        return ws if ws is not None and ws.ready else None
+
     async def refresh(self) -> None:
         ha = self.hub.ha
         was_ok = self.ha_ok_at is not None and ha.last_error is None
         if ha.enabled:
             try:
-                if not self.areas or time.time() - self.slow_at > 300:
+                # Registries over the websocket are cheap; the REST templates load Home Assistant, so rarely.
+                if not self.areas or time.time() - self.areas_at > (300 if self._ws() else 1800):
                     await self._refresh_areas()
-                states = await ha.states()
-                self._apply_states(states)
+                if self._ws() is None or time.time() - self.rest_at > self.REST_SAFETY_S:
+                    states = await ha.states()
+                    self._apply_states(states)
+                    self.rest_at = time.time()
                 self.ha_ok_at = time.time()
             except Exception as exc:  # noqa: BLE001
                 log.warning("Home Assistant read failed: %s", exc)
@@ -294,10 +306,29 @@ class HomeModel:
             )
 
     async def _refresh_areas(self) -> None:
+        self.areas_at = time.time()
+        ws = self._ws()
+        if ws is not None:
+            from .adapters.homeassistant import MEDIA_INTEGRATIONS
+            from .ha_ws import areas_from, devices_from, floors_from, media_links_from
+
+            try:
+                r = await ws.registry()
+            except Exception as exc:  # noqa: BLE001
+                log.info("registry read over the websocket failed (%s); using templates", exc)
+            else:
+                if r.get("area") or r.get("entity"):
+                    self._install_areas(areas_from(r), floors_from(r), media_links_from(r, self.states),
+                                        devices_from(r, MEDIA_INTEGRATIONS, set(self.states)))
+                    return
         areas = await self.hub.ha.areas()
         floors = await self.hub.ha.floors()
         links = await self.hub.ha.media_links()
         reg = await self.hub.ha.devices()
+        self._install_areas(areas, floors, links, reg)
+
+    def _install_areas(self, areas: list[dict[str, Any]], floors: list[dict[str, Any]],
+                       links: list[dict[str, Any]], reg: dict[str, Any]) -> None:
         if reg.get("devices"):
             self.ha_devices = {d["id"]: d for d in reg["devices"] if d.get("id")}
             self.entity_device = {e: d["id"] for d in reg["devices"] for e in d.get("entities") or []}
@@ -428,6 +459,17 @@ class HomeModel:
             self.states[eid] = {**old, **st}  # type: ignore[index]
             changed.append(eid)  # type: ignore[arg-type]
         return changed
+
+    def apply_full_states(self, states: list[dict[str, Any]]) -> None:
+        """Every state at once (the websocket's get_states after each connect)."""
+        self._apply_states(states)
+        self.ha_ok_at = self.rest_at = time.time()
+
+    def ws_changed(self, up: bool) -> None:
+        """The websocket came up or went down: phones' status line, and the rooms re-read from the registries."""
+        self.hub.bus.publish({"type": "status", "data": {}})
+        if up:
+            self.areas_at = 0.0
 
     def publish_soon(self, eids: list[str] | set[str]) -> None:
         """Send `device` events for these entities after a short gathering pause (one per entity)."""
@@ -689,6 +731,14 @@ class HomeModel:
         return out
 
     def status(self, s: Subject, devices: list[dict[str, Any]]) -> dict[str, Any]:
+        out = self._status(s, devices)
+        ws = getattr(self.hub, "ha_ws", None)
+        if ws is not None and ws.enabled:
+            # The app's Live / Reconnecting hint: changes reach phones the moment they happen only with this up.
+            out["ha_live"] = bool(ws.connected)
+        return out
+
+    def _status(self, s: Subject, devices: list[dict[str, Any]]) -> dict[str, Any]:
         ha = self.hub.ha
         if ha.enabled and (self.ha_ok_at is None or ha.last_error):
             since = iso(self.ha_ok_at) if self.ha_ok_at else None

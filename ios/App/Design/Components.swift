@@ -339,3 +339,25 @@ func clock(_ iso: String?) -> String {
     guard let d = iso.flatMap(ISO.parse) else { return iso ?? "" }
     return d.formatted(date: .omitted, time: .shortened)
 }
+
+
+/// "Live" while taps and changes reach the house and come back at once; "Reconnecting" while the app's stream
+/// or the hub's link to Home Assistant is down (changes still go through, just slower to show).
+struct LivePill: View {
+    @Environment(HomeStore.self) private var store
+
+    private var live: Bool { store.isLive && (store.home?.status.haLive ?? true) }
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Circle().fill(live ? Color.green : Color.orange).frame(width: 7, height: 7)
+            Text(live ? "Live" : (store.reachable ? "Reconnecting" : "Offline"))
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 8).padding(.vertical, 4)
+        .background(.ultraThinMaterial, in: Capsule())
+        .animation(.easeInOut(duration: 0.3), value: live)
+        .accessibilityElement(children: .combine)
+    }
+}

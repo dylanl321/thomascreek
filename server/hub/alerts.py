@@ -228,7 +228,7 @@ class Alerts:
             "extra": [{"entity_id": x["entity_id"], "name": x.get("name") or self._name(st.get(x["entity_id"]), x["entity_id"])}
                       for x in src["extra"]],
             "garage_after_s": src["garage_after_s"],
-            "listening": self.ws_connected,
+            "listening": self.listening,
         }
 
     def candidates(self, q: str = "") -> list[dict[str, Any]]:
@@ -696,7 +696,8 @@ class Alerts:
             self.firewalla_push_off_once()
         except Exception as exc:  # noqa: BLE001
             log.warning("Firewalla default-off migration: %s", exc)
-        if self.hub.ha.enabled and self._ws_task is None:
+        # The hub's shared websocket hands state changes to on_state; this one only runs when that is turned off.
+        if self.hub.ha.enabled and self._ws_task is None and not self._shared_ws():
             self._ws_task = asyncio.create_task(self._listen())
         if self._tick_task is None:
             self._tick_task = asyncio.create_task(self._ticker())
@@ -720,6 +721,16 @@ class Alerts:
                     await job()
                 except Exception as exc:  # noqa: BLE001
                     log.info("%s: %s", name, exc)
+
+    def _shared_ws(self) -> bool:
+        ws = getattr(self.hub, "ha_ws", None)
+        return bool(ws is not None and ws.enabled)
+
+    @property
+    def listening(self) -> bool:
+        if self._shared_ws():
+            return bool(self.hub.ha_ws.connected)
+        return self.ws_connected
 
     def _ws_url(self) -> str:
         url = (self.hub.config.home_assistant.url or "").rstrip("/")

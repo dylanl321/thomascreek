@@ -30,6 +30,11 @@ class ServiceConfig(BaseModel):
     extra: dict[str, Any] = Field(default_factory=dict)
 
 
+class HomeAssistantConfig(ServiceConfig):
+    # One persistent websocket for state changes, registries and service calls. Off: REST only (15 s poll).
+    websocket: bool = True
+
+
 class FrigateConfig(ServiceConfig):
     go2rtc_url: str | None = None
     # Public URL the app uses for WebRTC signalling through the hub.
@@ -321,6 +326,9 @@ class HubSettings(BaseModel):
     away_auth_per_minute: int = 30
     access_token_ttl_s: int = 900
     poll_interval_s: float = 15.0
+    # A light, switch or fan call that takes longer than this is answered "accepted" (202) and finishes in the
+    # background; the phone learns the outcome from the device's own event or an action_result event.
+    accept_after_s: float = 1.5
     timezone: str = "America/New_York"
     # The hub as published through the reverse proxy, if Dylan enables that.
     remote_url: str | None = None
@@ -367,7 +375,8 @@ class AmbientConfig(BaseModel):
 
 class Config(BaseModel):
     hub: HubSettings = Field(default_factory=HubSettings)
-    home_assistant: ServiceConfig = Field(default_factory=lambda: ServiceConfig(token_secret="home_assistant.token"))
+    home_assistant: HomeAssistantConfig = Field(
+        default_factory=lambda: HomeAssistantConfig(token_secret="home_assistant.token"))
     frigate: FrigateConfig = Field(default_factory=lambda: FrigateConfig(enabled=False))
     plex: ServiceConfig = Field(default_factory=lambda: ServiceConfig(enabled=False, token_secret="plex.token"))
     jellyseerr: ServiceConfig = Field(default_factory=lambda: ServiceConfig(enabled=False, token_secret="jellyseerr.api_key"))
