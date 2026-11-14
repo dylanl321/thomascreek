@@ -852,6 +852,34 @@ The hub finds the doorbell and the cameras by a door (the name or the room menti
 
 `PUT /v1/tv/alerts/settings` is admin. `cameras: null` or `rooms: null` goes back to finding them. `cameras` lists ids such as `driveway`. The same block can live under `home_assistant.extra` as `door_cameras`, `door_rooms`, `alert_quiet` and `alert_motion`; a saved PUT wins.
 
+### Up Next
+
+`GET /v1/tv/upnext?profile=adult|kids`. The same bearer as the guide. A child, a guest or a kids' TV always gets the kids shelf, even if `profile=adult`. Anyone else asking `profile=kids` gets the kids shelf. With no profile, a child gets kids and everyone else gets adult.
+
+The shelf is ranked from plays this profile has made. A profile that has not watched anything gets `{"rows":[]}`.
+
+```json
+{"rows":[
+  {"id":"continue","title":"Continue watching","items":[
+    {"kind":"movie","movie_id":"vod:thomas-creek:101","title":"Kids Movie","subtitle":"10 min in","reason":"continue watching","poster_url":"/v1/art/poster/vod:thomas-creek:101","backdrop_url":"/v1/art/backdrop/vod:thomas-creek:101","progress":0.12}
+  ]},
+  {"id":"next","title":"New episodes","items":[
+    {"kind":"episode","episode_id":"ep:thomas-creek:901","series_id":"series:thomas-creek:50","title":"Next","subtitle":"Cartoon Show","reason":"new episode of a series you watch or record","poster_url":"/v1/art/poster/series:thomas-creek:50"}
+  ]},
+  {"id":"recordings","title":"Ready to watch","items":[
+    {"kind":"recording","recording_id":"dvr_abc123","channel_key":"xc:thomas-creek:10","title":"Newsroom","subtitle":"Recorded","reason":"recording ready","poster_url":"/v1/art/poster/prog:abc"}
+  ]},
+  {"id":"onnow","title":"On now","items":[
+    {"kind":"live","channel_key":"xc:thomas-creek:10","title":"Newsroom","subtitle":"CNN","reason":"starting now on a channel you watch","poster_url":"/v1/art/poster/prog:0b49a5b26ac1e2d3739f"}
+  ]},
+  {"id":"trending","title":"For you","items":[
+    {"kind":"live","channel_key":"xc:thomas-creek:12","title":"Sports","subtitle":"You watch this","reason":"trending in your history"}
+  ]}
+]}
+```
+
+An item carries only the ids it has. `progress` is 0 to 1 and only present when the hub knows how long the title is. `reason` is one of `continue watching`, `new episode of a series you watch or record`, `recording ready`, `starting now on a channel you watch`, `trending in your history`. On now is a programme that started within the last 20 minutes on a channel this profile watched in the last 30 days. A finished recording is one the DVR marked `done`. Rows with nothing in them are left out. The order is continue, new episodes, recordings, on now, for you.
+
 ## Universal title search
 
 `GET /v1/titles/search?q=` (at least two letters). One card per title across Plex, the IPTV lineup and guide, and TMDB (Jellyseerr, which is what asks Sonarr and Radarr). The same title is one card: matched on TMDB id, then IMDb, then TVDB, then the cleaned name and year.

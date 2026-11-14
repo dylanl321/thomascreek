@@ -75,7 +75,9 @@ struct HomeView: View {
                 SectionHeader(title: "Kids online") { MoreButton("Manage") { router.go(.kidNet) } }
                 KidsOnlineRow(kids: kids)
             }
-        case .playing: NowPlayingSection()
+        case .playing:
+            NowPlayingSection()
+            UpNextStrip()
         // Printers (PR #34): `ForEach(home?.activePrinters ?? []) { PrinterNowCard(printer: $0) }`
         case .printer: ForEach(home?.activePrinters ?? []) { PrinterNowCard(printer: $0) }
         case .cameras:

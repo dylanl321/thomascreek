@@ -21,6 +21,7 @@ from .adapters.base import AdapterError
 from .home import iso, kind_for
 from .policy import TIERS, Decision, Subject, Target
 from .tvapp import TvAppError
+from .upnext import remember
 
 if TYPE_CHECKING:
     from .state import Hub
@@ -791,6 +792,9 @@ class ActionRunner:
         info = plan.custom
         command = self.hub.tv_app.enqueue_command(info["install_id"], info["command"])
         info["command_id"] = command["id"]
+        if command.get("action") == "play":
+            tv = self.hub.tv_app.tvs().get(info["install_id"]) or {}
+            remember(self.hub.db, "kids" if tv.get("profile") == "kids" else "adult", command)
         self.hub.bus.publish({"type": "tv_command", "data": command}, device_id=f"tv:{info['install_id']}")
         if plan.action == "tv.stop":
             return f"Told {plan.label} to stop"
