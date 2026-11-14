@@ -225,7 +225,7 @@ final class HomeStore {
             NotificationCenter.default.post(name: .printerStatus, object: st)
         case "tv":
             guard case .object(let o)? = e.data else { return }
-            if let watch = Self.decode(TVWatch.self, o) { noteTV(watch) }
+            if let watch = Self.decode(TVWatch.self, .object(o)) { noteTV(watch) }
             if let cmd = o["command"]?.object {
                 let name = o["name"]?.string ?? "The TV"
                 let ok = cmd["ok"]?.bool ?? false
