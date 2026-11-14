@@ -130,6 +130,9 @@ class Hub:
 
         self.ambient = Ambient(self)
         self.actions = ActionRunner(self)
+        from .dedupe import RequestDedupe
+
+        self.dedupe = RequestDedupe()
         self.timers = Timers(self)
         self.kitchen = Kitchen(self)
         self.bambu_cloud = BambuCloud(self)

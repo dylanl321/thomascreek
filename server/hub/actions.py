@@ -10,6 +10,7 @@ Every action passes through four gates, in order:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
 import time
@@ -758,6 +759,27 @@ class ActionRunner:
         d = self.hub.policy.decide(s, "announce", Target(), params)
         calls = [("tts", "speak", {"entity_id": tts, "media_player_entity_id": speakers, "message": text})] if speakers else []
         return Plan("announce", Target(), {"text": text, "rooms": sorted(rooms)}, d, calls, label="announcement")
+
+    def combine(self, plans: list[Plan]) -> Plan:
+        """One plan for several devices: calls that differ only in their entity go to Home Assistant once,
+        with every entity in the list (one radio round for a whole room of lights)."""
+        merged: dict[tuple[str, str, str], tuple[str, str, dict[str, Any], list[str]]] = {}
+        for plan in plans:
+            for dom, svc, data in plan.calls:
+                rest = {k: v for k, v in data.items() if k != "entity_id"}
+                key = (dom, svc, json.dumps(rest, sort_keys=True, default=str))
+                ids = data.get("entity_id")
+                ids = ids if isinstance(ids, list) else [ids]
+                if key not in merged:
+                    merged[key] = (dom, svc, rest, [])
+                merged[key][3].extend(i for i in ids if i and i not in merged[key][3])
+        calls = [(dom, svc, {**rest, "entity_id": ids[0] if len(ids) == 1 else ids})
+                 for dom, svc, rest, ids in merged.values()]
+        first = plans[0]
+        if len(plans) == 1:
+            return Plan(first.action, first.target, first.params, first.decision, calls, label=first.label)
+        return Plan(first.action, Target(kind=first.target.kind), {"targets": [p.target.entity_id for p in plans]},
+                    first.decision, calls, label=f"{len(plans)} {first.target.kind or 'device'}s")
 
     # -- running ----------------------------------------------------------
     async def run(self, s: Subject, plan: Plan, *, source: str = "app") -> dict[str, Any]:

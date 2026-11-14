@@ -13,6 +13,8 @@ actor HubClient {
 
     enum HubError: LocalizedError, Equatable {
         case notEnrolled, unreachable, cancelled
+        /// The request reached home but no answer came back in time. It may still happen, so it isn't sent again.
+        case noAnswer
         case forbidden(askParent: Bool, message: String?)
         case confirmRequired
         case server(Int, String)
@@ -21,6 +23,7 @@ actor HubClient {
             case .notEnrolled: "This phone isn't set up with the house yet. Open the app on home Wi-Fi."
             case .unreachable: "Can't reach home right now."
             case .cancelled: "Cancelled."
+            case .noAnswer: "Home is slow to answer. It may still happen in a moment."
             case .forbidden(let ask, let m): m ?? (ask ? "Ask a parent for that." : "That isn't allowed from this phone.")
             case .confirmRequired: "That needs Face ID."
             case .server(_, let m): m
@@ -34,6 +37,8 @@ actor HubClient {
     nonisolated(unsafe) static var viewAs: String?
 
     private var lastGood: URL?
+    /// When the home address was last checked while the app was using the published one.
+    private var homeProbeAt: Date = .distantPast
     private var token: String? = SharedKeychain.get("access")
     private var tokenExpiry: Date = {
         let t = AppSettings.defaults.double(forKey: "accessExpiry"); return t > 0 ? Date(timeIntervalSince1970: t) : .distantPast
@@ -113,9 +118,10 @@ actor HubClient {
     /// JSON call. `confirm` is the Face ID prompt text for Secure-tier actions; nil means never prompt
     /// (widgets and Siri pass nil, so a secure action there fails with `.confirmRequired`).
     func call<T: Decodable>(_ method: String, _ path: String, query: [String: String] = [:], body: [String: Any]? = nil,
-                            auth: Bool = true, confirm: String? = nil, as: T.Type = T.self) async throws -> T {
+                            auth: Bool = true, confirm: String? = nil, requestID: String? = nil,
+                            as: T.Type = T.self) async throws -> T {
         let data = try await raw(method, path, query: query, body: body.map { try JSONSerialization.data(withJSONObject: $0) },
-                                 auth: auth, confirm: confirm)
+                                 auth: auth, confirm: confirm, requestID: requestID)
         if T.self == Empty.self { return Empty() as! T }
         do { return try Self.decoder.decode(T.self, from: data) }
         catch { throw HubError.server(0, "The hub sent something this version of the app doesn't understand (\(path)).") }
@@ -172,16 +178,29 @@ actor HubClient {
     /// Run an action through the hub's policy check.
     @discardableResult
     func action(_ name: String, target: String? = nil, params: [String: Any] = [:], confirm: String? = nil,
-                quick: Bool = false) async throws -> ActionReply {
+                quick: Bool = false, requestID: String? = nil) async throws -> ActionReply {
         var body: [String: Any] = ["action": name, "params": params]
         if quick { body["quick"] = true }   // widget, Control Center, CarPlay or Watch on an unlocked device
         if let target { body["target"] = target }
-        return try await call("POST", "/v1/actions", body: body, confirm: confirm)
+        return try await call("POST", "/v1/actions", body: body, confirm: confirm, requestID: requestID ?? Self.newRequestID())
     }
+
+    /// The same action for several devices in one request (a dollhouse preset, a lamp of several bulbs). Each
+    /// item is a target and its params. An older hub answers 404, and the caller sends them one at a time.
+    @discardableResult
+    func actionBatch(_ name: String, items: [(target: String, params: [String: Any])], confirm: String? = nil,
+                     requestID: String? = nil) async throws -> ActionReply {
+        let body: [String: Any] = ["action": name, "items": items.map { ["target": $0.target, "params": $0.params] }]
+        return try await call("POST", "/v1/actions/batch", body: body, confirm: confirm,
+                              requestID: requestID ?? Self.newRequestID())
+    }
+
+    /// One per tap. The hub runs a request id once, however many copies of it arrive.
+    nonisolated static func newRequestID() -> String { UUID().uuidString.lowercased() }
 
     func raw(_ method: String, _ path: String, query: [String: String] = [:], body: Data? = nil,
              auth: Bool = true, confirm: String? = nil, retried: Bool = false, timeout: TimeInterval? = nil,
-             fresh: Bool = false) async throws -> Data {
+             fresh: Bool = false, requestID: String? = nil) async throws -> Data {
         // The hub's web-page sign-in only exists on the home address: the published address (NPM)
         // answers 404 for /v1/admin/*. Never send it there, even when the app last used it.
         let homeOnly = path.hasPrefix("/v1/admin/")
@@ -189,20 +208,26 @@ actor HubClient {
         guard !list.isEmpty else { throw HubError.unreachable }
         var bearer: String?
         if auth { bearer = try await accessToken() }
+        checkHomeAgain()
         var lastError: Error = HubError.unreachable
         for base in list {
-            var req = request(base, method, path, query: query, body: body, bearer: bearer, confirmHeader: nil)
+            var req = request(base, method, path, query: query, body: body, bearer: bearer, confirmHeader: nil,
+                              requestID: requestID)
             // A replaced alert must download the new snapshot, not the frame URLSession kept.
             if fresh { req.cachePolicy = .reloadIgnoringLocalCacheData }
             if let timeout { req.timeoutInterval = max(req.timeoutInterval, timeout) }
             let data: Data, resp: URLResponse
             // Slow calls (the assistant thinks for a while) use the long-lived session: the regular one
             // gives up after 10 s of silence whatever the request's own timeout says.
-            do { (data, resp) = try await (timeout == nil ? session : Self.streamSession).data(for: req) }
+            let probe = ConnectProbe()
+            do { (data, resp) = try await (timeout == nil ? session : Self.streamSession).data(for: req, delegate: probe) }
             catch {
                 // A screen that went away cancels its request. That's not home being down, so it must not
                 // turn on the offline strip or fall back to a saved copy.
                 if Task.isCancelled || (error as? URLError)?.code == .cancelled { throw HubError.cancelled }
+                // A change that may have reached the hub is never sent again by another road: it could happen
+                // twice. Only a request that never got a connection moves on to the next address.
+                if method != "GET", !Self.neverSent(error, probe) { throw HubError.noAnswer }
                 lastError = HubError.unreachable; continue
             }
             lastGood = base
@@ -219,11 +244,13 @@ actor HubClient {
                 throw HubError.notEnrolled
             case 401 where auth && !retried:
                 signOut()
-                return try await raw(method, path, query: query, body: body, auth: auth, confirm: confirm, retried: true, timeout: timeout)
+                return try await raw(method, path, query: query, body: body, auth: auth, confirm: confirm, retried: true,
+                                     timeout: timeout, requestID: requestID)
             case 428:
                 guard let confirm else { throw HubError.confirmRequired }
                 let nonce = (Self.errorBody(data)?["nonce"] as? String)
-                return try await confirmed(base, method, path, query: query, body: body, bearer: bearer, nonce: nonce, reason: confirm)
+                return try await confirmed(base, method, path, query: query, body: body, bearer: bearer, nonce: nonce,
+                                           reason: confirm, requestID: requestID)
             case 403:
                 let j = Self.errorBody(data)
                 throw HubError.forbidden(askParent: j?["ask_parent"] as? Bool ?? false, message: j?["message"] as? String)
@@ -237,14 +264,20 @@ actor HubClient {
 
     /// Sign the action with the Face ID key and send it again.
     private func confirmed(_ base: URL, _ method: String, _ path: String, query: [String: String], body: Data?,
-                           bearer: String?, nonce: String?, reason: String) async throws -> Data {
+                           bearer: String?, nonce: String?, reason: String, requestID: String? = nil) async throws -> Data {
         let n: String
         if let nonce { n = nonce } else { n = try await confirmNonce() }
         let sig: String
         do { sig = try DeviceKeys.confirm(nonce: n, body: body, reason: reason) }
         catch DeviceKeys.KeyError.cancelled { throw HubError.cancelled }
-        let req = request(base, method, path, query: query, body: body, bearer: bearer, confirmHeader: "\(n).\(sig)")
-        let (data, resp) = try await session.data(for: req)
+        let req = request(base, method, path, query: query, body: body, bearer: bearer, confirmHeader: "\(n).\(sig)",
+                          requestID: requestID)
+        let data: Data, resp: URLResponse
+        do { (data, resp) = try await session.data(for: req) }
+        catch {
+            if (error as? URLError)?.code == .cancelled { throw HubError.cancelled }
+            throw HubError.noAnswer
+        }
         let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
         guard (200..<300).contains(code) else {
             let j = Self.errorBody(data)
@@ -255,7 +288,7 @@ actor HubClient {
     }
 
     private func request(_ base: URL, _ method: String, _ path: String, query: [String: String], body: Data?,
-                         bearer: String?, confirmHeader: String?) -> URLRequest {
+                         bearer: String?, confirmHeader: String?, requestID: String? = nil) -> URLRequest {
         // A path may carry its own query ("snapshot.jpg?m=…"); appendingPathComponent would encode the "?".
         let parts = path.split(separator: "?", maxSplits: 1).map(String.init)
         var c = URLComponents(url: base.appendingPathComponent(parts[0]), resolvingAgainstBaseURL: false)!
@@ -265,14 +298,52 @@ actor HubClient {
         var r = URLRequest(url: c.url!)
         r.httpMethod = method
         r.httpBody = body
-        // A quick try at home first, then a longer wait for the published address.
-        r.timeoutInterval = base.absoluteString == AppSettings.hubLAN && bases().count > 1 ? 3 : 10
+        // A quick try at home first, then a longer wait for the published address. A change gets a little
+        // longer at home: it isn't sent again elsewhere once it may have arrived.
+        let atHome = base.absoluteString == AppSettings.hubLAN && bases().count > 1
+        r.timeoutInterval = atHome ? (method == "GET" ? 3 : 5) : 10
+        if let requestID { r.setValue(requestID, forHTTPHeaderField: "X-TC-Request-Id") }
         if body != nil { r.setValue("application/json", forHTTPHeaderField: "Content-Type") }
         if let bearer { r.setValue("Bearer \(bearer)", forHTTPHeaderField: "Authorization") }
         if let confirmHeader { r.setValue(confirmHeader, forHTTPHeaderField: "X-TC-Confirm") }
         if let v = Self.viewAs { r.setValue(v, forHTTPHeaderField: "X-TC-View-As") }
         r.setValue(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String, forHTTPHeaderField: "X-TC-App")
         return r
+    }
+
+    /// Errors that mean the request never left the phone, so another address may safely get it. A timeout counts
+    /// only when no connection was ever made (nothing could have been sent).
+    nonisolated static func neverSent(_ error: Error, _ probe: ConnectProbe) -> Bool {
+        guard let code = (error as? URLError)?.code else { return false }
+        switch code {
+        case .cannotFindHost, .cannotConnectToHost, .dnsLookupFailed, .notConnectedToInternet, .secureConnectionFailed,
+             .serverCertificateUntrusted, .serverCertificateHasBadDate, .serverCertificateNotYetValid,
+             .serverCertificateHasUnknownRoot, .clientCertificateRejected, .appTransportSecurityRequiresSecureConnection,
+             .internationalRoamingOff, .dataNotAllowed, .callIsActive:
+            return true
+        case .timedOut:
+            return !probe.connected
+        default:
+            return false
+        }
+    }
+
+    /// Using the published address but home might be back (the phone came home, or home Wi-Fi blipped): check the
+    /// home address quietly every 20 s and switch back as soon as it answers, so home is never left on the slow road.
+    private func checkHomeAgain() {
+        guard let remote = remoteBase(), lastGood == remote, -homeProbeAt.timeIntervalSinceNow > 20,
+              let home = bases().first(where: { $0 != remote }) else { return }
+        homeProbeAt = .now
+        Task { await probeHome(home) }
+    }
+
+    func probeHome(_ home: URL) async {
+        var r = URLRequest(url: home.appendingPathComponent("/v1/ping"))
+        r.timeoutInterval = 1.5
+        guard let (_, resp) = try? await session.data(for: r), (resp as? HTTPURLResponse)?.statusCode == 200,
+              lastGood != home else { return }
+        lastGood = home
+        NotificationCenter.default.post(name: .hubBackHome, object: nil)
     }
 
     /// An authorized request for streaming endpoints (SSE) and images.
@@ -410,4 +481,22 @@ final class HubPinning: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
         let digest = SHA256.hash(data: Data(header) + raw)
         return digest.map { String(format: "%02x", $0) }.joined()
     }
+}
+
+
+/// Tells whether a request that failed ever got a connection (and so might have been delivered).
+final class ConnectProbe: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    private let lock = NSLock()
+    private var _connected = false
+    var connected: Bool { lock.lock(); defer { lock.unlock() }; return _connected }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didFinishCollecting metrics: URLSessionTaskMetrics) {
+        let made = metrics.transactionMetrics.contains { $0.connectEndDate != nil || $0.isReusedConnection }
+        lock.lock(); _connected = made; lock.unlock()
+    }
+}
+
+extension Notification.Name {
+    /// The home address answers again after the app had moved to the published one.
+    static let hubBackHome = Notification.Name("tc.hubBackHome")
 }
