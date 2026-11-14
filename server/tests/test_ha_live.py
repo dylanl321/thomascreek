@@ -124,7 +124,8 @@ def test_failures_read_as_plain_sentences(hub, people, home_client, exc, status,
 
 def test_an_offline_light_says_so_without_calling(hub, people, home_client):
     hub.config.hub.dry_run = False
-    hub.home.states["light.living_room"]["state"] = "unavailable"
+    # a copy: the fixture's state dicts are shared with every other test
+    hub.home.states["light.living_room"] = {**hub.home.states["light.living_room"], "state": "unavailable"}
     r = _light(home_client, people["phones"]["Dylan"], on=True)
     assert r.status_code == 409 and "offline" in r.json()["message"]
     assert hub.calls == []

@@ -292,8 +292,22 @@ private struct DollhouseRoomPage: View {
 
     private func set(_ device: DollhouseDevice, _ on: Bool) {
         guard room.isConfigured(device.name), room.control(for: device.name) != .status else { return }
+        var batch = Batch()
         for entity in room.entities(for: device.name) {
-            send(entity, on: on, label: device.label)
+            send(entity, on: on, label: device.label, into: &batch)
+        }
+        flush(batch)
+    }
+
+    /// Lights, switches and fans going the same way in one request (a lamp of several bulbs, a whole preset).
+    private struct Batch {
+        var items: [String: [(target: String, params: [String: Any], optimistic: (inout DeviceItem) -> Void)]] = [:]
+        var confirm: [String: String] = [:]
+    }
+
+    private func flush(_ batch: Batch) {
+        for (action, items) in batch.items {
+            store.performBatch(action, items: items, confirm: batch.confirm[action])
         }
     }
 
@@ -311,18 +325,20 @@ private struct DollhouseRoomPage: View {
 
     private func applyPreset(_ id: String) {
         let desired = room.preset(id)
+        var batch = Batch()
         for device in room.devices.devices {
             guard room.isConfigured(device.name), room.control(for: device.name) != .status else { continue }
             let amount = desired[device.name] ?? 0
             for entity in room.entities(for: device.name) {
                 let brightness = entity.action == "light.set" && amount > 0 ? Int((amount * 100).rounded()) : nil
-                send(entity, on: amount > 0, label: device.label, brightness: brightness)
+                send(entity, on: amount > 0, label: device.label, brightness: brightness, into: &batch)
             }
         }
+        flush(batch)
     }
 
     /// Face ID is asked only for the actions the rest of the app already treats as secure.
-    private func send(_ entity: MappedEntity, on: Bool, label: String, brightness: Int? = nil) {
+    private func send(_ entity: MappedEntity, on: Bool, label: String, brightness: Int? = nil, into batch: inout Batch) {
         guard let id = entity.id, !id.isEmpty else { return }
         let confirm = SecureAction.reason(for: entity.action, name: label)
         if entity.action == "select.set" {
@@ -349,10 +365,16 @@ private struct DollhouseRoomPage: View {
         }
         var params: [String: Any] = ["on": on]
         if let brightness { params["brightness"] = brightness }
-        store.perform(entity.action, target: id, params: params, confirm: confirm, optimistic: {
+        let optimistic: (inout DeviceItem) -> Void = {
             $0.state["on"] = .bool(on)
             if let brightness { $0.state["brightness"] = .number(Double(brightness)) }
-        })
+        }
+        if ["light.set", "switch.set", "fan.set"].contains(entity.action) {
+            batch.items[entity.action, default: []].append((id, params, optimistic))
+            if let confirm { batch.confirm[entity.action] = confirm }
+            return
+        }
+        store.perform(entity.action, target: id, params: params, confirm: confirm, optimistic: optimistic)
     }
 }
 
@@ -474,14 +496,13 @@ private struct DollhouseDeviceCard: View {
 
     private func commitBrightness() {
         let value = Int(level)
-        for entity in entities where entity.action == "light.set" {
-            guard let id = entity.id, !id.isEmpty else { continue }
-            store.perform("light.set", target: id, params: ["on": true, "brightness": value],
-                          confirm: SecureAction.reason(for: "light.set", name: device.label), optimistic: {
-                $0.state["on"] = .bool(true)
-                $0.state["brightness"] = .number(Double(value))
+        let items = entities.filter { $0.action == "light.set" }.compactMap(\.id).filter { !$0.isEmpty }.map {
+            (target: $0, params: ["on": true, "brightness": value] as [String: Any], optimistic: { (d: inout DeviceItem) in
+                d.state["on"] = .bool(true)
+                d.state["brightness"] = .number(Double(value))
             })
         }
+        store.performBatch("light.set", items: items, confirm: SecureAction.reason(for: "light.set", name: device.label))
     }
 }
 

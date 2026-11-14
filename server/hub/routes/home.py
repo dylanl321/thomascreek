@@ -193,9 +193,68 @@ async def perform(request: Request, c: Caller, h: Hub, action: str, target: str 
         await require_confirm(request, h, c, d.tier)
     try:
         via = "ask" if request.headers.get("x-tc-via") == "ask" else "quick" if quick_ok else "app"
-        return await h.actions.run(c.subject, plan, source=via)
+        return await h.dedupe.run(c.device["id"], request.headers.get("x-tc-request-id"),
+                                  lambda: h.actions.run(c.subject, plan, source=via))
     except ActionError as exc:
         raise error(exc.status, exc.error, exc.message) from None
+
+
+# Actions a phone may send for several devices at once (a dollhouse preset, a lamp made of several bulbs).
+BATCH_ACTIONS = frozenset({"light.set", "switch.set", "fan.set"})
+
+
+class BatchItem(BaseModel):
+    target: str = Field(max_length=200)
+    params: dict[str, Any] = Field(default_factory=dict)
+
+
+class BatchBody(BaseModel):
+    action: str = Field(max_length=60)
+    items: list[BatchItem] = Field(min_length=1, max_length=60)
+    quick: bool = False
+
+
+@router.post("/actions/batch")
+async def actions_batch(body: BatchBody, request: Request, c: Caller = Depends(caller),
+                        h: Hub = Depends(hub)) -> dict[str, Any]:
+    """Several devices, one request, and as few Home Assistant calls as possible: lights given the same
+    setting share one call. Each device still passes its own policy check; one that isn't allowed is
+    skipped and listed, the rest go ahead. An older hub answers 404 here and the app sends them one by one."""
+    if body.action not in BATCH_ACTIONS:
+        raise error(400, "bad_action", "That action can't be batched")
+    if any(k.startswith("_") for it in body.items for k in it.params):
+        raise error(400, "bad_params", "Unknown parameter")
+    plans, skipped = [], []
+    for it in body.items:
+        try:
+            plan = h.actions.plan(c.subject, body.action, it.target, it.params)
+        except ActionError as exc:
+            skipped.append({"target": it.target, "error": exc.error, "message": exc.message})
+            continue
+        if not plan.decision.allowed:
+            h.db.log(body.action, "denied", person_id=c.subject.person_id, device_id=c.device["id"],
+                     target=it.target, params=it.params, detail=plan.decision.reason)
+            skipped.append({"target": it.target, "error": "forbidden",
+                            "message": "Ask a parent" if plan.decision.ask_parent else "Not allowed"})
+            continue
+        plans.append(plan)
+    if not plans:
+        first = skipped[0] if skipped else {"error": "not_found", "message": "Nothing to change"}
+        raise error(403 if first["error"] == "forbidden" else 404, first["error"], first["message"])
+    tiers = [p.decision.tier for p in plans]
+    tier = "admin" if "admin" in tiers else "secure" if "secure" in tiers else tiers[0]
+    quick_ok = (body.quick and tier == "secure" and body.action in h.config.hub.quick_actions
+                and c.subject.role in ("admin", "adult"))
+    if not quick_ok:
+        await require_confirm(request, h, c, tier)
+    combined = h.actions.combine(plans)
+    try:
+        via = "quick" if quick_ok else "app"
+        out = await h.dedupe.run(c.device["id"], request.headers.get("x-tc-request-id"),
+                                 lambda: h.actions.run(c.subject, combined, source=via))
+    except ActionError as exc:
+        raise error(exc.status, exc.error, exc.message) from None
+    return {**out, "targets": [p.target.entity_id for p in plans], "skipped": skipped}
 
 
 def dumps(v: Any) -> str:

@@ -744,7 +744,11 @@ struct Pipeline: Codable, Hashable {
 }
 
 struct LanguageFix: Codable { var ok: Bool?; var message: String; var audio: String?; var subtitles: String?; var switchedNow: Bool? }
-struct ActionReply: Codable { var ok: Bool?; var message: String?; var dryRun: Bool?; var job: Int?; var commandId: String? }
+struct ActionReply: Codable {
+    var ok: Bool?; var message: String?; var dryRun: Bool?; var job: Int?; var commandId: String?
+    /// The hub took it and answers at once; how it finished arrives as device events (or an action_result).
+    var accepted: Bool?; var requestId: String?
+}
 
 /// One SSE message from /v1/events.
 struct HubEvent: Decodable {

@@ -67,6 +67,10 @@ final class HomeStore {
             NotificationCenter.default.addObserver(forName: .hubUnreachable, object: nil, queue: .main) { _ in
                 Task { @MainActor in HomeStore.shared.markUnreachable() }
             }
+            NotificationCenter.default.addObserver(forName: .hubBackHome, object: nil, queue: .main) { _ in
+                // Back on the home address: move the live stream off the published one too.
+                Task { @MainActor in HomeStore.shared.reopenStream() }
+            }
             NotificationCenter.default.addObserver(forName: .hubReachable, object: nil, queue: .main) { _ in
                 Task { @MainActor in
                     let s = HomeStore.shared
@@ -208,11 +212,18 @@ final class HomeStore {
         }
     }
 
+    func reopenStream() {
+        guard stream != nil else { return }
+        stream?.stop(); stream = nil
+        openStream()
+    }
+
     private func apply(_ e: HubEvent) {
         lastUpdate = .now
         switch e.type {
         case "device":
-            guard let d = e.data.flatMap({ Self.decode(DeviceItem.self, $0) }), var h = home else { return }
+            guard let incoming = e.data.flatMap({ Self.decode(DeviceItem.self, $0) }), var h = home else { return }
+            let d = reconcile(incoming)
             if let i = h.devices?.firstIndex(where: { $0.id == d.id }) { h.devices?[i] = d } else { h.devices?.append(d) }
             home = h
             refreshSmart(after: 2)  // a door locked or a light went off: the cards may change
@@ -289,6 +300,11 @@ final class HomeStore {
             return
         case "smart":
             refreshSmart(after: 0.5)
+            return
+        case "action_result":
+            // The hub accepted a tap and answered at once; this is how it finished.
+            guard case .object(let o)? = e.data, o["ok"]?.bool == false, let rid = o["request_id"]?.string else { return }
+            failPending(requestID: rid, message: o["message"]?.string ?? "That didn't go through.")
             return
         case "settings":
             if case .object(let o)? = e.data, let v = o["version"]?.double {
@@ -415,29 +431,174 @@ final class HomeStore {
 
     // MARK: actions
 
+    // MARK: taps that feel instant
+    //
+    // A tap changes the screen at once and remembers what it asked for. Events from the hub that still show the
+    // old state (the light hasn't reported back yet) don't flip the switch back; the change is kept until the
+    // device confirms it (a light tap of haptics) or `pendingWindow` passes. A failure puts back the state from
+    // before the tap, without reloading the whole house.
+
+    struct Pending {
+        var requestID: String
+        var expected: [String: JSONValue]
+        var before: DeviceItem
+        var until: Date
+        /// The last state the hub reported while waiting, put back if the change never shows up.
+        var lastReal: DeviceItem?
+    }
+    private var pending: [String: Pending] = [:]
+    static let pendingWindow: TimeInterval = 10
+
+    /// Keep a tap's change over a stale event; settle it when the device shows it.
+    private func reconcile(_ d: DeviceItem) -> DeviceItem {
+        guard var p = pending[d.id] else { return d }
+        if p.until < .now { pending[d.id] = nil; return d }
+        if Self.shows(d, p.expected) {
+            pending[d.id] = nil
+            UIImpactFeedbackGenerator(style: .soft).impactOccurred(intensity: 0.6)
+            return d
+        }
+        p.lastReal = d; pending[d.id] = p
+        var kept = d
+        for (k, v) in p.expected { kept.state[k] = v }
+        return kept
+    }
+
+    /// Whether the device's reported state has what the tap asked for. Brightness is a percentage the hub rounds,
+    /// so within 2 counts; colours are compared by the light being on (bulbs report their own nearest colour).
+    static func shows(_ d: DeviceItem, _ expected: [String: JSONValue]) -> Bool {
+        for (k, v) in expected {
+            switch (k, v, d.state[k]) {
+            case ("color", _, _): continue
+            case (_, .number(let a), .number(let b)?): if abs(a - b) > 2 { return false }
+            case ("on", .bool(let on), _): if d.isOn != on { return false }
+            default: if d.state[k] != v { return false }
+            }
+        }
+        return true
+    }
+
+    private func setDevice(_ d: DeviceItem) {
+        guard var h = home, let i = h.devices?.firstIndex(where: { $0.id == d.id }) else { return }
+        h.devices![i] = d; home = h
+    }
+
+    /// Apply a tap's change on screen and remember it. Returns false when the device isn't on screen.
+    @discardableResult
+    private func begin(_ target: String, requestID: String, _ optimistic: (inout DeviceItem) -> Void) -> Bool {
+        guard let before = home?.device(target) else { return false }
+        var after = before
+        optimistic(&after)
+        var expected: [String: JSONValue] = [:]
+        for (k, v) in after.state where before.state[k] != v { expected[k] = v }
+        if let on = after.state["on"] { expected["on"] = on }
+        // A second tap on the same device keeps the first one's "before", so a failure goes all the way back.
+        let original = pending[target].map(\.before) ?? before
+        pending[target] = Pending(requestID: requestID, expected: expected, before: original,
+                                  until: .now + Self.pendingWindow)
+        setDevice(after)
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(Self.pendingWindow + 0.5))
+            self?.expire(target, requestID: requestID)
+        }
+        return true
+    }
+
+    /// The change never showed up: show what the device last reported, or ask the hub once if it said nothing.
+    private func expire(_ target: String, requestID: String) {
+        guard let p = pending[target], p.requestID == requestID else { return }
+        pending[target] = nil
+        if let real = p.lastReal { setDevice(real) } else { Task { await loadHome() } }
+    }
+
+    /// Put the devices of a failed request back as they were.
+    private func revert(requestID: String) {
+        for (id, p) in pending where p.requestID == requestID {
+            pending[id] = nil
+            setDevice(p.lastReal ?? p.before)
+        }
+    }
+
+    private func failPending(requestID: String, message: String) {
+        guard pending.values.contains(where: { $0.requestID == requestID }) else { return }
+        revert(requestID: requestID)
+        UINotificationFeedbackGenerator().notificationOccurred(.error)
+        show(message, isError: true)
+    }
+
     /// Run an action, update the device optimistically, and report the result in a toast.
     /// `confirm` is the Face ID reason for Secure-tier actions.
     func perform(_ action: String, target: String? = nil, params: [String: Any] = [:], confirm: String? = nil,
                  optimistic: ((inout DeviceItem) -> Void)? = nil, done: String? = nil) {
-        if let target, let optimistic, var h = home, let i = h.devices?.firstIndex(where: { $0.id == target }) {
-            optimistic(&h.devices![i]); home = h
-        }
+        let rid = HubClient.newRequestID()
+        var tracked = false
+        if let target, let optimistic { tracked = begin(target, requestID: rid, optimistic) }
         Task {
             do {
-                let r = try await HubClient.shared.action(action, target: target, params: params, confirm: confirm)
-                if r.dryRun == true { show("Practice mode", r.message ?? "Nothing was changed"); await loadHome() }
-                else if let msg = r.message ?? done { show(msg) }
-                if action == "mode.run" || action == "scene.run" { await loadHome() }
-            } catch HubClient.HubError.cancelled {
-                await loadHome()
-            } catch HubClient.HubError.forbidden(let ask, let message) {
-                await loadHome()
-                if ask { askParent = AskParent(what: message ?? "Can I change this?") }
-                else { show(message ?? "That isn't allowed.", isError: true) }
+                let r = try await HubClient.shared.action(action, target: target, params: params, confirm: confirm, requestID: rid)
+                finish(r, action: action, tracked: tracked, requestID: rid, done: done)
             } catch {
-                await loadHome()
-                show(error.localizedDescription, isError: true)
+                failed(error, tracked: tracked, requestID: rid)
             }
+        }
+    }
+
+    /// The same action for several devices in one request: a preset, or a lamp made of several bulbs. An older
+    /// hub without the batch endpoint gets them one at a time.
+    func performBatch(_ action: String, items: [(target: String, params: [String: Any], optimistic: (inout DeviceItem) -> Void)],
+                      confirm: String? = nil) {
+        guard !items.isEmpty else { return }
+        if items.count == 1, let one = items.first {
+            perform(action, target: one.target, params: one.params, confirm: confirm, optimistic: one.optimistic)
+            return
+        }
+        let rid = HubClient.newRequestID()
+        var tracked = false
+        for it in items { tracked = begin(it.target, requestID: rid, it.optimistic) || tracked }
+        Task {
+            do {
+                let r = try await HubClient.shared.actionBatch(action, items: items.map { ($0.target, $0.params) },
+                                                               confirm: confirm, requestID: rid)
+                finish(r, action: action, tracked: tracked, requestID: rid, done: nil)
+            } catch HubClient.HubError.server(404, _) {
+                revert(requestID: rid)
+                for it in items { perform(action, target: it.target, params: it.params, confirm: confirm, optimistic: it.optimistic) }
+            } catch {
+                failed(error, tracked: tracked, requestID: rid)
+            }
+        }
+    }
+
+    private func finish(_ r: ActionReply, action: String, tracked: Bool, requestID: String, done: String?) {
+        if r.dryRun == true {
+            revert(requestID: requestID)
+            show("Practice mode", r.message ?? "Nothing was changed")
+            Task { await loadHome() }
+            return
+        }
+        // A tracked tap speaks through the switch and a haptic; only a real message gets a toast.
+        if let msg = done ?? r.message, !(tracked && (msg == "Done" || r.accepted == true)) { show(msg) }
+        if action == "mode.run" || action == "scene.run" { Task { await loadHome() } }
+    }
+
+    private func failed(_ error: Error, tracked: Bool, requestID: String) {
+        switch error {
+        case HubClient.HubError.cancelled:
+            revert(requestID: requestID)
+            if !tracked { Task { await loadHome() } }
+        case HubClient.HubError.noAnswer:
+            // It may still happen: keep the change on screen until the device confirms or the window passes.
+            show("Still waiting on home", "It may change in a moment.")
+        case HubClient.HubError.forbidden(let ask, let message):
+            revert(requestID: requestID)
+            if !tracked { Task { await loadHome() } }
+            if ask { askParent = AskParent(what: message ?? "Can I change this?") }
+            else { show(message ?? "That isn't allowed.", isError: true) }
+        default:
+            revert(requestID: requestID)
+            if !tracked { Task { await loadHome() } }
+            UINotificationFeedbackGenerator().notificationOccurred(.error)
+            show(error.localizedDescription, isError: true)
         }
     }
 

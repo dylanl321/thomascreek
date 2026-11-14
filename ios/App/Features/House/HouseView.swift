@@ -167,9 +167,10 @@ struct RoomDetailView: View {
                     SectionHeader(title: "Lights", live: true) {
                         let anyOn = lights.contains { $0.isOn && $0.kind == .light }
                         Button(anyOn ? "All off" : "All on") {
-                            for l in lights where l.kind == .light {
-                                store.perform("light.set", target: l.id, params: ["on": !anyOn]) { $0.state["on"] = .bool(!anyOn) }
-                            }
+                            store.performBatch("light.set", items: lights.filter { $0.kind == .light }.map { l in
+                                (target: l.id, params: ["on": !anyOn] as [String: Any],
+                                 optimistic: { (d: inout DeviceItem) in d.state["on"] = .bool(!anyOn) })
+                            })
                         }
                         .font(.subheadline.weight(.medium))
                     }
