@@ -24,6 +24,18 @@ struct HomeShortcuts: AppShortcutsProvider {
                     shortTitle: "Skip Tonight", systemImageName: "moon.zzz")
         AppShortcut(intent: SearchHomeIntent(), phrases: ["Search \(.applicationName)", "Find something in \(.applicationName)"],
                     shortTitle: "Search", systemImageName: "magnifyingglass")
+        AppShortcut(intent: PlayInRoomIntent(), phrases: [
+            "Play \(\.$title) in \(\.$room) with \(.applicationName)",
+            "Play \(\.$title) on the \(\.$room) \(.applicationName) TV",
+        ], shortTitle: "Play in a room", systemImageName: "play.tv")
+        AppShortcut(intent: MoveTVIntent(), phrases: [
+            "Move the TV to \(\.$room) with \(.applicationName)",
+            "\(.applicationName) move the TV to \(\.$room)",
+        ], shortTitle: "Move the TV", systemImageName: "arrow.right.square")
+        AppShortcut(intent: TurnOffTVIntent(), phrases: [
+            "Turn off the TV in \(\.$room) with \(.applicationName)",
+            "\(.applicationName) turn off the TV in \(\.$room)",
+        ], shortTitle: "Turn off the TV", systemImageName: "tv.slash")
     }
 }
 
