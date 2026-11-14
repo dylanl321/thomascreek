@@ -29,6 +29,7 @@ targets:
           CODE_SIGN_STYLE: Manual
           CODE_SIGN_IDENTITY: iPhone Distribution
           PROVISIONING_PROFILE_SPECIFIER: Thomas Creek watch App Store
+    # Talks to the iPhone over WatchConnectivity, not HTTP, so no ATS exception.
     info:
       path: Watch/Info.plist
       properties:

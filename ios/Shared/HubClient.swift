@@ -63,11 +63,9 @@ actor HubClient {
     }()
 
     /// Hub base URLs to try: the one that answered last, then home, then the published address.
+    /// A schemeless address is https. Plain http is kept only for a local-network host.
     func bases() -> [URL] {
-        var out = [AppSettings.hubLAN, AppSettings.hubRemote].compactMap { s -> URL? in
-            guard !s.isEmpty else { return nil }
-            return URL(string: s.hasPrefix("http") ? s : "http://\(s)")
-        }
+        var out = [AppSettings.hubLAN, AppSettings.hubRemote].compactMap { HubAddress.url(from: $0) }
         if let g = lastGood, let i = out.firstIndex(of: g) { out.remove(at: i); out.insert(g, at: 0) }
         return out
     }
@@ -76,9 +74,9 @@ actor HubClient {
 
     /// The published (outside) address, or nil when none is set or it is the same as home.
     func remoteBase() -> URL? {
-        let r = AppSettings.hubRemote, l = AppSettings.hubLAN
-        guard !r.isEmpty, r != l else { return nil }
-        return URL(string: r.hasPrefix("http") ? r : "http://\(r)")
+        guard let remote = HubAddress.url(from: AppSettings.hubRemote) else { return nil }
+        if let local = HubAddress.url(from: AppSettings.hubLAN), remote == local { return nil }
+        return remote
     }
 
     // MARK: auth
@@ -300,7 +298,7 @@ actor HubClient {
         r.httpBody = body
         // A quick try at home first, then a longer wait for the published address. A change gets a little
         // longer at home: it isn't sent again elsewhere once it may have arrived.
-        let atHome = base.absoluteString == AppSettings.hubLAN && bases().count > 1
+        let atHome = base == HubAddress.url(from: AppSettings.hubLAN) && bases().count > 1
         r.timeoutInterval = atHome ? (method == "GET" ? 3 : 5) : 10
         if let requestID {
             r.setValue(requestID, forHTTPHeaderField: "X-TC-Request-Id")
@@ -439,9 +437,9 @@ final class HubPinning: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
     ]
 
     private static func isPublished(_ host: String) -> Bool {
-        guard let remote = URL(string: AppSettings.hubRemote)?.host, remote == host else { return false }
+        guard let remote = HubAddress.url(from: AppSettings.hubRemote)?.host, remote == host else { return false }
         // If the same name were also the home address, keep the hub's own pin.
-        return URL(string: AppSettings.hubLAN)?.host != host
+        return HubAddress.url(from: AppSettings.hubLAN)?.host != host
     }
 
     private static func evaluatePublished(_ trust: SecTrust) -> (URLSession.AuthChallengeDisposition, URLCredential?) {
@@ -454,7 +452,7 @@ final class HubPinning: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
     }
 
     private static func isHub(_ host: String) -> Bool {
-        [AppSettings.hubLAN, AppSettings.hubRemote].compactMap { URL(string: $0)?.host }.contains(host)
+        [AppSettings.hubLAN, AppSettings.hubRemote].compactMap { HubAddress.url(from: $0)?.host }.contains(host)
     }
 
     /// SHA-256 of the DER SubjectPublicKeyInfo (EC P-256/P-384 and RSA 2048/4096 headers).
