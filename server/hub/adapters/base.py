@@ -27,16 +27,39 @@ class NotConfigured(AdapterError):
     pass
 
 
-def _why(resp: httpx.Response) -> str:
+class Unreachable(AdapterError):
+    """No connection was made, so nothing reached the service. Safe to send again."""
+
+
+class NoAnswer(AdapterError):
+    """The request went out but no answer came back in time. The service may still carry it out,
+    so a non-idempotent call must not be sent again."""
+
+
+class ServiceError(AdapterError):
+    """The service answered with an error. `reason` is its own short message, if it gave one."""
+
+    def __init__(self, message: str, status: int, reason: str | None = None):
+        super().__init__(message)
+        self.status = status
+        self.reason = reason
+
+
+def _reason(resp: httpx.Response) -> str | None:
     """The service's own short reason (an error code or message, never a credential)."""
     try:
         body = resp.json()
     except ValueError:
-        return ""
+        return None
     if not isinstance(body, dict):
-        return ""
-    why = body.get("code") or body.get("error") or body.get("message")
-    return f" ({str(why)[:80]})" if isinstance(why, str) and why else ""
+        return None
+    why = body.get("message") or body.get("code") or body.get("error")
+    return str(why)[:160] if isinstance(why, str) and why else None
+
+
+def _why(resp: httpx.Response) -> str:
+    why = _reason(resp)
+    return f" ({why[:80]})" if why else ""
 
 
 class Adapter:
@@ -76,15 +99,20 @@ class Adapter:
         headers = {**self.auth_headers(), **kw.pop("headers", {})}
         try:
             resp = await self.client().request(method, path, headers=headers, **kw)
-        except httpx.HTTPError as exc:
+        except (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout) as exc:
             self._fail(f"cannot reach {self.title}: {type(exc).__name__}")
-            raise AdapterError(self.last_error) from exc
+            raise Unreachable(self.last_error) from exc
+        except httpx.HTTPError as exc:
+            self._fail(f"no answer from {self.title}: {type(exc).__name__}")
+            raise NoAnswer(self.last_error) from exc
         if resp.status_code in (401, 403):
             self._fail(f"{self.title} refused the hub's credential{_why(resp)}")
-            raise AdapterError(self.last_error)
+            raise ServiceError(self.last_error, resp.status_code, _reason(resp))  # type: ignore[arg-type]
         if resp.status_code >= 400:
-            self._fail(f"{self.title} answered {resp.status_code} for {method} {path.split('?')[0]}")
-            raise AdapterError(self.last_error)
+            reason = _reason(resp)
+            self._fail(f"{self.title} answered {resp.status_code} for {method} {path.split('?')[0]}"
+                       + (f": {reason[:80]}" if reason else ""))
+            raise ServiceError(self.last_error, resp.status_code, reason)  # type: ignore[arg-type]
         self.last_ok = time.time()
         self.last_error = None
         return resp
