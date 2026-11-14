@@ -123,3 +123,26 @@ The app looks these up by name and skips anything missing. New clutter only need
 | Lived-in clutter | `prop_throw_blanket`, `prop_open_book`, `prop_mug`, `prop_kettle`, `prop_toy`, `prop_mail`, `prop_dishes`, `prop_cutting_board`, `prop_shoes`, `prop_laundry_basket`, `prop_detergent`, `prop_popcorn_bowl`, `prop_drink`, `prop_lamp`, `prop_catch_all_bowl`, `prop_table_runner`. A second copy takes `_2` (`prop_drink_2`). Each sits directly under the room root, pivoted on the surface under it |
 
 Pose groups and `prop_*` nodes can start hidden. The app fades them. A drum or a curtain whose pivot is the object's centre sways or spins around that centre, so keep the pivot on the fan hub, the drum axle, or the curtain heading.
+
+## Property (the whole lot)
+
+`Property/` is the exterior view: the lot on Thomas Creek Ct, the slope down to the floodplain, the river, the field, the drive, the trees, and placeholder massing for the house and the garage apartment. It is the first row in `catalog.json`, so it is the first dollhouse tile on House. The source is Model Generator's three.js build in `/workspace/handoff/property/` (frame: 1 unit = 1 m, +Y up, north = -Z, origin = lot centre; about 102 x 186 m). The committed USDZ is `property_all_on.glb` through the same converter:
+
+```
+python3 ios/scripts/gltf_to_usdz.py property_all_on.glb ios/Rooms/Property/property.usdz ios/Rooms/Property/appearance.json
+```
+
+The row has `"kind": "property"`. That one flag:
+- scales the key light, its shadow box and the camera's far plane to the lot (a room's 100 m far plane would clip it), and lets pinch zoom go to 6x instead of 2.5x;
+- drops the Climate card and Advanced, and lists the rooms instead;
+- makes a tap on `house_massing*` open a list of the rooms, and a tap on `garage_massing*` say the garage apartment has no model yet.
+
+The one device is `light_pole` (the field light). No outdoor light was in the hub mappings, so its id is null: `life.json` turns the model's light on from dusk to sunrise and off by day, and the hub is never called. Put the entity id in `Property/hub-mapping.json` and a tap on the pole toggles the real light, like any room light. The river gets a slow shimmer from a surface shader while motion is allowed (`DollhouseAmbient.syncRiver`).
+
+Check the lighting offscreen (the snapshot knows the `kind` flag too):
+
+```
+swiftc -O ios/scripts/dollhouse_snapshot.swift -o /tmp/dollhouse_snapshot
+SNAP_SIZE=780x880 /tmp/dollhouse_snapshot ios/Rooms property allon dusk ios/scripts/dollhouse_rig.json /tmp/property.png
+```
+

@@ -37,6 +37,9 @@ final class DollhouseController {
     private var panY: Float = 0
     private var fitRadius: Float = 3
     static let maxZoom: Float = 2.5
+    /// The lot is about 190 m long, so the property view may zoom in far enough to see the house.
+    static let propertyMaxZoom: Float = 6
+    var maxZoom: Float { room.isProperty ? Self.propertyMaxZoom : Self.maxZoom }
 
     init(room: DollhouseRoom) { self.room = room }
 
@@ -101,6 +104,23 @@ final class DollhouseController {
         return nil
     }
 
+    /// The property view only: the house or garage massing under the finger (not a device).
+    func site(at point: CGPoint, in view: SCNView) -> DollhouseSite? {
+        guard room.isProperty else { return nil }
+        let hits = view.hitTest(point, options: [
+            SCNHitTestOption.searchMode: SCNHitTestSearchMode.all.rawValue,
+            SCNHitTestOption.ignoreHiddenNodes: true
+        ])
+        for hit in hits.prefix(4) {
+            var node: SCNNode? = hit.node
+            while let current = node {
+                if let site = current.name.flatMap(DollhouseSite.init(node:)) { return site }
+                node = current.parent
+            }
+        }
+        return nil
+    }
+
     func startLife(real: [String: Double], owned: Set<String>, sunrise: Date?, sunset: Date?) {
         if life == nil { life = DollhouseLife(room: room, stage: self) }
         life?.setReduceMotion(motionReduced)
@@ -155,7 +175,22 @@ final class DollhouseController {
     /// Keeps the catalog's viewing angle but backs the camera off until the whole model,
     /// floor edge and wall tops included, sits inside the frame with a little air around it.
     private func fitted(_ shot: DollhouseShot) -> DollhouseShot {
-        guard let root = scene?.rootNode else { return shot }
+        guard let bounds = modelBounds() else { return shot }
+        let center = bounds.center
+        let radius = bounds.radius
+        var dir = SCNVector3(shot.position.x - shot.target.x, shot.position.y - shot.target.y, shot.position.z - shot.target.z)
+        let len = sqrt(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z)
+        guard len > 0, radius > 0 else { return shot }
+        dir = SCNVector3(dir.x / len, dir.y / len, dir.z / len)
+        let half = Float(shot.fov) * .pi / 360
+        let distance = radius / sin(half) * 0.92
+        return DollhouseShot(position: SCNVector3(center.x + dir.x * distance, center.y + dir.y * distance, center.z + dir.z * distance),
+                             target: center, fov: shot.fov)
+    }
+
+    /// The visible model's bounding sphere, in world units.
+    private func modelBounds() -> (center: SCNVector3, radius: Float)? {
+        guard let root = scene?.rootNode else { return nil }
         var lo = SCNVector3(Float.greatestFiniteMagnitude, Float.greatestFiniteMagnitude, Float.greatestFiniteMagnitude)
         var hi = SCNVector3(-Float.greatestFiniteMagnitude, -Float.greatestFiniteMagnitude, -Float.greatestFiniteMagnitude)
         root.enumerateHierarchy { node, _ in
@@ -167,18 +202,10 @@ final class DollhouseController {
                 hi = SCNVector3(max(hi.x, w.x), max(hi.y, w.y), max(hi.z, w.z))
             } } }
         }
-        guard lo.x <= hi.x else { return shot }
+        guard lo.x <= hi.x else { return nil }
         let center = SCNVector3((lo.x + hi.x) / 2, (lo.y + hi.y) / 2, (lo.z + hi.z) / 2)
         let dx = hi.x - lo.x, dy = hi.y - lo.y, dz = hi.z - lo.z
-        let radius = sqrt(dx * dx + dy * dy + dz * dz) / 2
-        var dir = SCNVector3(shot.position.x - shot.target.x, shot.position.y - shot.target.y, shot.position.z - shot.target.z)
-        let len = sqrt(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z)
-        guard len > 0, radius > 0 else { return shot }
-        dir = SCNVector3(dir.x / len, dir.y / len, dir.z / len)
-        let half = Float(shot.fov) * .pi / 360
-        let distance = radius / sin(half) * 0.92
-        return DollhouseShot(position: SCNVector3(center.x + dir.x * distance, center.y + dir.y * distance, center.z + dir.z * distance),
-                             target: center, fov: shot.fov)
+        return (center, sqrt(dx * dx + dy * dy + dz * dz) / 2)
     }
 
     /// The page shows the room alone, like a dollhouse on a table. The generators also build what is outside
@@ -293,13 +320,26 @@ final class DollhouseController {
         key.light?.shadowRadius = 8
         key.light?.shadowMapSize = CGSize(width: 2048, height: 2048)
         key.light?.shadowColor = UIColor(white: 0, alpha: Rig.shadowAlpha)
-        key.light?.zNear = 0.5
-        key.light?.zFar = 80
         let aim = room.shot(.dollhouse)
-        let span = Double(max(Float(8), Float(abs(aim.position.x - aim.target.x))))
-        key.light?.orthographicScale = span
-        key.position = SCNVector3(aim.target.x - 5, aim.target.y + 10, aim.target.z + 4)
-        key.look(at: aim.target)
+        if room.isProperty, let bounds = modelBounds() {
+            // Same direction as the room key, but backed off and widened to cover the whole lot.
+            let reach = bounds.radius
+            let unit = SCNVector3(-5 / 11.87, 10 / 11.87, 4 / 11.87)
+            key.position = SCNVector3(bounds.center.x + unit.x * reach * 1.6, bounds.center.y + unit.y * reach * 1.6,
+                                      bounds.center.z + unit.z * reach * 1.6)
+            key.light?.zNear = 1
+            key.light?.zFar = CGFloat(reach * 3.4)
+            key.light?.orthographicScale = Double(reach * 1.1)
+            key.light?.shadowRadius = 3
+            key.look(at: bounds.center)
+        } else {
+            key.light?.zNear = 0.5
+            key.light?.zFar = 80
+            let span = Double(max(Float(8), Float(abs(aim.position.x - aim.target.x))))
+            key.light?.orthographicScale = span
+            key.position = SCNVector3(aim.target.x - 5, aim.target.y + 10, aim.target.z + 4)
+            key.look(at: aim.target)
+        }
         scene.rootNode.addChildNode(key)
         keyLight = key
         placeWindowLight(in: scene)
@@ -308,6 +348,11 @@ final class DollhouseController {
         camera.camera = SCNCamera()
         camera.camera?.zNear = 0.05
         camera.camera?.zFar = 100
+        if room.isProperty, let bounds = modelBounds() {
+            // The fitted lot sits a few hundred metres out; a room's 100 m far plane would clip all of it.
+            camera.camera?.zNear = 0.5
+            camera.camera?.zFar = Double(bounds.radius * 8)
+        }
         camera.camera?.wantsHDR = true
         camera.camera?.wantsExposureAdaptation = false
         camera.camera?.exposureOffset = Rig.exposure
@@ -596,7 +641,7 @@ extension DollhouseController: DollhouseStage {
     }
 
     func setZoom(_ value: Float) {
-        zoom = min(Self.maxZoom, max(1, value))
+        zoom = min(maxZoom, max(1, value))
         clampPan()
         applyView()
     }
@@ -676,6 +721,25 @@ extension DollhouseRoom {
     }
 }
 
+/// A building on the property model. A tap on one opens its rooms.
+enum DollhouseSite: String, Identifiable {
+    case house, garage
+    var id: String { rawValue }
+
+    init?(node name: String) {
+        if name.hasPrefix("house_massing") { self = .house }
+        else if name.hasPrefix("garage_massing") { self = .garage }
+        else { return nil }
+    }
+
+    var title: String {
+        switch self {
+        case .house: "The house"
+        case .garage: "Garage apartment"
+        }
+    }
+}
+
 struct DollhouseShot {
     var position: SCNVector3
     var target: SCNVector3
@@ -707,6 +771,7 @@ struct DollhouseViewport: UIViewRepresentable {
     var controller: DollhouseController
     var onTap: (String) -> Void
     var onLongPress: (String) -> Void = { _ in }
+    var onSite: (DollhouseSite) -> Void = { _ in }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -742,6 +807,7 @@ struct DollhouseViewport: UIViewRepresentable {
         context.coordinator.controller = controller
         context.coordinator.onTap = onTap
         context.coordinator.onLongPress = onLongPress
+        context.coordinator.onSite = onSite
         controller.viewport = view
         if view.scene !== controller.scene {
             view.scene = controller.scene
@@ -753,6 +819,7 @@ struct DollhouseViewport: UIViewRepresentable {
         var controller: DollhouseController?
         var onTap: (String) -> Void = { _ in }
         var onLongPress: (String) -> Void = { _ in }
+        var onSite: (DollhouseSite) -> Void = { _ in }
         weak var pinch: UIPinchGestureRecognizer?
         weak var pan: UIPanGestureRecognizer?
         private var startZoom: Float = 1
@@ -760,7 +827,13 @@ struct DollhouseViewport: UIViewRepresentable {
 
         @objc func tapped(_ gesture: UITapGestureRecognizer) {
             guard let view = gesture.view as? SCNView, let controller else { return }
-            guard let name = controller.device(at: gesture.location(in: view), in: view) else {
+            let point = gesture.location(in: view)
+            guard let name = controller.device(at: point, in: view) else {
+                if let site = controller.site(at: point, in: view) {
+                    haptic.impactOccurred()
+                    onSite(site)
+                    return
+                }
                 // A tap on the room (not a device) springs a zoomed or panned view back to the fit.
                 if controller.isZoomedOrPanned { controller.resetView(animated: true) }
                 return

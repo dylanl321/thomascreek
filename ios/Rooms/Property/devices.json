@@ -1,0 +1,52 @@
+{
+  "room": "property",
+  "units": "meters",
+  "up": "+Y",
+  "origin": "centre of the lot bounding box; north = -Z, east = +X; y = 0 is finished grade at the house (floodplain about -4.5 m)",
+  "presets": {
+    "all_off": {},
+    "all_on": {
+      "light_pole": 1
+    },
+    "evening": {
+      "light_pole": 1
+    }
+  },
+  "devices": [
+    {
+      "name": "light_pole",
+      "label": "Field light",
+      "type": "light",
+      "room": "property",
+      "anchor_node": "anchor_light_pole",
+      "position_m": [
+        -4.72,
+        10.464,
+        42.42
+      ],
+      "group_node": "light_pole",
+      "light_nodes": [
+        "light_light_pole"
+      ],
+      "light_on_intensity": [
+        1200
+      ],
+      "glow_decals": [
+        "glow_light_pole_ground"
+      ],
+      "mesh_nodes": [
+        "light_pole_mast",
+        "light_pole_footing",
+        "light_pole_arm",
+        "light_pole_head",
+        "light_pole_lamp"
+      ],
+      "on_state": {
+        "emissive": [
+          7
+        ],
+        "shows": []
+      }
+    }
+  ]
+}
