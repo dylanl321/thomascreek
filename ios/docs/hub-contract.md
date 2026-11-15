@@ -433,3 +433,7 @@ A TV that is waiting shows a QR of `thomascreek://tv/{code}`. Opening that URL p
 `GET /v1/art/{kind}/{key}?size=` serves a cached image (`logo`, `poster`, `backdrop`, `still`) with an ETag and `Cache-Control: private, max-age=604800`. `size` is `s`, `m`, `l`, `original`, or `w342`. Guide and library rows add `logo_url` on channels and `poster_url` / `backdrop_url` on programmes, shows and movies. Episode rows add `still_url`. Those paths are what the guide, shows and search screens load. A 404 means that image is not available; the rest of the row still stands.
 
 `GET /v1/tv/plex` → `{continue, on_deck, recent}`. Each item has `poster_url` (fetch with the bearer) and `deep_link` plus `package` (`com.plexapp.android`) so the TV app can open Plex on that title. Kids' tokens only get allowed ratings.
+
+## TV detail on the phone (2026-11-15)
+
+TVs and boxes lists `GET /v1/tvs` under "Thomas Creek TV" (admins and adults). A row opens `TVDetailView` (`Destination.tvDetail(id)`), which reads `GET /v1/tvs/{id}` every 5 seconds while open and shows now playing, version (with Update when `update_available`), online and last seen, last error, the screenshot (`screenshot.url`, bearer), and the buttons Restart, Update, Open app and Take a picture (`POST /v1/tvs/{id}/actions` `{action}`). The answer's `message` is shown as is. Full shapes are in `server/docs/API.md`, "TVs on the phone". Launcher and screensaver pickers come later.

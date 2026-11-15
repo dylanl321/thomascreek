@@ -18,7 +18,7 @@ from .deps import Caller, caller, error, hub, require_confirm
 
 # What a TV subscription is allowed to receive. Anything else (cameras, printers,
 # other people's now-playing) is dropped. Doorbell and house alerts arrive as inbox.
-_TV_EVENTS = frozenset({"device", "status", "inbox", "tv_command", "tv_remote", "tv_tune", "tv_manage", "snapshot", "home_alert", "bedtime", "explore", "dvr_update"})
+_TV_EVENTS = frozenset({"device", "status", "inbox", "tv_command", "tv_remote", "tv_tune", "tv_manage", "snapshot", "home_alert", "bedtime", "explore", "dvr_update", "config_changed"})
 _TV_ALERTS = frozenset({"house", "kitchen", "weather", "doors"})
 
 router = APIRouter(prefix="/v1", tags=["home"])
@@ -43,7 +43,7 @@ def shape_event(h: Hub, s: Subject, ev: dict[str, Any]) -> dict[str, Any] | None
     """What this caller may see of one bus event. None drops it."""
     if s.tv:
         return _shape_for_tv(h, s, ev)
-    if ev.get("type") in ("tv_command", "tv_remote", "tv_tune", "tv_manage"):
+    if ev.get("type") in ("tv_command", "tv_remote", "tv_tune", "tv_manage", "config_changed"):
         return None
     if ev.get("type") == "home_alert":
         if s.role in ("pending", "guest"):
@@ -88,7 +88,7 @@ def _shape_for_tv(h: Hub, s: Subject, ev: dict[str, Any]) -> dict[str, Any] | No
         return {"type": "snapshot", "data": ev.get("data") or {}}
     if kind == "dvr_update":
         return _dvr_event(s, ev)
-    if kind in ("tv_command", "tv_remote", "tv_tune", "tv_manage"):
+    if kind in ("tv_command", "tv_remote", "tv_tune", "tv_manage", "config_changed"):
         data = ev.get("data") or {}
         if data.get("install_id") not in (None, s.tv_id):
             return None

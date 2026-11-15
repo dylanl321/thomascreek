@@ -426,6 +426,8 @@ class TvApp:
         self._waiters: dict[str, list[asyncio.Event]] = {}
         self.last_error: str | None = None
         self.last_check: float | None = None
+        # Called with (install_id or None, version) after each config bump. state.py sends `config_changed`.
+        self.on_config: Callable[[str | None, int], None] | None = None
 
     # -- state -------------------------------------------------------------------------------------------------------
     def boxes(self) -> dict[str, dict[str, Any]]:
@@ -923,7 +925,7 @@ class TvApp:
             tv["media_entity"] = self._media_entity(media_entity)
         tvs[install_id] = tv
         self._save_tvs(tvs)
-        self.bump_config()
+        self.bump_config(install_id)
         return dict(tv, id=install_id)
 
     @staticmethod
@@ -988,6 +990,9 @@ class TvApp:
             "lineup_version": self.lineup_version(),
             "theme": self.theme(),
             "keys": self.metadata_keys(),
+            # What follows the hub on every screen (see hub/tvs.py). Picture and audio stay on the TV.
+            "settings": dict(tv.get("settings") or {}),
+            "settings_rev": int(tv.get("settings_rev") or 0),
         }
         if out["profile"] == "kids":
             out["kids_categories"] = self.kids_categories()
@@ -1014,6 +1019,8 @@ class TvApp:
             "theme": self.theme(),
             "keys": self.metadata_keys(),
             "favorites": _favorite_channels(self.db),
+            "settings": dict(tv.get("settings") or {}),
+            "settings_rev": int(tv.get("settings_rev") or 0),
         }
         if out["profile"] == "kids":
             out["kids_categories"] = self.kids_categories()
@@ -1036,9 +1043,15 @@ class TvApp:
     def config_version(self) -> int:
         return int(self.db.kv_get(KV_CONFIG_VERSION) or 1)
 
-    def bump_config(self) -> int:
+    def bump_config(self, install_id: str | None = None) -> int:
+        """A new config version. TVs hear `config_changed` (one TV, or all when install_id is None) and pull at once."""
         version = self.config_version() + 1
         self.db.kv_set(KV_CONFIG_VERSION, version)
+        if self.on_config is not None:
+            try:
+                self.on_config(install_id, version)
+            except Exception as exc:  # noqa: BLE001 - a push that fails must not undo the change
+                log.warning("tvapp: config_changed not sent: %s", exc)
         return version
 
     def theme(self) -> dict[str, str] | None:
