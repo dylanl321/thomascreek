@@ -25,14 +25,10 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Resp
 from pydantic import BaseModel, Field
 
 from .. import __version__, bambu_cloud, testkeys
+from ..iptvcanon import fold_stats as catalog_fold_stats
 from ..iptvplay import accounts as iptv_accounts
 from ..iptvplay import add_login, remove_login
 from ..iptvplay import logins as iptv_logins
-from ..iptvcanon import merge as catalog_merge_items
-from ..iptvcanon import split as catalog_split_item
-from ..iptvcanon import keep_apart as catalog_keep_apart
-from ..iptvcanon import settle as catalog_settle_pairs
-from ..iptvcanon import unsure as catalog_unsure
 from ..bambu_cloud import token_expiry
 from ..crypto import CryptoError
 from ..onepassword import NAME_RE
@@ -620,41 +616,10 @@ def _build_of(v: str | None) -> int | None:
 
 
 def _catalog_html(h: Hub, csrf: str) -> str:
-    """Titles neither the rules nor the model could fold, with a way to say same or different."""
-    e = html.escape
-    waiting = catalog_unsure(h.db, limit=30)
-    rows = waiting["unsure"]
-
-    def named(title: object, year: object) -> str:
-        return f"{e(str(title or ''))} <span class=dim>({e(str(year)) if year else 'no year'})</span>"
-
-    def button(action: str, label: str, row: dict, ghost: bool = False) -> str:
-        return (f"<form method=post action=/admin/catalog/{action} class=inline><input type=hidden name=csrf value={csrf}>"
-                f"<input type=hidden name=pair value='{e(row.get('id') or '')}'>"
-                f"<input type=hidden name=left value='{e(row.get('left') or '')}'>"
-                f"<input type=hidden name=right value='{e(row.get('right') or '')}'>"
-                f"<button{' class=ghost' if ghost else ''}>{label}</button></form>")
-
-    body = "".join(
-        f"<div class=row><div>{named(row.get('title'), row.get('left_year'))} <span class=dim>and</span> "
-        f"{named(row.get('other'), row.get('right_year'))}</div>"
-        f"<div>{button('merge', 'Same', row)} {button('apart', 'Different', row, ghost=True)}</div></div>"
-        for row in rows)
-    more = waiting["total"] - len(rows)
-    if more > 0:
-        body += f"<div class=row><div class=dim>and {more} more</div></div>"
-    empty = "<div class=row><div class=dim>Nothing waiting. Titles are folded only when the hub is sure.</div></div>"
-    ask = (f"<form method=post action=/admin/catalog/settle class=inline><input type=hidden name=csrf value={csrf}>"
-           f"<button class=ghost>Ask AI to sort these</button></form>") if rows else ""
-    return f"""<h2>Catalog</h2><div class=card>
-<p class=dim>Your TV provider lists some films more than once. The hub folds copies into one title for the TV app,
-using the TMDB id, year and the AI after each refresh. These are the pairs it still couldn't decide. Nothing here
-touches Plex or any files.</p>{body or empty}{ask}
-<form method=post action=/admin/catalog/split class=fform style="padding:8px 0">
-<input type=hidden name=csrf value={csrf}>
-<input name=id placeholder="Title id"><input name=provider placeholder="Provider"><input name=stream_id placeholder="Stream id">
-<button class=ghost>Separate this copy</button></form>
-<p class=dim>IPTV providers and their logins are under Keys and files, TV app.</p></div>"""
+    """One status line: the AI folds the TV provider's duplicate copies by itself, nothing to answer here."""
+    stats = catalog_fold_stats(h.db)
+    return (f"<p class=dim>TV catalog: the AI merged {stats['merged']} duplicate copies and kept {stats['apart']} "
+            f"look-alikes separate. Nothing to do here.</p>")
 
 
 def _app_update_html(h: Hub, csrf: str) -> str:
@@ -867,36 +832,6 @@ def _back(msg: str) -> RedirectResponse:
     from urllib.parse import quote
 
     return RedirectResponse(f"/admin?m={quote(msg)}", status_code=303)
-
-
-@pages.post("/admin/catalog/merge")
-async def catalog_merge(request: Request, h: Hub = Depends(hub)) -> Response:
-    _claims, form = await _form_session(request, h)
-    result = catalog_merge_items(h.db, [str(form.get("left") or ""), str(form.get("right") or "")])
-    return _back("Folded those titles together." if result else "Those titles aren't in the catalog.")
-
-
-@pages.post("/admin/catalog/apart")
-async def catalog_apart(request: Request, h: Hub = Depends(hub)) -> Response:
-    _claims, form = await _form_session(request, h)
-    done = catalog_keep_apart(h.db, str(form.get("pair") or ""))
-    return _back("Kept those titles apart." if done else "That pair isn't waiting any more.")
-
-
-@pages.post("/admin/catalog/settle")
-async def catalog_settle(request: Request, h: Hub = Depends(hub)) -> Response:
-    _claims, _form = await _form_session(request, h)
-    if not h.vault.has(h.config.assistant.key_secret):
-        return _back("Add the Claude key under Keys and files first.")
-    result = await catalog_settle_pairs(h, force=True)
-    return _back(f"The AI folded {result['folded']} and kept {result['apart']} apart. {result['left']} still need you.")
-
-
-@pages.post("/admin/catalog/split")
-async def catalog_split(request: Request, h: Hub = Depends(hub)) -> Response:
-    _claims, form = await _form_session(request, h)
-    result = catalog_split_item(h.db, str(form.get("id") or ""), str(form.get("provider") or ""), str(form.get("stream_id") or ""))
-    return _back("Separated that copy." if result else "That title isn't in the catalog.")
 
 
 @pages.post("/admin/iptv/login")

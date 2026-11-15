@@ -156,6 +156,13 @@ def unsure(db: Any, limit: int | None = 20) -> dict[str, Any]:
     return {"unsure": rows[:limit] if limit else rows, "total": len(rows)}
 
 
+def fold_stats(db: Any) -> dict[str, int]:
+    """How many copies the AI (or an earlier admin answer) merged, and how many look-alikes it kept apart."""
+    merged = sum(max(0, len(bundle) - 1) for bundle in _overrides(db).get("merge") or [] if isinstance(bundle, list))
+    apart = sum(1 for same in _ai(db).values() if same is False)
+    return {"merged": merged, "apart": apart}
+
+
 def keep_apart(db: Any, pair_id: str) -> bool:
     """An admin said the pair are different titles. It is not asked about again."""
     if not pair_id:
