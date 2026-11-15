@@ -324,7 +324,7 @@ class TvCatalog:
                 details["episodes"][eid] = {
                     "id": eid, "series_id": series_id, "title": item["title"], "kids": kids,
                     "series_name": known.get("name"), "season": season_no, "number": item["number"],
-                    "fetched_at": time.time(),
+                    "ext": _ext(ep.get("container_extension")), "fetched_at": time.time(),
                 }
             shown.sort(key=lambda item: (item["number"] is None, item["number"] or 0))
             if shown:
@@ -727,6 +727,12 @@ def _tmdb_id(value: object) -> str | None:
     return text if text.isdigit() and int(text) > 0 and len(text) <= 10 else None
 
 
+def _ext(value: object) -> str | None:
+    """A provider file type (mp4, mkv, ...). The phone player only opens some of them."""
+    text = str(value or "").strip().lower().lstrip(".")
+    return text if text.isalnum() and len(text) <= 5 else None
+
+
 def _title(row: dict[str, Any], key_of: Any, categories: dict[str, str], art_field: str,
            id_field: str = "stream_id") -> dict[str, Any] | None:
     if not isinstance(row, dict):
@@ -747,6 +753,9 @@ def _title(row: dict[str, Any], key_of: Any, categories: dict[str, str], art_fie
     tmdb = _tmdb_id(row.get("tmdb") or row.get("tmdb_id"))
     if tmdb:
         item["tmdb"] = tmdb
+    ext = _ext(row.get("container_extension"))
+    if ext:
+        item["ext"] = ext
     wide = _art(backdrop)
     if wide:
         item["backdrop"] = wide

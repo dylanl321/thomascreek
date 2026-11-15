@@ -9,6 +9,10 @@ import SwiftUI
 struct RemoteView: View {
     @Environment(HomeStore.self) private var store
     let deviceID: String
+    /// Inside a TV's own screen (`TVHomeView`) only the buttons or only the apps show, with no scroll view of its own.
+    enum Part { case all, remote, apps }
+    var part: Part = .all
+    var embedded = false
     @State private var volume: Double?
     @State private var volumeTask: Task<Void, Never>?
     @State private var touchpad = false
@@ -28,10 +32,20 @@ struct RemoteView: View {
     private func has(_ k: String) -> Bool { keys.contains(k) || commands.contains(k) }
 
     var body: some View {
+        if embedded {
+            content.frame(maxWidth: .infinity)
+        } else {
+            ScrollView { content.padding(.top, 8).screen() }
+                .background(Backdrop())
+                .navigationTitle("Remote").navigationBarTitleDisplayMode(.inline)
+        }
+    }
+
+    private var content: some View {
         let d = device
-        ScrollView {
-            VStack(spacing: 18) {
-                header(d)
+        return VStack(spacing: 18) {
+            if part == .all { header(d) }
+            if part != .apps {
                 topRow(d)
                 if !kid, has("up") { Picker("", selection: $touchpad) {
                     Text("Buttons").tag(false); Text("Touchpad").tag(true)
@@ -42,14 +56,13 @@ struct RemoteView: View {
                 navRow
                 playbackRow(d)
                 volumeAndChannels(d)
-                apps
-                if !kid { extras }
-                if grownUp { pluggedInto(d) }
             }
-            .padding(.top, 8).screen()
+            if part != .remote { apps }
+            if part != .apps {
+                if !kid { extras }
+                if grownUp && part == .all { pluggedInto(d) }
+            }
         }
-        .background(Backdrop())
-        .navigationTitle("Remote").navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $hookup) { HookupSheet(boxID: deviceID, boxName: device?.name ?? "This box") }
         .sheet(isPresented: $typing) { TypeSheet { text in
             store.perform("media.command", target: deviceID, params: ["command": "text", "text": text], done: "Typed on the TV")
