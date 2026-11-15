@@ -108,6 +108,25 @@ def test_person_at_the_door_is_quiet_overnight_and_motion_stays_off(hub, people)
                                                 json={"motion": True}).status_code == 403
 
 
+def test_one_switch_for_tv_alerts_and_kids_off_by_default(hub, people):
+    from types import SimpleNamespace
+
+    ev = {"type": "home_alert", "data": {"id": "ha_abc12345", "kind": "doorbell", "title": "Someone's at the door"}}
+    grown = SimpleNamespace(tv=True, is_child_like=False, tv_id="tv1", role="adult")
+    kid = SimpleNamespace(tv=True, is_child_like=True, tv_id="tv2", role="child")
+    assert shape_event(hub, grown, ev) == ev
+    assert shape_event(hub, kid, ev) is None
+    view = hub.home_alerts.view()
+    assert view["enabled"] is True and view["kids"] is False
+
+    dylan = people["phones"]["Dylan"]
+    assert dylan.client.put("/v1/tv/alerts/settings", headers=dylan.h, json={"kids": True}).json()["kids"] is True
+    assert shape_event(hub, kid, ev) == ev
+    off = dylan.client.put("/v1/tv/alerts/settings", headers=dylan.h, json={"enabled": False}).json()
+    assert off["enabled"] is False and off["kids"] is True
+    assert shape_event(hub, grown, ev) is None and shape_event(hub, kid, ev) is None
+
+
 def test_the_playlist_points_back_at_the_hub():
     text = rewrite_playlist("#EXTM3U\n#EXTINF:2,\nseg.ts?n=1\nhttp://go2rtc.local/secret.ts\n../etc/passwd\n", "ha_abc123")
     assert "seg.ts" in text and text.count("/v1/tv/alerts/ha_abc123/media?src=") == 1

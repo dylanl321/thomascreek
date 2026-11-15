@@ -48,6 +48,9 @@ class HomeAlerts:
             "rooms": _names(rooms),
             "quiet": {"from": _clock(quiet.get("from"), QUIET_FROM), "to": _clock(quiet.get("to"), QUIET_TO)},
             "motion": bool(raw.get("motion", extra.get("alert_motion", False))),
+            # One switch for every camera and doorbell alert on the TVs, and one for kids' profiles (off by default).
+            "enabled": bool(raw.get("enabled", True)),
+            "kids": bool(raw.get("kids", False)),
             "auto": "cameras" not in raw and not extra.get("door_cameras"),
         }
 
@@ -64,8 +67,9 @@ class HomeAlerts:
         if isinstance(body.get("quiet"), dict):
             cur["quiet"] = {"from": _clock(body["quiet"].get("from"), QUIET_FROM),
                             "to": _clock(body["quiet"].get("to"), QUIET_TO)}
-        if "motion" in body:
-            cur["motion"] = bool(body.get("motion"))
+        for key in ("motion", "enabled", "kids"):
+            if key in body:
+                cur[key] = bool(body.get(key))
         self.hub.db.kv_set(KV_SETTINGS, cur)
         return self.view()
 
@@ -81,6 +85,8 @@ class HomeAlerts:
             "rooms": rooms,
             "quiet": chosen["quiet"],
             "motion": chosen["motion"],
+            "enabled": chosen["enabled"],
+            "kids": chosen["kids"],
             "auto": chosen["auto"],
             "found": found,
         }
@@ -107,6 +113,11 @@ class HomeAlerts:
         elif src:
             seen[src] = {"id": src, "name": src.replace("_", " ").title(), "room": None, "door": True}
         return sorted(seen.values(), key=lambda row: (not row["door"], str(row["name"]).casefold()))
+
+    def shows_on(self, child_like: bool) -> bool:
+        """Whether a TV on this profile gets door alerts at all. Kids' profiles only when switched on."""
+        chosen = self.settings()
+        return chosen["enabled"] and (chosen["kids"] or not child_like)
 
     def door_cameras(self) -> list[str]:
         return list(self.view()["cameras"])
