@@ -556,8 +556,26 @@ class KeyChecks:
         done = await asyncio.gather(*(self.run_one(c) for c in todo))
         return list(zip(todo, done))
 
+    def _fetch_tv_build(self, names: list[str]) -> None:
+        """A new GitHub token for TV builds: download the newest release now, not at the next 6-hourly check."""
+        tv_app = getattr(self.hub, "tv_app", None)
+        if "github.tv_app_token" not in names or tv_app is None:
+            return
+
+        async def fetch() -> None:
+            try:
+                await tv_app.check()
+            except Exception as exc:  # noqa: BLE001
+                log.info("TV build fetch after token save: %s", getattr(exc, "message", exc))
+
+        try:
+            asyncio.get_running_loop().create_task(fetch())
+        except RuntimeError:
+            pass
+
     def after_save_many(self, names: list[str]) -> None:
         """Several keys changed at once: forget the old ones, then run each affected check once."""
+        self._fetch_tv_build(list(names))
         for n in names:
             forget_cached(self.hub, n)
         ids = [c.id for c in checks(self.hub) if any(n in c.secrets for n in names)]
@@ -569,6 +587,7 @@ class KeyChecks:
 
     def after_save(self, name: str) -> None:
         """A key changed: forget the old one, then test the new one in the background."""
+        self._fetch_tv_build([name])
         forget_cached(self.hub, name)
         if any(name in c.secrets for c in checks(self.hub)):
             try:

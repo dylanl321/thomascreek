@@ -21,7 +21,7 @@ import logging
 import time
 from typing import Any
 
-from .tvapp import TvAppError, clean_ip
+from .tvapp import TOKEN_SECRET, TvAppError, clean_ip
 from .tvsetup import Setup, classify, parse_mdns, status_of
 
 log = logging.getLogger(__name__)
@@ -244,8 +244,14 @@ class Installer:
         if not tv_app.adb.available:
             raise TvAppError(409, "no_adb", "The hub can't run adb, so it can't install over the network.")
         latest = tv_app.latest()
+        if (not latest or not tv_app.apk_path(int(latest["versionCode"])).exists()) and tv_app.vault.has(TOKEN_SECRET):
+            try:
+                latest = await tv_app.check()  # the token may be newer than the last 6-hourly check
+            except TvAppError as exc:
+                raise TvAppError(409, "no_build", f"The hub couldn't download the TV app: {exc.message}") from None
         if not latest or not tv_app.apk_path(int(latest["versionCode"])).exists():
-            raise TvAppError(409, "no_build", "The hub doesn't have a TV app build yet.")
+            raise TvAppError(409, "no_build",
+                             "The hub doesn't have a TV app build yet. Add the GitHub token for TV app builds on the hub web page.")
         if room:
             tv_app._room(room)
         if self.running(ip) and not pairing_code:
