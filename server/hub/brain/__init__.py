@@ -35,9 +35,10 @@ if TYPE_CHECKING:
 log = logging.getLogger("hub.brain")
 
 TICK_S = 30.0
-PRIVATE_KEYS = ("buttons", "covers", "why", "priority", "ref")  # delivery details: not hashed, not sent to the model
+PRIVATE_KEYS = ("buttons", "covers", "why", "priority", "ref", "eids")  # delivery details: not hashed, not sent to the model
 CARDS_KV = "brain.cards"
 ASSISTANT_JOB = "assistant"
+LAST_HASH_KV = "brain.last_hash"
 
 
 class Brain:
@@ -52,7 +53,10 @@ class Brain:
         self._pending: dict[str, tuple[float, Trigger]] = {}
         self._last_run: dict[str, float] = {}      # job -> last scheduled run
         self._last_model: dict[str, float] = {}    # job -> last model call
-        self._last_hash: dict[str, tuple[str, float]] = {}
+        # What each job last said, kept in the db so a hub restart doesn't say it all again.
+        self._last_hash: dict[str, tuple[str, float]] = {
+            k: (str(v[0]), float(v[1])) for k, v in (hub.db.kv_get(LAST_HASH_KV) or {}).items()
+            if isinstance(v, (list, tuple)) and len(v) == 2}
         self._presence: dict[str, tuple[bool, float]] = {}
         self._ha_down_since: float | None = None
         self._ha_down_told = False
@@ -247,6 +251,11 @@ class Brain:
             self._ha_down_told = True
             self.fire("ha_down", since=self._ha_down_since)
 
+    def _save_hashes(self, now: float) -> None:
+        keep = max((j.dedupe_s for j in self.jobs.values()), default=0.0)
+        self._last_hash = {k: v for k, v in self._last_hash.items() if now - v[1] < keep}
+        self.hub.db.kv_set(LAST_HASH_KV, {k: list(v) for k, v in self._last_hash.items()})
+
     def ha_down_for(self, now: float | None = None) -> float:
         return ((now or time.time()) - self._ha_down_since) if self._ha_down_since else 0.0
 
@@ -298,6 +307,7 @@ class Brain:
         if last and last[0] == digest and now - last[1] < job.dedupe_s:
             return "unchanged"
         self._last_hash[key] = (digest, now)
+        self._save_hashes(now)
 
         autonomy = s.autonomy
         capped = self.capped()

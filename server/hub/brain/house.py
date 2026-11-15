@@ -323,8 +323,63 @@ async def left_deliver(b: "Brain", trig: Trigger, finding: Finding, words: dict[
 
 
 # -- 3. health watch ------------------------------------------------------------------------------------------------------
+STARTUP_GRACE_S = 10 * 60    # right after the hub starts, states and service checks are still settling
+RELINK_GRACE_S = 5 * 60      # same after the live Home Assistant link comes back
+UNAVAILABLE_S = 15 * 60      # a device counts once Home Assistant has had it unavailable this long
+BACK_FOR_S = 60 * 60         # a told device has to work this long before it can be told about again
+RETELL_S = 24 * 3600         # a problem that is still there gets one reminder a day
+TOLD_KV = "brain.health.told"
+TOLD_ITEMS_KV = "brain.health.told_items"
+
+
+def _unavailable_items(b: "Brain", now: float) -> list[dict[str, Any]]:
+    """Devices that newly stopped responding. Each one is told about once (the list survives restarts), and
+    devices that have been dead for ages (stale Home Assistant entities) aren't repeated on every restart."""
+    raw = b.hub.db.kv_get(TOLD_KV)
+    seeding = raw is None
+    told: dict[str, dict[str, Any]] = dict(raw or {})
+    bad: list[str] = []
+    for eid, st in sorted(b.hub.home.states.items()):
+        if eid.split(".", 1)[0] not in WATCHED_DOMAINS or eid not in b.hub.home.entity_area:
+            continue
+        if st.get("state") == "unavailable":
+            if eid in told:
+                told[eid]["ok"] = None
+            since = _ts(st.get("last_changed"))
+            if since and now - since >= UNAVAILABLE_S:
+                bad.append(eid)
+        elif eid in told and st.get("state") not in DEAD:
+            ok = told[eid].get("ok") or now
+            told[eid]["ok"] = ok
+            if now - ok >= BACK_FOR_S:
+                told.pop(eid)
+    for eid in [e for e in told if e not in b.hub.home.states]:  # removed from Home Assistant
+        told.pop(eid)
+    if seeding:  # first run with this list: what's already dead was reported before, so start from here
+        told = {e: {"t": now, "ok": None} for e in bad}
+    b.hub.db.kv_set(TOLD_KV, told)
+    new = [e for e in bad if e not in told]
+    if not new:
+        return []
+    names = [_name(b, e) + (f" ({_room(b, e)})" if _room(b, e) else "") for e in new]
+    return [{"key": "unavailable:" + ",".join(new[:20]), "kind": "unavailable", "count": len(new),
+             "eids": new, "devices": names[:10],
+             "say": f"{len(new)} device{'s' if len(new) != 1 else ''} stopped responding",
+             "detail": ", ".join(names[:6]) + ("…" if len(names) > 6 else "")}]
+
+
+def _told(b: "Brain", eids: list[str]) -> None:
+    told = dict(b.hub.db.kv_get(TOLD_KV) or {})
+    now = time.time()
+    for e in eids:
+        told[e] = {"t": now, "ok": None}
+    b.hub.db.kv_set(TOLD_KV, told)
+
+
 async def health_detect(b: "Brain", trig: Trigger) -> Finding | None:
     now = time.time()
+    if trig.name != "ha_down" and now - b.hub.started_at < STARTUP_GRACE_S:
+        return None
     items: list[dict[str, Any]] = []
     ws = b.hub.ha_ws
     down = b.ha_down_for(now)
@@ -333,21 +388,8 @@ async def health_detect(b: "Brain", trig: Trigger) -> Finding | None:
                       "say": "The hub lost its live link to Home Assistant",
                       "detail": f"Down {_human_minutes(int(down / 60))}; using the slower backup poll."
                       + (f" Last error: {ws.error}" if ws.error else "")})
-    else:
-        bad = []
-        for eid, st in sorted(b.hub.home.states.items()):
-            if eid.split(".", 1)[0] not in WATCHED_DOMAINS or eid not in b.hub.home.entity_area:
-                continue
-            if st.get("state") != "unavailable":
-                continue
-            since = _ts(st.get("last_changed"))
-            if since and now - since >= 15 * 60:
-                bad.append(eid)
-        if bad:
-            names = [_name(b, e) + (f" ({_room(b, e)})" if _room(b, e) else "") for e in bad]
-            items.append({"key": "unavailable:" + ",".join(bad[:20]), "kind": "unavailable", "count": len(bad),
-                          "devices": names[:10], "say": f"{len(bad)} device{'s' if len(bad) != 1 else ''} not responding",
-                          "detail": ", ".join(names[:6]) + ("…" if len(names) > 6 else "")})
+    elif not (ws.enabled and ws.connected and now - (ws.connected_at or 0) < RELINK_GRACE_S):
+        items += _unavailable_items(b, now)
     sysinfo = b.hub.home.systems or {}
     for a in sysinfo.get("alerts") or []:
         level = str(a.get("level") or "").upper()
@@ -366,6 +408,13 @@ async def health_detect(b: "Brain", trig: Trigger) -> Finding | None:
                           "error": str(h["error"])[:200], "say": f"{h.get('title')} isn't answering",
                           "detail": str(h["error"])[:160]})
     b.memory["health_open"] = len(items)
+    # Each problem is told once while it lasts (and again after a day if it still does); a hub restart or a
+    # second problem showing up doesn't repeat the first. A problem that clears and comes back is told again.
+    told = {k: float(t) for k, t in (b.hub.db.kv_get(TOLD_ITEMS_KV) or {}).items()}
+    live = {i["key"] for i in items}
+    told = {k: t for k, t in told.items() if k in live}
+    b.hub.db.kv_set(TOLD_ITEMS_KV, told)
+    items = [i for i in items if i["kind"] == "unavailable" or now - told.get(i["key"], 0) >= RETELL_S]
     if not items:
         return None
     return Finding(items=items, summary="; ".join(i["say"] for i in items), audience={"roles": ["admin"]})
@@ -385,6 +434,10 @@ async def health_deliver(b: "Brain", trig: Trigger, finding: Finding, words: dic
                                                      for i in finding.items[:5])
     ids = await b.hub.notify.send(title=str(title)[:120], body=str(body)[:600], cat="systems", level="maintenance",
                                   roles=["admin"], ref="thomascreek://systems", group_key="brain.health")
+    _told(b, [e for i in finding.items for e in i.get("eids") or []])
+    told = dict(b.hub.db.kv_get(TOLD_ITEMS_KV) or {})
+    told.update({i["key"]: time.time() for i in finding.items if i["kind"] != "unavailable"})
+    b.hub.db.kv_set(TOLD_ITEMS_KV, told)
     return {"notice": str(title)[:120], "outcome": "notified" if ids else "nobody", "action": "inbox"}
 
 
