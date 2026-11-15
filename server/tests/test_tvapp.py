@@ -324,6 +324,22 @@ def test_tv_on_an_added_box_is_approved_with_the_box_profile(hub, home_client):
     assert cfg["playlists"][0]["type"] == "m3u"
 
 
+def test_every_tv_learns_the_household_for_kids_profiles(hub, home_client):
+    hub.db.add_person("Dylan Lewis", "admin")
+    theo = hub.db.add_person("Theo Lewis", "child")
+    hub.db.add_person("Lauren", "guest")
+    hub.tv_app.set_kids_categories(["Kids"])
+    hub.vault.set("iptv.m3u_url", "http://iptv.example/list.m3u")
+    key = TvKey()
+    home_client.post("/v1/tv/enroll", json={"install_id": TV_ID, "name": "Shield", "public_key": key.pub})
+    hub.tv_app.set_tv(TV_ID, status="approved")
+    cfg = _config(home_client, key).json()
+    assert cfg["profile"] == "adult" and cfg["kids_categories"] == ["Kids"]
+    assert {"id": str(theo["id"]), "name": "Theo", "role": "child"} in cfg["people"]
+    assert [p["name"] for p in cfg["people"]].count("Lauren") == 0
+    assert hub.tv_app.approved_config(TV_ID)["people"] == cfg["people"]
+
+
 def test_config_needs_the_tvs_own_fresh_signature(hub, home_client):
     key, other = TvKey(), TvKey()
     home_client.post("/v1/tv/enroll", json={"install_id": TV_ID, "name": "TV", "public_key": key.pub})

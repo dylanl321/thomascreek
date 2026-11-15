@@ -436,7 +436,7 @@ A kids' profile is always role `child`. `person_id` on the token can only narrow
  "epg_url":null,"lineup_version":12,"theme":null}
 ```
 
-`profile: "kids"` also includes `kids_categories`. Pending is exactly `{"status":"pending"}`. `version` counts hub-side edits (profile, room, kids' categories, lineup). The `ETag` is a quoted sha256 of the JSON, so a vault password change still misses the cache when `version` did not move. Send `If-None-Match` to get `304` with an empty body and the same `ETag`. `Cache-Control: private, no-cache`.
+Every approved config includes `kids_categories` and `people` (`[{"id","name","role"}]`: first names of admins, adults and children, no guests or tablets), so a TV can keep a kids profile per child. Pending is exactly `{"status":"pending"}`. `version` counts hub-side edits (profile, room, kids' categories, lineup). The `ETag` is a quoted sha256 of the JSON, so a vault password change still misses the cache when `version` did not move. Send `If-None-Match` to get `304` with an empty body and the same `ETag`. `Cache-Control: private, no-cache`.
 
 `POST /v1/tv/token` `{install_id, ts, signature, person_id?}`. Signature over `tvtoken:<install_id>:<ts>` or, when narrowing, `tvtoken:<install_id>:<ts>:<person_id>`. A timestamp cannot be reused.
 
@@ -1362,7 +1362,7 @@ Approved:
   "epg_url":null,"lineup_version":12,"theme":null,"favorites":["xc:thomas-creek:10"]}}
 ```
 
-`config` is the same approved `POST /v1/tv/config` body, plus `favorites` (channel keys starred in the house). A kids profile also has `kids_categories`. Denied, or a request older than 15 minutes:
+`config` is the same approved `POST /v1/tv/config` body, plus `favorites` (channel keys starred in the house). It also has `kids_categories` and `people`. Denied, or a request older than 15 minutes:
 
 ```json
 {"status":"denied"}
