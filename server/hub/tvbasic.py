@@ -19,7 +19,7 @@ import math
 import re
 from typing import Any, Callable, Iterable
 
-VERSION = 1
+VERSION = 2  # 2: channels with no guide are left out (Dylan, Nov 15)
 
 # Local broadcast networks, in the order a cable guide lists them when a station has no number in its name.
 LOCAL_NETWORKS: list[tuple[str, str]] = [
@@ -222,5 +222,10 @@ def build(channels: list[dict[str, Any]], home: tuple[float, float] | None,
 
     for entry in picked:
         entry.pop("_order", None)
+    # "Your TV" only lists channels that say what's on. If the guide is missing for nearly everything
+    # (no guide loaded yet), keep the lineup rather than show an empty one.
+    guided = [entry for entry in picked if has_guide(str(entry["key"]))]
+    if len(guided) >= 5:
+        picked = guided
     picked.sort(key=lambda entry: entry["number"])
     return {"version": VERSION, "market": market["name"] if market else None, "channels": picked}
