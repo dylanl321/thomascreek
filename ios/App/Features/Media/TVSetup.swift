@@ -910,7 +910,7 @@ struct TVDetailView: View {
         do {
             detail = try await HubClient.shared.get("/v1/tvs/\(tvID)")
             problem = nil
-            if let wanted = shotWanted, detail?.tv.screenshot?.at != wanted { shotWanted = nil }
+            if let wanted = shotWanted, (detail?.tv.screenshot?.at ?? "") != wanted { shotWanted = nil }
         } catch {
             if detail == nil { problem = error.localizedDescription }
         }
