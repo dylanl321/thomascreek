@@ -122,6 +122,8 @@ class Hub:
         self.artwork.catalog = self.tv_catalog
         self.artwork.plex = self.plex
         self.tv_catalog.artwork = self.artwork
+        from .tvplex import PlexLibrary
+        self.plex_library = PlexLibrary(self)
         self.tv_app.artwork = self.artwork
         dvr_dir = Path(config.dvr.dir) if config.dvr.dir else data / "dvr"
         self.dvr = Dvr(self, dvr_dir)
