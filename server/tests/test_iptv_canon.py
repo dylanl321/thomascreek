@@ -233,3 +233,21 @@ def test_a_wrong_shared_tmdb_id_never_pours_another_film_into_a_title(hub):
     assert [s["stream_id"] for s in items["Some Other Film"]["sources"]] == ["3"]
     assert items["The Dark Knight"]["id"] == _id("movie|155")
     assert playable(hub.db, kind="movie", title="The Dark Knight", tmdb="155")["canonical_id"] == _id("movie|155")
+
+
+def test_a_streaming_service_tag_is_not_part_of_the_title(hub):
+    rows = [
+        {"provider": "tc", "kind": "series", "stream_id": "1", "name": "NF - KAOS"},
+        {"provider": "tc", "kind": "series", "stream_id": "2", "name": "KAOS"},
+        {"provider": "tc", "kind": "movie", "stream_id": "3", "name": "D+ - Moana 2 (2024)"},
+        {"provider": "tc", "kind": "movie", "stream_id": "4", "name": "EN| Moana 2 2024 4K"},
+        {"provider": "tc", "kind": "live", "stream_id": "5", "name": "HBO - East"},
+        {"provider": "tc", "kind": "live", "stream_id": "6", "name": "East"},
+    ]
+    items = observe(hub.db, rows)["items"]
+    by_title = {item["title"]: item for item in items if item["kind"] != "live"}
+    assert sorted(s["stream_id"] for s in by_title["KAOS"]["sources"]) == ["1", "2"]
+    assert sorted(s["stream_id"] for s in by_title["Moana"]["sources"]) == ["3", "4"]
+    live = [item for item in items if item["kind"] == "live"]
+    assert len(live) == 2
+    assert playable(hub.db, kind="series", title="NF - KAOS") is not None

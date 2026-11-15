@@ -25,6 +25,10 @@ _QUALITY = (
 _DROP_WORDS = re.compile(r"\b(?:hevc|h\.?265|h\.?264|hdr|x264|x265)\b", re.I)
 _BRACKETS = re.compile(r"[\[\(\{][^\]\)\}]*[\]\)\}]")
 _PREFIX = re.compile(r"^(?:(?P<tag>US|UK|CA|AU|EN|ES|FR|DE|IT|PT|NL))\s*[\|:/\-]\s*", re.I)
+# Streaming-service tags some providers put before film and series titles ("NF - Kaos", "D+ - Moana 2").
+_SERVICE = re.compile(
+    r"^\s*[\[(|]?\s*(?:NF|NETFLIX|D\+|DSNP|DISNEY\+?|AMZ|AMZN|PRIME|HBO|HMAX|HBOMAX|ATV\+?|ATVP|APPLE\s?TV\+?|HULU|PCOK|PEACOCK"
+    r"|PMNT|P\+|PARAMOUNT\+?|STAN|CRAVE|SHO|STARZ|AMC\+|MUBI)\s*[\])|]?\s*[-\u2013|:]\s*(?=\S)", re.I)
 _TIMESHIFT = re.compile(r"(?:\+|plus\s*)1\b", re.I)
 _YEAR = re.compile(r"\b(?:19|20)\d{2}\b")
 _PUNCT = re.compile(r"[^\w\s+]", re.UNICODE)
@@ -47,14 +51,22 @@ class Parsed:
     year: int | None
 
 
-def parse(name: str, year: object = None, language: str | None = None) -> Parsed:
-    """The part of a title that is safe to compare, and the part that must stay distinct."""
+def parse(name: str, year: object = None, language: str | None = None, titles: bool = False) -> Parsed:
+    """The part of a title that is safe to compare, and the part that must stay distinct.
+
+    `titles` is for films and series: a streaming-service tag in front ("NF - ") is not part of the title.
+    """
     original = unicodedata.normalize("NFKC", name or "")
     text = "".join(ch for ch in unicodedata.normalize("NFKD", original) if not unicodedata.combining(ch))
     region = None
     lang = (language or "").strip().lower() or None
     while True:
         found = _PREFIX.match(text.strip())
+        if not found and titles:
+            found = _SERVICE.match(text.strip())
+            if found:
+                text = text.strip()[found.end():]
+                continue
         if not found:
             break
         tag = found.group("tag").lower()
