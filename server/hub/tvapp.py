@@ -102,6 +102,23 @@ _MEDIA = re.compile(r"^media_player\.[a-z0-9_]+$")
 _URL = re.compile(r"https?://\S+", re.I)
 
 
+def _household(db: Any) -> list[dict[str, str]]:
+    """First names and roles of the people who live here (no guests, tablets or pending), for TV profiles."""
+    out: list[dict[str, str]] = []
+    try:
+        people = db.people()
+    except Exception:  # noqa: BLE001 - a TV config must not fail on the people table
+        return out
+    for p in people:
+        role = p.get("role")
+        if role not in ("admin", "adult", "child"):
+            continue
+        first = str(p.get("name") or "").strip().split(" ")[0][:40]
+        if first:
+            out.append({"id": str(p["id"]), "name": first, "role": role})
+    return out
+
+
 def _favorite_channels(db: Any) -> list[str]:
     """Channel keys someone has starred. Pairing includes them so a new TV opens on the familiar ones."""
     found: list[str] = []
@@ -1013,8 +1030,9 @@ class TvApp:
             "settings": dict(tv.get("settings") or {}),
             "settings_rev": int(tv.get("settings_rev") or 0),
         }
-        if out["profile"] == "kids":
-            out["kids_categories"] = self.kids_categories()
+        # Every TV gets the kids categories and the household, so it can keep a kids profile per child.
+        out["kids_categories"] = self.kids_categories()
+        out["people"] = _household(self.db)
         return out
 
     def approved_config(self, install_id: str) -> dict[str, Any]:
@@ -1041,8 +1059,9 @@ class TvApp:
             "settings": dict(tv.get("settings") or {}),
             "settings_rev": int(tv.get("settings_rev") or 0),
         }
-        if out["profile"] == "kids":
-            out["kids_categories"] = self.kids_categories()
+        # Every TV gets the kids categories and the household, so it can keep a kids profile per child.
+        out["kids_categories"] = self.kids_categories()
+        out["people"] = _household(self.db)
         return out
 
     def metadata_keys(self) -> dict[str, str]:
