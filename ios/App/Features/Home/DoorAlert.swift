@@ -69,11 +69,19 @@ struct DoorAlertSettings: View {
     @State private var quietFrom = "22:00"
     @State private var quietTo = "07:00"
     @State private var motion = false
+    @State private var enabled = true
+    @State private var kids = false
     @State private var loaded = false
     @State private var note: String?
 
     var body: some View {
         Form {
+            Section {
+                Toggle("Camera alerts on the TVs", isOn: $enabled)
+                Toggle("On kids' profiles", isOn: $kids).disabled(!enabled)
+            } footer: {
+                Text("Off turns off every doorbell and door-camera alert on every TV. Kids' profiles get none unless you switch them on.")
+            }
             Section {
                 TextField("Quiet from", text: $quietFrom)
                 TextField("Quiet until", text: $quietTo)
@@ -116,13 +124,15 @@ struct DoorAlertSettings: View {
         quietFrom = page.quiet.from
         quietTo = page.quiet.to
         motion = page.motion
+        enabled = page.enabled ?? true
+        kids = page.kids ?? false
         loaded = true
     }
 
     private func save() async {
         do {
             let _: DoorSettings = try await HubClient.shared.call("PUT", "/v1/tv/alerts/settings", body: [
-                "cameras": Array(chosen), "motion": motion, "quiet": ["from": quietFrom, "to": quietTo],
+                "cameras": Array(chosen), "motion": motion, "enabled": enabled, "kids": kids, "quiet": ["from": quietFrom, "to": quietTo],
             ])
             UINotificationFeedbackGenerator().notificationOccurred(.success)
             note = "Saved."
@@ -137,6 +147,8 @@ struct DoorSettings: Decodable {
     var cameras: [String]
     var quiet: Quiet
     var motion: Bool
+    var enabled: Bool?
+    var kids: Bool?
     var found: [DoorCamera]
     struct Quiet: Codable { var from: String; var to: String }
 }

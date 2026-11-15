@@ -99,7 +99,7 @@ def _shape_for_tv(h: Hub, s: Subject, ev: dict[str, Any]) -> dict[str, Any] | No
             return None
         return {"type": "explore", "data": data}
     if kind == "home_alert":
-        return ev
+        return ev if h.home_alerts.shows_on(s.is_child_like) else None
     if kind == "bedtime":
         data = ev.get("data") or {}
         if data.get("state") not in ("warning", "locked", "unlocked"):

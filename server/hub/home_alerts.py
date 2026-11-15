@@ -48,6 +48,9 @@ class HomeAlerts:
             "rooms": _names(rooms),
             "quiet": {"from": _clock(quiet.get("from"), QUIET_FROM), "to": _clock(quiet.get("to"), QUIET_TO)},
             "motion": bool(raw.get("motion", extra.get("alert_motion", False))),
+            # One switch for every camera and doorbell alert on the TVs, and one for kids' profiles (off by default).
+            "enabled": bool(raw.get("enabled", True)),
+            "kids": bool(raw.get("kids", False)),
             "auto": "cameras" not in raw and not extra.get("door_cameras"),
         }
 
@@ -64,8 +67,9 @@ class HomeAlerts:
         if isinstance(body.get("quiet"), dict):
             cur["quiet"] = {"from": _clock(body["quiet"].get("from"), QUIET_FROM),
                             "to": _clock(body["quiet"].get("to"), QUIET_TO)}
-        if "motion" in body:
-            cur["motion"] = bool(body.get("motion"))
+        for key in ("motion", "enabled", "kids"):
+            if key in body:
+                cur[key] = bool(body.get(key))
         self.hub.db.kv_set(KV_SETTINGS, cur)
         return self.view()
 
@@ -81,6 +85,8 @@ class HomeAlerts:
             "rooms": rooms,
             "quiet": chosen["quiet"],
             "motion": chosen["motion"],
+            "enabled": chosen["enabled"],
+            "kids": chosen["kids"],
             "auto": chosen["auto"],
             "found": found,
         }
@@ -107,6 +113,11 @@ class HomeAlerts:
         elif src:
             seen[src] = {"id": src, "name": src.replace("_", " ").title(), "room": None, "door": True}
         return sorted(seen.values(), key=lambda row: (not row["door"], str(row["name"]).casefold()))
+
+    def shows_on(self, child_like: bool) -> bool:
+        """Whether a TV on this profile gets door alerts at all. Kids' profiles only when switched on."""
+        chosen = self.settings()
+        return chosen["enabled"] and (chosen["kids"] or not child_like)
 
     def door_cameras(self) -> list[str]:
         return list(self.view()["cameras"])
@@ -206,18 +217,21 @@ class HomeAlerts:
         return clock >= start or clock < end
 
 
-def rewrite_playlist(text: str, alert_id: str, base: str = "") -> str:
+def rewrite_playlist(text: str, alert_id: str, base: str = "", route: str | None = None) -> str:
     """Point every HLS line at the hub, so the TV never calls go2rtc itself.
 
     `base` is the go2rtc folder the playlist came from (`api/` for the first one, `api/hls/` for the
     media playlist). go2rtc writes relative lines (`hls/playlist.m3u8?id=..`, `segment.ts?id=..&n=..`,
-    `URI="init.mp4?id=.."`), and they only resolve against that folder.
+    `URI="init.mp4?id=.."`), and they only resolve against that folder. `route` is the hub path the lines
+    point at (default: this alert's `/media`; the Cameras screen uses `/v1/tv/cameras/{cam}/media`).
     """
+    media = route or f"/v1/tv/alerts/{alert_id}/media"
+
     def hub(ref: str) -> str | None:
         ref = ref.strip()
         if not ref or "://" in ref or ref.startswith("/") or ".." in ref:
             return None
-        return f"/v1/tv/alerts/{alert_id}/media?src={quote(base + ref, safe='')}"
+        return f"{media}?src={quote(base + ref, safe='')}"
 
     lines = []
     for line in (text or "").splitlines():
