@@ -130,6 +130,8 @@ struct TVSetupView: View {
                     .background(Theme.card, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
                 }
 
+                HubTvsCard()
+
                 TvAppSetupCard()
 
                 SectionHeader("Add by address")
@@ -597,5 +599,336 @@ private struct PairSheet: View {
             Task { let _: Empty? = try? await HubClient.shared.call("DELETE", "/v1/remotes/pair/\(id)") }
         }
         if step?.state == "done" { finished(nil) } else { dismiss() }
+    }
+}
+
+// MARK: - Thomas Creek TVs on the phone (GET /v1/tvs, /v1/tvs/{id})
+
+struct HubTvsPage: Decodable { var tvs: [HubTvRow]; var latestVersion: String? }
+
+struct HubTvRow: Decodable, Identifiable, Hashable {
+    struct Playing: Decodable, Hashable {
+        var kind: String?
+        var title: String?
+        var name: String?
+        var number: Int?
+        var channelKey: String?
+        var positionS: Double?
+    }
+    struct Shot: Decodable, Hashable { var url: String; var at: String? }
+    var id: String
+    var name: String
+    var room: String?
+    var profile: String?
+    var status: String
+    var online: Bool
+    var lastSeen: String?
+    var health: String?
+    var appVersion: String?
+    var updateAvailable: Bool?
+    var foreground: Bool?
+    var nowPlaying: Playing?
+    var lastError: String?
+    var model: String?
+    var screenshot: Shot?
+}
+
+struct HubTvDetail: Decodable {
+    struct Device: Decodable {
+        struct Network: Decodable { var kind: String?; var ssid: String?; var rssiDbm: Double? }
+        var cpuPct: Double?
+        var ramPct: Int?
+        var storagePct: Int?
+        var temperatureC: Double?
+        var network: Network?
+        var uptimeS: Double?
+        var android: String?
+    }
+    struct LastCommand: Decodable { var action: String; var ok: Bool?; var detail: String?; var at: String? }
+    var tv: HubTvRow
+    var device: Device?
+    var lastCommand: LastCommand?
+
+    init(from decoder: Decoder) throws {
+        tv = try HubTvRow(from: decoder)
+        let c = try decoder.container(keyedBy: Keys.self)
+        device = try? c.decodeIfPresent(Device.self, forKey: .device)
+        lastCommand = try? c.decodeIfPresent(LastCommand.self, forKey: .lastCommand)
+    }
+    private enum Keys: String, CodingKey { case device, lastCommand }
+}
+
+struct TvActionReply: Decodable { var ok: Bool; var via: String?; var message: String?; var id: String? }
+
+private enum TvText {
+    static func room(_ id: String?) -> String? {
+        guard let id, !id.isEmpty else { return nil }
+        return id.replacingOccurrences(of: "_", with: " ").capitalized
+    }
+
+    static func playing(_ p: HubTvRow.Playing?) -> String? {
+        guard let p else { return nil }
+        let main = p.title ?? p.name
+        if let main, let channel = p.name, channel != main { return "\(main) · \(channel)" }
+        return main
+    }
+
+    static func ago(_ iso: String?) -> String? {
+        guard let iso, let date = parse(iso) else { return nil }
+        let f = RelativeDateTimeFormatter()
+        f.unitsStyle = .short
+        return f.localizedString(for: date, relativeTo: Date())
+    }
+
+    static func parse(_ iso: String) -> Date? {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let d = f.date(from: iso) { return d }
+        f.formatOptions = [.withInternetDateTime]
+        return f.date(from: iso)
+    }
+
+    static func status(_ tv: HubTvRow) -> (String, Color) {
+        if tv.status != "approved" { return ("Waiting for approval", Theme.warn) }
+        if !tv.online { return ("Offline", Theme.dim) }
+        switch tv.health {
+        case "hot": return ("Running hot", Theme.warn)
+        case "storage": return ("Storage full", Theme.warn)
+        case "battery": return ("Remote battery low", Theme.warn)
+        default: return ("Online", Theme.accent)
+        }
+    }
+}
+
+/// Every Thomas Creek TV in the house, on TVs and boxes. A row opens its detail screen.
+private struct HubTvsCard: View {
+    @Environment(Router.self) private var router
+    @State private var page: HubTvsPage?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if let tvs = page?.tvs, !tvs.isEmpty {
+                SectionHeader("Thomas Creek TVs")
+                VStack(spacing: 0) {
+                    ForEach(tvs) { tv in
+                        Button { router.go(.tvDetail(tv.id)) } label: { row(tv) }
+                            .buttonStyle(.plain)
+                        if tv.id != tvs.last?.id { Divider().overlay(Theme.line) }
+                    }
+                }
+                .padding(.horizontal, 14)
+                .background(Theme.card, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            }
+        }
+        .task {
+            // Refresh while the screen is open, so now playing and online stay current.
+            while !Task.isCancelled {
+                if let fresh: HubTvsPage = try? await HubClient.shared.get("/v1/tvs") { page = fresh }
+                try? await Task.sleep(for: .seconds(5))
+            }
+        }
+    }
+
+    private func row(_ tv: HubTvRow) -> some View {
+        let (label, color) = TvText.status(tv)
+        return HStack(spacing: 12) {
+            Image(systemName: "tv.and.mediabox.fill").font(.title3)
+                .foregroundStyle(tv.online ? Theme.accent : Theme.dim).frame(width: 34)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(tv.name).font(.body.weight(.semibold)).foregroundStyle(Theme.fg)
+                Text(TvText.playing(tv.nowPlaying) ?? TvText.room(tv.room) ?? (tv.profile == "kids" ? "Kids" : "No room yet"))
+                    .font(.caption).foregroundStyle(Theme.dim).lineLimit(1)
+            }
+            Spacer()
+            if tv.updateAvailable == true {
+                Image(systemName: "arrow.down.circle.fill").foregroundStyle(Theme.accent)
+            }
+            Text(label).font(.caption.weight(.semibold)).foregroundStyle(color)
+            Image(systemName: "chevron.right").font(.caption).foregroundStyle(Theme.dim)
+        }
+        .padding(.vertical, 10)
+        .contentShape(Rectangle())
+    }
+}
+
+/// One TV: what's on, how it is, and the few things an adult can ask it to do from the phone.
+struct TVDetailView: View {
+    let tvID: String
+    @State private var detail: HubTvDetail?
+    @State private var latest: String?
+    @State private var problem: String?
+    @State private var note: String?
+    @State private var busy: String?
+    @State private var shotWanted: String?   // screenshot `at` before the request; cleared when it changes
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                if let problem {
+                    Label(problem, systemImage: "exclamationmark.triangle.fill")
+                        .font(.subheadline).foregroundStyle(Theme.warn).card()
+                }
+                if let d = detail {
+                    header(d.tv)
+                    actions(d.tv)
+                    if let note {
+                        Label(note, systemImage: "info.circle.fill").font(.subheadline).foregroundStyle(Theme.fg).card()
+                    }
+                    screen(d.tv)
+                    facts(d)
+                } else if problem == nil {
+                    LoadingCard()
+                }
+            }
+            .screen()
+        }
+        .background(Backdrop())
+        .navigationTitle(detail?.tv.name ?? "TV").navigationBarTitleDisplayMode(.inline)
+        .refreshable { await load() }
+        .task {
+            while !Task.isCancelled {
+                await load()
+                try? await Task.sleep(for: .seconds(shotWanted == nil ? 5 : 2))
+            }
+        }
+    }
+
+    // MARK: sections
+
+    private func header(_ tv: HubTvRow) -> some View {
+        let (label, color) = TvText.status(tv)
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Circle().fill(color).frame(width: 9, height: 9)
+                Text(label).font(.subheadline.weight(.semibold)).foregroundStyle(color)
+                Spacer()
+                if !tv.online, let ago = TvText.ago(tv.lastSeen) {
+                    Text("Last seen \(ago)").font(.caption).foregroundStyle(Theme.dim)
+                }
+            }
+            if let playing = TvText.playing(tv.nowPlaying) {
+                Text("Now playing").font(.caption).foregroundStyle(Theme.dim)
+                Text(playing).font(.title3.weight(.semibold)).foregroundStyle(Theme.fg)
+            } else if tv.online {
+                Text(tv.foreground == false ? "Another app is on screen" : "Nothing playing")
+                    .font(.title3.weight(.semibold)).foregroundStyle(Theme.fg)
+            }
+            Text([TvText.room(tv.room), tv.profile == "kids" ? "Kids profile" : "Adult profile"].compactMap { $0 }.joined(separator: " · "))
+                .font(.caption).foregroundStyle(Theme.dim)
+        }
+        .card()
+    }
+
+    private func actions(_ tv: HubTvRow) -> some View {
+        let columns = [GridItem(.flexible()), GridItem(.flexible())]
+        return LazyVGrid(columns: columns, spacing: 10) {
+            actionButton("Restart app", "arrow.clockwise", "restart_app")
+            actionButton(tv.updateAvailable == true ? "Update to \(latest ?? "new")" : "Update", "arrow.down.circle", "update")
+            actionButton("Open app", "play.tv", "open_app")
+            actionButton("Take a picture", "camera.viewfinder", "screenshot").disabled(!tv.online)
+        }
+        .disabled(tv.status != "approved")
+    }
+
+    private func actionButton(_ title: String, _ symbol: String, _ action: String) -> some View {
+        Button { Task { await run(action) } } label: {
+            HStack(spacing: 8) {
+                if busy == action { ProgressView().controlSize(.small) } else { Image(systemName: symbol) }
+                Text(title).lineLimit(1).minimumScaleFactor(0.8)
+            }
+            .font(.subheadline.weight(.semibold))
+            .frame(maxWidth: .infinity, minHeight: 44)
+        }
+        .buttonStyle(.bordered).tint(Theme.accent)
+        .disabled(busy != nil)
+    }
+
+    @ViewBuilder private func screen(_ tv: HubTvRow) -> some View {
+        if let shot = tv.screenshot {
+            VStack(alignment: .leading, spacing: 6) {
+                SectionHeader("Screen")
+                HubImage(path: shot.url, contentMode: .fit) {
+                    RoundedRectangle(cornerRadius: 14).fill(Theme.card2).aspectRatio(16 / 9, contentMode: .fit)
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                if let ago = TvText.ago(shot.at) {
+                    Text("Taken \(ago)").font(.caption).foregroundStyle(Theme.dim)
+                }
+            }
+        } else if shotWanted != nil {
+            HStack { ProgressView(); Text("Waiting for the picture…").font(.subheadline).foregroundStyle(Theme.dim) }.card()
+        }
+    }
+
+    private func facts(_ d: HubTvDetail) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            SectionHeader("Details")
+            VStack(spacing: 0) {
+                fact("Version", d.tv.appVersion ?? "Unknown")
+                if let latest, d.tv.updateAvailable == true { fact("Newest build", latest) }
+                if let err = d.tv.lastError, !err.isEmpty { fact("Last error", err, warn: true) }
+                if let ago = TvText.ago(d.tv.lastSeen) { fact("Last check-in", ago) }
+                if let model = d.tv.model { fact("Model", model) }
+                if let dev = d.device {
+                    if let a = dev.android { fact("Android", a) }
+                    if let net = dev.network, let kind = net.kind, kind != "none" {
+                        fact("Network", network(kind, net))
+                    }
+                    if let s = dev.storagePct { fact("Storage used", "\(s)%") }
+                    if let t = dev.temperatureC { fact("Temperature", "\(Int(t))°C") }
+                }
+                if let cmd = d.lastCommand {
+                    fact("Last request", "\(cmd.action.replacingOccurrences(of: "_", with: " ")): \(cmd.ok == false ? (cmd.detail ?? "didn't work") : "done")",
+                         warn: cmd.ok == false)
+                }
+            }
+            .padding(.horizontal, 14)
+            .background(Theme.card, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        }
+    }
+
+    private func network(_ kind: String, _ net: HubTvDetail.Device.Network) -> String {
+        guard kind == "wifi" else { return "Ethernet" }
+        var text = "Wi-Fi"
+        if let ssid = net.ssid { text += " " + ssid }
+        if let rssi = net.rssiDbm { text += " (\(Int(rssi)) dBm)" }
+        return text
+    }
+
+    private func fact(_ label: String, _ value: String, warn: Bool = false) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(label).font(.subheadline).foregroundStyle(Theme.dim)
+            Spacer(minLength: 16)
+            Text(value).font(.subheadline).foregroundStyle(warn ? Theme.warn : Theme.fg).multilineTextAlignment(.trailing)
+        }
+        .padding(.vertical, 9)
+    }
+
+    // MARK: calls
+
+    private func load() async {
+        do {
+            detail = try await HubClient.shared.get("/v1/tvs/\(tvID)")
+            problem = nil
+            if let wanted = shotWanted, detail?.tv.screenshot?.at != wanted { shotWanted = nil }
+        } catch {
+            if detail == nil { problem = error.localizedDescription }
+        }
+        if latest == nil, let page: HubTvsPage = try? await HubClient.shared.get("/v1/tvs") { latest = page.latestVersion }
+    }
+
+    private func run(_ action: String) async {
+        busy = action
+        defer { busy = nil }
+        do {
+            let reply: TvActionReply = try await HubClient.shared.post("/v1/tvs/\(tvID)/actions", ["action": action])
+            note = reply.message
+            problem = nil
+            if action == "screenshot" { shotWanted = detail?.tv.screenshot?.at ?? "" }
+            await load()
+        } catch {
+            note = nil
+            problem = error.localizedDescription
+        }
     }
 }
