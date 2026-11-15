@@ -63,8 +63,11 @@ brew install xcodegen
 cd scanner && xcodegen && open RoomScanner.xcodeproj
 ```
 
-TestFlight: `BUILD=3 scanner/scripts/build_testflight.sh` (archives with automatic signing for team
-Z9Q392PD67 and uploads; bump `BUILD` each time). The App Store Connect app record for
-`me.dlewis.roomscanner` must exist first.
+TestFlight: `BUILD=4 scanner/scripts/upload_appstore.sh` on the Mac (bump `BUILD` each time; 0.2.0 (3)
+is the first build, uploaded Nov 15). It signs and uploads with the App Store Connect API key in
+`~/.appstoreconnect` (same layout as `ios/scripts/upload.sh`); the key needs the Admin role for
+cloud-managed distribution signing. App Store Connect app "Thomas Creek Room Scanner" (id 6835111468),
+internal TestFlight group "Family" with automatic distribution. `build_testflight.sh` is the older
+variant that relies on the Apple ID signed in to Xcode.
 
 The icon is drawn by `swift scripts/make_icon.swift RoomScanner/Assets.xcassets/AppIcon.appiconset/AppIcon.png`.
