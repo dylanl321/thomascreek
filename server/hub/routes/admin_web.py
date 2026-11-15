@@ -3,7 +3,11 @@
 Open https://<hub>:8443/admin on the home network. Signing in goes through the
 app: the page shows a short code, Dylan types it in the app (Systems, Hub web
 page) and confirms with Face ID. The app can also open the page already signed
-in. The session is a cookie for /admin only, 8 hours, home network or home VPN only.
+in. The session is a cookie for /admin only, home network or home VPN only. It
+lasts 7 days from the last visit (renewed at most hourly) and never more than
+30 days from the code sign-in. It is signed with the hub's stored key, so a hub
+restart or update keeps it. Signing out revokes it on the hub, and it stops
+working as soon as the phone that approved it is no longer an active admin.
 
 Values are write-only: the page lists which keys exist, never what they are.
 """
@@ -46,7 +50,10 @@ api = APIRouter(prefix="/v1/admin", tags=["admin-web"])
 COOKIE = "tc_admin"
 AUD = "admin-web"
 LINK_AUD = "admin-web-link"
-SESSION_S = 8 * 3600
+SESSION_IDLE_S = 7 * 86400   # signed out after a week without a visit
+SESSION_MAX_S = 30 * 86400   # and always 30 days after the code sign-in
+SESSION_RENEW_S = 3600       # a visit renews the cookie at most once an hour
+REVOKED_KV = "admin.web_revoked"  # session id -> expiry, for signed-out cookies
 CODE_TTL_S = 300
 CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
 
@@ -129,6 +136,9 @@ def _session(request: Request, h: Hub) -> dict[str, Any] | None:
         claims = h.tokens.verify(token, audience=AUD)
     except CryptoError:
         return None
+    sid = claims.get("sid")
+    if sid and sid in (h.db.kv_get(REVOKED_KV) or {}):
+        return None
     dev = h.db.device(claims.get("dev", ""))
     person = h.db.person(claims.get("per")) if claims.get("per") else None
     if not dev or dev["status"] != "active" or not person or person["role"] != "admin":
@@ -136,16 +146,44 @@ def _session(request: Request, h: Hub) -> dict[str, Any] | None:
     if not h.can_open_web(caller_ip(request, h)):
         return None
     claims["_token"] = token
+    # Renew a session that is still in use; the middleware in main.py sets the cookie.
+    if sid and time.time() - claims.get("iat", 0) > SESSION_RENEW_S:
+        request.state.admin_renew = claims
     return claims
 
 
 def _csrf(claims: dict[str, Any]) -> str:
-    return hashlib.sha256(f"csrf:{claims['_token']}".encode()).hexdigest()[:32]
+    # Tied to the session, not the cookie, so a renewed cookie keeps open forms working.
+    return hashlib.sha256(f"csrf:{claims.get('sid') or claims['_token']}".encode()).hexdigest()[:32]
 
 
-def _set_session(resp: Response, h: Hub, dev: str, per: str) -> None:
-    token, _ = h.tokens.issue_scoped({"aud": AUD, "dev": dev, "per": per}, SESSION_S)
-    resp.set_cookie(COOKIE, token, max_age=SESSION_S, httponly=True, secure=True, samesite="strict", path="/admin")
+def _set_session(resp: Response, h: Hub, dev: str, per: str, *, sid: str | None = None,
+                 started: int | None = None) -> None:
+    now = int(time.time())
+    started = started or now
+    ttl = min(SESSION_IDLE_S, started + SESSION_MAX_S - now)
+    if ttl <= 0:
+        return
+    token, _ = h.tokens.issue_scoped({"aud": AUD, "dev": dev, "per": per, "sid": sid or secrets.token_hex(16),
+                                      "st": started}, ttl)
+    resp.set_cookie(COOKIE, token, max_age=ttl, httponly=True, secure=True, samesite="strict", path="/admin")
+
+
+def renew_session(request: Request, resp: Response, h: Hub) -> None:
+    """Called after an /admin response: push the expiry out for a session that was just used."""
+    claims = getattr(request.state, "admin_renew", None)
+    if not claims or resp.status_code >= 400 or "set-cookie" in resp.headers:
+        return
+    _set_session(resp, h, claims["dev"], claims["per"], sid=claims["sid"], started=int(claims.get("st") or claims["iat"]))
+
+
+def _revoke(h: Hub, claims: dict[str, Any]) -> None:
+    if not claims.get("sid"):
+        return
+    now = time.time()
+    revoked = {k: v for k, v in (h.db.kv_get(REVOKED_KV) or {}).items() if v > now}
+    revoked[claims["sid"]] = int(claims.get("st") or claims.get("iat") or now) + SESSION_MAX_S
+    h.db.kv_set(REVOKED_KV, revoked)
 
 
 def _home_only(request: Request, h: Hub) -> None:
@@ -1092,7 +1130,8 @@ async def bambu_sign_out(request: Request, h: Hub = Depends(hub)) -> Response:
 
 @pages.post("/admin/logout")
 async def logout(request: Request, h: Hub = Depends(hub)) -> Response:
-    await _form_session(request, h)
+    claims, _ = await _form_session(request, h)
+    _revoke(h, claims)
     resp = RedirectResponse("/admin", status_code=303)
     resp.delete_cookie(COOKIE, path="/admin")
     return resp
