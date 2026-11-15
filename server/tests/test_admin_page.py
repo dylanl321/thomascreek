@@ -270,3 +270,110 @@ def test_test_button_waits_for_a_check_already_running_and_tests_again(hub):
     calls, second = asyncio.run(go())
     assert calls == 2 and second[0][1]["state"] == "ok"
     assert hub.keychecks.results["plex"]["state"] == "ok"
+
+
+def test_save_all_saves_every_changed_key_at_once_and_tests_each_once(hub, people, home_client, monkeypatch):
+    _plex_on(hub)
+    csrf = _sign_in(people, home_client)
+    page = home_client.get("/admin").text
+    # Text key rows have no Save button of their own; they belong to the one Save all form.
+    assert "form=saveall name='v:plex.token'" in page and "id=saveall" in page and "Save all" in page
+    runs = []
+    monkeypatch.setattr(hub.keychecks, "after_save_many", lambda names: runs.append(list(names)))
+    r = home_client.post("/admin/secrets/bulk", data={
+        "csrf": csrf, "v:plex.token": " plex-1 ", "v:sonarr.api_key": "sonarr-2", "v:radarr.api_key": "",
+        "v:wireguard.server_private_key": "nope", "v:made.up": "x"}, follow_redirects=False)
+    assert r.status_code == 303 and "Saved%202%20keys" in r.headers["location"]
+    assert hub.vault.get("plex.token") == "plex-1" and hub.vault.get("sonarr.api_key") == "sonarr-2"
+    assert not hub.vault.has("radarr.api_key") and not hub.vault.has("made.up")
+    assert hub.vault.get("wireguard.server_private_key") != "nope"
+    assert runs == [["plex.token", "sonarr.api_key"]]
+    # Nothing typed: nothing saved. Without the form token: refused.
+    assert "Nothing%20to%20save" in home_client.post("/admin/secrets/bulk", data={"csrf": csrf}, follow_redirects=False).headers["location"]
+    assert home_client.post("/admin/secrets/bulk", data={"v:plex.token": "x"}).status_code == 403
+
+
+def test_after_save_many_runs_a_shared_check_once(hub):
+    hub.vault.set("vpn.pia.admin_username", "p1234567")
+    hub.vault.set("vpn.pia.admin_password", "pw")
+    seen = []
+
+    async def go():
+        orig = hub.keychecks.run
+
+        async def spy(ids=None, secret=None):
+            seen.append(ids)
+            return []
+        hub.keychecks.run = spy  # type: ignore[method-assign]
+        hub.keychecks.after_save_many(["vpn.pia.admin_username", "vpn.pia.admin_password"])
+        await asyncio.sleep(0)
+        hub.keychecks.run = orig  # type: ignore[method-assign]
+    asyncio.run(go())
+    assert seen == [["pia"]]
+
+
+def test_iptv_providers_and_logins_listed_added_and_removed(hub, people, home_client):
+    csrf = _sign_in(people, home_client)
+    v0 = hub.tv_app.config_version()
+    r = home_client.post("/admin/iptv/login", data={"csrf": csrf, "provider": "Strong", "server": "http://strong.test:8080",
+                                                    "login": "one", "username": "u1", "password": "pw-1"}, follow_redirects=False)
+    assert "Saved%20the%20Strong%20login%20one" in r.headers["location"]
+    # A second login with the same provider can leave the server empty.
+    home_client.post("/admin/iptv/login", data={"csrf": csrf, "provider": "strong", "server": "", "login": "two",
+                                                "username": "u2", "password": "pw-2"})
+    home_client.post("/admin/iptv/login", data={"csrf": csrf, "provider": "Other", "server": "http://other.test",
+                                                "login": "main", "username": "u3", "password": "pw-3"})
+    assert hub.tv_app.config_version() > v0
+    from hub.iptvplay import logins
+    got = {(lg["provider"], lg["login"]): lg["server"] for lg in logins(hub)}
+    assert got == {("Strong", "one"): "http://strong.test:8080", ("Strong", "two"): "http://strong.test:8080",
+                   ("Other", "main"): "http://other.test"}
+    page = home_client.get("/admin").text
+    assert "3 logins, 2 providers" in page and "pw-1" not in page and "iptv.Strong.one.password" not in page
+    # A new provider needs its server; bad names are refused.
+    r = home_client.post("/admin/iptv/login", data={"csrf": csrf, "provider": "New", "login": "x", "username": "u",
+                                                    "password": "p"}, follow_redirects=False)
+    assert "server%20address" in r.headers["location"]
+    r = home_client.post("/admin/iptv/login/remove", data={"csrf": csrf, "provider": "Strong", "login": "one"}, follow_redirects=False)
+    assert "Removed" in r.headers["location"] and not hub.vault.has("iptv.Strong.one.password")
+    assert ("Strong", "one") not in {(lg["provider"], lg["login"]) for lg in logins(hub)}
+
+
+def test_pia_refusal_says_what_to_fix():
+    from hub.vpn_pia import normalize_username, refusal
+
+    assert normalize_username(" P1234567 ") == "p1234567" and normalize_username("me@x.com") == "me@x.com"
+    assert "not the email" in refusal(401, "me@x.com", "admin page")
+    assert "look like p1234567" in refusal(401, "dylan", "1Password")
+    assert "check the password" in refusal(401, "p1234567", "admin page") and "admin page" in refusal(401, "p1234567", "admin page")
+    assert "limiting" in refusal(429, "p1234567", "admin page")
+
+
+def test_metadata_sources_section_and_key_checks(hub, people, home_client):
+    csrf = _sign_in(people, home_client)
+    page = home_client.get("/admin").text
+    assert "Metadata sources (artwork, ratings, subtitles)" in page
+    for name in ("tmdb.api_key", "fanart.api_key", "omdb.api_key", "opensubtitles.api_key", "subdl.api_key"):
+        assert f"name='v:{name}'" in page
+    home_client.post("/admin/secrets/bulk", data={"csrf": csrf, "v:tmdb.api_key": "a" * 32, "v:omdb.api_key": "om1",
+                                                  "v:opensubtitles.api_key": "os1", "v:subdl.api_key": "sd1",
+                                                  "v:fanart.api_key": "fa1"})
+    with respx.mock() as mock:
+        mock.get("https://api.themoviedb.org/3/configuration").mock(return_value=httpx.Response(200, json={}))
+        mock.get("https://webservice.fanart.tv/v3/movies/603").mock(return_value=httpx.Response(401))
+        mock.get("https://www.omdbapi.com/").mock(return_value=httpx.Response(
+            401, json={"Response": "False", "Error": "Invalid API key!"}))
+        mock.post("https://api.opensubtitles.com/api/v1/download").mock(return_value=httpx.Response(
+            404, json={"message": "Invalid file_id"}))
+        mock.get("https://api.subdl.com/api/v1/subtitles").mock(return_value=httpx.Response(
+            200, json={"status": True, "subtitles": []}))
+        asyncio.run(hub.keychecks.run(ids=["tmdb", "fanart", "omdb", "opensubtitles", "subdl"]))
+    states = {k: hub.keychecks.results[k]["state"] for k in ("tmdb", "fanart", "omdb", "opensubtitles", "subdl")}
+    assert states == {"tmdb": "ok", "fanart": "bad", "omdb": "bad", "opensubtitles": "ok", "subdl": "ok"}
+    # The long TMDB Read Access Token works for TMDB but not for the TV app: say so.
+    hub.vault.set("tmdb.api_key", "eyJhbGciOiJIUzI1NiJ9.x.y")
+    with respx.mock() as mock:
+        route = mock.get("https://api.themoviedb.org/3/configuration").mock(return_value=httpx.Response(200, json={}))
+        asyncio.run(hub.keychecks.run(ids=["tmdb"]))
+        assert route.calls[0].request.headers["authorization"].startswith("Bearer ")
+    assert hub.keychecks.results["tmdb"]["state"] == "warn"

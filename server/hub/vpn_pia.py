@@ -20,6 +20,7 @@ import http.client
 import json
 import logging
 import random
+import re
 import socket
 import ssl
 import time
@@ -84,6 +85,27 @@ TOKEN_LIFE_S = 24 * 3600
 TOKEN_RENEW_S = 20 * 3600
 
 
+def normalize_username(user: str) -> str:
+    """PIA usernames are p plus digits, lower case ("P1234567" from a password manager fails)."""
+    u = user.strip()
+    return u.lower() if re.fullmatch(r"[pP]\d{5,10}", u) else u
+
+
+def refusal(status: int, user: str, where: str) -> str:
+    """Why PIA said no, in words that say what to fix. Never includes the password."""
+    if status == 429:
+        return "PIA is limiting sign-ins right now (too many tries); it tries again by itself in a few minutes"
+    if status >= 500:
+        return f"PIA's sign-in service is having trouble (HTTP {status})"
+    if "@" in user:
+        return (f"PIA refused the login from the {where}: use the PIA username (p and 7 digits, "
+                "e.g. p1234567), not the email address")
+    if not re.fullmatch(r"p\d{5,10}", user):
+        return (f"PIA refused the login from the {where}: the username should look like p1234567 "
+                f"(HTTP {status})")
+    return f"PIA refused the login from the {where} (HTTP {status}): check the password"
+
+
 class PiaError(RuntimeError):
     pass
 
@@ -128,7 +150,7 @@ class Pia:
                             (self.cfg.username_secret, self.cfg.password_secret, "1Password")):
             user, pw = str(self.vault.get(u) or "").strip(), str(self.vault.get(p) or "").strip()
             if user and pw:
-                return user, pw, where
+                return normalize_username(user), pw, where
         return None
 
     @property
@@ -150,6 +172,9 @@ class Pia:
             return "waiting for the PIA login (Private VPN row below, or the 1Password item PIA)"
         if self.last_error:
             return f"error: {self.last_error}"
+        if self.login_source == "1Password" and (self.vault.has(self.cfg.admin_username_secret)
+                                                 or self.vault.has(self.cfg.admin_password_secret)):
+            return "using the 1Password login, because only one of the two Private VPN rows is saved"
         return f"ready, login from {self.login_source}" + ("" if self.last_ok else " (not used yet)")
 
     def _client(self) -> httpx.AsyncClient:
@@ -174,7 +199,7 @@ class Pia:
         except ValueError:
             pass
         if res.status_code != 200 or not tok:
-            self.last_error = f"PIA refused the login (HTTP {res.status_code})"
+            self.last_error = refusal(res.status_code, user, login[2])
             raise PiaError(self.last_error)
         self._token = (tok, time.time(), stamp)
         self.last_error = None
