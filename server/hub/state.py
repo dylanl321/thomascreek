@@ -103,6 +103,9 @@ class Hub:
 
         self.tv_app = TvApp(config.tv_app, vault, db, data, notify=_tv_notice)
         self.tv_app.hub_config = config
+        from .tvs import announce as _tv_config_changed
+
+        self.tv_app.on_config = lambda install_id, version: _tv_config_changed(self, install_id, version)
         from datetime import datetime
         from zoneinfo import ZoneInfo
 

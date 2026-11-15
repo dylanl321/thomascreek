@@ -1590,3 +1590,53 @@ These routes are the ones an iPhone admin screen can call later. The page and th
 A child only sees ratings on the household list (`child_policy.ratings`) and kids' IPTV. A TMDB title with no US rating is left out. A TV bearer can search; it cannot request.
 
 `POST /v1/titles/request {media_id:"movie:603"|"tv:1399"}`. An adult's ask goes to Jellyseerr (and from there to Radarr or Sonarr), the same pipeline as `POST /v1/media/requests`. A child's ask is a `requests` row with `status: "waiting"` and an inbox item for parents; approving it is the existing `POST /v1/requests/{id}/approve`, which is what submits it to Jellyseerr. `503 unavailable` when Jellyseerr is not configured. `503 dry_run` while `media.approve` is not a live action.
+
+## TVs on the phone (`hub/tvs.py`, `routes/tvs.py`)
+
+Admins and adults (`remotes.setup`). One shape for the iPhone app and the assistant, built from the TV registry, the fleet check-ins and now-playing.
+
+`GET /v1/tvs` → `{tvs:[TV], latest_version}`. Approved TVs first, then pending ones, by name. Revoked TVs are left out.
+
+```json
+{"id":"tv_office_0123456789","name":"Living room","room":"living_room","profile":"adult","status":"approved",
+ "online":true,"last_seen":"2026-11-15T04:30:00+00:00","health":"ok","app_version":"1.4.1-tc.6","update_available":false,
+ "foreground":true,"now_playing":{"kind":"live","title":"Newsroom","name":"CNN","channel_key":"xc:thomas-creek:10"},
+ "last_error":null,"model":"SHIELD Android TV","platform":"android_tv","capability":"basic","ip":"10.0.1.21",
+ "screenshot":{"url":"/v1/tvs/tv_office_0123456789/screenshot?t=1794716000","at":"2026-11-15T04:33:20+00:00"},
+ "settings_rev":3}
+```
+
+`online` means heard from in the last two minutes (fleet report, state, token or config pull). An offline TV has `now_playing: null` and `health: "offline"`; otherwise `health` is the fleet value (`ok`, `hot`, `battery`, `storage`). `screenshot` is null until the TV has sent one.
+
+`GET /v1/tvs/{id}` is the same plus `device` (`cpu_pct`, `ram_pct`, `storage_pct`, `temperature_c`, `network`, `ping_ms`, `uptime_s`, `remote_battery_pct`, `android`; null before the first fleet report), `last_command`, `settings` and `actions`.
+
+`PATCH /v1/tvs/{id}/settings` `{name?, room?, profile?, settings?}`. `settings` holds only the keys to change; `null` removes one so the TV uses its own default. The answer is `{ok, settings, settings_rev}`. Keys:
+
+| Key | Value |
+|---|---|
+| `home_rows` | row ids in order, at most 30 (`continue`, `live_now`, …) |
+| `favorites` | channel keys, at most 500, duplicates dropped |
+| `hidden_categories` | category names, at most 500 |
+| `parental` | `{locked: bool, max_rating: "PG" \| "TV-Y7" \| … \| null}`. A PIN stays on the TV. |
+| `language` | `en`, `en-US`, … |
+| `player` | `{autoplay_next: bool, resume: bool, subtitles: "off" \| "auto" \| lang, audio_language: lang \| null}` |
+
+`picture`, `audio`, `display` and `sound` are refused with `400` "Picture and audio stay on each TV." An unknown key is `400` "`<key>` isn't a TV setting the hub keeps."
+
+Every change bumps the config version once and sends `config_changed` to that TV. The TV then makes its signed `POST /v1/tv/config`, whose body now has `settings` and `settings_rev`. A change made on the TV comes back with `POST /v1/tv/settings` `{settings, base_rev?}` (TV bearer); the last write wins, from either side, and the answer is what the hub holds.
+
+`config_changed` (TV event stream only, never to phones): `{"install_id":"tv_…" | null, "version": 42, "settings_rev": 3}`. `install_id` null means a house-wide change (kids categories, lineup, sources); every TV pulls, and an unchanged config answers `304`.
+
+`POST /v1/tvs/{id}/actions` `{action, …}` → `{ok, via, message, id?}`. `via` is `app` (sent to Thomas Creek TV over its event stream; `id` is the fleet command), `adb` (done by the hub over network debugging) or `none`.
+
+| Action | What happens |
+|---|---|
+| `restart_app` | Online: the app restarts itself. Offline: the hub force-stops and opens it over adb. |
+| `open_app` | Opens the app over adb. Without adb, an online app restarts into the front. |
+| `update` | The newest kept build. Over adb for a box on the TV app list, else sent to the app (`install_apk` with `/v1/tv/apk`); the TV may show an Install prompt. Already current: `via: "none"`. |
+| `screenshot` | Asks the app for a picture. Poll `GET /v1/tvs/{id}` until `screenshot.at` changes, then load `screenshot.url`. |
+| `play` | `{channel_key}`, `{movie_id}` or `{episode_id, series_id?}`, plus `title?`. Same delivery as `tv.play`. |
+
+A TV that needs the hub's one-time adb Allow answers `409` `needs_allow` "Living room needs one Allow for the hub: press Allow on the TV, then try again." Offline TVs answer `409` `offline` for actions that need the app.
+
+`GET /v1/tvs/{id}/screenshot` returns the last PNG (`404` before the first one).
