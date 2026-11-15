@@ -1,0 +1,52 @@
+# Room Scanner: LiDAR room capture for the Thomas Creek dollhouse models.
+# Generate the Xcode project with:  brew install xcodegen && cd scanner && xcodegen
+name: RoomScanner
+options:
+  deploymentTarget:
+    iOS: "18.0"
+  createIntermediateGroups: true
+  developmentLanguage: en
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "0.2.0"
+    CURRENT_PROJECT_VERSION: "1"
+    CODE_SIGN_STYLE: Automatic
+    DEVELOPMENT_TEAM: Z9Q392PD67
+    TARGETED_DEVICE_FAMILY: "1"
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    SWIFT_STRICT_CONCURRENCY: minimal
+targets:
+  RoomScanner:
+    type: application
+    platform: iOS
+    sources:
+      - RoomScanner
+    info:
+      path: RoomScanner/Info.plist
+      properties:
+        CFBundleDisplayName: Room Scanner
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        ITSAppUsesNonExemptEncryption: false
+        NSCameraUsageDescription: Room Scanner uses the camera and LiDAR to measure your room and take reference photos for its dollhouse model.
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+        UILaunchScreen: {}
+        UIApplicationSupportsIndirectInputEvents: true
+        UIRequiresFullScreen: true
+        UIRequiredDeviceCapabilities: [arkit]
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: me.dlewis.roomscanner
+        PRODUCT_NAME: RoomScanner
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+schemes:
+  RoomScanner:
+    build:
+      targets:
+        RoomScanner: all
+    archive:
+      config: Release

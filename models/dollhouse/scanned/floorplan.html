@@ -1,0 +1,39 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Thomas Creek floor plan</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;background:#e7e0d5;font:14px -apple-system,Helvetica,sans-serif;color:#3b2f25}
+  #bar{position:fixed;left:12px;top:12px;display:flex;gap:6px;flex-wrap:wrap;z-index:2}
+  #bar button{border:0;border-radius:16px;padding:7px 13px;background:#fffaf2cc;color:#3b2f25;cursor:pointer}
+  #bar button.on{background:#3b2f25;color:#fffaf2}
+  #info{position:fixed;left:12px;bottom:12px;background:#fffaf2cc;border-radius:10px;padding:8px 12px;max-width:60ch}
+</style>
+<script type="importmap">{"imports":{"three":"/node_modules/three/build/three.module.js","three/addons/":"/node_modules/three/examples/jsm/"}}</script></head>
+<body><div id="bar"></div><div id="info">Drag to turn, pinch or scroll to zoom.</div>
+<script type="module">
+// Serve models/dollhouse (npx --yes serve -l 8766 .) and open /scanned/floorplan.html
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { createHouse } from './src/scanned_room.js';
+const house = await (await fetch('house.json')).json();
+const plans = {};
+for (const r of house.rooms) plans[r.name] = await (await fetch(r.plan)).json();
+let app, controls;
+const show = (story) => {
+  document.querySelectorAll('canvas').forEach(c => c.remove());
+  app = createHouse(document.body, house, plans, { width: innerWidth, height: innerHeight, pixelRatio: Math.min(2, devicePixelRatio), story });
+  app.setView('dollhouse');
+  controls = new OrbitControls(app.camera, app.renderer.domElement);
+  controls.target.copy(app.camera.userData.target); controls.enableDamping = true; controls.update();
+  document.querySelectorAll('#bar button').forEach(b => b.classList.toggle('on', +b.dataset.story === story));
+  const rooms = house.rooms.filter(r => r.story === story);
+  document.getElementById('info').textContent = rooms.map(r => `${r.name}: ${r.method}${r.linked_to ? ' (' + r.linked_to + ')' : ''}`).join(' · ') + (house.notes.length ? ' — ' + house.notes.join(' ') : '');
+};
+for (const s of house.stories) {
+  const b = document.createElement('button'); b.textContent = s.name; b.dataset.story = s.level; b.onclick = () => show(s.level);
+  document.getElementById('bar').appendChild(b);
+}
+show(house.stories.find(s => s.level === 0)?.level ?? house.stories[0].level);
+addEventListener('resize', () => app.resize(innerWidth, innerHeight));
+const loop = () => { requestAnimationFrame(loop); controls?.update(); app?.render(); };
+loop();
+</script></body></html>

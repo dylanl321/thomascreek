@@ -1,0 +1,27 @@
+<!doctype html><html><head><style>html,body{margin:0;overflow:hidden;background:#000}</style>
+<script type="importmap">{"imports":{"three":"/node_modules/three/build/three.module.js","three/addons/":"/node_modules/three/examples/jsm/"}}</script></head>
+<body><script type="module">
+// ?plan=/scanned/<room>/plan.json  or  ?house=/scanned/house.json[&story=0]   plus &view=dollhouse&w=&h=
+import { createScannedRoom, createHouse } from './scanned_room.js';
+window.onerror = (m) => { window.__err = String(m); };
+try {
+  const p = new URLSearchParams(location.search);
+  const w = +p.get('w') || 1600, h = +p.get('h') || 1000;
+  let app;
+  if (p.get('house')) {
+    const house = await (await fetch(p.get('house'))).json();
+    const base = p.get('house').replace(/[^/]*$/, '');
+    const plans = {};
+    for (const r of house.rooms) plans[r.name] = await (await fetch(base + r.plan)).json();
+    const story = p.has('story') ? +p.get('story') : null;
+    app = createHouse(document.body, house, plans, { width: w, height: h, story });
+  } else {
+    const plan = await (await fetch(p.get('plan'))).json();
+    app = createScannedRoom(document.body, plan, { width: w, height: h });
+  }
+  window.app = app;
+  app.setView(p.get('view') || 'dollhouse');
+  app.render(); app.render();
+  window.__done = true;
+} catch (e) { window.__err = e.stack || String(e); }
+</script></body></html>
