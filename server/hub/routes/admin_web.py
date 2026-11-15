@@ -483,6 +483,12 @@ def _bambu_html(h: Hub, csrf: str) -> str:
                 f"<form method=post action=/admin/bambu/sign-out class=inline>{hid}<button class=ghost "
                 f"onclick=\"return confirm('Sign the hub out of the Bambu account?')\">Sign out</button></form></div>")
         badge = "<span class=pill-ok>Signed in</span>"
+    elif c.needs_account:
+        body = (f"<div class=dim>Signed in, but the hub couldn't read which account it is yet."
+                f"{' ' + e(c.last_error) if c.last_error else ''}</div><div class=factions>"
+                f"<form method=post action=/admin/bambu/retry class=inline>{hid}<button>Try again</button></form>"
+                f"<form method=post action=/admin/bambu/sign-out class=inline>{hid}<button class=ghost>Start over</button></form></div>")
+        badge = "<span class=pill-miss>Almost signed in</span>"
     elif c.waiting_for:
         what = ("the 6-digit code Bambu just emailed" if c.waiting_for == "code"
                 else "the 6-digit code from your authenticator app")
@@ -1049,6 +1055,20 @@ async def bambu_code(request: Request, h: Hub = Depends(hub)) -> Response:
     claims, form = await _form_session(request, h)
     try:
         await h.bambu_cloud.finish(str(form.get("code") or ""))
+    except bambu_cloud.CloudError as exc:
+        return _back(f"Bambu sign-in: {exc.message}")
+    except Exception as exc:  # noqa: BLE001
+        return _back(f"Couldn't reach Bambu: {str(exc)[:120]}")
+    _bambu_done(h, claims)
+    n = len(h.bambu_cloud.devices)
+    return _back(f"Signed in to the Bambu account ({n} printer{'s' if n != 1 else ''} on it).")
+
+
+@pages.post("/admin/bambu/retry")
+async def bambu_retry(request: Request, h: Hub = Depends(hub)) -> Response:
+    claims, _ = await _form_session(request, h)
+    try:
+        await h.bambu_cloud.retry()
     except bambu_cloud.CloudError as exc:
         return _back(f"Bambu sign-in: {exc.message}")
     except Exception as exc:  # noqa: BLE001

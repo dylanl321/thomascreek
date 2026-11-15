@@ -360,12 +360,16 @@ async def test_bambu_account_id_comes_from_the_token(hub):
     assert c.mqtt_user == "u_5551234"
 
 
-async def test_bambu_account_id_error_says_what_failed(hub):
+async def test_bambu_account_id_error_says_what_failed(hub, monkeypatch):
     import httpx
     import respx
 
     from hub import bambu_cloud as bc
 
+    async def browser_blocked(url, token):
+        return 403, {}, "Attention Required! | Cloudflare"
+
+    monkeypatch.setattr(bc, "_browser_get", browser_blocked)
     c = hub.bambu_cloud
     with respx.mock(assert_all_called=False) as m:
         m.post(f"{bc.API}/v1/user-service/user/sendemail/code").mock(return_value=httpx.Response(200, json={}))
@@ -374,4 +378,38 @@ async def test_bambu_account_id_error_says_what_failed(hub):
         await c.start("dylan@example.com", "")
         with pytest.raises(bc.CloudError) as e:
             await c.finish("111222")
-    assert "preference: HTTP 403" in e.value.message and not c.signed_in
+    assert "preference: HTTP 403" in e.value.message and "Cloudflare" in e.value.message and not c.signed_in
+    assert c.needs_account  # token kept: Try again needs no new code
+
+
+async def test_bambu_browser_fallback_and_retry(hub, monkeypatch):
+    """Plain requests get 403; the browser-style request gets through, and Try again finishes sign-in."""
+    import httpx
+    import respx
+
+    from hub import bambu_cloud as bc
+
+    open_ = {"on": False}
+
+    async def browser(url, token):
+        if not open_["on"]:
+            return 403, {}, "cloudflare"
+        if url.endswith("/my/preference"):
+            return 200, {"uid": 4242}, ""
+        if url.endswith("/user/bind"):
+            return 200, {"devices": [{"dev_id": "0948X", "name": "H2S"}]}, ""
+        return 404, {}, ""
+
+    monkeypatch.setattr(bc, "_browser_get", browser)
+    c = hub.bambu_cloud
+    with respx.mock(assert_all_called=False) as m:
+        m.post(f"{bc.API}/v1/user-service/user/sendemail/code").mock(return_value=httpx.Response(200, json={}))
+        m.post(f"{bc.API}/v1/user-service/user/login").mock(return_value=httpx.Response(200, json={"accessToken": "opaque"}))
+        m.get(url__startswith=bc.API).mock(return_value=httpx.Response(403, text="cloudflare"))
+        await c.start("dylan@example.com", "")
+        with pytest.raises(bc.CloudError):
+            await c.finish("111222")
+        open_["on"] = True
+        await c.retry()
+    assert c.signed_in and c.mqtt_user == "u_4242"
+    assert [d["dev_id"] for d in c.devices] == ["0948X"]
