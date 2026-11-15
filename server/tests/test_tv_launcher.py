@@ -1,4 +1,4 @@
-"""Kids launcher: one TV starts in Thomas Creek TV, signed in as one person, with only the hub's apps."""
+"""Launcher: Thomas Creek TV is a TV's home screen, optionally signed in as one person, with the hub's apps."""
 
 from __future__ import annotations
 
@@ -33,7 +33,7 @@ def test_a_launcher_reaches_the_tv_and_narrows_its_apps(hub, people, home_client
     put = dylan.client.put(f"/v1/tvapp/tvs/{TV_ID}/launcher", headers=dylan.h, json={
         "on": True, "person_id": theo["id"],
         "apps": ["com.google.android.youtube.tvkids", "com.disney.disneyplus", "me.dlewis.thomascreek.tv",
-                 "com.google.android.youtube.tvkids"],
+                 "com.google.android.youtube.tvkids"], "guard": True,
     })
     assert put.status_code == 200, put.text
     body = put.json()
@@ -50,6 +50,13 @@ def test_a_launcher_reaches_the_tv_and_narrows_its_apps(hub, people, home_client
 
     assert dylan.client.put(f"/v1/tvapp/tvs/{TV_ID}/launcher", headers=dylan.h,
                             json={"on": True, "person_id": "nobody"}).status_code == 400
+    assert dylan.client.put(f"/v1/tvapp/tvs/{TV_ID}/launcher", headers=dylan.h,
+                            json={"on": True, "guard": True}).status_code == 400
+    # Any TV, nobody pinned, no list: the home screen with every app, no guard.
+    open_tv = dylan.client.put(f"/v1/tvapp/tvs/{TV_ID}/launcher", headers=dylan.h, json={"on": True}).json()
+    assert open_tv["on"] is True and open_tv["guard"] is False and open_tv["apps"] == []
+    # The profile's own list again (kids, since Theo was pinned a moment ago), not the launcher's two.
+    assert len(home_client.get("/v1/tv/apps", headers=headers).json()["allowed"]) > 2
     assert dylan.client.put(f"/v1/tvapp/tvs/{TV_ID}/launcher", headers=dylan.h,
                             json={"on": True, "apps": ["rm -rf"]}).json()["message"] == "That doesn't look like an app."
     avery = people["phones"]["Avery"]
@@ -78,7 +85,7 @@ def test_the_tv_lists_its_apps_and_the_admin_card_picks_them(hub, people, home_c
     home_client.post("/v1/tv/fleet/report", headers=headers, json=BODY)
     csrf = _sign_in(home_client, people)
     page = home_client.get(f"/admin/devices/{TV_ID}").text
-    assert "Kids launcher" in page and "YouTube Kids" in page and "Theo (child)" in page
+    assert "<h2>Launcher</h2>" in page and "Kids launcher" not in page and "YouTube Kids" in page and "Theo (child)" in page
     saved = home_client.post(f"/admin/devices/{TV_ID}/launcher", data={
         "csrf": csrf, "on": "1", "person_id": people["theo"]["id"], "guard": "1",
         "app": ["com.google.android.youtube.tvkids", "com.google.android.youtube.tv"],
@@ -101,7 +108,7 @@ async def test_the_box_gets_home_and_guard_and_gives_them_back(hub, people, home
     tvs[TV_ID]["ip"] = "10.0.0.86"
     hub.tv_app._save_tvs(tvs)
     tvlauncher.set_launcher(hub, TV_ID, {"on": True, "person_id": people["theo"]["id"],
-                                         "apps": ["com.google.android.youtube.tvkids"]}, apply=False)
+                                         "apps": ["com.google.android.youtube.tvkids"], "guard": True}, apply=False)
 
     async def home_after_set(args, timeout):
         adb.calls.append(args)

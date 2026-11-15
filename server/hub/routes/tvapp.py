@@ -11,7 +11,7 @@ POST   /v1/tvapp/boxes/{ip}/install      {force?} install or update now (force: 
 PATCH  /v1/tvapp/boxes/{ip}              {auto} keep this box updated automatically
 DELETE /v1/tvapp/boxes/{ip}              forget the box (the app stays installed on it)
 PATCH  /v1/tvapp/tvs/{id}                {status?, profile?, name?, room?, media_entity?}
-GET    /v1/tvapp/tvs/{id}/launcher       kids launcher: setting, what the box did, the apps the TV can open
+GET    /v1/tvapp/tvs/{id}/launcher       launcher: setting, what the box did, the apps the TV can open
 PUT    /v1/tvapp/tvs/{id}/launcher       {on, person_id?, apps:[packages], guard?} (see hub/tvlauncher.py)
 DELETE /v1/tvapp/tvs/{id}                forget a TV (it can ask again)
 PUT    /v1/tvapp/kids-categories         {categories: [...]} what a kids' TV shows

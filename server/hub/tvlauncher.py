@@ -1,10 +1,11 @@
-"""Kids launcher: a TV that starts in Thomas Creek TV, signed in as one person, with only the apps the hub lists.
+"""Launcher: a TV that starts in Thomas Creek TV as its home screen, optionally signed in as one person, with the
+apps the hub lists as tiles. Any TV can use it; a child's TV usually also turns on the guard.
 
 Per TV, stored on the TV record under `launcher`:
     {"on": bool, "person_id": str | None, "apps": [package, ...], "guard": bool}
 
-`apps` is the ordered tile row and the only other apps that TV may open. `guard` brings the TV back
-home as soon as an app that isn't on the list comes to the front.
+`apps` is the ordered tile row (empty: every app on the TV). With `guard` on, they are also the only other
+apps that TV may open: anything else that comes to the front sends the TV home. The guard needs a list.
 
 What the hub does over network debugging when a box at the TV's address is on its list:
   on:  enable the HOME alias, make it the home screen (remembering the previous one), allow Usage
@@ -48,7 +49,7 @@ def view(tv: dict[str, Any]) -> dict[str, Any]:
         "on": bool(raw.get("on")),
         "person_id": raw.get("person_id") or None,
         "apps": [p for p in (raw.get("apps") or []) if isinstance(p, str) and _PKG.fullmatch(p)][:MAX_APPS],
-        "guard": raw.get("guard", True) is not False,
+        "guard": bool(raw.get("guard")),
     }
 
 
@@ -63,7 +64,7 @@ def config_block(tv: dict[str, Any]) -> dict[str, Any]:
 def allowed(tv: dict[str, Any]) -> list[str] | None:
     """The app list for `/v1/tv/apps` when the launcher is on, else None (the profile's usual list)."""
     block = view(tv)
-    return block["apps"] if block["on"] else None
+    return block["apps"] if block["on"] and block["apps"] else None
 
 
 def status(tv: dict[str, Any]) -> dict[str, Any]:
@@ -93,7 +94,10 @@ def clean(body: dict[str, Any], people: list[dict[str, Any]]) -> dict[str, Any]:
             apps.append(text)
     if len(apps) > MAX_APPS:
         raise LauncherError(400, f"A launcher shows up to {MAX_APPS} apps.")
-    return {"on": on, "person_id": person_id, "apps": apps, "guard": body.get("guard", True) is not False}
+    guard = bool(body.get("guard"))
+    if on and guard and not apps:
+        raise LauncherError(400, "Pick the apps this TV may open before turning on Only these apps.")
+    return {"on": on, "person_id": person_id, "apps": apps, "guard": guard}
 
 
 def set_launcher(h: Any, install_id: str, body: dict[str, Any], *, apply: bool = True) -> dict[str, Any]:
@@ -110,7 +114,7 @@ def set_launcher(h: Any, install_id: str, body: dict[str, Any], *, apply: bool =
     tv["launcher"] = block
     person = next((p for p in people if str(p.get("id")) == block["person_id"]), None)
     if block["on"] and person is not None:
-        # A child's launcher is a kids' TV everywhere on the hub: bedtime, rights, lists.
+        # A TV signed in as a child is a kids' TV everywhere on the hub: bedtime, rights, lists.
         tv["profile"] = "kids" if person.get("role") == "child" else tv.get("profile") or "adult"
     tvs[install_id] = tv
     h.tv_app._save_tvs(tvs)

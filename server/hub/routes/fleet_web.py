@@ -143,7 +143,7 @@ async def devices_launcher(install_id: str, request: Request, h: Hub = Depends(h
     except tvlauncher.LauncherError as exc:
         return _go(f"/admin/devices/{install_id}", exc.message)
     if not saved["on"]:
-        return _go(f"/admin/devices/{install_id}", "The kids launcher is off. The TV's own home screen comes back.")
+        return _go(f"/admin/devices/{install_id}", "The launcher is off. The TV's own home screen comes back.")
     return _go(f"/admin/devices/{install_id}", "Saved. The TV switches in a few seconds.")
 
 
@@ -281,7 +281,7 @@ def _device_html(h: Hub, claims: dict[str, Any], install_id: str, msg: str | Non
 
 
 def _launcher_card(h: Hub, csrf: str, install_id: str) -> str:
-    """Kids launcher: on or off, who the TV signs in as, and the app tiles."""
+    """Launcher: on or off, who the TV signs in as, the app tiles, and whether other apps are allowed."""
     tv = h.tv_app.tvs().get(install_id) or {}
     block = tvlauncher.view(tv)
     state = tvlauncher.status(tv)
@@ -301,15 +301,15 @@ def _launcher_card(h: Hub, csrf: str, install_id: str) -> str:
     note = ""
     if state.get("note"):
         note = f"<p class=dim>{html.escape(str(state['note']))}</p>"
-    return f"""<h2>Kids launcher</h2>
+    return f"""<h2>Launcher</h2>
 <div class=card><form method=post action='/admin/devices/{html.escape(install_id)}/launcher' class=edit>
 <input type=hidden name=csrf value={csrf}>
-<p class=dim>The TV starts straight in Thomas Creek TV, signed in as one person, with only these apps as tiles.</p>
+<p class=dim>Thomas Creek TV becomes this TV's home screen, with the apps you tick as tiles (none ticked: every app).</p>
 <label><input type=checkbox name=on value=1 {'checked' if block['on'] else ''}> Use Thomas Creek TV as this TV's home screen</label>
 <label>Signs in as <select name=person_id>{choices}</select></label>
 <div style='display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:6px'>{boxes}</div>
 <input name=other placeholder="Another app by package name" style="font:inherit;padding:6px 8px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--fg)">
-<label><input type=checkbox name=guard value=1 {'checked' if block['guard'] else ''}> Bring the TV back home when another app opens</label>
+<label><input type=checkbox name=guard value=1 {'checked' if block['guard'] else ''}> Only these apps: any other app sends the TV back home</label>
 <button>Save launcher</button></form>{note}</div>
 """
 
