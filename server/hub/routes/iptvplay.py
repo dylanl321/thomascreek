@@ -7,6 +7,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import RedirectResponse
 
+from ..iptvcanon import copies
 from ..iptvplay import accounts, fail, target, tune
 from ..policy import Target
 from ..tvapp import TvAppError
@@ -20,6 +21,13 @@ router = APIRouter(prefix="/v1/tv", tags=["tv"])
 async def tv_accounts(c: Caller = Depends(caller), h=Depends(hub)) -> dict[str, Any]:
     need(h, c, "systems")
     return accounts(h)
+
+
+@router.get("/copies")
+async def tv_copies(c: Caller = Depends(caller), h=Depends(hub)) -> dict[str, Any]:
+    """Titles the provider lists more than once. A TV shows one row for each and plays it through /tune."""
+    _media(h, c)
+    return copies(h.db)
 
 
 @router.post("/tune")
