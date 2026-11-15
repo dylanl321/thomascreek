@@ -220,3 +220,16 @@ async def test_the_model_sorts_waiting_pairs_with_more_than_the_title(hub):
 def ai_payload_of(pair):
     from hub.iptvcanon import ai_payload
     return ai_payload([pair])
+
+
+def test_a_wrong_shared_tmdb_id_never_pours_another_film_into_a_title(hub):
+    rows = [
+        {"provider": "tc", "kind": "movie", "stream_id": "1", "tmdb": "155", "name": "The Dark Knight (2008)"},
+        {"provider": "tc", "kind": "movie", "stream_id": "2", "tmdb": "155", "name": "EN - The Dark Knight 4K"},
+        {"provider": "tc", "kind": "movie", "stream_id": "3", "tmdb": "155", "name": "Some Other Film (2015)"},
+    ]
+    items = {item["title"]: item for item in observe(hub.db, rows)["items"]}
+    assert sorted(s["stream_id"] for s in items["The Dark Knight"]["sources"]) == ["1", "2"]
+    assert [s["stream_id"] for s in items["Some Other Film"]["sources"]] == ["3"]
+    assert items["The Dark Knight"]["id"] == _id("movie|155")
+    assert playable(hub.db, kind="movie", title="The Dark Knight", tmdb="155")["canonical_id"] == _id("movie|155")
