@@ -479,6 +479,7 @@ class TvCatalog:
         rows = []
         seen: set[str] = set()
         overlay = self._overlay()
+        canon = self._live_canon()
         for row in doc["channels"]:
             shown = self._present_channel(row, overlay)
             if shown is None or (kids_only and not shown["kids"]):
@@ -487,6 +488,7 @@ class TvCatalog:
             if shown.get("catchup_days"):
                 public["catchup_days"] = shown["catchup_days"]
             public["logo_url"] = self._art("logo", shown["key"])
+            _with_canon(public, canon)
             rows.append(public)
             seen.add(shown["key"])
         for key, over in overlay.items():
@@ -496,9 +498,21 @@ class TvCatalog:
                 continue
             extra = public_channel(over)
             extra["logo_url"] = self._art("logo", extra["key"])
+            _with_canon(extra, canon)
             rows.append(extra)
         rows.sort(key=lambda row: (row.get("number") is None, row.get("number") or 0, str(row.get("name") or "").casefold()))
         return {"version": int(doc.get("fetched_at") or 0), "channels": rows}
+
+    def _live_canon(self) -> dict[str, str]:
+        """Folded catalog ids by source (`provider|live|stream_id`). POST /v1/tv/tune takes these."""
+        try:
+            from .iptvcanon import KV
+            state = self.db.kv_get(KV) or {}
+        except Exception as exc:  # noqa: BLE001
+            log.info("lineup canonical ids: %s", exc)
+            return {}
+        by_source = state.get("by_source") if isinstance(state, dict) else None
+        return by_source if isinstance(by_source, dict) else {}
 
     def basic(self, home: tuple[float, float] | None) -> dict[str, Any] | None:
         """The household's basic cable lineup (see tvbasic). Worked out once per provider snapshot."""
@@ -836,3 +850,13 @@ def _public_movie(row: dict[str, Any], detail: bool = False) -> dict[str, Any]:
         out["backdrop"] = row.get("backdrop")
         out["duration_s"] = row.get("duration_s")
     return out
+
+
+def _with_canon(row: dict[str, Any], canon: dict[str, str]) -> None:
+    """Add the tune id for an `xc:<provider>:<stream_id>` channel the catalog has folded."""
+    parts = str(row.get("key") or "").split(":")
+    if len(parts) != 3 or parts[0] != "xc" or not parts[2]:
+        return
+    found = canon.get(f"{parts[1]}|live|{parts[2]}")
+    if isinstance(found, str) and found.startswith("can_"):
+        row["canonical_id"] = found
