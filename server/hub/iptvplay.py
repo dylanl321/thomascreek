@@ -69,6 +69,19 @@ def add_login(h: Any, provider: str, server: str, login: str, username: str, pas
     return "Saved the login."
 
 
+def remove_login(h: Any, provider: str, login: str) -> bool:
+    """Forget a login saved on the admin page, and its password. Logins from the config file stay."""
+    rows = _saved(h)
+    keep = [row for row in rows if not (row.get("provider") == provider and row.get("login") == login)]
+    if len(keep) == len(rows):
+        return False
+    for row in rows:
+        if row not in keep and row.get("password_secret"):
+            h.vault.delete(str(row["password_secret"]))
+    h.db.kv_set(KV_LOGINS, keep)
+    return True
+
+
 def tune(h: Any, canonical_id: str, tv_id: str, *, avoid: set[str] | None = None, now: float | None = None) -> dict[str, Any]:
     """Give this TV one stream. The previous session for that TV is released."""
     now = time.time() if now is None else now

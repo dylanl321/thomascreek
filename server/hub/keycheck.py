@@ -480,6 +480,17 @@ class KeyChecks:
         done = await asyncio.gather(*(self.run_one(c) for c in todo))
         return list(zip(todo, done))
 
+    def after_save_many(self, names: list[str]) -> None:
+        """Several keys changed at once: forget the old ones, then run each affected check once."""
+        for n in names:
+            forget_cached(self.hub, n)
+        ids = [c.id for c in checks(self.hub) if any(n in c.secrets for n in names)]
+        if ids:
+            try:
+                asyncio.get_running_loop().create_task(self.run(ids=ids))
+            except RuntimeError:
+                pass
+
     def after_save(self, name: str) -> None:
         """A key changed: forget the old one, then test the new one in the background."""
         forget_cached(self.hub, name)

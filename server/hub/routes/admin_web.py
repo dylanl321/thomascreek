@@ -25,7 +25,9 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Resp
 from pydantic import BaseModel, Field
 
 from .. import __version__, bambu_cloud, testkeys
-from ..iptvplay import add_login
+from ..iptvplay import accounts as iptv_accounts
+from ..iptvplay import add_login, remove_login
+from ..iptvplay import logins as iptv_logins
 from ..iptvcanon import merge as catalog_merge_items
 from ..iptvcanon import split as catalog_split_item
 from ..iptvcanon import unsure as catalog_unsure
@@ -250,6 +252,11 @@ button.ghost2{background:transparent;color:var(--acc);border-color:var(--line)}
 select,.fform input:not([type]),.fform input[type=email],.fform input[type=number]{font:inherit;padding:6px 8px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--fg)}
 .tag{font-size:11px;padding:1px 6px;border-radius:6px;border:1px solid var(--line);color:var(--dim);margin-left:6px}
 a{color:var(--acc)}
+.fform input.kin{flex:1;min-width:200px;font:13px ui-monospace,Menlo,monospace;padding:8px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--fg)}
+.chg{font-size:12px;padding:2px 8px;border-radius:999px;background:color-mix(in srgb,var(--acc) 18%,transparent);color:var(--acc)}
+.savebar{position:sticky;bottom:0;display:flex;gap:10px;align-items:center;justify-content:flex-end;margin:24px -4px 0;padding:12px;
+border-radius:12px 12px 0 0;background:var(--card);border:1px solid var(--line);box-shadow:0 -4px 16px rgb(0 0 0 / 8%)}
+.savebar span{flex:1}.savebar:not(.dirty) #savebtn{opacity:.55}.savebar.dirty{border-color:var(--acc)}
 """
 
 
@@ -417,16 +424,20 @@ def _field_html(h: Hub, csrf: str, name: str, label: str, kind: str, note: str) 
     state = admin_health.key_state(h, name) if have else None
     badge = admin_health.key_pill(state) if have else "<span class=pill-miss>Missing</span>"
     tested = h.keychecks.for_secret(name) if have else []
-    if kind == "file":
-        inp = "<input type=file name=file required>"
-    else:
-        inp = "<input type=password name=value placeholder='Paste here' autocomplete=off required>"
     remove = (f"<form method=post action=/admin/secrets/delete class=inline><input type=hidden name=csrf value={csrf}>"
               f"<input type=hidden name=name value='{e(name)}'><button class=ghost "
               f"onclick=\"return confirm('Remove the saved {e(label)}?')\">Remove</button></form>" if have else "")
     line = admin_health.key_line(state) if tested else ""
     test = admin_health.test_button(csrf, name) if tested else ""
-    return f"""<details class=key><summary><span>{e(label)}</span>{badge}</summary><div class=kbody><div class=dim>{e(note)}</div>{line}
+    if kind != "file":
+        # Text keys belong to the one "Save all" form at the bottom of the page (form=saveall), so
+        # several can be pasted and saved together without the page reloading between them.
+        inp = (f"<input type=password form=saveall name='v:{e(name)}' data-key='{e(label)}' class=kin "
+               f"placeholder='{'Paste a new value to replace it' if have else 'Paste here'}' autocomplete=off>")
+        return f"""<details class=key id='k-{e(name)}'><summary><span>{e(label)}</span><span><span class=chg hidden>Changed</span> {badge}</span></summary><div class=kbody><div class=dim>{e(note)}</div>{line}
+<div class=factions><div class=fform>{inp}</div>{test}{remove}</div></div></details>"""
+    inp = "<input type=file name=file required>"
+    return f"""<details class=key id='k-{e(name)}'><summary><span>{e(label)}</span>{badge}</summary><div class=kbody><div class=dim>{e(note)}</div>{line}
 <div class=factions>{test}<form method=post action=/admin/secrets enctype=multipart/form-data class=fform>
 <input type=hidden name=csrf value={csrf}><input type=hidden name=name value='{e(name)}'>{inp}<button>{'Replace' if have else 'Save'}</button></form>{remove}</div></div></details>"""
 
@@ -468,6 +479,56 @@ def _bambu_html(h: Hub, csrf: str) -> str:
     return f"<details class=key><summary><span>Bambu account (optional)</span>{badge}</summary><div class=kbody>{body}</div></details>"
 
 
+def _iptv_logins_html(h: Hub, csrf: str) -> str:
+    """Every IPTV provider and login the hub can hand out, with slots in use, and a form to add more."""
+    e = html.escape
+    hid = f"<input type=hidden name=csrf value={csrf}>"
+    try:
+        usage = {(r["provider"], r["login"]): r for r in iptv_accounts(h)["logins"]}
+    except Exception:  # noqa: BLE001
+        usage = {}
+    saved = {(str(r.get("provider")), str(r.get("login"))) for r in (h.db.kv_get("iptv.logins") or []) if isinstance(r, dict)}
+    rows, providers = [], {}
+    for lg in iptv_logins(h):
+        key = (lg["provider"], lg["login"])
+        providers.setdefault(lg["provider"], lg["server"])
+        u = usage.get(key) or {}
+        bits = [lg["username"] or "?"]
+        if u:
+            bits.append(f"{u.get('active', 0)} of {u.get('max_connections', 1)} in use")
+            if u.get("expires"):
+                bits.append(f"until {str(u['expires'])[:10]}")
+            if u.get("status") not in (None, "ok", "full"):
+                bits.append(str(u["status"]))
+        if key in saved:
+            action = (f"<form method=post action=/admin/iptv/login/remove class=inline>{hid}"
+                      f"<input type=hidden name=provider value='{e(lg['provider'])}'><input type=hidden name=login value='{e(lg['login'])}'>"
+                      f"<button class=ghost onclick=\"return confirm('Remove the {e(lg['provider'])} login {e(lg['login'])}?')\">Remove</button></form>")
+        elif key == ("thomas-creek", "main"):
+            action = "<span class=dim>the Xtream rows above</span>"
+        else:
+            action = "<span class=dim>from the hub's config file</span>"
+        rows.append(f"<div class=row><div><b>{e(lg['provider'])}</b> · {e(lg['login'])} <span class=dim>{e(lg['server'])}</span>"
+                    f"<div class=dim>{e(' · '.join(bits))}</div></div><div>{action}</div></div>")
+    opts = "".join(f"<option value='{e(p)}'>" for p in providers)
+    count = len(rows)
+    pill = f"<span class=pill-ok>{count} {'login' if count == 1 else 'logins'}, {len(providers)} {'provider' if len(providers) == 1 else 'providers'}</span>" \
+        if count else "<span class=pill-miss>None yet</span>"
+    return f"""<details class=key id=iptv-logins><summary><span>IPTV providers and logins</span>{pill}</summary><div class=kbody>
+<div class=dim>Add every provider, and every login you have with each one. The hub spreads the TVs over the logins so no login
+goes over its connection limit, and moves a TV to the next login when a stream fails. For another login with a provider
+already listed, the server address can stay empty.</div>
+{''.join(rows)}
+<form method=post action=/admin/iptv/login class=fform style="padding:10px 0">{hid}
+<input name=provider placeholder="Provider, e.g. Strong" list=iptv-providers required maxlength=40>
+<datalist id=iptv-providers>{opts}</datalist>
+<input name=server placeholder="Server address (http://…:8080)">
+<input name=login placeholder="Login name, e.g. living room" required maxlength=40>
+<input name=username placeholder="Xtream username" required autocomplete=off>
+<input type=password name=password placeholder="Xtream password" autocomplete=off required>
+<button>Add login</button></form><div class=dim>The password is saved and not shown again.</div></div></details>"""
+
+
 def _sections_html(h: Hub, csrf: str) -> str:
     e = html.escape
     out = []
@@ -477,6 +538,8 @@ def _sections_html(h: Hub, csrf: str) -> str:
         fields = "".join(_field_html(h, csrf, *f) for f in sec["fields"])
         if sec.get("service") == "printers":
             fields += _bambu_html(h, csrf)
+        if sec["title"].startswith("TV app"):
+            fields += _iptv_logins_html(h, csrf)
         opt = " <span class=dim>(optional)</span>" if sec.get("optional") else ""
         out.append(f"<h3>{e(sec['title'])}{opt}</h3><div class=card>{fields}</div>")
     # VPN: the Firewalla client files.
@@ -509,7 +572,9 @@ A file named after someone in the hub (LAUREN.conf) is kept for that person; the
 <button>{'Replace' if have_model else 'Save'}</button></form></div></div></details></div>""")
     # Anything else in the vault the sections don't cover.
     known = {f[0] for sec in SECTIONS for f in sec["fields"]} | NEVER_EDIT | BAMBU_KEYS
-    extra = [n for n in sorted(h.vault.names()) if n not in known and not n.startswith(h.config.vpn.pool_prefix)]
+    login_secrets = {str(r.get("password_secret")) for r in (h.db.kv_get("iptv.logins") or []) if isinstance(r, dict)}
+    extra = [n for n in sorted(h.vault.names()) if n not in known and n not in login_secrets
+             and not n.startswith(h.config.vpn.pool_prefix)]
     rows = "".join(f"<div class=row><code>{e(n)}</code><form method=post action=/admin/secrets/delete class=inline>"
                    f"<input type=hidden name=csrf value={csrf}><input type=hidden name=name value='{e(n)}'>"
                    f"<button class=ghost onclick=\"return confirm('Remove {e(n)}?')\">Remove</button></form></div>" for n in extra)
@@ -543,15 +608,7 @@ def _catalog_html(h: Hub, csrf: str) -> str:
 <input type=hidden name=csrf value={csrf}>
 <input name=id placeholder="Title id"><input name=provider placeholder="Provider"><input name=stream_id placeholder="Stream id">
 <button class=ghost>Separate this copy</button></form>
-<form method=post action=/admin/iptv/login class=fform style="padding:8px 0">
-<input type=hidden name=csrf value={csrf}>
-<input name=provider placeholder="Provider" required>
-<input name=server placeholder="Server address" required>
-<input name=login placeholder="Login name" required>
-<input name=username placeholder="Username" required>
-<input type=password name=password placeholder="Password" autocomplete=off required>
-<button>Add login</button></form>
-<p class=dim>The password is saved and not shown again.</p></div>"""
+<p class=dim>IPTV providers and their logins are under Keys and files, TV app.</p></div>"""
 
 
 def _app_update_html(h: Hub, csrf: str) -> str:
@@ -680,7 +737,33 @@ or text files named after a key (for example trek.api_key.txt). Each goes to the
 <div class=factions><form method=post action=/admin/upload enctype=multipart/form-data class=fform>
 <input type=hidden name=csrf value={csrf}><input type=file name=files multiple required><button>Upload</button></form></div></div></details></div>
 {sections_html}
+<form id=saveall method=post action=/admin/secrets/bulk class=savebar><input type=hidden name=csrf value={csrf}>
+<span id=savecount class=dim>Paste new values above, then save them together.</span>
+<button type=button class=ghost id=discard hidden>Discard</button><button id=savebtn>Save all</button></form>
+<script>{SAVE_JS}</script>
 """)
+
+
+# Marks changed key rows, counts them in the save bar, warns before leaving with unsaved values, and keeps
+# the scroll position and open rows across the reload that follows any form on the page.
+SAVE_JS = r"""
+(function(){
+const ins=[...document.querySelectorAll('input.kin')],bar=document.getElementById('saveall'),
+cnt=document.getElementById('savecount'),dis=document.getElementById('discard');let sending=false;
+function upd(){const ch=ins.filter(i=>i.value.trim());ins.forEach(i=>{i.closest('details').querySelector('.chg').hidden=!i.value.trim()});
+bar.classList.toggle('dirty',ch.length>0);dis.hidden=!ch.length;
+cnt.textContent=ch.length?(ch.length+(ch.length==1?' change: ':' changes: ')+ch.map(i=>i.dataset.key).join(', ')):'Paste new values above, then save them together.'}
+ins.forEach(i=>i.addEventListener('input',upd));
+dis.addEventListener('click',()=>{ins.forEach(i=>i.value='');upd()});
+bar.addEventListener('submit',e=>{if(!ins.some(i=>i.value.trim())){e.preventDefault();return}sending=true});
+window.addEventListener('beforeunload',e=>{if(!sending&&ins.some(i=>i.value.trim())){e.preventDefault();e.returnValue=''}});
+const KEY='tc-admin-view';
+document.querySelectorAll('form').forEach(f=>f.addEventListener('submit',()=>{
+try{sessionStorage.setItem(KEY,JSON.stringify({y:scrollY,open:[...document.querySelectorAll('details')].map((d,i)=>d.open?(d.id||i):null).filter(x=>x!==null)}))}catch(e){}}));
+try{const v=JSON.parse(sessionStorage.getItem(KEY)||'null');sessionStorage.removeItem(KEY);
+if(v){const all=document.querySelectorAll('details');v.open.forEach(k=>{const d=typeof k=='number'?all[k]:document.getElementById(k);if(d)d.open=true});scrollTo(0,v.y)}}catch(e){}
+upd()})();
+"""
 
 
 @pages.get("/admin/status.json")
@@ -756,10 +839,39 @@ async def catalog_split(request: Request, h: Hub = Depends(hub)) -> Response:
 
 @pages.post("/admin/iptv/login")
 async def add_iptv_login(request: Request, h: Hub = Depends(hub)) -> Response:
-    _claims, form = await _form_session(request, h)
-    saved = add_login(h, str(form.get("provider") or ""), str(form.get("server") or ""),
-                      str(form.get("login") or ""), str(form.get("username") or ""), str(form.get("password") or ""))
-    return _back(saved or "Say the password once. It is not shown again.")
+    claims, form = await _form_session(request, h)
+    provider = re.sub(r"\s+", " ", str(form.get("provider") or "")).strip()[:40]
+    login = re.sub(r"\s+", " ", str(form.get("login") or "")).strip()[:40]
+    server = str(form.get("server") or "").strip()
+    if not server:
+        # Another login with a provider already listed: reuse its server.
+        server = next((lg["server"] for lg in iptv_logins(h) if lg["provider"].lower() == provider.lower()), "")
+        provider = next((lg["provider"] for lg in iptv_logins(h) if lg["provider"].lower() == provider.lower()), provider)
+    if not re.fullmatch(r"https?://[^\s/]+(:\d+)?(/\S*)?", server):
+        return _back("Add the provider's server address, like http://example.tv:8080.")
+    if any(c in provider + login for c in "./|"):
+        return _back("Provider and login names can't contain . / or |.")
+    saved = add_login(h, provider, server, login, str(form.get("username") or ""), str(form.get("password") or ""))
+    if saved:
+        h.db.log("admin.iptv_login", "ok", person_id=claims.get("per"), device_id=claims.get("dev"),
+                 target=f"{provider}/{login}", source="web")
+        if getattr(h, "tv_app", None):
+            h.tv_app.bump_config()
+        saved = f"Saved the {provider} login {login}."
+    return _back(saved or "Fill in the provider, login name, username and password.")
+
+
+@pages.post("/admin/iptv/login/remove")
+async def remove_iptv_login(request: Request, h: Hub = Depends(hub)) -> Response:
+    claims, form = await _form_session(request, h)
+    provider, login = str(form.get("provider") or ""), str(form.get("login") or "")
+    if not remove_login(h, provider, login):
+        return _back("That login isn't saved on the hub.")
+    h.db.log("admin.iptv_login_remove", "ok", person_id=claims.get("per"), device_id=claims.get("dev"),
+             target=f"{provider}/{login}", source="web")
+    if getattr(h, "tv_app", None):
+        h.tv_app.bump_config()
+    return _back(f"Removed the {provider} login {login}.")
 
 
 @pages.post("/admin/secrets")
@@ -792,19 +904,50 @@ async def set_secret(request: Request, h: Hub = Depends(hub)) -> Response:
         h.vault.set("appstore.key_id", m.group(1))
         saved = [name, "appstore.key_id"]
     h.vault.set(name, value)
-    if name in APPSTORE_KEYS:
-        h.app_update._jwt = None
-        asyncio.create_task(h.app_update.check())
-    if name.startswith(h.config.vpn.pool_prefix):
-        h.vpn._pool = None
-    h.db.log("admin.secret_set", "ok", person_id=claims.get("per"), device_id=claims.get("dev"), target=",".join(saved),
-             source="web")
-    if name == h.config.onepassword.token_secret and h.onepassword.enabled:
-        asyncio.create_task(h.onepassword.sync_safely())
-    for n in {name, *saved}:
-        h.keychecks.after_save(n)
+    _after_saved(h, claims, list(dict.fromkeys([name, *saved])))
     label = next((f[1] for sec in SECTIONS for f in sec["fields"] if f[0] == name), " and ".join(saved))
     return _back(f"Saved {label}.")
+
+
+def _after_saved(h: Hub, claims: dict[str, Any], names: list[str]) -> None:
+    """Everything that follows saving keys: drop stale clients, log it, test each affected key once."""
+    if any(n in APPSTORE_KEYS for n in names):
+        h.app_update._jwt = None
+        asyncio.create_task(h.app_update.check())
+    if any(n.startswith(h.config.vpn.pool_prefix) for n in names):
+        h.vpn._pool = None
+    h.db.log("admin.secret_set", "ok", person_id=claims.get("per"), device_id=claims.get("dev"), target=",".join(names),
+             source="web")
+    if h.config.onepassword.token_secret in names and h.onepassword.enabled:
+        asyncio.create_task(h.onepassword.sync_safely())
+    if any(n.startswith("iptv.") for n in names) and getattr(h, "tv_app", None):
+        h.tv_app.bump_config()
+    h.keychecks.after_save_many(names)
+
+
+TEXT_FIELDS = {f[0]: f[1] for sec in SECTIONS for f in sec["fields"] if f[2] != "file"}
+
+
+@pages.post("/admin/secrets/bulk")
+async def set_secrets_bulk(request: Request, h: Hub = Depends(hub)) -> Response:
+    """The "Save all" bar: every key row that has a new value, saved together, one reload."""
+    claims, form = await _form_session(request, h)
+    saved: list[str] = []
+    for field, raw in form.multi_items():
+        if not field.startswith("v:") or not isinstance(raw, str):
+            continue
+        name, value = field[2:], raw.strip()
+        if not value or name not in TEXT_FIELDS or name in NEVER_EDIT or not NAME_RE.match(name):
+            continue
+        if len(value) > 64 * 1024:
+            return _back(f"Nothing saved: {TEXT_FIELDS[name]} is too long for a key.")
+        h.vault.set(name, value)
+        saved.append(name)
+    if not saved:
+        return _back("Nothing to save: paste a new value into a key row first.")
+    _after_saved(h, claims, saved)
+    labels = [TEXT_FIELDS[n] for n in saved]
+    return _back(f"Saved {len(saved)} {'key' if len(saved) == 1 else 'keys'}: {', '.join(labels)}. Testing them now.")
 
 
 @pages.post("/admin/secrets/delete")
