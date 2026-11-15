@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
 from ..state import Hub
+from .. import tvlauncher
 from ..tvbuilds import builds
 from ..tvfleet import SHELL_TEMPLATES, FleetError, command, devices, history, kill_list, policy, rollout, set_kill_list, set_policy, shell, start_rollout
 from .admin_web import _csrf, _form_session, _headers, _home_only, _login_page, _nav, _page, _session
@@ -119,6 +120,31 @@ async def devices_command(install_id: str, request: Request, h: Hub = Depends(hu
     except FleetError as exc:
         return _go(f"/admin/devices/{install_id}", exc.message)
     return _go(f"/admin/devices/{install_id}", "Asked the TV.")
+
+
+@pages.post("/admin/devices/{install_id}/launcher")
+async def devices_launcher(install_id: str, request: Request, h: Hub = Depends(hub)) -> Response:
+    _claims, form = await _form_session(request, h)
+    picked = form.getlist("app") if hasattr(form, "getlist") else []
+    tv = h.tv_app.tvs().get(install_id) or {}
+    before = tvlauncher.view(tv)["apps"]
+    # Keep the order the tiles already had; new picks go at the end.
+    apps = [p for p in before if p in picked] + [str(p) for p in picked if p not in before]
+    extra = str(form.get("other") or "").strip()
+    if extra:
+        apps.append(extra)
+    try:
+        saved = tvlauncher.set_launcher(h, install_id, {
+            "on": bool(form.get("on")),
+            "person_id": str(form.get("person_id") or "") or None,
+            "apps": apps,
+            "guard": bool(form.get("guard")),
+        })
+    except tvlauncher.LauncherError as exc:
+        return _go(f"/admin/devices/{install_id}", exc.message)
+    if not saved["on"]:
+        return _go(f"/admin/devices/{install_id}", "The kids launcher is off. The TV's own home screen comes back.")
+    return _go(f"/admin/devices/{install_id}", "Saved. The TV switches in a few seconds.")
 
 
 @pages.post("/admin/devices/{install_id}/shell")
@@ -239,17 +265,53 @@ def _device_html(h: Hub, claims: dict[str, Any], install_id: str, msg: str | Non
                     f"<input type=hidden name=csrf value={csrf}><input name=command placeholder='One command'>"
                     f"<button class=ghost>Run</button></form>")
         shell_html = f"<h2>Shell</h2><div class=card><div class=factions>{shells}</div>{free}</div>"
+    launcher_html = _launcher_card(h, csrf, install_id)
     return _page(match["name"], f"""
 {_nav("/admin/devices")}
 <h1>{html.escape(match['name'])}</h1>
 <p class=dim>{'online' if match['online'] else 'offline'} · {html.escape(str(match['health']))} · {html.escape(str(match['capability']))}</p>
 {f'<p class=flash>{html.escape(msg)}</p>' if msg else ''}
 <div class=card>{''.join(charts) or '<p class=dim>No chart yet.</p>'}</div>
+{launcher_html}
 <h2>Ask</h2>
 <div class=card><div class=factions>{''.join(forms)}</div></div>
 {shell_html}
 <p><a href=/admin/devices>All TVs</a></p>
 """)
+
+
+def _launcher_card(h: Hub, csrf: str, install_id: str) -> str:
+    """Kids launcher: on or off, who the TV signs in as, and the app tiles."""
+    tv = h.tv_app.tvs().get(install_id) or {}
+    block = tvlauncher.view(tv)
+    state = tvlauncher.status(tv)
+    people = tvlauncher._people(h)
+    choices = "<option value=''>Whoever picks</option>" + "".join(
+        f"<option value='{html.escape(p['id'])}' {'selected' if p['id'] == block['person_id'] else ''}>"
+        f"{html.escape(p['name'])}{' (child)' if p['role'] == 'child' else ''}</option>" for p in people)
+    known = {a["package"]: a["label"] for a in tvlauncher.installed(tv)}
+    order = block["apps"] + [p for p in known if p not in block["apps"]]
+    boxes = "".join(
+        f"<label style='display:flex;gap:6px;align-items:center'><input type=checkbox name=app value='{html.escape(pkg)}' "
+        f"{'checked' if pkg in block['apps'] else ''}> {html.escape(known.get(pkg, pkg))}"
+        f"{'' if pkg in known else ' <span class=dim>(not on this TV)</span>'}</label>"
+        for pkg in order)
+    if not boxes:
+        boxes = "<p class=dim>The TV hasn't listed its apps yet. Open Thomas Creek TV on it once.</p>"
+    note = ""
+    if state.get("note"):
+        note = f"<p class=dim>{html.escape(str(state['note']))}</p>"
+    return f"""<h2>Kids launcher</h2>
+<div class=card><form method=post action='/admin/devices/{html.escape(install_id)}/launcher' class=edit>
+<input type=hidden name=csrf value={csrf}>
+<p class=dim>The TV starts straight in Thomas Creek TV, signed in as one person, with only these apps as tiles.</p>
+<label><input type=checkbox name=on value=1 {'checked' if block['on'] else ''}> Use Thomas Creek TV as this TV's home screen</label>
+<label>Signs in as <select name=person_id>{choices}</select></label>
+<div style='display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:6px'>{boxes}</div>
+<input name=other placeholder="Another app by package name" style="font:inherit;padding:6px 8px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--fg)">
+<label><input type=checkbox name=guard value=1 {'checked' if block['guard'] else ''}> Bring the TV back home when another app opens</label>
+<button>Save launcher</button></form>{note}</div>
+"""
 
 
 def _provision_html(h: Hub, claims: dict[str, Any], request: Request, ssid: str | None, password: str | None) -> str:

@@ -287,8 +287,9 @@ class TvAppConfig(BaseModel):
     package: str = "me.dlewis.thomascreek.tv"
     adb_port: int = 5555
     check_minutes: int = 360
-    # Component set as the home screen when someone asks. Stock launcher stays enabled.
-    home_activity: str = "me.dlewis.thomascreek.tv/com.ipvio.stream.MainActivity"
+    # Component set as the home screen when someone asks: the app's HOME alias (enabled first; it ships disabled).
+    # The stock launcher stays enabled.
+    home_activity: str = "me.dlewis.thomascreek.tv/com.ipvio.stream.Home"
     # The number from https://go.aftvnews.com/ for the hub's /tv address. Empty until Dylan registers it.
     # Digits only. The hub never invents one. The address always serves the latest build, so this stays put.
     downloader_code: str | None = None

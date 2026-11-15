@@ -61,6 +61,7 @@ from .crypto import verify_signature
 from .db import new_id
 from .home import iso
 from .policy import ALL_CAPABILITIES, Subject
+from .tvlauncher import config_block as launcher_block
 from .tvlineup import LineupError, normalize_channel, public_channel, valid_key
 from .upnext import remember
 
@@ -1055,6 +1056,7 @@ class TvApp:
         # Every TV gets the kids categories and the household, so it can keep a kids profile per child.
         out["kids_categories"] = self.kids_categories()
         out["people"] = _household(self.db)
+        out["launcher"] = launcher_block(tv)
         return out
 
     def approved_config(self, install_id: str) -> dict[str, Any]:
@@ -1084,6 +1086,7 @@ class TvApp:
         # Every TV gets the kids categories and the household, so it can keep a kids profile per child.
         out["kids_categories"] = self.kids_categories()
         out["people"] = _household(self.db)
+        out["launcher"] = launcher_block(tv)
         return out
 
     def metadata_keys(self) -> dict[str, str]:

@@ -11,6 +11,8 @@ POST   /v1/tvapp/boxes/{ip}/install      {force?} install or update now (force: 
 PATCH  /v1/tvapp/boxes/{ip}              {auto} keep this box updated automatically
 DELETE /v1/tvapp/boxes/{ip}              forget the box (the app stays installed on it)
 PATCH  /v1/tvapp/tvs/{id}                {status?, profile?, name?, room?, media_entity?}
+GET    /v1/tvapp/tvs/{id}/launcher       kids launcher: setting, what the box did, the apps the TV can open
+PUT    /v1/tvapp/tvs/{id}/launcher       {on, person_id?, apps:[packages], guard?} (see hub/tvlauncher.py)
 DELETE /v1/tvapp/tvs/{id}                forget a TV (it can ask again)
 PUT    /v1/tvapp/kids-categories         {categories: [...]} what a kids' TV shows
 PUT    /v1/tvapp/lineup                  replace the channel lineup (systems)
@@ -22,7 +24,8 @@ GET    /v1/tv/apk/{code}                 home network, the signed APK for a shor
 GET    /v1/tv/update                     bearer, version, sha256 and signer pin
 POST   /v1/tv/update/health              bearer, how a silent install went
 GET    /v1/tv/apk                        bearer, the signed APK for PackageInstaller
-GET    /v1/tv/apps                       bearer, {allowed:[packages]} for this profile
+GET    /v1/tv/apps                       bearer, {allowed:[packages]} for this profile (the launcher list when on)
+POST   /v1/tv/apps/installed             bearer, {apps:[{package, label}]} the apps this TV can open
 POST   /v1/tv/config                     {install_id, ts, signature}  ETag / 304
 POST   /v1/tv/token                      {install_id, ts, signature, person_id?} -> bearer
 GET    /v1/tv/lineup                     bearer, phones and TVs
@@ -46,7 +49,7 @@ from pydantic import BaseModel, Field
 from ..home import iso
 from ..state import Hub
 from ..tvapp import TvAppError, clean_ip
-from .. import tvfleet, tvupdate
+from .. import tvfleet, tvlauncher, tvupdate
 from ..iptvplay import touch
 from ..tvremote import allowed_packages
 from .deps import Caller, caller, caller_ip, error, hub, need
@@ -148,6 +151,28 @@ async def set_tv(install_id: str, body: dict[str, Any] = Body(...), c: Caller = 
         raise _err(exc) from None
     _log(h, c, "tvapp.set_tv", install_id)
     return tv
+
+
+@router.get("/tvs/{install_id}/launcher")
+async def get_launcher(install_id: str, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    need(h, c, "systems")
+    tv = h.tv_app.tvs().get(install_id)
+    if tv is None:
+        raise error(404, "not_found", "No such TV")
+    return {**tvlauncher.view(tv), "status": tvlauncher.status(tv), "installed": tvlauncher.installed(tv),
+            "box": tvlauncher.box_for(h, tv)}
+
+
+@router.put("/tvs/{install_id}/launcher")
+async def put_launcher(install_id: str, body: dict[str, Any] = Body(...), c: Caller = Depends(caller),
+                       h: Hub = Depends(hub)) -> dict[str, Any]:
+    need(h, c, "systems")
+    try:
+        out = tvlauncher.set_launcher(h, install_id, body)
+    except tvlauncher.LauncherError as exc:
+        raise error(exc.status, "bad_request" if exc.status == 400 else "not_found", exc.message) from None
+    _log(h, c, "tvapp.launcher", install_id)
+    return out
 
 
 @router.delete("/tvs/{install_id}")
@@ -447,8 +472,21 @@ async def tv_apps(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[st
     """Packages this TV may put on its home screen. Kids get the kid apps; adults get the household catalog."""
     _own_tv(c)
     tv = h.tv_app.tvs().get(c.subject.tv_id or "") or {}
+    pinned = tvlauncher.allowed(tv)
+    if pinned is not None:
+        return {"allowed": pinned}
     kids = tv.get("profile") == "kids" or c.subject.is_child_like
     return {"allowed": allowed_packages(kids=kids)}
+
+
+@tv_router.post("/apps/installed")
+async def tv_apps_installed(body: dict[str, Any] = Body(...), c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """The apps this TV can open, with their names, for the launcher picker on the admin page."""
+    install_id = _own_tv(c)
+    try:
+        return tvlauncher.save_installed(h, install_id, body.get("apps"))
+    except tvlauncher.LauncherError as exc:
+        raise error(exc.status, "bad_request" if exc.status == 400 else "not_found", exc.message) from None
 
 
 @tv_router.get("/update")
