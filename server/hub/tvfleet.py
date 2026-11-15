@@ -260,7 +260,7 @@ def manifest_for(h: Any, code: int, current: str | None) -> dict[str, Any]:
         "version_name": meta.get("versionName") or str(code),
         "sha256": sha,
         "signer_sha256": h.db.kv_get("tvapp.signer"),
-        "apk_path": f"/v1/tv/{code}",
+        "apk_path": f"/v1/tv/apk?version_code={code}",
         "package": h.config.tv_app.package,
         "notes": meta.get("notes") or None,
         "install": tvupdate._INSTALL,
@@ -855,7 +855,7 @@ def _push_install(h: Any, install_ids: list[str], code: int, now: float) -> None
     sha = hashlib.sha256(path.read_bytes()).hexdigest()
     latest = h.tv_app.latest() or {}
     name = latest.get("versionName") if int(latest.get("versionCode") or 0) == code else str(code)
-    params = {"url": f"/v1/tv/{code}", "sha256": sha, "version_code": code, "version_name": name}
+    params = {"url": f"/v1/tv/apk?version_code={code}", "sha256": sha, "version_code": code, "version_name": name}
     for install_id in install_ids:
         if (h.tv_app.tvs().get(install_id) or {}).get("status") == "approved":
             _enqueue(h, install_id, "install_apk", params, None, now)

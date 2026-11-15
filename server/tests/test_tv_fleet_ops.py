@@ -47,7 +47,7 @@ def test_a_rollout_waits_for_the_first_room(hub, people, home_client):
     assert started.json()["rollout"]["state"] == "staging" and started.json()["rollout"]["rest"] == "held"
     assert home_client.get("/v1/tv/update", headers=first).json()["version_code"] == 602
     held = home_client.get("/v1/tv/update", headers=second).json()
-    assert held["version_code"] == 601 and held["apk_path"] == "/v1/tv/601"
+    assert held["version_code"] == 601 and held["apk_path"] == "/v1/tv/apk?version_code=601"
     assert dylan.client.post("/v1/tv/fleet/rollout", headers=dylan.h, json={"version_code": 999, "stage": [TV_ID]}).json()["message"] == "That build isn't on the hub."
 
     home_client.post("/v1/tv/update/health", headers=first, json=_health(True))
@@ -100,3 +100,12 @@ def test_shell_is_allowlisted_and_stays_off_the_page_until_asked(hub, people, ho
     _builds(hub)
     quiet = home_client.post("/admin/devices/provision", data={"csrf": csrf, "ssid": "House", "password": "not-saved"}, follow_redirects=True)
     assert quiet.status_code == 200 and "not-saved" not in quiet.text and "The Wi-Fi is in the QR only." in quiet.text
+
+
+def test_a_held_tv_downloads_the_pinned_build(hub, home_client):
+    _builds(hub)
+    first = _pair(hub, home_client, TV_ID, "Living room")
+    pinned = home_client.get("/v1/tv/apk", headers=first, params={"version_code": 601})
+    assert pinned.status_code == 200 and pinned.content == b"old"
+    assert home_client.get("/v1/tv/apk", headers=first).content == b"new"
+    assert home_client.get("/v1/tv/apk", headers=first, params={"version_code": 777}).status_code == 404
