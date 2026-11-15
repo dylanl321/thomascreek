@@ -260,6 +260,17 @@ class AppUpdateConfig(BaseModel):
     check_minutes: int = 15
 
 
+class DvrConfig(BaseModel):
+    """Live recordings for channels the provider will not let us start over."""
+
+    enabled: bool = True
+    dir: str | None = None
+    max_connections: int = 2
+    quota_bytes: int = 100 * 1024 * 1024 * 1024
+    pad_before_s: int = 60
+    pad_after_s: int = 180
+
+
 class ArtworkConfig(BaseModel):
     """Posters and logos for the TV app. The image databases are public; the two keys are optional."""
 
@@ -474,6 +485,7 @@ class Config(BaseModel):
     tv_app: TvAppConfig = Field(default_factory=TvAppConfig)
     tv_fleet: TvFleetConfig = Field(default_factory=TvFleetConfig)
     artwork: ArtworkConfig = Field(default_factory=ArtworkConfig)
+    dvr: DvrConfig = Field(default_factory=DvrConfig)
     assistant: AssistantConfig = Field(default_factory=AssistantConfig)
     iptv_match: IptvMatchConfig = Field(default_factory=IptvMatchConfig)
     iptv: IptvConfig = Field(default_factory=IptvConfig)

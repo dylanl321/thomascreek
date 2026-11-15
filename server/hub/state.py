@@ -15,6 +15,7 @@ import aiomqtt
 
 from .actions import ActionRunner
 from .artwork import Artwork
+from .dvr import Dvr
 from .assistant import Assistant
 from .alerts import Alerts
 from .adapters.cameras import Frigate, mqtt_to_event, parse_frigate_mqtt
@@ -119,6 +120,8 @@ class Hub:
         self.artwork.plex = self.plex
         self.tv_catalog.artwork = self.artwork
         self.tv_app.artwork = self.artwork
+        dvr_dir = Path(config.dvr.dir) if config.dvr.dir else data / "dvr"
+        self.dvr = Dvr(self, dvr_dir)
         self.alerts = Alerts(self)
         from .ha_ws import HAConnection
 
@@ -351,6 +354,8 @@ class Hub:
         self._fleet = asyncio.create_task(self._fleet_loop())
         if self.config.artwork.enabled:
             self.artwork.start()
+        if self.config.dvr.enabled:
+            self.dvr.start()
 
     async def _explore_loop(self) -> None:
         """Rebuild the Explore feed every six hours. A failure keeps the last copy."""

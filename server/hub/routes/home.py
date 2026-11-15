@@ -18,7 +18,7 @@ from .deps import Caller, caller, error, hub, require_confirm
 
 # What a TV subscription is allowed to receive. Anything else (cameras, printers,
 # other people's now-playing) is dropped. Doorbell and house alerts arrive as inbox.
-_TV_EVENTS = frozenset({"device", "status", "inbox", "tv_command", "tv_remote", "tv_tune", "tv_manage", "snapshot", "home_alert", "bedtime", "explore"})
+_TV_EVENTS = frozenset({"device", "status", "inbox", "tv_command", "tv_remote", "tv_tune", "tv_manage", "snapshot", "home_alert", "bedtime", "explore", "dvr_update"})
 _TV_ALERTS = frozenset({"house", "kitchen", "weather", "doors"})
 
 router = APIRouter(prefix="/v1", tags=["home"])
@@ -63,6 +63,8 @@ def shape_event(h: Hub, s: Subject, ev: dict[str, Any]) -> dict[str, Any] | None
         if s.role in ("pending", "guest"):
             return None
         return {"type": "bedtime", "data": _bedtime_data(ev)}
+    if ev.get("type") == "dvr_update":
+        return _dvr_event(s, ev)
     if ev.get("type") == "tv":
         return _shape_tv_watching(h, s, ev)
     if ev.get("type") == "device":
@@ -84,6 +86,8 @@ def _shape_for_tv(h: Hub, s: Subject, ev: dict[str, Any]) -> dict[str, Any] | No
         return {"type": "status", "data": h.home.status(s, [])}
     if kind == "snapshot":
         return {"type": "snapshot", "data": ev.get("data") or {}}
+    if kind == "dvr_update":
+        return _dvr_event(s, ev)
     if kind in ("tv_command", "tv_remote", "tv_tune", "tv_manage"):
         data = ev.get("data") or {}
         if data.get("install_id") not in (None, s.tv_id):
@@ -118,6 +122,14 @@ def _shape_for_tv(h: Hub, s: Subject, ev: dict[str, Any]) -> dict[str, Any] | No
             return {"type": "inbox", "data": data}
         return None
     return None
+
+
+def _dvr_event(s: Subject, ev: dict[str, Any]) -> dict[str, Any] | None:
+    data = dict(ev.get("data") or {})
+    kids = bool(data.pop("kids", False))
+    if s.is_child_like and not kids:
+        return None
+    return {"type": "dvr_update", "data": data}
 
 
 def _shape_tv_watching(h: Hub, s: Subject, ev: dict[str, Any]) -> dict[str, Any] | None:
