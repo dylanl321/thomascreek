@@ -130,9 +130,12 @@ struct TVSetupView: View {
                     .background(Theme.card, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
                 }
 
-                HubTvsCard()
+                if store.me?.role == .admin {
+                    SectionTile(symbol: "square.and.arrow.down.on.square", title: "Install Thomas Creek TV",
+                                detail: "On one TV or all of them, and keep them updated") { router.go(.tvFleet) }
+                }
 
-                TvAppSetupCard()
+                HubTvsCard()
 
                 SectionHeader("Add by address")
                 VStack(alignment: .leading, spacing: 10) {
@@ -264,7 +267,7 @@ struct ApproveTvSheet: View {
 }
 
 /// Installs Thomas Creek TV once debugging is on. The hub says the one thing left to do on the TV.
-private struct TvAppSetupCard: View {
+struct TvAppSetupCard: View {
     @State private var ip = ""
     @State private var port = ""
     @State private var code = ""
@@ -755,6 +758,8 @@ private struct HubTvsCard: View {
 /// One TV: what's on, how it is, and the few things an adult can ask it to do from the phone.
 struct TVDetailView: View {
     let tvID: String
+    @Environment(HomeStore.self) private var store
+    @Environment(Router.self) private var router
     @State private var detail: HubTvDetail?
     @State private var latest: String?
     @State private var problem: String?
@@ -786,6 +791,13 @@ struct TVDetailView: View {
         }
         .background(Backdrop())
         .navigationTitle(detail?.tv.name ?? "TV").navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if store.me?.role == .admin {
+                ToolbarItem(placement: .primaryAction) {
+                    Button { router.go(.tvFleet) } label: { Label("All TVs", systemImage: "square.stack.3d.down.right") }
+                }
+            }
+        }
         .refreshable { await load() }
         .task {
             while !Task.isCancelled {

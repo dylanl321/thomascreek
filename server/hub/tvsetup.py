@@ -214,7 +214,10 @@ class Setup:
             if result.code != 0 or "successfully paired" not in result.out.lower():
                 return self._phase(ip, "failed", "That pairing code didn't work. On the TV, open Wireless debugging and use the new code.",
                                    "Enter the new pairing code")
-            self.tv._update_box(ip, paired=True)
+            self.tv._update_box(ip, paired=True, wireless=True)
+            found = await self.tv.wireless_ports(ip)
+            if found.get("connect_port"):
+                self.tv._update_box(ip, connect_port=int(found["connect_port"]))
 
         refreshed = await self.tv.refresh_box(ip)
         if refreshed.get("state") == "no_adb":
