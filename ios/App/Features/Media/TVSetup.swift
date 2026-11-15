@@ -410,6 +410,36 @@ private struct TvAppSetupCard: View {
     }
 }
 
+/// What the hub is doing to put Thomas Creek TV on the box, and the one thing to do on the TV, if any.
+private struct TvAppProgress: View {
+    let status: TvSetupStatus?
+    let running: Bool
+
+    var body: some View {
+        VStack(spacing: 6) {
+            HStack(spacing: 8) {
+                if status?.phase == "ready" {
+                    Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.accent)
+                } else if status?.phase == "failed" {
+                    Image(systemName: "exclamationmark.circle.fill").foregroundStyle(Theme.crit)
+                } else if running {
+                    ProgressView().controlSize(.small)
+                }
+                Text(status?.phase == "ready" ? "Thomas Creek TV is on it" : "Installing Thomas Creek TV")
+                    .font(.subheadline.weight(.semibold))
+            }
+            if let msg = status?.message {
+                Text(msg).font(.caption).foregroundStyle(Theme.dim).multilineTextAlignment(.center)
+            }
+            if let todo = status?.youDo {
+                Text("On the TV: \(todo)").font(.caption.weight(.semibold)).foregroundStyle(Theme.warn)
+                    .multilineTextAlignment(.center)
+            }
+        }
+        .padding(.horizontal)
+    }
+}
+
 private struct QrCode: View {
     var text: String
 
@@ -443,6 +473,8 @@ private struct PairSheet: View {
     @State private var pin = ""
     @State private var busy = false
     @State private var problem: String?
+    @State private var tvApp: TvSetupStatus?
+    @State private var tvAppRunning = false
     @FocusState private var pinFocused: Bool
 
     var body: some View {
@@ -458,6 +490,9 @@ private struct PairSheet: View {
             }
             if let code = step?.showCode {
                 Text(code).font(.system(size: 44, weight: .bold, design: .monospaced)).tracking(8)
+            }
+            if step?.state == "done", device.kind == "android", device.host != nil {
+                TvAppProgress(status: tvApp, running: tvAppRunning)
             }
             if step?.needsPin == true {
                 TextField(device.kind == "apple" ? "1234" : "A1B2C3", text: $pin)
@@ -511,6 +546,7 @@ private struct PairSheet: View {
         defer { busy = false }
         do {
             step = try await HubClient.shared.post("/v1/remotes/pair", ["id": device.id, "name": device.name])
+            if step?.state == "done", device.kind == "android", let host = device.host { Task { await installTvApp(host) } }
         } catch {
             step = nil; problem = error.localizedDescription
         }
@@ -528,9 +564,31 @@ private struct PairSheet: View {
             if step?.state == "done" {
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
                 await store.loadHome()
+                if device.kind == "android", let host = device.host { Task { await installTvApp(host) } }
             }
         } catch {
             problem = error.localizedDescription
+        }
+    }
+
+    /// Same Add also installs Thomas Creek TV over ADB. The hub approves the box it set up, so the TV pulls
+    /// its channels on its own. Waits for Allow or network debugging on the TV and asks again, up to 3 minutes.
+    private func installTvApp(_ host: String) async {
+        guard !tvAppRunning else { return }
+        tvAppRunning = true
+        defer { tvAppRunning = false }
+        let body: [String: Any] = ["mode": "adb", "ip": host, "name": step?.name ?? device.name]
+        let until = Date().addingTimeInterval(180)
+        while Date() < until {
+            do {
+                tvApp = try await HubClient.shared.post("/v1/tvapp/setup", body, as: TvSetupStatus.self)
+            } catch {
+                tvApp = TvSetupStatus(ip: host, phase: "failed", mode: "adb", message: error.localizedDescription,
+                                      youDo: nil, warning: nil, steps: [], install: nil)
+                return
+            }
+            guard let phase = tvApp?.phase, phase == "needs_allow" || phase == "offline" else { return }
+            try? await Task.sleep(for: .seconds(5))
         }
     }
 
