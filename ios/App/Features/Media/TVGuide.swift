@@ -81,6 +81,7 @@ struct TVShow: Decodable, Identifiable {
     var backdropUrl: String?
     var seasons: [TVSeason]?
     var durationS: Int?
+    var kids: Bool?
 }
 struct TVSeason: Decodable, Identifiable {
     var number: Int
@@ -111,6 +112,10 @@ struct TVPlayRequest: Identifiable {
     var movieId: String?
     var seriesId: String?
     var episodeId: String?
+    /// A Plex title (played on the phone through the hub's Plex stream).
+    var plexId: String? = nil
+    /// False: an adult title, which a kids' TV refuses. Nil when not known (the hub still checks).
+    var kids: Bool? = nil
 }
 
 struct DvrPage: Decodable { var recordings: [DvrItem] }
@@ -125,7 +130,8 @@ struct DvrItem: Decodable, Identifiable {
 struct TVGuideView: View {
     @Environment(Router.self) private var router
     @Environment(HomeStore.self) private var store
-    @State private var section = "guide"
+    @State private var section = "foryou"
+    @State private var loadFailed = false
     @State private var query = ""
     @State private var guide: [TVGuideChannel]?
     @State private var shows: [TVShow]?
@@ -139,6 +145,7 @@ struct TVGuideView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 Picker("Library", selection: $section) {
+                    Text("For you").tag("foryou")
                     Text("Guide").tag("guide")
                     Text("Shows").tag("shows")
                     Text("Movies").tag("movies")
@@ -147,6 +154,11 @@ struct TVGuideView: View {
                 .pickerStyle(.segmented)
                 if query.count >= 2 {
                     searchResults
+                } else if section == "foryou" {
+                    TVForYouRows(profile: nil) { play = $0 }
+                } else if loadFailed {
+                    EmptyCard(symbol: "wifi.exclamationmark", title: "The hub didn't answer",
+                              detail: "Pull down to try again.")
                 } else if section == "guide" {
                     guideList
                 } else if section == "shows" {
@@ -160,7 +172,7 @@ struct TVGuideView: View {
             .padding(.top, 8).screen()
         }
         .background(Backdrop())
-        .navigationTitle("TV guide")
+        .navigationTitle("TV")
         .searchable(text: $query, prompt: "Channels, shows and movies")
         .topBar()
         .task(id: section) { await loadSection() }
@@ -364,15 +376,25 @@ struct TVGuideView: View {
         } else { LoadingCard() }
     }
 
+    /// A failed load says so (it used to look like an empty library).
     private func loadSection() async {
-        if section == "guide" {
-            guide = (try? await HubClient.shared.get("/v1/tv/guide", as: TVGuidePage.self))?.channels ?? []
-        } else if section == "shows" {
-            shows = (try? await HubClient.shared.get("/v1/tv/series", as: TVSeriesPage.self))?.series ?? []
-        } else if section == "saved" {
-            recordings = (try? await HubClient.shared.get("/v1/dvr/recordings", as: DvrPage.self))?.recordings ?? []
-        } else {
-            films = (try? await HubClient.shared.get("/v1/tv/movies", as: TVMoviePage.self))?.movies ?? []
+        loadFailed = false
+        do {
+            if section == "foryou" {
+                return
+            } else if section == "guide" {
+                guide = try await HubClient.shared.get("/v1/tv/guide", as: TVGuidePage.self).channels
+            } else if section == "shows" {
+                shows = try await HubClient.shared.get("/v1/tv/series", as: TVSeriesPage.self).series
+            } else if section == "saved" {
+                recordings = try await HubClient.shared.get("/v1/dvr/recordings", as: DvrPage.self).recordings
+            } else {
+                films = try await HubClient.shared.get("/v1/tv/movies", as: TVMoviePage.self).movies
+            }
+        } catch is CancellationError {
+        } catch HubClient.HubError.cancelled {
+        } catch {
+            loadFailed = true
         }
     }
 
@@ -400,7 +422,7 @@ struct TVSeriesView: View {
                         ForEach(season.episodes) { episode in
                             Button {
                                 play = TVPlayRequest(title: episode.title ?? show.name, kind: "episode",
-                                                     seriesId: show.id, episodeId: episode.id)
+                                                     seriesId: show.id, episodeId: episode.id, kids: show.kids)
                             } label: {
                                 HStack(spacing: 10) {
                                     TVArt(url: episode.stillUrl ?? episode.still ?? show.posterUrl ?? show.cover, symbol: "film")
@@ -445,8 +467,8 @@ struct TVMovieView: View {
             VStack(alignment: .leading, spacing: 14) {
                 if let movie {
                     header(movie.name, movie.plot, movie.posterUrl ?? movie.cover ?? movie.backdropUrl ?? movie.backdrop)
-                    Button { play = TVPlayRequest(title: movie.name, kind: "movie", movieId: movie.id) } label: {
-                        Label("Play on a TV", systemImage: "play.tv").font(.headline).frame(maxWidth: .infinity, minHeight: 48)
+                    Button { play = TVPlayRequest(title: movie.name, kind: "movie", movieId: movie.id, kids: movie.kids) } label: {
+                        Label("Play", systemImage: "play.fill").font(.headline).frame(maxWidth: .infinity, minHeight: 48)
                     }
                     .buttonStyle(.borderedProminent)
                 } else if missing {
@@ -474,29 +496,49 @@ struct PlayOnTVSheet: View {
     @Environment(HomeStore.self) private var store
     @State private var tvs: [TVPlayer]?
     @State private var failed = false
+    @State private var starting = false
+    @State private var phone: URL?
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 10) {
                     Text(request.title).font(.headline).padding(.bottom, 4)
+                    if PhonePlayback.canPlay(request) {
+                        Button { Task { await playOnPhone() } } label: {
+                            HStack {
+                                Image(systemName: "iphone").font(.title3).foregroundStyle(Theme.accent).frame(width: 28)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("This iPhone").font(.body.weight(.semibold)).foregroundStyle(Theme.fg)
+                                    Text("Watch here").font(.caption).foregroundStyle(Theme.dim)
+                                }
+                                Spacer()
+                                if starting { ProgressView() } else { Image(systemName: "play.fill").foregroundStyle(Theme.accent) }
+                            }
+                        }
+                        .buttonStyle(.plain).card().disabled(starting)
+                        SectionHeader("On a TV")
+                    }
                     if let tvs {
                         if tvs.isEmpty {
                             EmptyCard(symbol: "tv.slash", title: "No TV to play on",
                                       detail: failed ? "The guide didn't answer." : "None of the house TVs are yours to use.")
                         }
                         ForEach(tvs) { tv in
+                            let blocked = tv.profile == "kids" && request.kids == false
                             Button { send(tv) } label: {
                                 HStack {
+                                    Image(systemName: "tv").font(.title3).foregroundStyle(blocked ? Theme.dim : Theme.accent).frame(width: 28)
                                     VStack(alignment: .leading, spacing: 2) {
-                                        Text(tv.name).font(.body.weight(.semibold)).foregroundStyle(Theme.fg)
-                                        Text(line(tv)).font(.caption).foregroundStyle(Theme.dim).lineLimit(1)
+                                        Text(tv.name).font(.body.weight(.semibold)).foregroundStyle(blocked ? Theme.dim : Theme.fg)
+                                        Text(blocked ? "Kids' TV · not for this one" : line(tv))
+                                            .font(.caption).foregroundStyle(Theme.dim).lineLimit(1)
                                     }
                                     Spacer()
-                                    Image(systemName: "play.fill").foregroundStyle(Theme.accent)
+                                    Image(systemName: blocked ? "lock.fill" : "play.fill").foregroundStyle(blocked ? Theme.dim : Theme.accent)
                                 }
                             }
-                            .buttonStyle(.plain).card()
+                            .buttonStyle(.plain).card().disabled(blocked)
                         }
                     } else { LoadingCard() }
                 }
@@ -508,6 +550,18 @@ struct PlayOnTVSheet: View {
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
         }
         .task { await load() }
+        .fullScreenCover(isPresented: Binding(get: { phone != nil }, set: { if !$0 { phone = nil; dismiss() } })) {
+            if let phone { PhonePlayerView(url: phone, title: request.title) }
+        }
+    }
+
+    private func playOnPhone() async {
+        starting = true
+        defer { starting = false }
+        switch await PhonePlayback.start(request) {
+        case .success(let url): phone = url
+        case .failure(let why): store.show(why.message, request.title, isError: true)
+        }
     }
 
     private func line(_ tv: TVPlayer) -> String {
@@ -522,21 +576,7 @@ struct PlayOnTVSheet: View {
     }
 
     private func send(_ tv: TVPlayer) {
-        var params: [String: Any] = ["title": request.title]
-        switch request.kind {
-        case "catchup":
-            params["kind"] = "catchup"
-            params["channel_key"] = request.channelKey ?? ""
-            if let start = request.start { params["start"] = start }
-        case "movie":
-            params["movie_id"] = request.movieId ?? ""
-        case "episode":
-            params["episode_id"] = request.episodeId ?? ""
-            params["series_id"] = request.seriesId ?? ""
-        default:
-            params["channel_key"] = request.channelKey ?? ""
-        }
-        store.perform("tv.play", target: tv.id, params: params, done: "Sent to \(tv.name)")
+        store.perform("tv.play", target: tv.id, params: request.tvParams, done: "Playing on \(tv.name)")
         dismiss()
     }
 }

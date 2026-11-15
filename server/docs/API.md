@@ -1168,6 +1168,16 @@ The shelf is ranked from plays this profile has made. A profile that has not wat
 
 An item carries only the ids it has. `progress` is 0 to 1 and only present when the hub knows how long the title is. `reason` is one of `continue watching`, `new episode of a series you watch or record`, `recording ready`, `ready to watch`, `starting now on a channel you watch`, `trending in your history`. On now is a programme that started within the last 20 minutes on a channel this profile watched in the last 30 days. A finished recording is one the DVR marked `done`. A title asked for from Explore, once it can be played, is added to Ready to watch with `reason` `ready to watch` and `movie_id` or `series_id`. Rows with nothing in them are left out. The order is continue, new episodes, recordings, on now, for you.
 
+### Watching on the phone (`hub/routes/tvphone.py`)
+
+`POST /v1/tv/phone/play` with one of `{"movie_id"}`, `{"episode_id"}` or `{"channel_key"}`. Same bearer and kids rule as the guide (a child or guest only gets kids' titles; anything else is 404). The answer is `{"url","kind","title","expires_at"}`, where `url` is a hub path with a 6-hour pass in it. The provider login never leaves the hub, and the pass only names the title.
+
+- Films and episodes: `GET /v1/tv/phone/file/{pass}`, a byte-range proxy of the provider file. Only mp4, m4v and mov play on the phone; anything else answers 409 `tv_only` ("This one only plays on a TV"). Episodes need the series opened once (`GET /v1/tv/series/{id}`), as on the TV.
+- Channels: `GET /v1/tv/phone/live/{pass}/index.m3u8`. The hub reads the provider's HLS and points every line at `/v1/tv/phone/live/{pass}/p/{n}.m3u8` or `/s/{n}`. The provider's own addresses stay in the hub's memory. Reloads use the redirected playlist, not the login address.
+- Plex titles keep using `GET /v1/media/{id}/stream`.
+
+The iPhone opens these through the published address when one is set, because its player can't use the pinned home certificate.
+
 ### Explore
 
 `GET /v1/tv/explore?profile=adult|kids`. The same bearer as the guide. A child, a guest or a kids' TV always gets the kids feed, even if `profile=adult`. Anyone else asking `profile=kids` gets the kids feed. The answer is the last built feed. It does not call TMDB or the provider while the TV is waiting. The hub rebuilds it about every six hours.
