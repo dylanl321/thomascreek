@@ -298,6 +298,20 @@ def test_tv_gets_one_playlist_per_provider_including_the_original_login(hub, hom
     ]
 
 
+def test_approved_tv_gets_lookup_keys_and_a_pending_one_does_not(hub, home_client):
+    hub.vault.set("iptv.m3u_url", "http://iptv.example/list.m3u")
+    hub.vault.set("tmdb.api_key", "tmdbkey123")
+    hub.vault.set("omdb.api_key", "omdbkey")
+    key = TvKey()
+    home_client.post("/v1/tv/enroll", json={"install_id": TV_ID, "name": "Shield", "public_key": key.pub})
+    pending = _config(home_client, key).json()
+    assert "keys" not in pending
+    hub.tv_app.set_tv(TV_ID, status="approved")
+    cfg = _config(home_client, key).json()
+    assert cfg["keys"] == {"tmdb": "tmdbkey123", "omdb": "omdbkey", "opensubtitles": "", "subdl": ""}
+    assert hub.tv_app.approved_config(TV_ID)["keys"]["tmdb"] == "tmdbkey123"
+
+
 def test_tv_on_an_added_box_is_approved_with_the_box_profile(hub, home_client):
     hub.tv_app.db.kv_set("tvapp.boxes", {"192.168.1.50": {"name": "Theo's TV", "auto": True, "profile": "kids"}})
     hub.tv_app.set_kids_categories(["Kids", "Cartoons", "Kids"])
