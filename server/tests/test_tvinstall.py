@@ -128,3 +128,41 @@ def test_install_needs_a_build_and_a_pick(hub, people):
     assert dylan.client.post("/v1/tvapp/install", headers=dylan.h, json={"ips": []}).status_code == 400
     res = dylan.client.post("/v1/tvapp/install", headers=dylan.h, json={"ips": ["10.0.0.86"]})
     assert res.status_code == 409 and res.json()["error"] == "no_build"
+
+
+def test_install_downloads_the_build_when_the_token_is_newer(hub, people):
+    adb = ScriptAdb(_replies())
+    hub.tv_app.adb = adb
+    hub.vault.set("github.tv_app_token", "tok")
+    fetched = []
+
+    async def check():
+        fetched.append(1)
+        _ready(hub, adb)
+        return hub.tv_app.latest()
+
+    hub.tv_app.check = check
+    _scan(hub)
+    dylan = people["phones"]["Dylan"]
+    res = dylan.client.post("/v1/tvapp/install", headers=dylan.h, json={"ips": ["10.0.0.86"]})
+    assert res.status_code == 200, res.text
+    assert fetched == [1]
+    assert _wait(dylan.client, dylan.h, "10.0.0.86")["phase"] == "ready"
+
+
+def test_saving_the_github_token_fetches_the_build(hub):
+    import asyncio
+
+    called = []
+
+    async def check():
+        called.append(1)
+
+    hub.tv_app.check = check
+
+    async def go():
+        hub.keychecks.after_save("github.tv_app_token")
+        await asyncio.sleep(0.05)
+
+    asyncio.run(go())
+    assert called == [1]

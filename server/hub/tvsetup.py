@@ -16,7 +16,7 @@ import re
 import time
 from typing import Any
 
-from .tvapp import TvApp, TvAppError, clean_ip
+from .tvapp import TOKEN_SECRET, TvApp, TvAppError, clean_ip
 
 _CODE = re.compile(r"^[A-Za-z0-9]{6,8}$")
 _NOTIFY = "android.permission.POST_NOTIFICATIONS"
@@ -240,8 +240,13 @@ class Setup:
             self.tv._update_box(ip, home={**(self.tv.boxes()[ip].get("home") or {}), "wanted": False})
 
         latest = self.tv.latest()
+        if (not latest or not self.tv.apk_path(int(latest["versionCode"])).exists()) and self.tv.vault.has(TOKEN_SECRET):
+            try:
+                latest = await self.tv.check()
+            except TvAppError as exc:
+                return self._phase(ip, "failed", f"The hub couldn't download the TV app: {exc.message}", None)
         if not latest or not self.tv.apk_path(int(latest["versionCode"])).exists():
-            return self._phase(ip, "failed", "The hub doesn't have a TV app build yet.", None)
+            return self._phase(ip, "failed", "The hub doesn't have a TV app build yet. Add the GitHub token for TV app builds on the hub web page.", None)
         if (refreshed.get("installed") or 0) >= int(latest["versionCode"]):
             self.tv._update_box(ip, last_result="already installed")
         else:
