@@ -94,6 +94,7 @@ def summary(h: Any, install_id: str, tv: dict[str, Any], now: float) -> dict[str
         "capability": fleet.get("capability") or "basic",
         "ip": tv.get("ip"),
         "screenshot": _screenshot(h, install_id),
+        "can_screenshot": _can_screenshot(h, install_id),
         "settings_rev": int(tv.get("settings_rev") or 0),
     }
 
@@ -173,10 +174,7 @@ async def act(h: Any, install_id: str, body: dict[str, Any], who: str | None, no
         raise TvsError(409, "not_approved", "Approve this TV first.")
     online = summary(h, install_id, tv, now)["online"]
     if action == "screenshot":
-        if not online:
-            raise TvsError(409, "offline", f"{tv.get('name') or 'The TV'} is offline, so it can't take a picture.")
-        sent = _fleet(h, install_id, "screenshot", {}, who)
-        return {"ok": True, "via": "app", "id": sent["id"], "message": "Taking a picture of the screen."}
+        return await _screenshot_now(h, install_id, tv, online, who)
     if action == "restart_app":
         if online:
             sent = _fleet(h, install_id, "restart_app", {}, who)
@@ -215,6 +213,41 @@ def _health(h: Any, install_id: str, fleet: dict[str, Any], seen: float, now: fl
         if state != "offline":
             return state
     return "ok"
+
+
+def _root(h: Any, install_id: str) -> bool:
+    return (tvfleet._devices(h).get(install_id) or {}).get("capability") == "root"
+
+
+def _can_screenshot(h: Any, install_id: str) -> bool:
+    """The hub takes the picture over network debugging; a rooted box can also send its own.
+
+    Without either, the app has no way to capture the screen, so the phone hides the button.
+    """
+    tv = h.tv_app.tvs().get(install_id) or {}
+    return _root(h, install_id) or bool(tv.get("ip") and h.tv_app.adb.available)
+
+
+async def _screenshot_now(h: Any, install_id: str, tv: dict[str, Any], online: bool, who: str | None) -> dict[str, Any]:
+    name = tv.get("name") or "The TV"
+    problem: TvsError | None = None
+    try:
+        serial = await _adb_ready(h, tv)
+        png = await h.tv_app.adb.screencap(serial)
+        if png and len(png) <= tvfleet.SHOT_MAX:
+            path = tvfleet._shot_path(h, install_id)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(png)
+            return {"ok": True, "via": "adb", "message": "Here's the screen."}
+        problem = TvsError(502, "no_picture", f"{name} didn't send a picture. Try again in a moment.")
+    except TvsError as exc:
+        problem = exc
+    if online and _root(h, install_id):
+        sent = _fleet(h, install_id, "screenshot", {}, who)
+        return {"ok": True, "via": "app", "id": sent["id"], "message": "Taking a picture of the screen."}
+    if not online and problem.code == "no_address":
+        raise TvsError(409, "offline", f"{name} is offline, so it can't take a picture.")
+    raise problem
 
 
 def _now_playing(playing: Any) -> dict[str, Any] | None:
