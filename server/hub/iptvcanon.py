@@ -23,7 +23,7 @@ KV_OVERRIDES = "tv.catalog.overrides"
 KV_USAGE = "tv.catalog.ai.usage"
 KV_ASKED = "tv.catalog.ai.asked"
 # Bump when the matching rules change, so the next refresh compares every row again.
-FINGERPRINT_VERSION = 2
+FINGERPRINT_VERSION = 3
 
 
 def sources_from_catalog(doc: dict[str, Any], provider: str = "thomas-creek") -> list[dict[str, Any]]:
@@ -99,7 +99,8 @@ def observe(db: Any, sources: list[dict[str, Any]], *, decisions: dict[str, bool
     for group in groups:
         for row in group:
             _detach(items, previous, row["key"])
-    for group in groups:
+    # Bigger groups first: when providers share a TMDB id between films, the title most copies agree on keeps it.
+    for group in sorted(groups, key=len, reverse=True):
         _place(group, items, previous, overrides)
     items = {item_id: item for item_id, item in items.items() if item.get("sources")}
     new_ids = {row["id"] for row in unsure_rows}
@@ -506,7 +507,13 @@ def _place(group: list[dict[str, Any]], items: dict[str, dict[str, Any]], previo
     existing = [previous[row["key"]] for row in group if previous.get(row["key"]) in items and previous.get(row["key"]) != "__unsure__"]
     forced = _forced(group, overrides, items)
     item_id = forced or (existing[0] if existing else _new_id(group[0]["kind"], group[0]))
-    current = items.get(item_id) or {"id": item_id, "kind": group[0]["kind"], "sources": []}
+    current = items.get(item_id)
+    if current and not forced and current.get("sources") and parse(str(current.get("title") or "")).key != group[0]["parsed"].key:
+        # Another title already holds this id: providers give the wrong TMDB id to some films, and a
+        # shared id must never pour a different film into this one (it played instead of "The Dark Knight").
+        item_id = _new_id(group[0]["kind"], group[0], keyed=True)
+        current = items.get(item_id)
+    current = current or {"id": item_id, "kind": group[0]["kind"], "sources": []}
     by_key = {source_key(source["provider"], current.get("kind") or group[0]["kind"], source["stream_id"]): source
               for source in current.get("sources") or []}
     for row in group:
@@ -598,8 +605,10 @@ def _pair_id(left: dict[str, Any], right: dict[str, Any]) -> str:
     return hashlib.sha256((left["kind"] + "\n" + "\n".join(ends)).encode()).hexdigest()[:20]
 
 
-def _new_id(kind: str, row: dict[str, Any]) -> str:
+def _new_id(kind: str, row: dict[str, Any], keyed: bool = False) -> str:
     hard = row["ids"].get("tmdb") or row["ids"].get("imdb") or row["ids"].get("tvg_id")
+    if hard and keyed:
+        hard = f"{hard}|{row['parsed'].key}"
     identity = f"{kind}|{hard}" if hard else f"{kind}|{row['parsed'].key}|{row['parsed'].year}|{row['parsed'].variant}|{row['parsed'].timeshift}|{row['parsed'].region}"
     return "can_" + hashlib.sha256(identity.encode()).hexdigest()[:16]
 
@@ -622,7 +631,7 @@ def _tmdb_index(rows: list[dict[str, Any]], previous: dict[str, str]) -> dict[st
     for row in rows:
         tmdb = row["ids"].get("tmdb")
         item_id = previous.get(row["key"])
-        if tmdb and item_id:
+        if tmdb and item_id and (f"{row['kind']}:{tmdb}" not in found or item_id == _new_id(row["kind"], row)):
             found[f"{row['kind']}:{tmdb}"] = item_id
     return found
 
