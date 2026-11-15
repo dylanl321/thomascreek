@@ -102,6 +102,8 @@ private struct ScanningScreen: View {
 
     @State private var askingNext = false
     @State private var nextText = ""
+    @State private var askingArea = false
+    @State private var areaText = ""
 
     var body: some View {
         ZStack {
@@ -114,12 +116,28 @@ private struct ScanningScreen: View {
                         .buttonStyle(.bordered)
                         .tint(.white)
                     Spacer()
+                    if controller.areaCount > 0 {
+                        Label("\(controller.areaCount)", systemImage: "mappin.and.ellipse")
+                            .font(.subheadline.monospacedDigit())
+                            .padding(.horizontal, 12).padding(.vertical, 6)
+                            .background(.ultraThinMaterial, in: Capsule())
+                    }
                     Label("\(controller.photoCount)", systemImage: "camera")
                         .font(.subheadline.monospacedDigit())
                         .padding(.horizontal, 12).padding(.vertical, 6)
                         .background(.ultraThinMaterial, in: Capsule())
                 }
                 .padding()
+                if let notice = controller.notice {
+                    Text(notice)
+                        .font(.footnote)
+                        .padding(.horizontal, 12).padding(.vertical, 8)
+                        .background(.ultraThinMaterial, in: Capsule())
+                        .task {
+                            try? await Task.sleep(for: .seconds(4))
+                            controller.notice = nil
+                        }
+                }
                 Spacer()
                 if controller.phase == .processing {
                     ProgressView("Processing…")
@@ -132,6 +150,17 @@ private struct ScanningScreen: View {
                         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
                     Button("Close", action: onCancel).buttonStyle(.borderedProminent)
                 }
+                Button {
+                    areaText = ""
+                    askingArea = true
+                } label: {
+                    Label("Mark area", systemImage: "mappin.and.ellipse")
+                        .frame(maxWidth: .infinity).padding(.vertical, 8)
+                }
+                .buttonStyle(.bordered)
+                .tint(.white)
+                .disabled(controller.phase != .scanning)
+                .padding(.horizontal)
                 HStack(spacing: 14) {
                     Button {
                         nextText = ""
@@ -162,6 +191,15 @@ private struct ScanningScreen: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Walk through, then keep scanning. The rooms are lined up automatically.")
+        }
+        .alert("What's here?", isPresented: $askingArea) {
+            TextField("Dining nook", text: $areaText)
+            Button("Part of this room") { controller.markArea(name: areaText, exclude: false) }
+            Button("Not this room") { controller.markArea(name: areaText, exclude: true) }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Stand in the spot first. Big open space? Mark each part (kitchen, dining). "
+                 + "Scan reaching through a doorway into a hall or the next room? Stand there and tap Not this room.")
         }
     }
 }

@@ -293,9 +293,12 @@ class Converter:
 
 
 def main() -> None:
-    if len(sys.argv) != 4:
-        raise SystemExit("usage: gltf_to_usdz.py input.glb output.usdz appearance.json")
-    src, dst, appearance_path = Path(sys.argv[1]), Path(sys.argv[2]), Path(sys.argv[3])
+    args = [a for a in sys.argv[1:] if a != "--no-devices"]
+    # A room fresh from the scanner (models/dollhouse/scanned) has no devices yet.
+    no_devices = "--no-devices" in sys.argv[1:]
+    if len(args) != 3:
+        raise SystemExit("usage: gltf_to_usdz.py input.glb output.usdz appearance.json [--no-devices]")
+    src, dst, appearance_path = Path(args[0]), Path(args[1]), Path(args[2])
     gltf, blob = load_glb(src)
     work = dst.parent / "_usdz_build"
     if work.exists():
@@ -324,7 +327,7 @@ def main() -> None:
         missing = [n for n in ("anchor_under_cabinet_lights", "glow_washer_drum", "light_laundry") if n not in names]
     else:
         missing = []
-    if len(anchors) < 3:
+    if len(anchors) < 3 and not no_devices:
         missing.append("anchors")
     if missing:
         raise SystemExit(f"USDZ is missing nodes: {missing}")

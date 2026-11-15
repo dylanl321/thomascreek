@@ -23,12 +23,28 @@ enum PackageWriter {
     @MainActor
     static func write(_ output: ScanOutput, library: RoomLibrary) async throws -> ScanSummary {
         guard !output.rooms.isEmpty else { throw PackageError.noRooms }
-        let fm = FileManager.default
         let createdAt = Date()
         let names = output.descriptions.map(RoomLibrary.roomName(from:))
         let mainName = names.first ?? "Room"
         let id = RoomLibrary.folderName(for: mainName, date: createdAt)
         let folder = library.roomsDir.appendingPathComponent(id, isDirectory: true)
+        let zip = library.exportsDir.appendingPathComponent("\(id).zip")
+        do {
+            return try await writePackage(output, library: library, id: id, folder: folder, zip: zip,
+                                          names: names, mainName: mainName, createdAt: createdAt)
+        } catch {
+            // Don't leave a half-written scan behind: without a manifest it wouldn't even be listed.
+            try? FileManager.default.removeItem(at: folder)
+            try? FileManager.default.removeItem(at: zip)
+            library.reload()
+            throw error
+        }
+    }
+
+    @MainActor
+    private static func writePackage(_ output: ScanOutput, library: RoomLibrary, id: String, folder: URL, zip: URL,
+                                     names: [String], mainName: String, createdAt: Date) async throws -> ScanSummary {
+        let fm = FileManager.default
         try fm.createDirectory(at: folder, withIntermediateDirectories: true)
         let encoder = PackageFormat.encoder
 
@@ -122,13 +138,14 @@ enum PackageWriter {
             worldMapFile: worldMapFile,
             thumbnailFile: thumbnailFile,
             reviewFile: nil,
+            areas: output.areas.isEmpty ? nil : output.areas,
             files: files.sorted())
         try encoder.encode(manifest).write(to: folder.appendingPathComponent(PackageFormat.manifestFile))
 
         try? fm.removeItem(at: output.photoDirectory.deletingLastPathComponent())
 
-        let zip = library.exportsDir.appendingPathComponent("\(id).zip")
-        try zipFolder(folder, to: zip)
+        // Zipping a few dozen photos takes a moment; keep it off the main thread so the spinner moves.
+        try await Task.detached(priority: .userInitiated) { try zipFolder(folder, to: zip) }.value
         library.reload()
         guard let summary = library.summary(for: folder) else { throw PackageError.noRooms }
         return summary

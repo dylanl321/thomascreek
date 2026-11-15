@@ -76,8 +76,10 @@ enum DollhouseScene {
 
         for room in rooms {
             for floor in room.floors {
-                let node = panel(floor.transform, floor.dimensions, thickness: 0.05,
-                                 color: color(colors[floor.identifier.uuidString], fallback: "#C8A27A"))
+                let floorColor = color(colors[floor.identifier.uuidString], fallback: "#C8A27A")
+                // L-shaped and other non-rectangular floors come with their outline; draw that shape.
+                let node = polygonFloor(floor, color: floorColor)
+                    ?? panel(floor.transform, floor.dimensions, thickness: 0.05, color: floorColor)
                 root.addChildNode(node)
             }
             for wall in room.walls {
@@ -163,6 +165,25 @@ enum DollhouseScene {
         let capNode = SCNNode(geometry: cap)
         capNode.simdPosition = simd_float3(0, -fullHeight / 2 + height, 0)
         holder.addChildNode(capNode)
+        return holder
+    }
+
+    /// A floor drawn from RoomPlan's polygon corners (floor-local XY plane, local Z up), or nil.
+    static func polygonFloor(_ floor: CapturedRoom.Surface, color: UIColor) -> SCNNode? {
+        let corners = floor.polygonCorners
+        guard corners.count >= 3 else { return nil }
+        let path = UIBezierPath()
+        path.move(to: CGPoint(x: CGFloat(corners[0].x), y: CGFloat(corners[0].y)))
+        for c in corners.dropFirst() { path.addLine(to: CGPoint(x: CGFloat(c.x), y: CGFloat(c.y))) }
+        path.close()
+        path.flatness = 0.01
+        let shape = SCNShape(path: path, extrusionDepth: 0.05)
+        shape.materials = [material(color)]
+        let holder = SCNNode()
+        holder.simdTransform = floor.transform
+        let body = SCNNode(geometry: shape)
+        body.simdPosition = simd_float3(0, 0, -0.025)   // top face at floor level
+        holder.addChildNode(body)
         return holder
     }
 

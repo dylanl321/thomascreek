@@ -19,17 +19,23 @@ stylized dollhouse models used by the Thomas Creek app. It's a separate app (bun
 **Next room** (optional) finishes the current room and keeps scanning in the same session, so
 rooms line up automatically and are merged with StructureBuilder.
 
-## Scan package (schema version 1)
+**Mark area** (optional) names the spot you're standing in. In a big open space, stand in each part
+and mark it ("Kitchen", "Dining nook"): the Mac tools split the space there. When the scan reaches
+through a doorway into a hall or the next room, stand there and tap **Not this room**: the tools cut
+that part off. If RoomPlan can't build one room of a multi-room session, that room is skipped with a
+short notice, and its description, photos and markers go with it.
+
+## Scan package (schema version 2)
 
 | File | What it is |
 | --- | --- |
-| `manifest.json` | schema version, room name, the one-line description, timestamp, device, units (meters), coordinate system, room list, file list |
+| `manifest.json` | schema version, room name, the one-line description, timestamp, device, units (meters), coordinate system, room list, area markers (`areas`: name, camera position, room index, `exclude`), file list |
 | `capturedroom.json` | RoomPlan `CapturedRoom` (Codable JSON). Extra rooms: `capturedroom_2.json`, … |
 | `room.usdz` | RoomPlan parametric USDZ. Extra rooms: `room_2.usdz`, … |
 | `structure.json`, `structure.usdz` | merged `CapturedStructure`, only when "Next room" was used |
 | `photos/photo_NNN.jpg` | auto-captured camera frames (landscape sensor orientation) |
 | `photos.json` | per photo: camera-to-world transform (4x4 column-major), intrinsics (3x3 column-major, full-res pixels), timestamp, room index |
-| `colors.json` | sampled sRGB hex per wall, floor, door, window, opening and object, keyed by RoomPlan identifier |
+| `colors.json` | sampled sRGB hex per wall, floor, door, window, opening and object, keyed by RoomPlan identifier. A photo only counts when it sees the room side of a surface and no furniture or wall is in the way |
 | `worldmap.arworldmap` | `ARWorldMap` (NSKeyedArchiver) for relocalizing later scans |
 | `thumbnail.png` | dollhouse preview render |
 
@@ -40,7 +46,15 @@ World space is RoomPlan/ARKit: meters, right-handed, +Y up, origin where the ses
 - **LLM review.** `RoomScanner/Review/RoomReviewer.swift` defines the `RoomReviewer` protocol and
   `RoomReview` format (labels, materials, smart devices, questions only when unsure). The plan is
   to write `review.json` into the package and set `manifest.reviewFile`. Nothing calls it yet.
-- Cloud upload, relocalizing with a saved world map, and Thomas Creek app integration.
+- Cloud upload and relocalizing with a saved world map. Rooms from different days are lined up on
+  the Mac through their shared doorways instead (see below).
+
+## From scan to dollhouse and floor plan
+
+`scanner/tools/` (plain Python 3) turns scan zips into tidy dollhouse room plans, splits shared
+spaces, trims doorway bleed, assembles the whole-house floor plan, and installs a room or the floor
+plan into the Thomas Creek app's House tab. `models/dollhouse/scanned/` builds and exports the
+three.js rooms. Start with `scanner/tools/README.md`.
 
 ## Build
 
@@ -49,7 +63,7 @@ brew install xcodegen
 cd scanner && xcodegen && open RoomScanner.xcodeproj
 ```
 
-TestFlight: `BUILD=2 scanner/scripts/build_testflight.sh` (archives with automatic signing for team
+TestFlight: `BUILD=3 scanner/scripts/build_testflight.sh` (archives with automatic signing for team
 Z9Q392PD67 and uploads; bump `BUILD` each time). The App Store Connect app record for
 `me.dlewis.roomscanner` must exist first.
 

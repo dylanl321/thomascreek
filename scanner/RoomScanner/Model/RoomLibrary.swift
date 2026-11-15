@@ -71,7 +71,15 @@ final class RoomLibrary: ObservableObject {
         }
         name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         if name.isEmpty { return "Room" }
-        return String(name.capitalized.prefix(40))
+        return String(titleCased(name).prefix(40))
+    }
+
+    /// "tv room" -> "Tv Room" with `capitalized`; this keeps words already typed in capitals ("TV Room").
+    static func titleCased(_ text: String) -> String {
+        text.split(separator: " ", omittingEmptySubsequences: true).map { word -> String in
+            if word.contains(where: { $0.isUppercase }) { return String(word) }
+            return word.prefix(1).uppercased() + word.dropFirst()
+        }.joined(separator: " ")
     }
 
     static func folderName(for name: String, date: Date) -> String {
