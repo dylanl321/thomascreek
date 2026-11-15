@@ -12,8 +12,12 @@ episodes `ep:thomas-creek:<id>`.
 from __future__ import annotations
 
 import asyncio
+import gzip
+import io
 import json
+import os
 import logging
+import tempfile
 import time
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
@@ -34,10 +38,12 @@ SOURCE = "thomas-creek"
 LIST_TTL_S = 6 * 3600
 GUIDE_TTL_S = 3 * 3600
 DETAIL_TTL_S = 24 * 3600
-MAX_GUIDE_BYTES = 40 * 1024 * 1024
+MAX_GUIDE_BYTES = 512 * 1024 * 1024
+GUIDE_TIMEOUT_S = 300
 GUIDE_BACK_S = 7 * 86400
 GUIDE_AHEAD_S = 36 * 3600
-MAX_PROGRAMMES = 40
+MAX_PROGRAMMES = 60
+MAX_AHEAD = 40
 MAX_LIST = 100
 
 KidsFn = Callable[[], list[str]]
@@ -245,18 +251,47 @@ class TvCatalog:
                 server = urlunsplit((parts.scheme or "http", host, parts.path, "", ""))
         return server.rstrip("/"), user, password
 
+    async def _download_guide(self, client: httpx.AsyncClient, url: str, params: dict[str, str] | None) -> Path | bytes:
+        """Stream the provider's XMLTV to a file next to the catalog. A full guide is far bigger than memory wants."""
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        handle, name = tempfile.mkstemp(prefix="xmltv-", suffix=".xml", dir=self.path.parent)
+        os.close(handle)
+        target = Path(name)
+        size = 0
+        try:
+            async with client.stream("GET", url, params=params, timeout=GUIDE_TIMEOUT_S) as response:
+                if response.status_code != 200:
+                    log.info("tv guide: HTTP %s", response.status_code)
+                    target.unlink(missing_ok=True)
+                    return b""
+                with target.open("wb") as out:
+                    async for chunk in response.aiter_bytes():
+                        size += len(chunk)
+                        if size > MAX_GUIDE_BYTES:
+                            log.info("tv guide: larger than %d MB, skipped", MAX_GUIDE_BYTES // (1024 * 1024))
+                            out.close()
+                            target.unlink(missing_ok=True)
+                            return b""
+                        out.write(chunk)
+        except httpx.HTTPError as exc:
+            log.info("tv guide: %s", type(exc).__name__)
+            target.unlink(missing_ok=True)
+            return b""
+        log.info("tv guide: %d MB downloaded", size // (1024 * 1024))
+        return target
+
     # -- build -----------------------------------------------------------------------------------------------------
     def ingest(self, *, live: list[dict[str, Any]] | None = None, live_categories: list[dict[str, Any]] | None = None,
                vod: list[dict[str, Any]] | None = None, vod_categories: list[dict[str, Any]] | None = None,
                series: list[dict[str, Any]] | None = None, series_categories: list[dict[str, Any]] | None = None,
-               xmltv: bytes | None = None, now: float | None = None) -> dict[str, Any]:
+               xmltv: bytes | Path | None = None, now: float | None = None) -> dict[str, Any]:
         """Store a provider snapshot. Tests pass the payloads in; refresh() downloads them."""
         now = time.time() if now is None else now
         live_names = _categories(live_categories)
         vod_names = _categories(vod_categories)
         series_names = _categories(series_categories)
         channels = []
-        epg_ids: dict[str, str] = {}
+        epg_ids: dict[str, list[str]] = {}
         for row in live or []:
             key = channel_key(row.get("stream_id"))
             if key is None or not isinstance(row, dict):
@@ -269,10 +304,13 @@ class TvCatalog:
                 "epg_id": _clip(row.get("epg_channel_id"), 80),
             })
             if channels[-1]["epg_id"]:
-                epg_ids[str(channels[-1]["epg_id"])] = key
+                epg_ids.setdefault(str(channels[-1]["epg_id"]), []).append(key)
         movies = [_title(row, movie_key, vod_names, "stream_icon") for row in vod or []]
         shows = [_title(row, series_key, series_names, "cover", id_field="series_id") for row in series or []]
-        guide = _parse_xmltv(xmltv or b"", epg_ids, now) if xmltv else {}
+        guide = _parse_xmltv(xmltv, epg_ids, now) if xmltv else {}
+        if xmltv:
+            log.info("tv guide: %d of %d guide ids matched, %d channels with programmes",
+                     sum(1 for keys in epg_ids.values() if any(k in guide for k in keys)), len(epg_ids), len(guide))
         doc = {
             "fetched_at": now, "guide_at": now if xmltv is not None else 0,
             "channels": [c for c in channels if c], "movies": [m for m in movies if m],
@@ -406,18 +444,16 @@ class TvCatalog:
                 vod_categories = await pull("get_vod_categories")
                 series = await pull("get_series")
                 series_categories = await pull("get_series_categories")
-                xmltv = b""
                 guide_url = str(self.vault.get("iptv.epg_url") or "").strip() or f"{server}/xmltv.php"
-                try:
-                    response = await client.get(guide_url, params=None if self.vault.get("iptv.epg_url") else params)
-                    if response.status_code == 200 and len(response.content) <= MAX_GUIDE_BYTES:
-                        xmltv = response.content
-                except httpx.HTTPError as exc:
-                    log.info("tv guide: %s", type(exc).__name__)
+                xmltv = await self._download_guide(client, guide_url, None if self.vault.get("iptv.epg_url") else params)
             if not all(isinstance(part, list) for part in (live, live_categories, vod, vod_categories, series, series_categories)):
                 raise TvAppError(502, "bad_provider", "The TV provider didn't send its lists")
-            doc = self.ingest(live=live, live_categories=live_categories, vod=vod, vod_categories=vod_categories,
-                              series=series, series_categories=series_categories, xmltv=xmltv)
+            try:
+                doc = self.ingest(live=live, live_categories=live_categories, vod=vod, vod_categories=vod_categories,
+                                  series=series, series_categories=series_categories, xmltv=xmltv)
+            finally:
+                if isinstance(xmltv, Path):
+                    xmltv.unlink(missing_ok=True)
         if self.settle is not None:
             try:
                 await self.settle()
@@ -776,39 +812,67 @@ def _title(row: dict[str, Any], key_of: Any, categories: dict[str, str], art_fie
     return item
 
 
-def _parse_xmltv(xml: bytes, epg_ids: dict[str, str], now: float) -> dict[str, list[dict[str, Any]]]:
+def _parse_xmltv(xml: bytes | Path, epg_ids: dict[str, list[str]], now: float) -> dict[str, list[dict[str, Any]]]:
+    """Programmes per channel key. Reads the document as a stream; several channels can share one guide id."""
     if not xml or not epg_ids:
         return {}
+    folded = {name.casefold(): keys for name, keys in epg_ids.items()}
     out: dict[str, list[dict[str, Any]]] = {}
     try:
-        root = ET.fromstring(xml)
-    except ET.ParseError:
+        raw = xml.open("rb") if isinstance(xml, Path) else io.BytesIO(xml)
+    except OSError:
         return {}
-    for node in root:
-        if _local(node.tag) != "programme":
-            continue
-        begins = _xmltv_time(node.attrib.get("start") or "")
-        finishes = _xmltv_time(node.attrib.get("stop") or "")
-        key = epg_ids.get(node.attrib.get("channel") or "")
-        if begins is None or finishes is None or not key or finishes <= begins:
-            continue
-        if finishes < now - GUIDE_BACK_S or begins > now + GUIDE_AHEAD_S:
-            continue
-        icon = None
-        for child in node:
-            if _local(child.tag) == "icon":
-                icon = _art(child.attrib.get("src"))
-                break
-        bucket = out.setdefault(key, [])
-        if len(bucket) >= MAX_PROGRAMMES:
-            continue
-        bucket.append({
-            "start_ts": begins, "end_ts": finishes, "title": _text(node, "title") or "Programme",
-            "subtitle": _text(node, "sub-title"), "desc": _clip(_text(node, "desc"), 400), "icon": icon,
-        })
-    for bucket in out.values():
-        bucket.sort(key=lambda item: item["start_ts"])
+    with raw:
+        head = raw.read(2)
+        raw.seek(0)
+        stream = gzip.GzipFile(fileobj=raw) if head == b"\x1f\x8b" else raw
+        try:
+            for _event, node in ET.iterparse(stream, events=("end",)):
+                if _local(node.tag) != "programme":
+                    continue
+                _take_programme(node, epg_ids, folded, now, out)
+                node.clear()
+        except (ET.ParseError, OSError, EOFError) as exc:
+            log.info("tv guide: stopped reading at %s", type(exc).__name__)
+    for key in list(out):
+        out[key] = _keep(out[key], now)
     return out
+
+
+def _keep(bucket: list[dict[str, Any]], now: float) -> list[dict[str, Any]]:
+    """What is on now and next first, then the most recent past (catch-up), MAX_PROGRAMMES in all."""
+    bucket.sort(key=lambda item: item["start_ts"])
+    ahead = [item for item in bucket if item["end_ts"] > now][:MAX_AHEAD]
+    behind = [item for item in bucket if item["end_ts"] <= now][-(MAX_PROGRAMMES - len(ahead)):] if len(ahead) < MAX_PROGRAMMES else []
+    return behind + ahead
+
+
+def _take_programme(node: ET.Element, epg_ids: dict[str, list[str]], folded: dict[str, list[str]], now: float,
+                    out: dict[str, list[dict[str, Any]]]) -> None:
+    name = node.attrib.get("channel") or ""
+    keys = epg_ids.get(name) or folded.get(name.casefold())
+    if not keys:
+        return
+    begins = _xmltv_time(node.attrib.get("start") or "")
+    finishes = _xmltv_time(node.attrib.get("stop") or "")
+    if begins is None or finishes is None or finishes <= begins:
+        return
+    if finishes < now - GUIDE_BACK_S or begins > now + GUIDE_AHEAD_S:
+        return
+    icon = None
+    for child in node:
+        if _local(child.tag) == "icon":
+            icon = _art(child.attrib.get("src"))
+            break
+    item = {
+        "start_ts": begins, "end_ts": finishes, "title": _text(node, "title") or "Programme",
+        "subtitle": _text(node, "sub-title"), "desc": _clip(_text(node, "desc"), 400), "icon": icon,
+    }
+    for key in keys:
+        bucket = out.setdefault(key, [])
+        bucket.append(dict(item))
+        if len(bucket) >= 4 * MAX_PROGRAMMES:
+            out[key] = _keep(bucket, now)
 
 
 def _programme(item: dict[str, Any], channel: dict[str, Any], now: float) -> dict[str, Any]:
