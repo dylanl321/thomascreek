@@ -527,12 +527,12 @@ Cleaning removes quality tags (`4K`, `FHD`, `HD`, `SD`, `HEVC`), bracketed notes
 
 `kind` is `movie`, `series`, or `live`. A series row also has `season` and `episode` when those were in the name. A live row has `region` (`US`, `UK`, or null) and `variant` (`2`, `east`, `deportes`, or null) and `timeshift` (`0` or `1`). `sources` never includes a password or a stream URL. `quality` is `2160p`, `1080p`, `720p`, `sd`, or null. An empty catalog is `{"items":[]}`.
 
-Pairs the rules will not decide are left separate. When `anthropic.api_key` is saved, those pairs can be asked of the model in `iptv_match.model` (default `claude-haiku-4-5`). The model sees titles, years, and channel names only. Each answer is kept, so the same pair is never asked again. `iptv_match.daily_tokens` (default `20000`) is the day's cap. With no key, or once the cap is reached, the pair stays two titles and nothing is shown to the household.
+A provider TMDB id (`tmdb` or `tmdb_id` on the Xtream row) decides a pair outright: the same id folds, different ids stay apart. Movie and show posters don't count against a match (copies of one film often carry different art); a channel logo still does. Pairs the rules will not decide are left separate. After each catalog refresh, when `anthropic.api_key` is saved, the hub asks the model in `iptv_match.model` (default `claude-haiku-5-5`) about the waiting pairs, 25 at a time. The model sees the cleaned titles and years plus each copy's provider name, category, genre, rating, TMDB id, plot and running time when known; never logos or links. It answers same, different, or can't tell: same folds the pair (kept like an admin merge), different keeps it apart for good, and can't tell leaves it for an admin and isn't asked again for a week. `iptv_match.daily_tokens` (default `100000`) is the day's cap. With no key, or once the cap is reached, the pair stays two titles and nothing is shown to the household. The admin web page's Catalog section lists the pairs still waiting, with years, Same and Different buttons, and "Ask AI to sort these" (asks again now, ignoring the week).
 
-`GET /v1/tv/catalog/unsure` (`systems`) is the short list an admin can settle. At most 20.
+`GET /v1/tv/catalog/unsure` (`systems`) is the short list an admin can settle. At most 20; `total` counts them all. A pair already folded, kept apart, or no longer in the catalog is left out.
 
 ```json
-{"unsure":[{"left":"can_aaa","right":"can_bbb","title":"CNN","other":"Cable News Network","score":0.74}]}
+{"unsure":[{"id":"9c1e…","left":"can_aaa","right":"can_bbb","title":"CNN","other":"Cable News Network","score":0.74}],"total":1}
 ```
 
 `POST /v1/tv/catalog/merge` `{ids:["can_aaa","can_bbb"]}` and `POST /v1/tv/catalog/split` `{id:"can_7f3a9c2b1d4e6f80","provider":"beta","stream_id":"55"}` are `systems`. Merge answers `{"ok":true,"id":"can_aaa"}`. Split answers `{"ok":true,"id":"can_new"}`. A remembered choice wins over the rules and over the model. A second merge of the same pair answers the same id and does not ask the model. Unknown ids answer `404` "That title isn't in the catalog."

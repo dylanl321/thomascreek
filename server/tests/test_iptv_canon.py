@@ -134,3 +134,89 @@ def test_an_admin_merge_wins_and_a_split_is_remembered(hub):
     ])
     assert len(search(db, "", "live")["items"]) == 2
     assert unsure(db)["unsure"] == [] or isinstance(unsure(db)["unsure"], list)
+
+
+def test_posters_do_not_split_a_film_and_tmdb_ids_fold_it(hub):
+    db = hub.db
+    observe(db, [
+        {"provider": "p", "kind": "movie", "stream_id": "1", "name": "Gladiator (2000)", "logo": "https://a.example/x.jpg"},
+        {"provider": "p", "kind": "movie", "stream_id": "2", "name": "Gladiator 2000 4K", "logo": "https://a.example/y.jpg"},
+        {"provider": "p", "kind": "movie", "stream_id": "3", "name": "Heist", "tmdb": "1234"},
+        {"provider": "p", "kind": "movie", "stream_id": "4", "name": "Heist (2015)", "tmdb": "1234"},
+    ])
+    assert len(search(db, "gladiator")["items"]) == 1
+    assert len(search(db, "heist")["items"]) == 1
+    assert unsure(db)["unsure"] == []
+
+
+def test_provider_tmdb_ids_reach_the_fold(hub):
+    doc = hub.tv_catalog.ingest(vod=[
+        {"stream_id": 1, "name": "Knives Out", "tmdb": "546554"},
+        {"stream_id": 2, "name": "Knives Out", "tmdb": "546554"},
+        {"stream_id": 3, "name": "Star Wars", "tmdb": "0"},
+    ], vod_categories=[], live=[], live_categories=[], series=[], series_categories=[])
+    assert doc["movies"][0]["tmdb"] == "546554" and "tmdb" not in doc["movies"][2]
+    assert len(search(hub.db, "knives", "movie")["items"]) == 1
+
+
+def test_waiting_pairs_name_real_titles_and_can_be_answered(hub):
+    from hub.iptvcanon import keep_apart
+    db = hub.db
+    observe(db, [
+        {"provider": "p", "kind": "movie", "stream_id": "1", "name": "Star Wars", "year": 1977},
+        {"provider": "p", "kind": "movie", "stream_id": "2", "name": "Star Wars"},
+        {"provider": "p", "kind": "movie", "stream_id": "3", "name": "The Whale", "year": 2022},
+        {"provider": "p", "kind": "movie", "stream_id": "4", "name": "The Whale"},
+    ])
+    rows = unsure(db)["unsure"]
+    assert len(rows) == 2
+    ids = {item["id"] for item in search(db)["items"]}
+    assert all(row["left"] in ids and row["right"] in ids for row in rows)
+    whale = next(row for row in rows if row["title"] == "The Whale")
+    stars = next(row for row in rows if row["title"] == "Star Wars")
+    assert merge(db, [whale["left"], whale["right"]])["ok"]
+    assert [row["id"] for row in unsure(db)["unsure"]] == [stars["id"]]
+    assert keep_apart(db, stars["id"])
+    assert unsure(db)["unsure"] == []
+    assert len(search(db, "star wars")["items"]) == 2
+
+
+async def test_the_model_sorts_waiting_pairs_with_more_than_the_title(hub):
+    from hub.iptvcanon import settle
+    db = hub.db
+    hub.tv_catalog.ingest(vod=[
+        {"stream_id": 1, "name": "Heist (2001)", "category_id": "1", "genre": "Crime"},
+        {"stream_id": 2, "name": "Heist", "category_id": "2", "stream_icon": "https://u:p@cdn.example/h.jpg"},
+        {"stream_id": 3, "name": "Seven Samurai", "year": "1954", "category_id": "1"},
+        {"stream_id": 4, "name": "Seven Samurai", "category_id": "2"},
+        {"stream_id": 5, "name": "Dancer In The Dark", "year": "2000"},
+        {"stream_id": 6, "name": "Dancer in the Dark"},
+    ], vod_categories=[{"category_id": "1", "category_name": "Movies"}, {"category_id": "2", "category_name": "4K"}],
+        live=[], live_categories=[], series=[], series_categories=[])
+    assert unsure(db)["total"] == 3
+    seen: list = []
+
+    async def ask(_hub, pairs):
+        seen.extend(pairs)
+        out = {}
+        for pair in pairs:
+            if pair["left"] == "Seven Samurai":
+                out[pair["id"]] = True
+            elif pair["left"] == "Heist":
+                out[pair["id"]] = False
+        return out
+
+    result = await settle(hub, ask=ask)
+    assert result == {"folded": 1, "apart": 1, "left": 1}
+    heist = next(pair for pair in seen if pair["left"] == "Heist")
+    payload = json.dumps(ai_payload_of(heist))
+    assert "Crime" in payload and "4K" in payload and "cdn.example" not in payload
+    assert len(search(db, "samurai")["items"]) == 1 and len(search(db, "heist")["items"]) == 2
+    # Asked once: the undecided pair isn't sent again for a week.
+    seen.clear()
+    assert (await settle(hub, ask=ask))["left"] == 1 and seen == []
+
+
+def ai_payload_of(pair):
+    from hub.iptvcanon import ai_payload
+    return ai_payload([pair])

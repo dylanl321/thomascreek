@@ -205,8 +205,8 @@ class IptvConfig(BaseModel):
 class IptvMatchConfig(BaseModel):
     """Folding several IPTV providers into one catalog. The model is asked only when the rules are not sure."""
 
-    model: str = "claude-haiku-4-5"
-    daily_tokens: int = 20000
+    model: str = "claude-haiku-5-5"
+    daily_tokens: int = 100000
 
 
 class AssistantConfig(BaseModel):

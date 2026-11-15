@@ -21,6 +21,9 @@ KV = "tv.catalog.canonical"
 KV_AI = "tv.catalog.ai"
 KV_OVERRIDES = "tv.catalog.overrides"
 KV_USAGE = "tv.catalog.ai.usage"
+KV_ASKED = "tv.catalog.ai.asked"
+# Bump when the matching rules change, so the next refresh compares every row again.
+FINGERPRINT_VERSION = 2
 
 
 def sources_from_catalog(doc: dict[str, Any], provider: str = "thomas-creek") -> list[dict[str, Any]]:
@@ -38,7 +41,7 @@ def sources_from_catalog(doc: dict[str, Any], provider: str = "thomas-creek") ->
             rows.append({
                 "provider": provider, "kind": kind, "stream_id": stream_id, "name": name,
                 "year": row.get("year"), "ref": ref, "tvg_id": row.get("epg_id"),
-                "logo": row.get("logo") or row.get("cover"),
+                "logo": row.get("logo") or row.get("cover"), "tmdb": row.get("tmdb"),
             })
     return rows
 
@@ -99,11 +102,13 @@ def observe(db: Any, sources: list[dict[str, Any]], *, decisions: dict[str, bool
     for group in groups:
         _place(group, items, previous, overrides)
     items = {item_id: item for item_id, item in items.items() if item.get("sources")}
+    new_ids = {row["id"] for row in unsure_rows}
+    kept = [row for row in state.get("unsure") or [] if isinstance(row, dict) and row.get("id") not in new_ids]
     state = {
         "items": [item for item in items.values() if item.get("id") != "__unsure__"],
         "by_source": previous,
         "fingerprints": fingerprints,
-        "unsure": unsure_rows[:20],
+        "unsure": _open_pairs(unsure_rows + kept, items, previous, cache)[:500],
         "by_tmdb": _tmdb_index(list(by_key.values()), previous),
     }
     db.kv_set(KV, state)
@@ -124,9 +129,40 @@ def search(db: Any, q: str = "", kind: str | None = None) -> dict[str, Any]:
     return {"items": items}
 
 
-def unsure(db: Any) -> dict[str, Any]:
-    rows = list((_state(db).get("unsure") or []))[:20]
-    return {"unsure": rows}
+def unsure(db: Any, limit: int | None = 20) -> dict[str, Any]:
+    """Pairs still waiting for an answer. A pair already folded, kept apart or gone is left out."""
+    state = _state(db)
+    items = {item["id"]: item for item in _items(db)}
+    rows = _open_pairs(list(state.get("unsure") or []), items, dict(state.get("by_source") or {}), _ai(db))
+    return {"unsure": rows[:limit] if limit else rows, "total": len(rows)}
+
+
+def keep_apart(db: Any, pair_id: str) -> bool:
+    """An admin said the pair are different titles. It is not asked about again."""
+    if not pair_id:
+        return False
+    cache = dict(_ai(db))
+    cache[pair_id] = False
+    db.kv_set(KV_AI, cache)
+    state = _state(db)
+    state["unsure"] = [row for row in state.get("unsure") or [] if isinstance(row, dict) and row.get("id") != pair_id]
+    db.kv_set(KV, state)
+    return True
+
+
+def _open_pairs(rows: list[Any], items: dict[str, dict[str, Any]], by_source: dict[str, str],
+                cache: dict[str, Any]) -> list[dict[str, Any]]:
+    out, seen = [], set()
+    for row in rows:
+        if not isinstance(row, dict) or row.get("id") in seen or row.get("id") in cache:
+            continue
+        left = by_source.get(str(row.get("left_key") or "")) or row.get("left")
+        right = by_source.get(str(row.get("right_key") or "")) or row.get("right")
+        if left not in items or right not in items or left == right:
+            continue
+        seen.add(row["id"])
+        out.append({**row, "left": left, "right": right})
+    return out
 
 
 def merge(db: Any, ids: list[str]) -> dict[str, Any]:
@@ -211,19 +247,43 @@ def playable(db: Any, *, kind: str, title: str, year: int | None = None, tmdb: s
     return {"canonical_id": best["id"], "ref": chosen.get("ref"), "provider": chosen.get("provider")}
 
 
+_INFO_FIELDS = ("name", "year", "category", "genre", "rating", "tmdb", "plot", "duration_s")
+
+
 def ai_payload(pairs: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """What the model is allowed to see. Titles and years only."""
+    """What the model is allowed to see: titles, years and the provider's own description. No logos or links."""
     safe = []
     for pair in pairs:
-        safe.append({
+        row = {
             "id": pair["id"],
             "kind": pair["kind"],
             "left": pair["left"],
             "right": pair["right"],
             "left_year": pair.get("left_year"),
             "right_year": pair.get("right_year"),
-        })
+        }
+        for side in ("left_info", "right_info"):
+            copies = []
+            for info in pair.get(side) or []:
+                if isinstance(info, dict):
+                    copies.append({k: info[k] for k in _INFO_FIELDS if info.get(k) not in (None, "")})
+            if copies:
+                row[side] = copies[:3]
+        if "same_provider" in pair:
+            row["same_provider"] = bool(pair["same_provider"])
+        safe.append(row)
     return safe
+
+
+SYSTEM = (
+    "You decide whether two entries in an IPTV provider's catalog are the same movie, show, or channel. "
+    "Each pair has the cleaned titles, years, and left_info/right_info: the provider's raw names, year, category, "
+    "genre, rating, TMDB id, plot and running time for each copy, when known. Use all of it. "
+    "same is true when they are the same work (the same film in another quality, language category or folder "
+    "counts as the same). same is false for remakes, sequels, different years, different TMDB ids, or a "
+    "different plot. Use null when the information can't tell them apart. "
+    "Reply with JSON only: {\"decisions\":[{\"id\":\"...\",\"same\":true}]}."
+)
 
 
 async def ask_model(hub: Any, pairs: list[dict[str, Any]]) -> dict[str, bool]:
@@ -239,15 +299,12 @@ async def ask_model(hub: Any, pairs: list[dict[str, Any]]) -> dict[str, bool]:
     if used >= cap:
         log.info("catalog match: daily token cap reached")
         return {}
-    model = getattr(getattr(hub.config, "iptv_match", None), "model", None) or "claude-haiku-4-5"
+    model = getattr(getattr(hub.config, "iptv_match", None), "model", None) or "claude-haiku-5-5"
     try:
         import anthropic
-        client = anthropic.AsyncAnthropic(api_key=str(key))
+        client = anthropic.AsyncAnthropic(api_key=str(key), max_retries=1, timeout=60)
         response = await client.messages.create(
-            model=model, max_tokens=800,
-            system="You compare television titles. Reply with JSON {\"decisions\":[{\"id\":\"...\",\"same\":true}]}. "
-                   "same is true only when they are the same movie, episode, or channel. "
-                   "Different numbers, languages, regions, and timeshifts are not the same.",
+            model=model, max_tokens=2000, system=SYSTEM,
             messages=[{"role": "user", "content": json.dumps(ai_payload(pairs))}],
         )
     except Exception as exc:  # noqa: BLE001
@@ -258,6 +315,78 @@ async def ask_model(hub: Any, pairs: list[dict[str, Any]]) -> dict[str, bool]:
     _add_usage(hub.db, tokens)
     text = "".join(getattr(block, "text", "") for block in response.content)
     return _read_decisions(text)
+
+
+ASK_AGAIN_S = 7 * 86400
+BATCH = 25
+
+
+async def settle(hub: Any, *, ask: Any = None, now: float | None = None, force: bool = False) -> dict[str, int]:
+    """Ask the model about the waiting pairs, then fold the ones it calls the same and keep apart the rest.
+    A pair it can't tell stays on the admin page, and isn't asked about again for a week."""
+    db = hub.db
+    now = time.time() if now is None else now
+    ask = ask or ask_model
+    raw = db.kv_get(KV_ASKED)
+    asked = {k: v for k, v in raw.items() if now - float(v or 0) < ASK_AGAIN_S} if isinstance(raw, dict) else {}
+    waiting = [row for row in unsure(db, limit=None)["unsure"] if force or row["id"] not in asked]
+    folded = apart = 0
+    catalog = getattr(hub, "tv_catalog", None)
+    for start in range(0, len(waiting), BATCH):
+        batch = [_with_context(db, catalog, row) for row in waiting[start:start + BATCH]]
+        decisions = await ask(hub, batch)
+        for row in batch:
+            asked[row["id"]] = now
+        db.kv_set(KV_ASKED, asked)
+        if not decisions:
+            if _used_today(db) >= _cap(hub):
+                break
+            continue
+        for row in batch:
+            same = decisions.get(row["id"])
+            if same is True and merge(db, [row["left_id"], row["right_id"]]):
+                folded += 1
+            elif same is False and keep_apart(db, row["id"]):
+                apart += 1
+    if folded or apart:
+        log.info("catalog match: model folded %d, kept apart %d", folded, apart)
+    return {"folded": folded, "apart": apart, "left": len(unsure(db, limit=None)["unsure"])}
+
+
+def _cap(hub: Any) -> int:
+    cfg = getattr(hub.config, "iptv_match", None)
+    return int(cfg.daily_tokens) if cfg else 20000
+
+
+def _with_context(db: Any, catalog: Any, row: dict[str, Any]) -> dict[str, Any]:
+    items = {item["id"]: item for item in _items(db)}
+    doc = catalog.load() if catalog is not None else {}
+    details = catalog._details() if catalog is not None and hasattr(catalog, "_details") else {}
+    bucket = "series" if row.get("kind") == "series" else "movies" if row.get("kind") == "movie" else "channels"
+    ref_key = "key" if bucket == "channels" else "id"
+    rows = {str(r.get(ref_key)): r for r in doc.get(bucket) or [] if isinstance(r, dict)}
+    more = (details.get(bucket) or {}) if isinstance(details, dict) else {}
+
+    def info(item_id: str) -> tuple[list[dict[str, Any]], set[str]]:
+        out, providers = [], set()
+        for source in (items.get(item_id) or {}).get("sources") or []:
+            providers.add(str(source.get("provider")))
+            ref = str(source.get("ref") or "")
+            base = rows.get(ref) or {}
+            extra = more.get(ref) if isinstance(more.get(ref), dict) else {}
+            plot = extra.get("plot")
+            out.append({
+                "name": source.get("name") or base.get("name"), "year": base.get("year") or extra.get("year"),
+                "category": base.get("category"), "genre": base.get("genre") or extra.get("genre"),
+                "rating": base.get("rating"), "tmdb": base.get("tmdb"),
+                "plot": str(plot)[:240] if plot else None, "duration_s": extra.get("duration_s"),
+            })
+        return out, providers
+
+    left, left_p = info(row["left"])
+    right, right_p = info(row["right"])
+    return {**row, "left": row.get("title"), "right": row.get("other"), "left_id": row["left"], "right_id": row["right"],
+            "left_info": left, "right_info": right, "same_provider": bool(left_p & right_p)}
 
 
 def _rows_from_items(items: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
@@ -311,8 +440,7 @@ def _group(rows: list[dict[str, Any]], fresh: list[dict[str, Any]], previous: di
                     parent[find(j)] = find(i)
                 elif UNSURE <= value < auto and pair_id not in cache:
                     unsure_rows.append({
-                        "id": pair_id, "left": previous.get(left["key"]) or left["key"],
-                        "right": previous.get(right["key"]) or right["key"],
+                        "id": pair_id, "left_key": left["key"], "right_key": right["key"],
                         "title": left["parsed"].display, "other": right["parsed"].display,
                         "score": round(value, 2), "kind": left["kind"],
                         "left_year": left["parsed"].year, "right_year": right["parsed"].year,
@@ -460,7 +588,7 @@ def _new_id(kind: str, row: dict[str, Any]) -> str:
 
 def _fingerprint(row: dict[str, Any]) -> str:
     payload = json.dumps({
-        "name": row["name"], "year": row["parsed"].year, "ids": row["ids"], "logo": row["logo"],
+        "v": FINGERPRINT_VERSION, "name": row["name"], "year": row["parsed"].year, "ids": row["ids"], "logo": row["logo"],
         "season": row.get("season"), "episode": row.get("episode"),
     }, sort_keys=True)
     return hashlib.sha256(payload.encode()).hexdigest()[:16]
