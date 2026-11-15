@@ -43,6 +43,9 @@ def brain(hub, monkeypatch):
     b = hub.brain
     # An evening by default, so the daytime and morning jobs only speak when a test sets the clock.
     monkeypatch.setattr(b, "now", lambda: datetime(2026, 11, 14, 20, 0, tzinfo=hub.policy.tz))
+    for e, st in hub.home.states.items():  # fixture lights were switched on "an hour ago", not days ago
+        if e.startswith("light.") and st.get("state") == "on":
+            st["last_changed"] = iso_ago(3600)
 
     def use(*answers: Any, **kw: Any) -> FakeProvider:
         fake = FakeProvider(*answers, **kw)
@@ -163,6 +166,8 @@ async def test_lights_on_all_day(hub, brain, home_client, people, monkeypatch):
     brain.use(word_all("Kitchen light on all day", ""))
     monkeypatch.setattr(brain, "now", lambda: datetime(2026, 11, 14, 13, 0, tzinfo=hub.policy.tz))
     hub.home.states["light.kitchen"]["last_changed"] = iso_ago(5 * 3600)
+    assert await brain.run("plain_cards") == "nothing"  # a few hours is not worth a card
+    hub.home.states["light.kitchen"]["last_changed"] = iso_ago(25 * 3600)
     assert await brain.run("plain_cards") == "suggested"
     c = smart_cards(home_client, people["phones"]["Avery"])[0]
     assert c["title"] == "Kitchen light on all day"
@@ -179,24 +184,29 @@ def empty_room(hub, light_age: float = 3600):
     hub.home.states["light.living_room"].update(state="on", last_changed=iso_ago(light_age))
 
 
-async def test_light_on_in_an_empty_room(hub, brain, home_client, people):
-    brain.use(word_all("Living room's empty", "Lights still on"))
+async def test_a_light_in_an_empty_room_is_not_a_card_while_people_are_home(hub, brain, home_client, people):
+    fake = brain.use(word_all("Living room's empty", "Lights still on"))
     empty_room(hub)
-    assert await brain.run("left_on") == "suggested"
-    c = smart_cards(home_client, people["phones"]["Dylan"])[0]
-    assert c["rule"] == "brain_left_on" and c["title"] == "Living room's empty"
-    off = next(b for b in c["buttons"] if b.get("action") == "steps.run")
-    assert off["params"]["steps"][0]["target"] == "light.living_room"
-    assert hub.calls == []  # suggest only: nothing was switched off
-
-
-async def test_a_light_someone_just_turned_on_is_left_alone(hub, brain, home_client, people):
-    fake = brain.use(word_all())
-    empty_room(hub, light_age=60)
-    assert await brain.run("left_on") == "nothing"
-    empty_room(hub)
-    hub.db.log("light.set", "ok", target="light.living_room", person_id=people["avery"]["id"])
     assert await brain.run("left_on") == "nothing" and fake.requests == []
+    assert smart_cards(home_client, people["phones"]["Dylan"]) == []
+
+
+def door(hub, eid: str, name: str, age: float):
+    hub.home.states[eid] = {"entity_id": eid, "state": "on", "last_changed": iso_ago(age),
+                            "attributes": {"friendly_name": name, "device_class": "door"}}
+    hub.home.entity_area[eid] = "living_room"
+
+
+async def test_only_outside_doors_count_as_left_open_within_the_day(hub, brain, home_client, people):
+    fake = brain.use(word_all())
+    door(hub, "binary_sensor.closet_door", "Closet door", 3 * 3600)
+    assert await brain.run("plain_cards") == "nothing"  # an open closet is nobody's business
+    door(hub, "binary_sensor.front_door", "Front door", 45 * 60)
+    assert await brain.run("plain_cards") == "suggested"
+    assert [i["say"] for i in fake.items()] == ["Front door open for 45 min"]
+    door(hub, "binary_sensor.closet_door", "Closet door", 26 * 3600)
+    await brain.run("plain_cards")
+    assert "Closet door open for 26 hours" in [i["say"] for i in fake.items()]
 
 
 async def test_tv_left_on_when_the_last_person_leaves(hub, brain, home_client, people):
@@ -437,8 +447,8 @@ def test_brain_cards_listed_in_suggestion_settings(home_client, people):
 
 async def test_a_card_whose_problem_went_away_is_resolved_not_ignored(hub, brain, home_client, people):
     brain.use(word_all())
-    empty_room(hub)
-    await brain.run("left_on")
+    hub.home.states["light.living_room"].update(state="on", last_changed=iso_ago(25 * 3600))
+    await brain.run("plain_cards")
     hub.home.states["light.living_room"]["state"] = "off"  # someone turned it off
-    assert await brain.run("left_on") == "nothing"
-    assert runs(hub, "left_on")[0]["feedback"] == "resolved" and brain.cards == {}
+    assert await brain.run("plain_cards") == "nothing"
+    assert runs(hub, "plain_cards")[0]["feedback"] == "resolved" and brain.cards == {}

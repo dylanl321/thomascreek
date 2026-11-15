@@ -1,7 +1,7 @@
 """The house brain's jobs. Detection is plain Python over what the hub already knows; the model only words it.
 
-1. plain_cards   - appliances that finished, lights on all day, doors and windows left open
-2. left_on       - lights on in empty rooms; media and windows left on/open when everyone's out
+1. plain_cards   - appliances that finished, lights on for a day, outside doors left open (inside ones after a day)
+2. left_on       - media and windows left on/open when everyone's out
 3. health        - devices gone unavailable, the Home Assistant link down, NAS alerts, failing services
 4. briefing      - a morning card: weather, today, chores, trash, packages, what finished downloading overnight
 5. catch_up      - "while you were out", for the person who just got home
@@ -27,6 +27,9 @@ RUNNING = {"on", "running", "run", "wash", "washing", "rinse", "rinsing", "spin"
 WATCHED_DOMAINS = ("light", "switch", "lock", "cover", "climate", "media_player", "fan")
 OCCUPANCY = ("motion", "occupancy", "presence")
 OPENINGS = ("door", "window", "opening")
+LIGHT_DAY_S = 24 * 3600      # a light counts as "left on" after a full day
+OUTSIDE_OPEN_S = 30 * 60     # an outside door left open
+INSIDE_OPEN_S = 24 * 3600    # closets, inside doors, windows: only when it has been a day
 
 VOICE = ("You write for the family's home app, Thomas Creek. Short, warm, plain words, like a thoughtful housemate: "
          "no exclamation marks, no emoji, no 'I noticed'. Use the names given. Never invent facts that aren't in the "
@@ -175,42 +178,51 @@ async def plain_detect(b: "Brain", trig: Trigger) -> Finding | None:
                       "why": "an appliance just finished", "priority": 62,
                       "buttons": [{"kind": "done", "title": "Got it", "done": "Thanks"}]})
     covered = {e for v in b.cards.values() if v["job"] == "left_on" for e in v.get("covers", [])}
-    local = b.now()
-    if 9 <= local.hour < 17:
-        long_on = []
-        for eid, st in sorted(states.items()):
-            if not eid.startswith("light.") or st.get("state") != "on" or eid in covered:
-                continue
-            if eid not in b.hub.home.entity_area:
-                continue
-            since = _ts(st.get("last_changed"))
-            if since and now - since >= 4 * 3600:
-                long_on.append((eid, since))
-        if long_on:
-            eids = [e for e, _ in long_on[:6]]
-            first = min(t for _, t in long_on)
-            names = [f"{_name(b, e)}" + (f" ({_room(b, e)})" if _room(b, e) else "") for e in eids]
-            items.append({"key": "on_since:" + ",".join(eids), "kind": "light_on_long", "lights": names,
-                          "on_since": _clock(b, first),
-                          "say": (f"{_name(b, eids[0])} on since {_clock(b, first)}" if len(eids) == 1
-                                  else f"{len(eids)} lights on since {_clock(b, first)}"),
-                          "detail": ", ".join(names[:4]), "why": "lights on for hours in daylight", "priority": 48,
-                          "buttons": [_off_button(eids), {"kind": "done", "title": "Leave them", "primary": False}]})
-    if not b.hub.alerts.nobody_home():
-        for eid, st in sorted(states.items()):
-            attrs = st.get("attributes") or {}
-            if not eid.startswith("binary_sensor.") or attrs.get("device_class") not in OPENINGS:
-                continue
-            if st.get("state") != "on":
-                continue
-            since = _ts(st.get("last_changed"))
-            if since and now - since >= 30 * 60:
-                mins = int((now - since) / 60)
-                items.append({"key": f"open:{eid}", "kind": "open_long", "name": _name(b, eid), "minutes": mins,
-                              "say": f"{_name(b, eid)} open for {_human_minutes(mins)}",
-                              "why": "a door or window has been open a while", "priority": 52})
-                if sum(1 for i in items if i["kind"] == "open_long") >= 3:
-                    break
+    # Only lights left on for a day or more. A lamp on for a few hours is not worth a card (Dylan, Nov 15).
+    long_on = []
+    for eid, st in sorted(states.items()):
+        if not eid.startswith("light.") or st.get("state") != "on" or eid in covered:
+            continue
+        if eid not in b.hub.home.entity_area:
+            continue
+        since = _ts(st.get("last_changed"))
+        if since and now - since >= LIGHT_DAY_S:
+            long_on.append((eid, since))
+    if long_on:
+        eids = [e for e, _ in long_on[:6]]
+        first = min(t for _, t in long_on)
+        names = [f"{_name(b, e)}" + (f" ({_room(b, e)})" if _room(b, e) else "") for e in eids]
+        span = _human_span(now - first)
+        items.append({"key": "on_since:" + ",".join(eids), "kind": "light_on_long", "lights": names,
+                      "on_for": span,
+                      "say": (f"{_name(b, eids[0])} on for {span}" if len(eids) == 1
+                              else f"{len(eids)} lights on for {span}"),
+                      "detail": ", ".join(names[:4]), "why": "lights left on for a day or more", "priority": 48,
+                      "buttons": [_off_button(eids), {"kind": "done", "title": "Leave them", "primary": False}]})
+    # Outside doors left open are a security matter (30 min). Inside doors and windows only after a day.
+    outside = set(b.hub.alerts.sources().get("outside_doors") or [])
+    opened = 0
+    for eid, st in sorted(states.items()):
+        attrs = st.get("attributes") or {}
+        if not eid.startswith("binary_sensor.") or attrs.get("device_class") not in OPENINGS:
+            continue
+        if st.get("state") != "on":
+            continue
+        since = _ts(st.get("last_changed"))
+        if not since:
+            continue
+        is_out = _outside_door(eid, attrs, outside)
+        if now - since < (OUTSIDE_OPEN_S if is_out else INSIDE_OPEN_S):
+            continue
+        mins = int((now - since) / 60)
+        items.append({"key": f"open:{eid}", "kind": "open_long", "name": _name(b, eid), "minutes": mins,
+                      "say": f"{_name(b, eid)} open for {_human_minutes(mins)}",
+                      "why": ("an outside door has been open a while" if is_out
+                              else "a door or window has been open for a day or more"),
+                      "priority": 72 if is_out else 50})
+        opened += 1
+        if opened >= 3:
+            break
     if not items:
         b.drop_cards("plain_cards")
         return None
@@ -220,7 +232,25 @@ async def plain_detect(b: "Brain", trig: Trigger) -> Finding | None:
 def _human_minutes(m: int) -> str:
     if m < 90:
         return f"{m} min"
-    return f"{round(m / 60)} hours"
+    if m < 36 * 60:
+        return f"{round(m / 60)} hours"
+    return f"{round(m / 1440)} days"
+
+
+def _human_span(secs: float) -> str:
+    return _human_minutes(int(secs / 60))
+
+
+OUTSIDE_WORDS = re.compile(r"\b(front|back|side|patio|deck|porch|exterior|outside|entry|mudroom|slider|sliding)\b", re.I)
+
+
+def _outside_door(eid: str, attrs: dict[str, Any], configured: set[str]) -> bool:
+    """A door to the outside: listed in the alert settings, or named like one. Windows never count."""
+    if eid in configured:
+        return True
+    if attrs.get("device_class") == "window":
+        return False
+    return bool(OUTSIDE_WORDS.search(f"{eid.replace('_', ' ')} {attrs.get('friendly_name') or ''}"))
 
 
 def _hashable(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -235,7 +265,7 @@ def _hashable(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 PLAIN_LOOK = {"appliance_done": ("accent", "washer.fill", "Just finished"),
-              "light_on_long": ("warn", "lightbulb.fill", "All day"),
+              "light_on_long": ("warn", "lightbulb.fill", "Left on"),
               "open_long": ("warn", "door.left.hand.open", "Still open")}
 
 
@@ -252,56 +282,26 @@ async def left_detect(b: "Brain", trig: Trigger) -> Finding | None:
     job = b.jobs["left_on"]
     away = trig.name == "last_left" or b.hub.alerts.nobody_home()
     items: list[dict[str, Any]] = []
+    # At home, lights in a room nobody is in are not worth a card (Dylan, Nov 15). Only the "everyone's out" sweep.
     if not away:
-        kids = _kid_areas(b)
-        by_area: dict[str, list[str]] = {}
-        for eid, aid in area_of.items():
-            by_area.setdefault(aid, []).append(eid)
-        for aid, eids in sorted(by_area.items()):
-            if aid in kids:
-                continue
-            sensors = [e for e in eids if e.startswith("binary_sensor.")
-                       and ((states.get(e) or {}).get("attributes") or {}).get("device_class") in OCCUPANCY]
-            if not sensors:
-                continue
-            quiet_for = []
-            for e in sensors:
-                st = states.get(e) or {}
-                since = _ts(st.get("last_changed"))
-                if st.get("state") != "off" or not since:
-                    quiet_for = []
-                    break
-                quiet_for.append(now - since)
-            if not quiet_for or min(quiet_for) < 20 * 60:
-                continue
-            lights = [e for e in eids if e.startswith("light.") and (states.get(e) or {}).get("state") == "on"
-                      and not b.human_touched(e, job.human_window_s, now)]
-            if not lights:
-                continue
-            room = (b.hub.home.areas.get(aid) or {}).get("name") or aid
-            mins = int(min(quiet_for) / 60)
-            items.append({"key": f"room:{aid}", "kind": "empty_room", "room": room,
-                          "lights": [_name(b, e) for e in lights], "empty_minutes": (mins // 30) * 30,
-                          "say": f"{room} lights on, nobody there", "detail": f"No movement for {_human_minutes(mins)}",
-                          "why": "lights on in a room with no movement", "priority": 58, "covers": lights,
-                          "buttons": [_off_button(lights), {"kind": "done", "title": "Leave them", "primary": False}]})
-    else:
-        media = [e for e, st in sorted(states.items()) if e.startswith("media_player.") and e in area_of
-                 and st.get("state") in ("playing", "on", "paused") and not b.human_touched(e, job.human_window_s, now)]
-        if media:
-            items.append({"key": "away_media:" + ",".join(media), "kind": "away_media",
-                          "players": [_name(b, e) for e in media],
-                          "say": (f"{_name(b, media[0])} is still on" if len(media) == 1 else f"{len(media)} TVs still on"),
-                          "detail": "Everyone's out.", "why": "a TV or speaker is on while everyone's out",
-                          "priority": 66, "covers": media,
-                          "buttons": [_off_button(media), {"kind": "done", "title": "Leave it", "primary": False}]})
-        windows = [e for e, st in sorted(states.items()) if e.startswith("binary_sensor.") and st.get("state") == "on"
-                   and (st.get("attributes") or {}).get("device_class") == "window"]
-        if windows:
-            items.append({"key": "away_windows:" + ",".join(windows), "kind": "away_windows",
-                          "windows": [_name(b, e) for e in windows],
-                          "say": (f"{_name(b, windows[0])} is open" if len(windows) == 1 else f"{len(windows)} windows open"),
-                          "detail": "Everyone's out.", "why": "windows open while everyone's out", "priority": 70})
+        b.drop_cards("left_on")
+        return None
+    media = [e for e, st in sorted(states.items()) if e.startswith("media_player.") and e in area_of
+             and st.get("state") in ("playing", "on", "paused") and not b.human_touched(e, job.human_window_s, now)]
+    if media:
+        items.append({"key": "away_media:" + ",".join(media), "kind": "away_media",
+                      "players": [_name(b, e) for e in media],
+                      "say": (f"{_name(b, media[0])} is still on" if len(media) == 1 else f"{len(media)} TVs still on"),
+                      "detail": "Everyone's out.", "why": "a TV or speaker is on while everyone's out",
+                      "priority": 66, "covers": media,
+                      "buttons": [_off_button(media), {"kind": "done", "title": "Leave it", "primary": False}]})
+    windows = [e for e, st in sorted(states.items()) if e.startswith("binary_sensor.") and st.get("state") == "on"
+               and (st.get("attributes") or {}).get("device_class") == "window"]
+    if windows:
+        items.append({"key": "away_windows:" + ",".join(windows), "kind": "away_windows",
+                      "windows": [_name(b, e) for e in windows],
+                      "say": (f"{_name(b, windows[0])} is open" if len(windows) == 1 else f"{len(windows)} windows open"),
+                      "detail": "Everyone's out.", "why": "windows open while everyone's out", "priority": 70})
     if not items:
         b.drop_cards("left_on")
         return None
