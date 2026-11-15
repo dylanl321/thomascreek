@@ -30,6 +30,11 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 
+try:  # Chrome's TLS fingerprint; Dylan chose this (2026-11-15) after Bambu's Cloudflare answered 403.
+    from curl_cffi.requests import AsyncSession as BrowserSession
+except ImportError:  # pragma: no cover
+    BrowserSession = None
+
 if TYPE_CHECKING:
     from .state import Hub
 
@@ -71,6 +76,43 @@ def token_expiry(token: str | None) -> float | None:
         return float(exp) if exp is not None else None
     except (TypeError, ValueError):
         return None
+
+
+async def _browser_get(url: str, token: str) -> tuple[int, dict[str, Any], str]:
+    """GET through curl_cffi as Chrome (the fallback Home Assistant's Bambu integration uses)."""
+    if BrowserSession is None:
+        return 0, {}, "browser mode not installed"
+    async with BrowserSession(impersonate="chrome", timeout=20) as s:
+        r = await s.get(url, headers={"Authorization": f"Bearer {token}", "Accept": "application/json"})
+    try:
+        body = r.json()
+    except ValueError:
+        body = None
+    return r.status_code, body if isinstance(body, dict) else {}, (r.text or "")[:400]
+
+
+async def authed_get(path: str, token: str) -> tuple[int, dict[str, Any], str]:
+    """GET an account endpoint: plainly first, then as a browser if that gets 403.
+
+    Returns (status, json body, how it went)."""
+    url = f"{API}{path}"
+    status, text = 0, ""
+    try:
+        async with httpx.AsyncClient(timeout=20, headers=HEADERS | {"Authorization": f"Bearer {token}"}) as c:
+            r = await c.get(url)
+        status, text = r.status_code, r.text[:400]
+        if status != 403:
+            return status, _json(r), f"HTTP {status}"
+    except httpx.HTTPError as exc:
+        text = exc.__class__.__name__
+    try:
+        b_status, body, b_text = await _browser_get(url, token)
+    except Exception as exc:  # noqa: BLE001
+        return status, {}, f"HTTP {status or text}; as browser: {exc.__class__.__name__}"
+    if b_status and b_status != 403:
+        return b_status, body, f"as browser HTTP {b_status}"
+    who = "Cloudflare" if "cloudflare" in (text + b_text).lower() else "Bambu"
+    return status or b_status, {}, f"HTTP {status or text}, as browser {b_status or b_text} ({who})"
 
 
 class BambuCloud:
@@ -178,14 +220,18 @@ class BambuCloud:
 
     async def _finish(self, data: dict[str, Any]) -> None:
         token = str(data["accessToken"])
-        uid, why = await self._uid(token)
-        if not uid:
-            raise CloudError(f"Signed in, but couldn't read which Bambu account it is ({why}). Try again.", 502)
+        # Keep the token first, so "Try again" can redo the account lookup without a new email code.
         self.hub.vault.set(TOKEN, token)
         if data.get("refreshToken"):
             self.hub.vault.set(REFRESH, str(data["refreshToken"]))
-        self.hub.vault.set(UID, str(uid))
+        self.hub.vault.delete(UID)
         self._pending = None
+        uid, why = await self._uid(token)
+        if not uid:
+            self.last_error = f"Couldn't read which Bambu account it is ({why})."
+            raise CloudError(f"Signed in, but couldn't read which Bambu account it is ({why}). "
+                             "Press Try again under 3D printer, Bambu account; no new code is needed.", 502)
+        self.hub.vault.set(UID, str(uid))
         self.last_error = None
         await self.load_devices(force=True)
 
@@ -203,22 +249,34 @@ class BambuCloud:
                 v = str(v)
                 return (v[2:] if v.startswith("u_") else v), "token"
         seen = []
-        async with httpx.AsyncClient(timeout=20, headers=HEADERS | {"Authorization": f"Bearer {token}"}) as c:
-            for path in ("/v1/design-user-service/my/preference", "/v1/design-user-service/my/profile",
-                         "/v1/user-service/my/profile"):
-                try:
-                    r = await c.get(f"{API}{path}")
-                except httpx.HTTPError as exc:
-                    seen.append(f"{path.rsplit('/', 1)[-1]}: {exc.__class__.__name__}")
-                    continue
-                body = _json(r)
-                inner = body.get("data") if isinstance(body.get("data"), dict) else {}
-                uid = body.get("uid") or body.get("uidStr") or inner.get("uid")
-                if uid:
-                    return str(uid), path
-                seen.append(f"{path.rsplit('/', 1)[-1]}: HTTP {r.status_code}")
+        for path in ("/v1/design-user-service/my/preference", "/v1/design-user-service/my/profile",
+                     "/v1/user-service/my/profile"):
+            _, body, how = await authed_get(path, token)
+            inner = body.get("data") if isinstance(body.get("data"), dict) else {}
+            uid = body.get("uid") or body.get("uidStr") or inner.get("uid")
+            if uid:
+                return str(uid), path
+            seen.append(f"{path.rsplit('/', 1)[-1]}: {how}")
         log.warning("bambu account id not found: %s", "; ".join(seen))
         return None, "; ".join(seen) or "no answer"
+
+    @property
+    def needs_account(self) -> bool:
+        """Signed in (token kept) but the account lookup hasn't worked yet."""
+        return bool(self.token) and not self.uid
+
+    async def retry(self) -> None:
+        """Look up the account again with the kept token, so no new email code is needed."""
+        token = self.token
+        if not token:
+            raise CloudError("Sign in first")
+        uid, why = await self._uid(token)
+        if not uid:
+            self.last_error = f"Still couldn't read which Bambu account it is ({why})."
+            raise CloudError(self.last_error, 502)
+        self.hub.vault.set(UID, str(uid))
+        self.last_error = None
+        await self.load_devices(force=True)
 
     def sign_out(self) -> None:
         for k in (TOKEN, REFRESH, UID):
@@ -249,15 +307,17 @@ class BambuCloud:
         if not self.signed_in or (not force and time.time() - self.devices_at < 600):
             return self.devices
         try:
-            async with httpx.AsyncClient(timeout=20, headers=HEADERS | {"Authorization": f"Bearer {self.token}"}) as c:
-                r = await c.get(f"{API}/v1/iot-service/api/user/bind")
-            if r.status_code == 401:
-                self.last_error = "The Bambu sign-in has expired. Sign in again on the hub's admin page."
-                return self.devices
-            self.devices = list(_json(r).get("devices") or [])
-            self.devices_at = time.time()
-        except httpx.HTTPError as exc:
+            status, body, how = await authed_get("/v1/iot-service/api/user/bind", str(self.token))
+        except Exception as exc:  # noqa: BLE001
             self.last_error = f"Couldn't reach Bambu: {exc}"
+            return self.devices
+        if status == 401:
+            self.last_error = "The Bambu sign-in has expired. Sign in again on the hub's admin page."
+        elif not status or status >= 400:
+            self.last_error = f"Couldn't list the account's printers ({how})"
+        else:
+            self.devices = list(body.get("devices") or [])
+            self.devices_at = time.time()
         return self.devices
 
     def device(self, serial: str | None, model: str | None = None) -> dict[str, Any] | None:
