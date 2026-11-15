@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import time
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import parse_qsl, quote
 
 import httpx
 
@@ -181,8 +181,12 @@ class Frigate(Adapter):
         if client is None or not path or "://" in path or path.startswith("//") or ".." in path:
             return None
         try:
+            # go2rtc ties a playlist and its segments to `?id=`; keep the query when no params are given.
+            route, _, query = path.partition("?")
+            if params is None and query:
+                params = dict(parse_qsl(query, keep_blank_values=True))
             resp = await client.send(
-                client.build_request("GET", "/" + path.split("?", 1)[0].lstrip("/"), params=params), stream=True)
+                client.build_request("GET", "/" + route.lstrip("/"), params=params), stream=True)
         except httpx.HTTPError:
             return None
         if resp.status_code != 200:

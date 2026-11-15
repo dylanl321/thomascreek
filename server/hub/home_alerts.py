@@ -206,18 +206,45 @@ class HomeAlerts:
         return clock >= start or clock < end
 
 
-def rewrite_playlist(text: str, alert_id: str) -> str:
-    """Point every HLS segment at the hub, so the TV never calls go2rtc itself."""
+def rewrite_playlist(text: str, alert_id: str, base: str = "") -> str:
+    """Point every HLS line at the hub, so the TV never calls go2rtc itself.
+
+    `base` is the go2rtc folder the playlist came from (`api/` for the first one, `api/hls/` for the
+    media playlist). go2rtc writes relative lines (`hls/playlist.m3u8?id=..`, `segment.ts?id=..&n=..`,
+    `URI="init.mp4?id=.."`), and they only resolve against that folder.
+    """
+    def hub(ref: str) -> str | None:
+        ref = ref.strip()
+        if not ref or "://" in ref or ref.startswith("/") or ".." in ref:
+            return None
+        return f"/v1/tv/alerts/{alert_id}/media?src={quote(base + ref, safe='')}"
+
     lines = []
     for line in (text or "").splitlines():
         stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
+        if stripped.startswith("#"):
+            if 'URI="' in stripped:
+                head, _, rest = stripped.partition('URI="')
+                ref, _, tail = rest.partition('"')
+                target = hub(ref)
+                if target is None:
+                    continue
+                line = f'{head}URI="{target}"{tail}'
             lines.append(line)
             continue
-        if "://" in stripped or stripped.startswith("//") or ".." in stripped:
+        if not stripped:
+            lines.append(line)
             continue
-        lines.append(f"/v1/tv/alerts/{alert_id}/media?src={quote(stripped, safe='')}")
+        target = hub(stripped)
+        if target is not None:
+            lines.append(target)
     return "\n".join(lines) + ("\n" if lines else "")
+
+
+def playlist_folder(src: str) -> str:
+    """`api/hls/playlist.m3u8?id=x` -> `api/hls/`: where that playlist's own lines resolve."""
+    path = src.split("?", 1)[0]
+    return path.rsplit("/", 1)[0] + "/" if "/" in path else ""
 
 
 def _names(value: object) -> list[str] | None:
