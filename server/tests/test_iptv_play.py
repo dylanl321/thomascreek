@@ -91,3 +91,20 @@ def test_a_login_expiring_soon_is_mentioned_once(hub):
     note_usage(hub, "alpha", "house", {"max_connections": "1", "active_cons": "0", "exp_date": soon, "status": "Active"})
     notices = hub.db.kv_get("iptv.notices") or {}
     assert len(notices) == 1
+
+
+def test_a_tv_learns_which_copies_are_one_title(hub, home_client):
+    canonical, tv_headers = _ready(hub, home_client)
+    observe(hub.db, [
+        {"provider": "alpha", "kind": "movie", "stream_id": "100", "tmdb": "603", "year": 1999,
+         "name": "The Matrix 4K"},
+        {"provider": "beta", "kind": "movie", "stream_id": "55", "tmdb": "603", "year": 1999,
+         "name": "The Matrix HD"},
+        {"provider": "alpha", "kind": "movie", "stream_id": "300", "tmdb": "999", "year": 2001,
+         "name": "Only Once HD"},
+    ])
+    body = home_client.get("/v1/tv/copies", headers=tv_headers).json()
+    assert body["groups"] == [{"id": canonical, "refs": ["vod:alpha:100", "vod:beta:55"]}]
+    assert len(body["version"]) == 12
+    assert home_client.get("/v1/tv/copies", headers=tv_headers).json()["version"] == body["version"]
+    assert home_client.get("/v1/tv/copies").status_code in (401, 403)

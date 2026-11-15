@@ -346,11 +346,20 @@ async def apk_by_code(code: str, request: Request, h: Hub = Depends(hub)) -> Fil
 
 
 @tv_router.get("/apk")
-async def apk_for_tv(request: Request, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> FileResponse:
-    """The signed APK for a TV that already has a token, so it can hand the file to PackageInstaller."""
+async def apk_for_tv(request: Request, version_code: int | None = None, c: Caller = Depends(caller),
+                     h: Hub = Depends(hub)) -> FileResponse:
+    """The signed APK for a TV that already has a token, so it can hand the file to PackageInstaller.
+
+    `version_code` asks for one stored build (a rollout pins one); without it, the latest.
+    """
     _home_only(request, h)
     if not c.subject.tv:
         raise error(403, "forbidden", "The TV app downloads its own update")
+    if version_code is not None:
+        pinned = h.tv_app.apk_path(version_code)
+        if not pinned.is_file():
+            raise error(404, "not_found", "The hub doesn't have that TV app build")
+        return FileResponse(pinned, media_type="application/vnd.android.package-archive", filename=pinned.name)
     try:
         path = h.tv_app.apk_file()
     except TvAppError as exc:

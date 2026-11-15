@@ -601,6 +601,8 @@ Both are `200`. The same object is delivered to that TV on `GET /v1/events`:
 
 If the picture fails to start or drops, the TV posts `POST /v1/tv/tune/fail` `{session}`. The hub frees the slot and sends another `tv_tune` for the next source or login. When nothing else is free, the event is not sent and the answer is `{"ok":false,"message":"Every login is busy. Try again in a moment."}`. `tv.stop` for that TV frees its slot. A TV that has not checked in for 90 seconds frees it too.
 
+`GET /v1/tv/copies` (TV bearer, or a phone with media access) lists the movies and series the catalog folded from more than one copy: `{"version": "<12 hex>", "groups": [{"id": "can_…", "refs": ["vod:alpha:100", "vod:beta:55"]}]}`. Refs are best quality first. Titles with one copy are left out. The TV shows one row per group and plays it with `POST /v1/tv/tune`.
+
 The TV change: play and tune send `canonical_id` to `POST /v1/tv/tune`, open `stream.url` with the TV bearer, and on a startup failure or a drop post `POST /v1/tv/tune/fail`. A new `tv_tune` event replaces the stream. Existing `tv.play` commands are unchanged.
 
 ### TVs a phone can target

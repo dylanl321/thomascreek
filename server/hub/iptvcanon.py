@@ -129,6 +129,24 @@ def search(db: Any, q: str = "", kind: str | None = None) -> dict[str, Any]:
     return {"items": items}
 
 
+def copies(db: Any) -> dict[str, Any]:
+    """Movies and series the provider lists more than once, best copy first.
+
+    A TV shows one row per title and plays it through the hub. Titles with one copy are left out.
+    """
+    groups = []
+    for item in _items(db):
+        if item.get("kind") not in ("movie", "series") or item.get("season") is not None:
+            continue
+        sources = sorted(item.get("sources") or [], key=lambda source: _quality_rank(source.get("quality")))
+        refs = list(dict.fromkeys(str(source.get("ref")) for source in sources if source.get("ref")))
+        if len(refs) > 1:
+            groups.append({"id": item["id"], "refs": refs})
+    groups.sort(key=lambda group: group["id"])
+    version = hashlib.sha256(json.dumps(groups, sort_keys=True).encode()).hexdigest()[:12]
+    return {"version": version, "groups": groups}
+
+
 def unsure(db: Any, limit: int | None = 20) -> dict[str, Any]:
     """Pairs still waiting for an answer. A pair already folded, kept apart or gone is left out."""
     state = _state(db)
