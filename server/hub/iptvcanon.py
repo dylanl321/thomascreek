@@ -23,7 +23,7 @@ KV_OVERRIDES = "tv.catalog.overrides"
 KV_USAGE = "tv.catalog.ai.usage"
 KV_ASKED = "tv.catalog.ai.asked"
 # Bump when the matching rules change, so the next refresh compares every row again.
-FINGERPRINT_VERSION = 3
+FINGERPRINT_VERSION = 4
 
 
 def sources_from_catalog(doc: dict[str, Any], provider: str = "thomas-creek") -> list[dict[str, Any]]:
@@ -244,7 +244,7 @@ def split(db: Any, item_id: str, provider: str, stream_id: str) -> dict[str, Any
 def playable(db: Any, *, kind: str, title: str, year: int | None = None, tmdb: str | None = None) -> dict[str, Any] | None:
     """The best source for a title, or nothing when the catalog has not folded it in."""
     want = "series" if kind == "series" else "movie"
-    parsed = parse(title, year)
+    parsed = parse(title, year, titles=True)
     best = None
     if tmdb:
         item_id = (_state(db).get("by_tmdb") or {}).get(f"{want}:{tmdb}")
@@ -253,7 +253,7 @@ def playable(db: Any, *, kind: str, title: str, year: int | None = None, tmdb: s
         for item in _items(db):
             if item.get("kind") != want:
                 continue
-            if parse(str(item.get("title") or "")).key == parsed.key and (year is None or item.get("year") in (None, year)):
+            if parse(str(item.get("title") or ""), titles=True).key == parsed.key and (year is None or item.get("year") in (None, year)):
                 best = item
                 break
     if best is None:
@@ -508,7 +508,7 @@ def _place(group: list[dict[str, Any]], items: dict[str, dict[str, Any]], previo
     forced = _forced(group, overrides, items)
     item_id = forced or (existing[0] if existing else _new_id(group[0]["kind"], group[0]))
     current = items.get(item_id)
-    if current and not forced and current.get("sources") and parse(str(current.get("title") or "")).key != group[0]["parsed"].key:
+    if current and not forced and current.get("sources") and parse(str(current.get("title") or ""), titles=group[0]["kind"] != "live").key != group[0]["parsed"].key:
         # Another title already holds this id: providers give the wrong TMDB id to some films, and a
         # shared id must never pour a different film into this one (it played instead of "The Dark Knight").
         item_id = _new_id(group[0]["kind"], group[0], keyed=True)
@@ -553,7 +553,7 @@ def _source(raw: dict[str, Any]) -> dict[str, Any] | None:
     name = str(raw.get("name") or "").strip()
     if not provider or not stream_id or kind not in ("movie", "series", "live") or not name:
         return None
-    parsed = parse(name, raw.get("year"), raw.get("language"))
+    parsed = parse(name, raw.get("year"), raw.get("language"), titles=kind != "live")
     ids = {}
     for field in ("tmdb", "imdb", "tvg_id"):
         if raw.get(field):
