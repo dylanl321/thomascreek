@@ -829,3 +829,56 @@ def test_climate_heat_cool_and_text_numbers():
     assert st["available"] and st["on"] and st["humidity"] == 36.0
     gone = device_state("climate", {"state": "unavailable", "attributes": {}})
     assert gone["available"] is False and gone["current_temp"] is None
+
+
+def test_admin_web_session_survives_restart_renews_and_signs_out(hub, people, home_client, tmp_path, config):
+    import time as _time
+
+    import jwt as _jwt
+
+    from hub.db import DB
+    from hub.main import build_app
+    from hub.routes import admin_web
+    from hub.state import Hub
+    from starlette.testclient import TestClient
+
+    from tests.conftest import HOME_IP
+
+    url = people["phones"]["Dylan"].secure_post("/v1/admin/web-link", {}).json()["url"]
+    r = home_client.get(url, follow_redirects=False)
+    token = r.cookies["tc_admin"]
+    assert f"Max-Age={admin_web.SESSION_IDLE_S}" in r.headers["set-cookie"]
+
+    # A restart: a new Hub and app over the same vault and database keep the session.
+    hub2 = Hub(config, hub.vault, DB(tmp_path / "hub.db"))
+    with TestClient(build_app(hub2, start_background=False), client=HOME_IP, base_url="https://hub.test") as c2:
+        c2.cookies.set("tc_admin", token, path="/admin")
+        page = c2.get("/admin")
+        assert "Upload several files" in page.text and "set-cookie" not in page.headers  # fresh: no renewal yet
+
+        # Two hours later a visit renews the cookie, keeping the session id (so open forms still work).
+        real = _time.time
+        claims = hub2.tokens.verify(token, audience=admin_web.AUD)
+        try:
+            _time.time = lambda: real() + 2 * 3600  # type: ignore[assignment]
+            page = c2.get("/admin")
+            renewed = page.cookies.get("tc_admin")
+            assert renewed and renewed != token
+            new_claims = _jwt.decode(renewed, options={"verify_signature": False})
+            assert new_claims["sid"] == claims["sid"] and new_claims["st"] == claims["st"]
+            assert new_claims["exp"] > claims["exp"]
+            # Never past 30 days from the code sign-in.
+            _time.time = lambda: real() + admin_web.SESSION_MAX_S - 600  # type: ignore[assignment]
+            last = c2.get("/admin").cookies.get("tc_admin")
+            assert _jwt.decode(last, options={"verify_signature": False})["exp"] <= claims["st"] + admin_web.SESSION_MAX_S
+        finally:
+            _time.time = real  # type: ignore[assignment]
+
+        # Signing out revokes the session on the hub, not just in this browser.
+        c2.cookies.clear()
+        c2.cookies.set("tc_admin", token, path="/admin")
+        csrf = __import__("re").search(r"name=csrf value=([0-9a-f]+)", c2.get("/admin").text).group(1)
+        assert c2.post("/admin/logout", data={"csrf": csrf}, follow_redirects=False).status_code == 303
+        c2.cookies.clear()
+        c2.cookies.set("tc_admin", token, path="/admin")
+        assert "Upload several files" not in c2.get("/admin").text

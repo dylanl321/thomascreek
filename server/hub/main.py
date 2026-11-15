@@ -104,6 +104,13 @@ def build_app(hub: Hub | None = None, *, start_background: bool = True) -> FastA
         return await call_next(request)
 
     @app.middleware("http")
+    async def admin_session_renew(request, call_next):
+        resp = await call_next(request)
+        if request.url.path.startswith("/admin"):
+            admin_web.renew_session(request, resp, hub)
+        return resp
+
+    @app.middleware("http")
     async def security_headers(request, call_next):
         resp = await call_next(request)
         resp.headers.setdefault("X-Content-Type-Options", "nosniff")
