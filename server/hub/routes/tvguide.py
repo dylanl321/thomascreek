@@ -10,8 +10,8 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from fastapi import APIRouter, Depends
-from fastapi.responses import Response
+from fastapi import APIRouter, Depends, Request
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 from ..actions import ActionError
@@ -314,3 +314,130 @@ def _known(h: Hub, kind: str, item_id: str, kids_only: bool) -> None:
     row = next((item for item in rows if item.get("id") == item_id), None)
     if row is None or (kids_only and not h.tv_catalog._is_kids(row.get("category"))):
         raise error(404, "not_found", "That isn't in the library")
+
+
+# -- Plex in the TV library (hub/tvplex.py) -------------------------------------------------------------------------
+PLEX_FILE_AUD = "tv-plex-file"
+PLEX_FILE_TTL_S = 8 * 3600
+
+
+def _plex_ok(h: Hub, c: Caller, rating: object) -> bool:
+    return c.subject.role in ("admin", "adult", "tablet") or rating in h.config.child_policy.ratings
+
+
+@router.get("/plex/library")
+async def tv_plex_library(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """Every Plex film and show with TMDB / IMDb ids, so the TV folds them into its own tiles."""
+    _watch_cap(h, c)
+    if not h.plex.enabled:
+        return {"version": "", "movies": [], "shows": []}
+    try:
+        doc = await h.plex_library.load()
+    except AdapterError as exc:
+        raise error(503, "unavailable", str(exc)) from None
+    if c.subject.role in ("admin", "adult", "tablet"):
+        return doc
+    return {"version": doc["version"] + "k",
+            "movies": [m for m in doc["movies"] if _plex_ok(h, c, m.get("rating"))],
+            "shows": [s for s in doc["shows"] if _plex_ok(h, c, s.get("rating"))]}
+
+
+def _plex_id(item_id: str) -> str:
+    if not item_id.isdigit() or len(item_id) > 12:
+        raise error(400, "bad_params", "Unknown title")
+    return item_id
+
+
+@router.get("/plex/{item_id}/episodes")
+async def tv_plex_episodes(item_id: str, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    _watch_cap(h, c)
+    _plex_id(item_id)
+    try:
+        show = await h.plex.metadata(item_id)
+        if show is None or not _plex_ok(h, c, show.get("rating")):
+            raise error(404, "not_found", "That isn't in the library")
+        rows = await h.plex.episodes(item_id)
+    except AdapterError as exc:
+        raise error(503, "unavailable", str(exc)) from None
+    episodes = [{
+        "id": row["id"], "season": row.get("season"), "episode": row.get("episode"),
+        "title": str(row.get("title") or "").split(": ", 1)[-1], "duration_s": row.get("duration_s"),
+        "offset_s": row.get("view_offset_s"),
+    } for row in rows if row.get("kind") == "episode" and row.get("season") is not None and row.get("episode") is not None]
+    return {"episodes": episodes}
+
+
+@router.post("/plex/{item_id}/play")
+async def tv_plex_play(item_id: str, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """A pass for the file itself (direct play). The TV's player handles MKV, HEVC and the rest."""
+    _watch_cap(h, c)
+    _plex_id(item_id)
+    try:
+        item = await h.plex.metadata(item_id)
+        media = await h.plex.media_info(item_id) if item else None
+    except AdapterError as exc:
+        raise error(503, "unavailable", str(exc)) from None
+    if item is None or media is None or not _plex_ok(h, c, item.get("rating")) or item.get("kind") not in ("movie", "episode"):
+        raise error(404, "not_found", "That isn't in the library")
+    token, _exp = h.tokens.issue_scoped({"aud": PLEX_FILE_AUD, "part": media["part_key"], "dev": c.device["id"]}, PLEX_FILE_TTL_S)
+    h.db.log("tv.plex.play", "ok", person_id=c.subject.person_id, device_id=c.device["id"], target=item_id,
+             params={"title": item.get("title")})
+    return {"url": f"/v1/tv/plex/file/{token}", "offset_s": item.get("view_offset_s"),
+            "resolution": media.get("resolution"), "container": media.get("container")}
+
+
+@router.get("/plex/file/{pass_token}")
+async def tv_plex_file(pass_token: str, request: Request, h: Hub = Depends(hub)) -> Response:
+    from ..crypto import CryptoError
+
+    try:
+        claims = h.tokens.verify(pass_token, audience=PLEX_FILE_AUD)
+    except CryptoError:
+        raise error(401, "expired", "Playback pass expired") from None
+    part = str(claims.get("part") or "")
+    if not part.startswith("/library/parts/") or ".." in part:
+        raise error(404, "not_found", "Not part of this title")
+    headers = h.plex.auth_headers()
+    headers.pop("Accept", None)
+    if request.headers.get("range"):
+        headers["Range"] = request.headers["range"]
+    try:
+        client = h.plex.client()
+        upstream = await client.send(client.build_request("GET", part, headers=headers), stream=True)
+    except Exception:  # noqa: BLE001
+        raise error(502, "unavailable", "The movie server didn't answer") from None
+    if upstream.status_code >= 400:
+        await upstream.aclose()
+        raise error(502, "unavailable", "The movie server didn't answer")
+    keep = {k: upstream.headers[k] for k in ("content-length", "content-range", "last-modified", "etag", "content-type")
+            if k in upstream.headers}
+    keep["accept-ranges"] = "bytes"
+
+    async def body():
+        try:
+            async for chunk in upstream.aiter_bytes(1 << 16):
+                yield chunk
+        finally:
+            await upstream.aclose()
+
+    return StreamingResponse(body(), status_code=upstream.status_code, headers=keep,
+                             media_type=keep.pop("content-type", "application/octet-stream"))
+
+
+class PlexProgress(BaseModel):
+    offset_s: float = Field(ge=0)
+    duration_s: float | None = Field(default=None, ge=0)
+    watched: bool = False
+
+
+@router.post("/plex/{item_id}/progress")
+async def tv_plex_progress(item_id: str, body: PlexProgress, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """Where the TV stopped, so Plex (and every other Plex app) resumes there."""
+    _watch_cap(h, c)
+    _plex_id(item_id)
+    try:
+        await h.plex.report_progress(item_id, int(body.offset_s * 1000),
+                                     int(body.duration_s * 1000) if body.duration_s else None, body.watched)
+    except AdapterError as exc:
+        raise error(503, "unavailable", str(exc)) from None
+    return {"ok": True}

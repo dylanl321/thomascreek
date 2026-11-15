@@ -460,6 +460,13 @@ Channel keys never contain a URL or a password. Xtream puts the password in the 
 | `series:thomas-creek:12` | series |
 | `ep:thomas-creek:555` | episode (`id` from `get_series_info`, not the episode number) |
 
+Plex in the TV library (`hub/tvplex.py`, same callers as the lineup):
+- `GET /v1/tv/plex/library`: `{"version","movies":[…],"shows":[…]}`. Each row has `id`, `kind` (`movie`/`series`), `title`, `year`, `tmdb`, `imdb`, `tvdb`, `rating`, `summary`, `resolution` (`2160p`/`1080p`/`720p`/`sd`, films), `duration_s`, `offset_s`, `watched`, `added_at`, `library`, `poster_url` and `backdrop_url` (hub art, `/v1/art/…/vod:plex:<id>` or `series:plex:<id>`). A child gets only titles rated in `child_policy.ratings`. It's cached for 15 minutes.
+- `GET /v1/tv/plex/{id}/episodes`: `{"episodes":[{"id","season","episode","title","duration_s","offset_s"}]}`.
+- `POST /v1/tv/plex/{id}/play` (a film or an episode): `{"url":"/v1/tv/plex/file/<pass>","offset_s","resolution","container"}`. The pass is good for 8 hours and carries no Plex token.
+- `GET /v1/tv/plex/file/<pass>`: the original file (direct play), with `Range` passed through.
+- `POST /v1/tv/plex/{id}/progress` `{offset_s, duration_s?, watched?}`: Plex resumes there in every Plex app.
+
 `GET /v1/tv/basic` (same callers). The basic cable lineup a TV shows first ("Your TV"): the local affiliates of the television market nearest the house (Home Assistant's location, within 250 km, at least two stations found), numbered by the station's own number when the name has one, plus one copy of each standard US network on fixed numbers from 20 up (news 20s, sports 30s-40s, entertainment 50s-80s, factual 90s-100s, kids 110s, premium 200s). Among copies the hub prefers one with a guide, then HD/East over SD/West/+1; 4K, PPV, event and foreign copies are left out. `{"version":1,"market":"Raleigh","channels":[{"key","name","number","local"}]}`. ETag / 304. Nothing is hidden: everything else stays in the lineup.
 
 `GET /v1/tv/lineup` (bearer, `media.all` or `media.own_tv`). ETag / 304 like config.

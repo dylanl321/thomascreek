@@ -200,6 +200,19 @@ class Artwork:
         self._notes[key] = current
         self._save_json("notes.json", self._notes)
 
+    def remember_many(self, notes: dict[str, dict[str, Any]]) -> None:
+        """Like remember() for many keys, written once (a whole Plex library at a time)."""
+        changed = False
+        for key, meta in notes.items():
+            clean = {k: v for k, v in meta.items() if v is not None}
+            current = dict(self._notes.get(key) or {})
+            current.update(clean)
+            if self._notes.get(key) != current:
+                self._notes[key] = current
+                changed = True
+        if changed:
+            self._save_json("notes.json", self._notes)
+
     def note(self, key: str) -> dict[str, Any]:
         return dict(self._notes.get(key) or {})
 
