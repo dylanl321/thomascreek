@@ -4,8 +4,9 @@
 # upload.sh runs this in the background after each upload. It:
 #   1. waits until App Store Connect says TestFlight has finished processing the build (up to 45 min),
 #      using the same API key upload.sh uses (~/.appstoreconnect); the key never leaves the Mac,
-#   2. posts the build to the hub (POST /v1/app/release), signed with the Mac's test key
-#      (~/.thomascreek/test-key, made on the hub web page under Test simulators).
+#   2. posts the build to the hub (POST /v1/app/release) with a fresh App Store Connect token, which the
+#      hub checks with Apple (nothing to set up on the hub). Without the key it falls back to the Mac's
+#      test key (~/.thomascreek/test-key, made on the hub web page under Test simulators).
 # THOMASCREEK_HUB overrides the hub address (default https://10.0.0.10:8443).
 # Log: ~/Library/Logs/thomascreek-announce.log
 set -uo pipefail
@@ -20,8 +21,10 @@ log() { echo "$(date '+%Y-%m-%d %H:%M:%S') build $BUILD: $*"; }
 KEY="$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID:-none}.p8"
 TEST_KEY="${THOMASCREEK_TEST_KEY:-$(cat "$HOME/.thomascreek/test-key" 2>/dev/null)}"
 TEST_KEY="$(printf '%s' "$TEST_KEY" | tr -d '[:space:]')"
-if [ -z "$TEST_KEY" ]; then
-  log "no ~/.thomascreek/test-key, so the hub can't be told (make one on the hub web page, Test simulators)"
+HAVE_ASC=0
+[ -n "${ASC_KEY_ID:-}" ] && [ -n "${ASC_ISSUER_ID:-}" ] && [ -f "$KEY" ] && HAVE_ASC=1
+if [ "$HAVE_ASC" = 0 ] && [ -z "$TEST_KEY" ]; then
+  log "no App Store Connect key and no ~/.thomascreek/test-key, so the hub can't be told"
   exit 1
 fi
 
@@ -57,7 +60,7 @@ build_state() {
     python3 -c 'import json,sys; d=json.load(sys.stdin)["data"]; print(d[0]["attributes"]["processingState"] if d else "")'
 }
 
-if [ -n "${ASC_KEY_ID:-}" ] && [ -n "${ASC_ISSUER_ID:-}" ] && [ -f "$KEY" ]; then
+if [ "$HAVE_ASC" = 1 ]; then
   state=""
   for _ in $(seq 1 90); do
     state="$(build_state 2>/dev/null || true)"
@@ -80,11 +83,16 @@ fi
 
 body="{\"build\": $BUILD$([ -n "$VERSION" ] && printf ', "version": "%s"' "$VERSION")}"
 for attempt in 1 2 3 4 5; do
-  if out="$(curl -sk -m 20 -X POST "$HUB/v1/app/release" -H "X-Test-Key: $TEST_KEY" \
+  if [ "$HAVE_ASC" = 1 ]; then
+    auth="X-ASC-Token: $(asc_token)"
+  else
+    auth="X-Test-Key: $TEST_KEY"
+  fi
+  if out="$(curl -sk -m 40 -X POST "$HUB/v1/app/release" -H "$auth" \
               -H 'Content-Type: application/json' -d "$body" -w ' HTTP %{http_code}')"; then
     case "$out" in
       *"HTTP 200") log "hub told: $out"; exit 0 ;;
-      *"HTTP 401") log "hub refused the test key: $out"; exit 1 ;;
+      *"HTTP 401") log "hub refused: $out"; exit 1 ;;
     esac
   fi
   log "hub not reachable (attempt $attempt): ${out:-no answer}"
