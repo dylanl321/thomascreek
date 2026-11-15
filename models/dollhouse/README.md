@@ -12,6 +12,7 @@ models/dollhouse/
   kitchen/                kitchen, dining booth, and laundry, plus two reference photos
   movie-room/             basement theater
   basement-bedroom/       basement bedroom, plus photo.png and sconce_ref.jpg
+  scanned/                rooms and the whole-house floor plan made from Room Scanner scans (scanned/README.md)
 ```
 
 `living-room/style.md` is the guide for every later room: camera, cut cream, palette, and how a device is named. Reference photos are the real rooms the models were matched to. `kitchen/src/common.js` is the shared kit. `setDevice` takes `true` for full on, or a number from 0 to 1 to dim the emissive, the light, and the glow. Movie night leaves the table lamps at 0.3. Bedtime leaves the sconces at 0.3. The iOS page uses the same curve.

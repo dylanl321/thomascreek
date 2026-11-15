@@ -3,7 +3,8 @@ import UIKit
 
 /// Everything written into one scan package. Bump `currentSchemaVersion` when the layout changes.
 enum PackageFormat {
-    static let currentSchemaVersion = 1
+    /// 2 added `areas` (area markers). Readers treat a missing field as "none".
+    static let currentSchemaVersion = 2
     static let manifestFile = "manifest.json"
     static let photosFile = "photos.json"
     static let colorsFile = "colors.json"
@@ -78,6 +79,8 @@ struct Manifest: Codable {
     var thumbnailFile: String?
     /// Filled in by a future LLM review pass (see Review/RoomReviewer.swift).
     var reviewFile: String?
+    /// Spots marked during the scan ("Mark area"): named parts of a shared space, or "not this room".
+    var areas: [AreaMarker]?
     var files: [String]
 }
 

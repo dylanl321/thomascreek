@@ -13,7 +13,7 @@ cd "$SCANNER_DIR"
 xcodegen generate --spec project.yml
 SIGN=(DEVELOPMENT_TEAM=Z9Q392PD67 CODE_SIGN_STYLE=Automatic CODE_SIGN_IDENTITY="Apple Development"
       PROVISIONING_PROFILE_SPECIFIER="" PROVISIONING_PROFILE=""
-      CURRENT_PROJECT_VERSION="$BUILD" MARKETING_VERSION=0.1.0)
+      CURRENT_PROJECT_VERSION="$BUILD" MARKETING_VERSION=0.2.0)
 xcodebuild -project RoomScanner.xcodeproj -scheme RoomScanner -configuration Release \
   -destination generic/platform=iOS -archivePath "$OUT/RoomScanner.xcarchive" \
   -allowProvisioningUpdates "${SIGN[@]}" archive
