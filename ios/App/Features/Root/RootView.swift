@@ -169,6 +169,7 @@ struct DestinationView: View {
         case .remote(let id): RemoteView(deviceID: id)
         case .houseRemote(let id): HouseRemoteView(deviceID: id)
         case .tvSetup: TVSetupView()
+        case .tvDetail(let id): TVDetailView(tvID: id)
         case .tvGuide: TVGuideView()
         case .tvSeries(let id): TVSeriesView(seriesID: id)
         case .tvMovie(let id): TVMovieView(movieID: id)

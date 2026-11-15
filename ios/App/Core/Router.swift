@@ -17,6 +17,7 @@ enum Destination: Hashable {
     case remote(String), houseRemote(String), music, watch, requests, pipeline, askMedia, mediaTitle(String), mediaRequest(String)
     case kidsIPads                      // what's on the kids' iPads; send them shows
     case tvSetup                        // find and add TVs and boxes for everyone's remote
+    case tvDetail(String)               // one Thomas Creek TV: now playing, health, restart / update / open
     case tvGuide                        // live guide, series and movies, played on a house TV
     case tvSeries(String), tvMovie(String)
     case roomEdit(String), hiddenDevices  // admin: set up a room; devices hidden for everyone and clean-up
@@ -247,7 +248,11 @@ final class Router {
         case "favorites", "edit-home": if !kid { show(.home) }; showEditHome = true
         case "view-as": if role == .admin { showProfile = true }
         case "search": startSearch(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "q" }?.value)
-        case "tvs": if role == .admin || role == .adult { show(.media, .tvSetup) } else { show(.home) }
+        case "tvs":
+            // thomascreek://tvs, /tvs/<install_id> (one TV's detail)
+            if role == .admin || role == .adult {
+                if parts.count > 1 { tab = .media; paths[.media] = [.tvSetup, .tvDetail(parts[1])] } else { show(.media, .tvSetup) }
+            } else { show(.home) }
         case "tv":
             // thomascreek://tv/{code}: the QR on a TV that is waiting to be approved.
             let code = parts.count > 1 ? parts[1] : ""
