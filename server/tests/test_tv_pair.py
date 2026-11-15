@@ -82,3 +82,26 @@ def test_pairing_is_rate_limited(home_client):
         last = home_client.post("/v1/tv/pair", json={**_body(key), "install_id": f"tv_rate_{i:02d}_0123456789"})
     assert last is not None and last.status_code == 429
     assert last.json()["message"] == "Wait a moment and try again."
+
+
+def test_a_tv_on_a_box_set_up_on_the_hub_is_approved_without_a_tap(hub, home_client):
+    hub.tv_app.db.kv_set("tvapp.boxes", {"192.168.1.50": {"name": "Shield", "profile": "kids", "setup": True}})
+    key = Key()
+    r = home_client.post("/v1/tv/pair", json=_body(key))
+    body = r.json()
+    assert r.status_code == 200 and body["status"] == "approved" and body["access_token"]
+    tv = hub.tv_app.tvs()[INSTALL]
+    assert tv["status"] == "approved" and tv["profile"] == "kids" and tv["name"] == "Shield"
+
+
+def test_a_box_added_only_for_updates_still_needs_the_tap(hub, home_client):
+    hub.tv_app.db.kv_set("tvapp.boxes", {"192.168.1.50": {"name": "Shield", "profile": "adult"}})
+    assert home_client.post("/v1/tv/pair", json=_body(Key())).json()["status"] == "pending"
+
+
+def test_a_revoked_tv_on_a_set_up_box_is_not_approved_again(hub, home_client):
+    key = Key()
+    home_client.post("/v1/tv/pair", json=_body(key))
+    hub.tv_app.set_tv(INSTALL, status="revoked")
+    hub.tv_app.db.kv_set("tvapp.boxes", {"192.168.1.50": {"name": "Shield", "setup": True}})
+    assert home_client.post("/v1/tv/pair", json=_body(key)).json()["status"] == "pending"

@@ -353,6 +353,11 @@ class Adb:
                 out[m.group(1)] = m.group(2)
         return out
 
+    async def launch(self, serial: str, package: str) -> AdbResult:
+        """Open the app once so it registers with the hub."""
+        return await self.run(["-s", serial, "shell", "monkey", "-p", package,
+                               "-c", "android.intent.category.LEANBACK_LAUNCHER", "1"], 20)
+
     async def grant_overlay(self, serial: str, package: str) -> AdbResult:
         return await self.run(["-s", serial, "shell", "appops", "set", package, "SYSTEM_ALERT_WINDOW", "allow"], 15)
 

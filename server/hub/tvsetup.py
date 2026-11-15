@@ -276,6 +276,9 @@ class Setup:
         elif home and not device.get("home_ok"):
             home_state = {"wanted": True, "set": False}
             self.tv._update_box(ip, home=home_state)
+        if not self._enrolled(ip):
+            # Open it once so it pairs; a box set up here is approved on that first call.
+            await self.tv.adb.launch(serial, package)
         you_do = None if self._enrolled(ip) else "Open Thomas Creek TV once"
         message = "Thomas Creek TV is installed. The first time it opens, it registers itself. Leave the TV on."
         if capabilities.get("overlay") is False:
