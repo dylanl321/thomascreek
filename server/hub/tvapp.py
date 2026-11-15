@@ -67,6 +67,13 @@ from .upnext import remember
 log = logging.getLogger("hub.tvapp")
 
 TOKEN_SECRET = "github.tv_app_token"
+# Config field -> vault name. Only lookup keys, never logins or tokens.
+METADATA_KEYS = {
+    "tmdb": "tmdb.api_key",
+    "omdb": "omdb.api_key",
+    "opensubtitles": "opensubtitles.api_key",
+    "subdl": "subdl.api_key",
+}
 KV_SIGNER = "tvapp.signer"
 KV_BOXES = "tvapp.boxes"
 KV_LATEST = "tvapp.latest"
@@ -980,6 +987,7 @@ class TvApp:
             "epg_url": src["epg_url"],
             "lineup_version": self.lineup_version(),
             "theme": self.theme(),
+            "keys": self.metadata_keys(),
         }
         if out["profile"] == "kids":
             out["kids_categories"] = self.kids_categories()
@@ -1004,10 +1012,25 @@ class TvApp:
             "epg_url": src["epg_url"],
             "lineup_version": self.lineup_version(),
             "theme": self.theme(),
+            "keys": self.metadata_keys(),
             "favorites": _favorite_channels(self.db),
         }
         if out["profile"] == "kids":
             out["kids_categories"] = self.kids_categories()
+        return out
+
+    def metadata_keys(self) -> dict[str, str]:
+        """Read-only lookup keys for posters, ratings and subtitle search, sent only to approved TVs.
+
+        An empty value means the hub has no key. A key typed on the TV itself always wins there.
+        """
+        out: dict[str, str] = {}
+        for field, secret in METADATA_KEYS.items():
+            try:
+                value = str(self.vault.get(secret) or "").strip() if self.vault.has(secret) else ""
+            except Exception:  # noqa: BLE001 - a broken vault entry must not break the TV config
+                value = ""
+            out[field] = value
         return out
 
     def config_version(self) -> int:
