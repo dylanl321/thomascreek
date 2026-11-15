@@ -329,3 +329,49 @@ async def test_bambu_google_account_signs_in_with_emailed_code_only(hub):
         await c.finish("654321")
         assert json.loads(login.calls[0].request.content) == {"account": "dylan@example.com", "code": "654321"}
     assert c.signed_in and c.mqtt_user == "u_77"
+
+
+def _jwt_claims(claims: dict) -> str:
+    import base64
+
+    part = base64.urlsafe_b64encode(json.dumps(claims).encode()).decode().rstrip("=")
+    return f"e30.{part}.sig"
+
+
+async def test_bambu_account_id_comes_from_the_token(hub):
+    """Bambu's token carries username u_<uid>: no profile request needed (it may be blocked)."""
+    import time
+
+    import httpx
+    import respx
+
+    from hub import bambu_cloud as bc
+
+    c = hub.bambu_cloud
+    token = _jwt_claims({"exp": time.time() + 90 * 86400, "username": "u_5551234"})
+    with respx.mock(assert_all_called=False) as m:
+        m.post(f"{bc.API}/v1/user-service/user/sendemail/code").mock(return_value=httpx.Response(200, json={}))
+        m.post(f"{bc.API}/v1/user-service/user/login").mock(return_value=httpx.Response(200, json={"accessToken": token}))
+        pref = m.get(f"{bc.API}/v1/design-user-service/my/preference").mock(return_value=httpx.Response(403, text="cf"))
+        m.get(f"{bc.API}/v1/iot-service/api/user/bind").mock(return_value=httpx.Response(200, json={"devices": []}))
+        await c.start("dylan@example.com", "")
+        await c.finish("111222")
+        assert not pref.called
+    assert c.mqtt_user == "u_5551234"
+
+
+async def test_bambu_account_id_error_says_what_failed(hub):
+    import httpx
+    import respx
+
+    from hub import bambu_cloud as bc
+
+    c = hub.bambu_cloud
+    with respx.mock(assert_all_called=False) as m:
+        m.post(f"{bc.API}/v1/user-service/user/sendemail/code").mock(return_value=httpx.Response(200, json={}))
+        m.post(f"{bc.API}/v1/user-service/user/login").mock(return_value=httpx.Response(200, json={"accessToken": "opaque"}))
+        m.get(url__startswith=bc.API).mock(return_value=httpx.Response(403, text="cf"))
+        await c.start("dylan@example.com", "")
+        with pytest.raises(bc.CloudError) as e:
+            await c.finish("111222")
+    assert "preference: HTTP 403" in e.value.message and not c.signed_in

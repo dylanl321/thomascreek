@@ -51,15 +51,25 @@ class CloudError(Exception):
         self.message, self.status = message, status
 
 
-def token_expiry(token: str | None) -> float | None:
-    """The exp of a JWT, read without checking the signature (Bambu checks it, not us)."""
+def token_claims(token: str | None) -> dict[str, Any]:
+    """A JWT's claims, read without checking the signature (Bambu checks it, not us). {} if not a JWT."""
     if not token or token.count(".") != 2:
-        return None
+        return {}
+    part = token.split(".")[1]
+    for decode in (base64.urlsafe_b64decode, base64.b64decode):
+        try:
+            v = json.loads(decode(part + "=" * (-len(part) % 4)))
+            return v if isinstance(v, dict) else {}
+        except (ValueError, TypeError):
+            continue
+    return {}
+
+
+def token_expiry(token: str | None) -> float | None:
     try:
-        part = token.split(".")[1]
-        claims = json.loads(base64.urlsafe_b64decode(part + "=" * (-len(part) % 4)))
-        return float(claims["exp"]) if "exp" in claims else None
-    except (ValueError, KeyError, TypeError):
+        exp = token_claims(token).get("exp")
+        return float(exp) if exp is not None else None
+    except (TypeError, ValueError):
         return None
 
 
@@ -168,9 +178,9 @@ class BambuCloud:
 
     async def _finish(self, data: dict[str, Any]) -> None:
         token = str(data["accessToken"])
-        uid = await self._uid(token)
+        uid, why = await self._uid(token)
         if not uid:
-            raise CloudError("Signed in, but Bambu didn't say which account it is. Try again.", 502)
+            raise CloudError(f"Signed in, but couldn't read which Bambu account it is ({why}). Try again.", 502)
         self.hub.vault.set(TOKEN, token)
         if data.get("refreshToken"):
             self.hub.vault.set(REFRESH, str(data["refreshToken"]))
@@ -179,17 +189,36 @@ class BambuCloud:
         self.last_error = None
         await self.load_devices(force=True)
 
-    async def _uid(self, token: str) -> str | None:
+    async def _uid(self, token: str) -> tuple[str | None, str]:
+        """The account id behind the MQTT login u_<uid>.
+
+        Bambu's tokens are usually JWTs carrying ``username`` ("u_<uid>"), so no request is needed
+        (this is how Home Assistant's Bambu integration does it). Opaque tokens fall back to the
+        account's preference or profile, which can be turned away by Bambu's Cloudflare.
+        """
+        claims = token_claims(token)
+        for key in ("username", "uid", "user_id", "userId"):
+            v = claims.get(key)
+            if v not in (None, ""):
+                v = str(v)
+                return (v[2:] if v.startswith("u_") else v), "token"
+        seen = []
         async with httpx.AsyncClient(timeout=20, headers=HEADERS | {"Authorization": f"Bearer {token}"}) as c:
-            for path in ("/v1/design-user-service/my/preference", "/v1/user-service/my/profile"):
+            for path in ("/v1/design-user-service/my/preference", "/v1/design-user-service/my/profile",
+                         "/v1/user-service/my/profile"):
                 try:
                     r = await c.get(f"{API}{path}")
-                except httpx.HTTPError:
+                except httpx.HTTPError as exc:
+                    seen.append(f"{path.rsplit('/', 1)[-1]}: {exc.__class__.__name__}")
                     continue
-                uid = _json(r).get("uid")
+                body = _json(r)
+                inner = body.get("data") if isinstance(body.get("data"), dict) else {}
+                uid = body.get("uid") or body.get("uidStr") or inner.get("uid")
                 if uid:
-                    return str(uid)
-        return None
+                    return str(uid), path
+                seen.append(f"{path.rsplit('/', 1)[-1]}: HTTP {r.status_code}")
+        log.warning("bambu account id not found: %s", "; ".join(seen))
+        return None, "; ".join(seen) or "no answer"
 
     def sign_out(self) -> None:
         for k in (TOKEN, REFRESH, UID):
