@@ -966,6 +966,22 @@ A child only sees a recording of a kids' channel, and only a kids' channel can b
 {"allowed":["com.google.android.youtube.tv","com.google.android.youtube.tvkids","com.netflix.ninja","com.plexapp.android","com.disney.disneyplus","com.pbs.kids.pbskidsvideo","com.amazon.amazonvideo.livingroom","com.wbd.stream","com.hulu.livingroomplus","com.spotify.tv.android","com.apple.atve.androidtv.appletv"]}
 ```
 
+### Kids launcher
+
+A TV with the kids launcher on gets the launcher's list from `GET /v1/tv/apps` instead of the profile's list, in tile order.
+
+The TV config (`POST /v1/tv/config` and the pair answer) always carries `launcher`. Off is `{"on":false}`. On:
+
+```json
+{"launcher":{"on":true,"person_id":"per_theo","apps":["com.google.android.youtube.tvkids","com.disney.disneyplus"],"guard":true}}
+```
+
+`person_id` is who the TV signs in as with no "Who's watching?" (null: the TV asks as usual). A child there also makes the TV's profile `kids`. `guard` means the TV goes back home when an app that isn't on the list comes to the front.
+
+`POST /v1/tv/apps/installed` with a TV bearer: `{"apps":[{"package":"com.google.android.youtube.tv","label":"YouTube"}]}` (up to 200), the apps this TV can open. The answer is `{"ok":true,"count":1}`.
+
+Admins (`systems`): `GET /v1/tvapp/tvs/{id}/launcher` answers the setting plus `status` (what the hub last did on the box: `home`, `guard`, `previous`, `note`), `installed` (the list above) and `box` (the address the hub reaches it on, or null). `PUT /v1/tvapp/tvs/{id}/launcher` takes `{on, person_id?, apps, guard?}` and answers the setting with `status`. When the TV's address is a box on the hub's list, the hub enables the HOME alias, makes it Home (keeping the previous one), allows Usage access and turns on the accessibility guard `me.dlewis.thomascreek.tv/com.thomascreek.tv.device.GuardService`. Turning it off reverses all of that. The admin page has the same card under Devices.
+
 `GET /v1/tv/update` and `GET /v1/tv/apk` use the TV bearer. The file download is the bytes of the APK. The manifest:
 
 ```json
