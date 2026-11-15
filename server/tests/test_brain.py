@@ -41,6 +41,9 @@ def brain(hub, monkeypatch):
     hub.vault.set("anthropic.api_key", "sk-ant-test")
     hub.config.brain.layout_enabled = False  # Home layout has its own tests (test_layout.py)
     b = hub.brain
+    hub.started_at = time.time() - 3600              # past the startup grace
+    hub.ha_ws.connected_at = time.time() - 3600
+    hub.db.kv_set("brain.health.told", {})            # an empty "already told" list, not a first run
     # An evening by default, so the daytime and morning jobs only speak when a test sets the clock.
     monkeypatch.setattr(b, "now", lambda: datetime(2026, 11, 14, 20, 0, tzinfo=hub.policy.tz))
     for e, st in hub.home.states.items():  # fixture lights were switched on "an hour ago", not days ago
@@ -228,8 +231,75 @@ async def test_unavailable_devices_reach_the_admin_inbox_once(hub, brain, home_c
     assert [i["person_id"] for i in inbox] == [people["dylan"]["id"]]
     assert inbox[0]["level"] == "maintenance" and inbox[0]["title"] == "Kitchen light dropped off"
     assert fake.items()[0]["kind"] == "unavailable" and fake.items()[0]["count"] == 1
-    assert await brain.run("health") == "unchanged"
+    assert "eids" not in fake.items()[0]
+    assert await brain.run("health") == "nothing"
     assert len(hub.db.all("SELECT * FROM inbox WHERE group_key='brain.health'")) == 1
+
+
+def restarted(hub):
+    """A fresh brain on the same database, as after a hub restart."""
+    from hub.brain import Brain
+
+    b = Brain(hub)
+    b.router.provider = hub.brain.router.provider
+    hub.brain = b
+    return b
+
+
+async def test_a_hub_restart_does_not_repeat_the_health_note(hub, brain, home_client, people):
+    brain.use(*[{"title": "Kitchen light dropped off", "detail": "", "items": [], "unsure": False}] * 2)
+    hub.home.states["light.kitchen"].update(state="unavailable", last_changed=iso_ago(3600))
+    hub.home.systems = {"alerts": [{"level": "WARNING", "text": "Pool scrub is late"}]}
+    assert await brain.run("health") == "notified"
+    b2 = restarted(hub)
+    hub.started_at = time.time()
+    assert await b2.run("health") == "nothing"           # startup grace
+    hub.started_at = time.time() - 3600
+    assert await b2.run("health") == "nothing"           # same NAS alert and light, remembered across the restart
+    hub.home.systems = {"alerts": [{"level": "WARNING", "text": "Pool scrub is late"},
+                                   {"level": "CRITICAL", "text": "Disk sdb failed"}]}
+    assert await b2.run("health") == "notified"          # only the new problem
+    assert [i["kind"] for i in b2.router.provider.items()] == ["nas_alert"]
+    assert b2.router.provider.items()[0]["text"] == "Disk sdb failed"
+    assert len(hub.db.all("SELECT * FROM inbox WHERE group_key='brain.health'")) == 2
+
+
+async def test_devices_that_were_already_dead_are_not_reported_on_first_run(hub, brain, home_client, people):
+    brain.use({"title": "x", "detail": "", "items": [], "unsure": False})
+    hub.db.kv_set("brain.health.told", None)
+    hub.home.states["light.kitchen"].update(state="unavailable", last_changed=iso_ago(3600))
+    assert await brain.run("health") == "nothing"
+    assert "light.kitchen" in hub.db.kv_get("brain.health.told")
+
+
+async def test_live_link_just_back_waits_before_judging_devices(hub, brain, home_client, people):
+    brain.use({"title": "x", "detail": "", "items": [], "unsure": False})
+    hub.home.states["light.kitchen"].update(state="unavailable", last_changed=iso_ago(3600))
+    if hub.ha_ws.enabled:
+        hub.ha_ws.connected, hub.ha_ws.connected_at = True, time.time() - 30
+        assert await brain.run("health") == "nothing"
+        hub.ha_ws.connected_at = time.time() - 3600
+    assert await brain.run("health") == "notified"
+
+
+async def test_a_device_is_told_again_only_after_it_worked_for_a_while(hub, brain, home_client, people):
+    brain.use(*[{"title": "x", "detail": "", "items": [], "unsure": False}] * 3)
+    light = hub.home.states["light.kitchen"]
+    light.update(state="unavailable", last_changed=iso_ago(3600))
+    assert await brain.run("health") == "notified"
+    light.update(state="on", last_changed=iso_ago(60))       # blinks back
+    assert await brain.run("health") == "nothing"
+    light.update(state="unavailable", last_changed=iso_ago(1800))
+    assert await brain.run("health") == "nothing"             # flapping: still the same problem
+    told = hub.db.kv_get("brain.health.told")
+    told["light.kitchen"]["ok"] = time.time() - 2 * 3600       # worked for two hours, then gone again
+    hub.db.kv_set("brain.health.told", told)
+    light.update(state="on")
+    assert await brain.run("health") == "nothing"
+    light.update(state="unavailable", last_changed=iso_ago(3600))
+    assert await brain.run("health") == "unchanged"           # the same note within 12 hours stays quiet
+    brain._last_hash.clear()
+    assert await brain.run("health") == "notified"            # after that, it's a new failure
 
 
 async def test_ha_link_down_and_nas_alerts(hub, brain, people):
