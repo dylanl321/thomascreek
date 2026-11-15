@@ -296,6 +296,8 @@ class Adb:
         self.home = home
         self.binary = binary
         self._run = runner or self._exec
+        # Tests replace this to fake binary output (screencap).
+        self.raw_runner: Callable[[list[str], float], Awaitable[bytes]] | None = None
 
     @property
     def available(self) -> bool:
@@ -343,6 +345,23 @@ class Adb:
             if ("ResumedActivity" in line or "mFocusedApp" in line) and package + "/" in line:
                 return True
         return False
+
+    async def screencap(self, serial: str, timeout: float = 20) -> bytes | None:
+        """A PNG of what the box shows now (`adb exec-out screencap -p`), or None."""
+        if self.raw_runner is not None:
+            data = await self.raw_runner(["-s", serial, "exec-out", "screencap", "-p"], timeout)
+        else:
+            self.home.mkdir(parents=True, exist_ok=True)
+            env = dict(os.environ, HOME=str(self.home), ANDROID_USER_HOME=str(self.home / ".android"))
+            proc = await asyncio.create_subprocess_exec(self.binary, "-s", serial, "exec-out", "screencap", "-p",
+                                                        stdout=asyncio.subprocess.PIPE,
+                                                        stderr=asyncio.subprocess.DEVNULL, env=env)
+            try:
+                data, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+            except asyncio.TimeoutError:
+                proc.kill()
+                return None
+        return data if data and data.startswith(b"\x89PNG") else None
 
     async def install(self, serial: str, apk: Path) -> AdbResult:
         return await self.run(["-s", serial, "install", "-r", str(apk)], 300)

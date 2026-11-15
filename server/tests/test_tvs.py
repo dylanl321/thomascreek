@@ -149,6 +149,10 @@ def test_actions_go_through_the_tv_app_when_it_is_online(hub, home_client, peopl
     restart = dylan.client.post(f"/v1/tvs/{TV_ID}/actions", headers=dylan.h, json={"action": "restart_app"})
     assert restart.status_code == 200, restart.text
     assert restart.json()["via"] == "app"
+    basic = dylan.client.post(f"/v1/tvs/{TV_ID}/actions", headers=dylan.h, json={"action": "screenshot"})
+    assert basic.status_code == 409 and basic.json()["error"] in ("no_adb", "no_address")
+    assert dylan.client.get(f"/v1/tvs/{TV_ID}", headers=dylan.h).json()["can_screenshot"] is False
+    report(hub, TV_ID, dict(BODY, capability="root"), time.time())
     shot = dylan.client.post(f"/v1/tvs/{TV_ID}/actions", headers=dylan.h, json={"action": "screenshot"})
     assert shot.json()["via"] == "app"
     events = _drain(screen.queue)
@@ -197,12 +201,26 @@ def test_an_offline_tv_is_restarted_over_adb(hub, home_client, people):
     assert restart.json()["via"] == "adb"
     assert any("force-stop" in call for call in calls) and any("monkey" in call for call in calls)
 
+    png = b"\x89PNG\r\n\x1a\nscreen"
+
+    async def raw(args, timeout):
+        calls.append(args)
+        return png
+
+    hub.tv_app.adb.raw_runner = raw
+    assert dylan.client.get(f"/v1/tvs/{TV_ID}", headers=dylan.h).json()["can_screenshot"] is True
+    taken = dylan.client.post(f"/v1/tvs/{TV_ID}/actions", headers=dylan.h, json={"action": "screenshot"})
+    assert taken.status_code == 200, taken.text
+    assert taken.json()["via"] == "adb" and ["-s", "10.0.1.21:5555", "exec-out", "screencap", "-p"] in calls
+    url = dylan.client.get(f"/v1/tvs/{TV_ID}", headers=dylan.h).json()["screenshot"]["url"]
+    assert dylan.client.get(url, headers=dylan.h).content == png
+
     replies["get-state"] = "unauthorized"
     blocked = dylan.client.post(f"/v1/tvs/{TV_ID}/actions", headers=dylan.h, json={"action": "open_app"})
     assert blocked.status_code == 409
     assert blocked.json()["message"] == "Living room needs one Allow for the hub: press Allow on the TV, then try again."
     shot = dylan.client.post(f"/v1/tvs/{TV_ID}/actions", headers=dylan.h, json={"action": "screenshot"})
-    assert shot.status_code == 409 and "offline" in shot.json()["message"]
+    assert shot.status_code == 409 and shot.json()["error"] == "needs_allow"
 
 
 def test_phones_never_see_config_changed(hub, people):

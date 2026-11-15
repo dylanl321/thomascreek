@@ -631,6 +631,7 @@ struct HubTvRow: Decodable, Identifiable, Hashable {
     var lastError: String?
     var model: String?
     var screenshot: Shot?
+    var canScreenshot: Bool?
 }
 
 struct HubTvDetail: Decodable {
@@ -825,7 +826,9 @@ struct TVDetailView: View {
             actionButton("Restart app", "arrow.clockwise", "restart_app")
             actionButton(tv.updateAvailable == true ? "Update to \(latest ?? "new")" : "Update", "arrow.down.circle", "update")
             actionButton("Open app", "play.tv", "open_app")
-            actionButton("Take a picture", "camera.viewfinder", "screenshot").disabled(!tv.online)
+            if tv.canScreenshot == true {
+                actionButton("Take a picture", "camera.viewfinder", "screenshot").disabled(!tv.online)
+            }
         }
         .disabled(tv.status != "approved")
     }

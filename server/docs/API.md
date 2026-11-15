@@ -1636,7 +1636,7 @@ Every change bumps the config version once and sends `config_changed` to that TV
 | `restart_app` | Online: the app restarts itself. Offline: the hub force-stops and opens it over adb. |
 | `open_app` | Opens the app over adb. Without adb, an online app restarts into the front. |
 | `update` | The newest kept build. Over adb for a box on the TV app list, else sent to the app (`install_apk` with `/v1/tv/apk`); the TV may show an Install prompt. Already current: `via: "none"`. |
-| `screenshot` | Asks the app for a picture. Poll `GET /v1/tvs/{id}` until `screenshot.at` changes, then load `screenshot.url`. |
+| `screenshot` | The hub takes it over network debugging (`adb exec-out screencap -p`) and answers `via: "adb"` with the picture already saved; `needs_allow` until the hub's key is allowed. A rooted box without adb sends its own (`via: "app"`; poll for it). `can_screenshot` on the TV says whether either way exists; the phone hides the button otherwise. The rest of this row: Poll `GET /v1/tvs/{id}` until `screenshot.at` changes, then load `screenshot.url`. |
 | `play` | `{channel_key}`, `{movie_id}` or `{episode_id, series_id?}`, plus `title?`. Same delivery as `tv.play`. |
 
 A TV that needs the hub's one-time adb Allow answers `409` `needs_allow` "Living room needs one Allow for the hub: press Allow on the TV, then try again." Offline TVs answer `409` `offline` for actions that need the app.
