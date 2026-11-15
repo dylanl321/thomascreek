@@ -167,22 +167,37 @@ class TvCatalog:
             return None
         return art.public_url(kind, key)
 
-    def _with_title_art(self, row: dict[str, Any], *, show: bool) -> dict[str, Any]:
+    def _with_title_art(self, row: dict[str, Any], *, show: bool,
+                        notes: dict[str, dict[str, Any]] | None = None) -> dict[str, Any]:
+        """Adds art addresses. With `notes`, the art notes are collected there and written once by the caller
+        (a list of hundreds of titles used to rewrite notes.json once per title and timed the phone out)."""
         out = dict(row)
         ident = out.get("id")
         out["poster_url"] = self._art("poster", ident)
         out["backdrop_url"] = self._art("backdrop", ident)
         art = getattr(self, "artwork", None)
         if art is not None and ident:
-            art.remember(ident, title=out.get("name"), year=out.get("year"), kind="tv" if show else "movie")
+            meta = {"title": out.get("name"), "year": out.get("year"), "kind": "tv" if show else "movie"}
+            if notes is None:
+                art.remember(ident, **meta)
+            else:
+                notes[ident] = meta
         return out
 
-    def _with_programme_art(self, view: dict[str, Any]) -> dict[str, Any]:
+    def _flush_notes(self, notes: dict[str, dict[str, Any]]) -> None:
+        art = getattr(self, "artwork", None)
+        if art is not None and notes:
+            art.remember_many(notes)
+
+    def _with_programme_art(self, view: dict[str, Any], notes: dict[str, dict[str, Any]] | None = None) -> dict[str, Any]:
         art = getattr(self, "artwork", None)
         title = str(view.get("title") or "")
         key = programme_key(title) if art is not None and title else None
         if art is not None and key:
-            art.remember(key, title=title, kind="tv")
+            if notes is None:
+                art.remember(key, title=title, kind="tv")
+            else:
+                notes[key] = {"title": title, "kind": "tv"}
         view["poster_url"] = art.public_url("poster", key) if art is not None and key else None
         view["backdrop_url"] = art.public_url("backdrop", key) if art is not None and key else None
         return view
@@ -463,8 +478,9 @@ class TvCatalog:
             return None
         rows = []
         seen: set[str] = set()
+        overlay = self._overlay()
         for row in doc["channels"]:
-            shown = self._present_channel(row)
+            shown = self._present_channel(row, overlay)
             if shown is None or (kids_only and not shown["kids"]):
                 continue
             public = {key: shown[key] for key in ("key", "name", "number", "group", "logo", "kids")}
@@ -473,7 +489,7 @@ class TvCatalog:
             public["logo_url"] = self._art("logo", shown["key"])
             rows.append(public)
             seen.add(shown["key"])
-        for key, over in self._overlay().items():
+        for key, over in overlay.items():
             if key in seen or over.get("hidden"):
                 continue
             if kids_only and not over.get("kids"):
@@ -495,8 +511,9 @@ class TvCatalog:
         if cached and cached[0] == stamp:
             return cached[1]
         rows = []
+        overlay = self._overlay()
         for row in doc["channels"]:
-            shown = self._present_channel(row)
+            shown = self._present_channel(row, overlay)
             if shown is not None:
                 rows.append({"key": shown["key"], "name": shown["name"], "category": shown["group"]})
         guide = doc.get("guide") or {}
@@ -510,8 +527,10 @@ class TvCatalog:
                 return self._present_channel(row)
         return None
 
-    def _present_channel(self, row: dict[str, Any]) -> dict[str, Any] | None:
-        over = self._overlay().get(row["key"]) or {}
+    def _present_channel(self, row: dict[str, Any],
+                         overlay: dict[str, dict[str, Any]] | None = None) -> dict[str, Any] | None:
+        """`overlay` is the lineup edits, read once by a caller that loops over every channel."""
+        over = (self._overlay() if overlay is None else overlay).get(row["key"]) or {}
         if over.get("hidden"):
             return None
         number = over.get("number") if over.get("number") is not None else row.get("number")
@@ -529,19 +548,25 @@ class TvCatalog:
     def guide(self, *, start: float, end: float, channel: str | None, kids_only: bool, now: float | None = None) -> dict[str, Any]:
         now = time.time() if now is None else now
         doc = self.load()
+        overlay = self._overlay()
+        notes: dict[str, dict[str, Any]] = {}
         wanted = []
         for row in doc.get("channels") or []:
-            shown = self._present_channel(row)
-            if shown is None or (kids_only and not shown["kids"]):
+            if len(wanted) >= 200:
+                break
+            if channel and row.get("key") != channel:
                 continue
-            if channel and shown["key"] != channel:
+            shown = self._present_channel(row, overlay)
+            if shown is None or (kids_only and not shown["kids"]):
                 continue
             programmes = []
             current = None
             nxt = None
             for item in (doc.get("guide") or {}).get(shown["key"]) or []:
                 begins, finishes = float(item["start_ts"]), float(item["end_ts"])
-                view = self._with_programme_art(_programme(item, shown, now))
+                if finishes <= min(start, now) or (begins >= end and nxt is not None):
+                    continue
+                view = self._with_programme_art(_programme(item, shown, now), notes)
                 if begins <= now < finishes and current is None:
                     current = view
                 elif begins >= now and nxt is None:
@@ -556,6 +581,7 @@ class TvCatalog:
                     "catchup_days": shown["catchup_days"] or None, "now": current, "next": nxt,
                     "programmes": programmes[:MAX_PROGRAMMES],
                 })
+        self._flush_notes(notes)
         return {"from": iso(start), "to": iso(end), "channels": wanted[:200]}
 
     def movies(self, *, q: str | None, category: str | None, kids_only: bool, limit: int) -> dict[str, Any]:
@@ -581,11 +607,14 @@ class TvCatalog:
             item = dict(row)
             item["kids"] = kids
             item.pop("category_id", None)
-            shown = _public_movie(item) if kind == "movies" else _public_series_row(item)
-            rows.append(self._with_title_art(shown, show=kind != "movies"))
+            rows.append(_public_movie(item) if kind == "movies" else _public_series_row(item))
         rows.sort(key=lambda item: str(item.get("name") or "").casefold())
         label = "movies" if kind == "movies" else "series"
-        return {"categories": sorted(names), label: rows[:limit]}
+        # Art only for the rows sent back, noted in one write.
+        notes: dict[str, dict[str, Any]] = {}
+        shown = [self._with_title_art(row, show=kind != "movies", notes=notes) for row in rows[:limit]]
+        self._flush_notes(notes)
+        return {"categories": sorted(names), label: shown}
 
     def movie(self, movie_id: str) -> dict[str, Any] | None:
         if not movie_id.startswith(f"vod:{SOURCE}:"):
@@ -614,8 +643,10 @@ class TvCatalog:
         channels = []
         programmes = []
         doc = self.load()
+        overlay = self._overlay()
+        notes: dict[str, dict[str, Any]] = {}
         for row in doc.get("channels") or []:
-            shown = self._present_channel(row)
+            shown = self._present_channel(row, overlay)
             if shown is None or (kids_only and not shown["kids"]):
                 continue
             if needle in str(shown["name"]).casefold():
@@ -625,12 +656,13 @@ class TvCatalog:
             for item in (doc.get("guide") or {}).get(shown["key"]) or []:
                 title = str(item.get("title") or "")
                 if needle in title.casefold() or needle in str(item.get("subtitle") or "").casefold():
-                    view = self._with_programme_art(_programme(item, shown, now))
+                    view = self._with_programme_art(_programme(item, shown, now), notes)
                     view["channel_key"] = shown["key"]
                     view["channel_name"] = shown["name"]
                     programmes.append(view)
                     if len(programmes) >= 20:
                         break
+        self._flush_notes(notes)
         shows = self.series(q=q, category=None, kids_only=kids_only, limit=20)["series"]
         films = self.movies(q=q, category=None, kids_only=kids_only, limit=20)["movies"]
         _mark_canonical(self.db, shows, "series")

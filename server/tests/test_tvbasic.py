@@ -78,6 +78,14 @@ def test_a_copy_with_a_guide_beats_one_without():
     assert _by_name(lineup)["CNN"]["key"] == "xc:tc:13"
 
 
+def test_channels_with_no_guide_are_left_out():
+    guided = {"xc:tc:1", "xc:tc:2", "xc:tc:4", "xc:tc:5", "xc:tc:10", "xc:tc:14"}
+    lineup = build(ROWS, RALEIGH, has_guide=lambda key: key in guided)
+    assert {row["key"] for row in lineup["channels"]} == guided
+    # Too little guide to go on (not loaded yet): the whole lineup stays
+    assert len(build(ROWS, RALEIGH, has_guide=lambda key: key == "xc:tc:13")["channels"]) > 5
+
+
 def test_the_route_serves_the_basic_lineup(hub, people, monkeypatch):
     hub.tv_catalog.ingest(live=[
         {"stream_id": 1, "name": "US| ABC 11 RALEIGH WTVD HD", "category_id": "1"},
