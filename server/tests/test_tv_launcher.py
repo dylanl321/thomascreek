@@ -12,7 +12,7 @@ from tests.test_tv_fleet import BODY
 from tests.test_tvsetup import ScriptAdb, _replies
 
 ALIAS = "me.dlewis.thomascreek.tv/com.ipvio.stream.Home"
-GUARD = "me.dlewis.thomascreek.tv/com.ipvio.stream.TcGuard"
+GUARD = "me.dlewis.thomascreek.tv/com.thomascreek.tv.device.GuardService"
 
 
 def _tv(hub, home_client):

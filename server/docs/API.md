@@ -980,7 +980,7 @@ The TV config (`POST /v1/tv/config` and the pair answer) always carries `launche
 
 `POST /v1/tv/apps/installed` with a TV bearer: `{"apps":[{"package":"com.google.android.youtube.tv","label":"YouTube"}]}` (up to 200), the apps this TV can open. The answer is `{"ok":true,"count":1}`.
 
-Admins (`systems`): `GET /v1/tvapp/tvs/{id}/launcher` answers the setting plus `status` (what the hub last did on the box: `home`, `guard`, `previous`, `note`), `installed` (the list above) and `box` (the address the hub reaches it on, or null). `PUT /v1/tvapp/tvs/{id}/launcher` takes `{on, person_id?, apps, guard?}` and answers the setting with `status`. When the TV's address is a box on the hub's list, the hub enables the HOME alias, makes it Home (keeping the previous one), allows Usage access and turns on the accessibility guard `me.dlewis.thomascreek.tv/com.ipvio.stream.TcGuard`. Turning it off reverses all of that. The admin page has the same card under Devices.
+Admins (`systems`): `GET /v1/tvapp/tvs/{id}/launcher` answers the setting plus `status` (what the hub last did on the box: `home`, `guard`, `previous`, `note`), `installed` (the list above) and `box` (the address the hub reaches it on, or null). `PUT /v1/tvapp/tvs/{id}/launcher` takes `{on, person_id?, apps, guard?}` and answers the setting with `status`. When the TV's address is a box on the hub's list, the hub enables the HOME alias, makes it Home (keeping the previous one), allows Usage access and turns on the accessibility guard `me.dlewis.thomascreek.tv/com.thomascreek.tv.device.GuardService`. Turning it off reverses all of that. The admin page has the same card under Devices.
 
 `GET /v1/tv/update` and `GET /v1/tv/apk` use the TV bearer. The file download is the bytes of the APK. The manifest:
 

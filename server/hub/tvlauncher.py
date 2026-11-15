@@ -27,7 +27,7 @@ from typing import Any
 log = logging.getLogger(__name__)
 
 ALIAS = "com.ipvio.stream.Home"
-GUARD = "com.ipvio.stream.TcGuard"
+GUARD = "com.thomascreek.tv.device.GuardService"
 MAX_APPS = 40
 MAX_INSTALLED = 200
 _PKG = re.compile(r"[a-zA-Z][\w]*(\.[\w]+)+")
