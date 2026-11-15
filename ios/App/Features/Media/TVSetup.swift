@@ -761,6 +761,7 @@ struct TVDetailView: View {
     @State private var note: String?
     @State private var busy: String?
     @State private var shotWanted: String?   // screenshot `at` before the request; cleared when it changes
+    @State private var loadFailed = false    // `problem` came from loading, so a good refresh clears it
 
     var body: some View {
         ScrollView {
@@ -912,10 +913,11 @@ struct TVDetailView: View {
     private func load() async {
         do {
             detail = try await HubClient.shared.get("/v1/tvs/\(tvID)")
-            problem = nil
+            // An action's answer ("press Allow…") stays until the next action; only a load error clears here.
+            if loadFailed { problem = nil; loadFailed = false }
             if let wanted = shotWanted, (detail?.tv.screenshot?.at ?? "") != wanted { shotWanted = nil }
         } catch {
-            if detail == nil { problem = error.localizedDescription }
+            if detail == nil { problem = error.localizedDescription; loadFailed = true }
         }
         if latest == nil, let page: HubTvsPage = try? await HubClient.shared.get("/v1/tvs") { latest = page.latestVersion }
     }
@@ -932,6 +934,7 @@ struct TVDetailView: View {
         } catch {
             note = nil
             problem = error.localizedDescription
+            loadFailed = false
         }
     }
 }
