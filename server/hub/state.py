@@ -110,6 +110,9 @@ class Hub:
 
         self.tv_catalog = TvCatalog(vault, db, data)
         self.tv_catalog.kids_categories = self.tv_app.kids_categories
+        from .iptvcanon import settle as _settle_catalog
+
+        self.tv_catalog.settle = lambda: _settle_catalog(self)
         self.artwork = Artwork(vault, data / "art", tmdb_secret=config.artwork.tmdb_key_secret,
                                fanart_secret=config.artwork.fanart_key_secret)
         self.artwork.catalog = self.tv_catalog

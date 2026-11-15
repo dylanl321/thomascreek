@@ -114,6 +114,8 @@ def _text(parent: ET.Element, name: str) -> str | None:
 
 class TvCatalog:
     def __init__(self, vault: Any, db: Any, data: Path, *, transport: httpx.AsyncBaseTransport | None = None):
+        # Set by the hub: asks the model about titles the rules were unsure of, after each refresh.
+        self.settle: Any = None
         self.vault = vault
         self.db = db
         self.path = Path(data) / "tvapp" / "catalog.json"
@@ -399,8 +401,14 @@ class TvCatalog:
                     log.info("tv guide: %s", type(exc).__name__)
             if not all(isinstance(part, list) for part in (live, live_categories, vod, vod_categories, series, series_categories)):
                 raise TvAppError(502, "bad_provider", "The TV provider didn't send its lists")
-            return self.ingest(live=live, live_categories=live_categories, vod=vod, vod_categories=vod_categories,
-                               series=series, series_categories=series_categories, xmltv=xmltv)
+            doc = self.ingest(live=live, live_categories=live_categories, vod=vod, vod_categories=vod_categories,
+                              series=series, series_categories=series_categories, xmltv=xmltv)
+        if self.settle is not None:
+            try:
+                await self.settle()
+            except Exception as exc:  # noqa: BLE001
+                log.info("catalog match: %s", type(exc).__name__)
+        return doc
 
     async def fetch_series(self, series_id: str) -> dict[str, Any]:
         cached = self._details()["series"].get(series_id)
@@ -661,6 +669,12 @@ def _clip(value: object, limit: int) -> str | None:
     return text[:limit] or None
 
 
+def _tmdb_id(value: object) -> str | None:
+    """A provider's TMDB id, when it looks like one. Panels send 0, "" or junk for unknown."""
+    text = str(value or "").strip()
+    return text if text.isdigit() and int(text) > 0 and len(text) <= 10 else None
+
+
 def _title(row: dict[str, Any], key_of: Any, categories: dict[str, str], art_field: str,
            id_field: str = "stream_id") -> dict[str, Any] | None:
     if not isinstance(row, dict):
@@ -678,6 +692,9 @@ def _title(row: dict[str, Any], key_of: Any, categories: dict[str, str], art_fie
         "year": _clip(row.get("year") or row.get("releaseDate"), 20),
         "genre": _clip(row.get("genre"), 80), "rating": _clip(row.get("rating"), 8),
     }
+    tmdb = _tmdb_id(row.get("tmdb") or row.get("tmdb_id"))
+    if tmdb:
+        item["tmdb"] = tmdb
     wide = _art(backdrop)
     if wide:
         item["backdrop"] = wide

@@ -377,3 +377,27 @@ def test_metadata_sources_section_and_key_checks(hub, people, home_client):
         asyncio.run(hub.keychecks.run(ids=["tmdb"]))
         assert route.calls[0].request.headers["authorization"].startswith("Bearer ")
     assert hub.keychecks.results["tmdb"]["state"] == "warn"
+
+
+def test_catalog_pairs_show_years_and_answer_same_or_different(hub, people, home_client):
+    from hub.iptvcanon import observe, search, unsure
+    observe(hub.db, [
+        {"provider": "p", "kind": "movie", "stream_id": "1", "name": "Star Wars", "year": 1977},
+        {"provider": "p", "kind": "movie", "stream_id": "2", "name": "Star Wars"},
+        {"provider": "p", "kind": "movie", "stream_id": "3", "name": "Gladiator", "year": 2000},
+        {"provider": "p", "kind": "movie", "stream_id": "4", "name": "Gladiator"},
+    ])
+    csrf = _sign_in(people, home_client)
+    page = home_client.get("/admin").text
+    assert "Star Wars <span class=dim>(1977)</span>" in page and "(no year)" in page
+    assert "touches Plex or any files" in page
+    stars, glad = sorted(unsure(hub.db)["unsure"], key=lambda row: row["title"], reverse=True)
+    r = home_client.post("/admin/catalog/apart", data={"csrf": csrf, "pair": stars["id"]})
+    assert "Kept those titles apart" in r.text
+    r = home_client.post("/admin/catalog/merge", data={"csrf": csrf, "left": glad["left"], "right": glad["right"]})
+    assert "Folded those titles together" in r.text
+    assert unsure(hub.db)["unsure"] == []
+    assert len(search(hub.db, "star wars")["items"]) == 2 and len(search(hub.db, "gladiator")["items"]) == 1
+    assert "Nothing waiting" in home_client.get("/admin").text
+    r = home_client.post("/admin/catalog/settle", data={"csrf": csrf})
+    assert "Claude key" in r.text

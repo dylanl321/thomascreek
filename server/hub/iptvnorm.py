@@ -143,7 +143,9 @@ def score(left: Parsed, right: Parsed, *, kind: str, left_ids: dict[str, str], r
         if kind == "movie" and left.year and right.year and left.year != right.year:
             return 0.0
         base = 0.7
-    if left_logo and right_logo and left_logo != right_logo:
+    # Channel logos are shared across feeds, so a different one is a hint. Movie and show posters
+    # differ between copies of the same film all the time, so they say nothing.
+    if kind == "live" and left_logo and right_logo and left_logo != right_logo:
         base -= 0.2
     return max(0.0, min(1.0, base))
 
