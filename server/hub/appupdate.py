@@ -147,12 +147,13 @@ class AppUpdates:
         self._jwt = (tok, exp)
         return tok
 
-    async def _get(self, path: str, params: dict[str, str]) -> dict[str, Any]:
+    async def _get(self, path: str, params: dict[str, str], token: str | None = None) -> dict[str, Any]:
         if self._client is None:
             self._client = httpx.AsyncClient(base_url=ASC, timeout=20)
-        r = await self._client.get(path, params=params, headers={"Authorization": f"Bearer {self._token()}"})
+        r = await self._client.get(path, params=params, headers={"Authorization": f"Bearer {token or self._token()}"})
         if r.status_code == 401:
-            self._jwt = None
+            if token is None:
+                self._jwt = None
             raise RuntimeError("App Store Connect turned the key down (check the Issuer ID and Key ID)")
         if r.status_code >= 400:
             try:
@@ -173,17 +174,7 @@ class AppUpdates:
                 if not apps.get("data"):
                     raise RuntimeError(f"No app with bundle id {self.cfg.bundle_id} under this key's team")
                 self.apple_id = apps["data"][0]["id"]
-            data = await self._get("/v1/builds", {
-                "filter[app]": self.apple_id,
-                "filter[expired]": "false",
-                "filter[processingState]": "VALID",
-                "sort": "-uploadedDate",
-                "limit": "10",
-                "fields[builds]": "version,uploadedDate,processingState,expired,preReleaseVersion,buildBetaDetail",
-                "include": "preReleaseVersion,buildBetaDetail",
-                "fields[preReleaseVersions]": "version",
-                "fields[buildBetaDetails]": "internalBuildState",
-            })
+            data = await self._builds()
             before = (self.found or {}).get("build")
             self.found = self.pick(data)
             self.last_error = None
@@ -194,6 +185,32 @@ class AppUpdates:
             log.warning("app update check: %s", self.last_error)
         self.last_check = time.time()
         return self.found
+
+    async def _builds(self, token: str | None = None) -> dict[str, Any]:
+        return await self._get("/v1/builds", {
+            "filter[app]": str(self.apple_id),
+            "filter[expired]": "false",
+            "filter[processingState]": "VALID",
+            "sort": "-uploadedDate",
+            "limit": "10",
+            "fields[builds]": "version,uploadedDate,processingState,expired,preReleaseVersion,buildBetaDetail",
+            "include": "preReleaseVersion,buildBetaDetail",
+            "fields[preReleaseVersions]": "version",
+            "fields[buildBetaDetails]": "internalBuildState",
+        }, token)
+
+    async def confirm_with(self, token: str) -> dict[str, Any] | None:
+        """Ask App Store Connect with a short-lived token the Mac's upload script signed.
+
+        The hub keeps no key for this: Apple answering for this app proves the caller holds an
+        App Store Connect key for Dylan's team, and the answer itself says which build is out.
+        Returns the newest build testers can install, or None. Raises when Apple refuses."""
+        if not self.apple_id:
+            raise RuntimeError("The app's Apple ID isn't known yet (app_update.apple_id)")
+        best = self.pick(await self._builds(token))
+        if best:
+            self.learn(best["build"], best.get("version"), source="testflight")
+        return best
 
     @staticmethod
     def pick(data: dict[str, Any]) -> dict[str, Any] | None:

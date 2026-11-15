@@ -89,7 +89,7 @@ class Hub:
         self.home = HomeModel(self)
         self.app_update = AppUpdates(config.app_update, vault,
                                      Path(db._path).parent / "app_update.json" if db._path != ":memory:" else None)
-        self.app_update.on_change = lambda info: self.bus.publish({"type": "app_update", "data": info})
+        self.app_update.on_change = self._app_update_changed
         self.downloads = Downloads(self, (Path(db._path).parent if db._path != ":memory:" else Path("/tmp")) / "downloads")
         data = Path(db._path).parent if db._path != ":memory:" else Path("/tmp")
         self.youtube = YouTube(self, data / "youtube")
@@ -219,6 +219,27 @@ class Hub:
                     return str(hop)
             return None
         return str(ip)
+
+    def _app_update_changed(self, info: dict[str, Any]) -> None:
+        """A newer app build is out: tell the open apps, and push once per build to everyone in the house."""
+        self.bus.publish({"type": "app_update", "data": info})
+        build = info.get("latest_build")
+        if not build or info.get("source") == "manual":
+            return
+        if (self.app_update.settings().get("pushed_build") or 0) >= build:
+            return
+        self.app_update.save_settings(pushed_build=build)
+        version = info.get("latest_version")
+        label = f"{version} ({build})" if version else f"build {build}"
+        try:
+            asyncio.get_running_loop().create_task(self.notify.send(
+                title="Thomas Creek update ready",
+                body=f"Version {label} is in TestFlight. Open TestFlight to update.",
+                cat="updates", level="fyi", roles=("admin", "adult", "child"),
+                group_key="app-update", extra={"url": info.get("testflight_url")},
+            ))
+        except RuntimeError:  # no running loop (tests, startup): the in-app banner still shows it
+            log.info("app update %s: no loop to push from", build)
 
     def _trusted_proxy(self, ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
         return any(ip in n for n in self._proxies)

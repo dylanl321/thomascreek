@@ -174,3 +174,48 @@ def test_upload_script_announces_a_build(hub, people, home_client, tmp_path):
     # Never lowers it.
     r = home_client.post("/v1/app/release", json={"build": 25}, headers={"X-Test-Key": key})
     assert r.json()["changed"] is False and r.json()["latest_build"] == 26
+
+
+def test_upload_script_announces_with_an_app_store_connect_token(hub, people, home_client, tmp_path):
+    """No test key on the Mac: the script sends a short-lived ASC token and the hub asks Apple with it."""
+    hub.app_update.path = tmp_path / "app_update.json"
+    hub.app_update.apple_id = "6833735579"
+    hub.config.app_update.latest_build = 16
+    seen = []
+    hub.app_update.on_change = seen.append
+    with respx.mock() as mock:
+        refused = mock.get(f"{ASC}/v1/builds").mock(return_value=httpx.Response(401, json={"errors": [{"title": "NOT_AUTHORIZED"}]}))
+        r = home_client.post("/v1/app/release", json={"build": 17}, headers={"X-ASC-Token": "ey.bad.token"})
+        assert r.status_code == 401 and refused.calls[0].request.headers["authorization"] == "Bearer ey.bad.token"
+    assert not seen
+    with respx.mock() as mock:
+        builds = mock.get(f"{ASC}/v1/builds").mock(return_value=httpx.Response(200, json=BUILDS))
+        r = home_client.post("/v1/app/release", json={"build": 17}, headers={"X-ASC-Token": "ey.good.token"})
+        assert r.status_code == 200 and r.json()["changed"] is True
+        assert builds.calls[0].request.url.params["filter[app]"] == "6833735579"
+    j = home_client.get("/v1/app/update", params={"build": 16}).json()
+    # Apple's answer is the truth: 18 isn't installable yet, so 17 is the latest.
+    assert j["latest_build"] == 17 and j["update_available"] is True
+    assert len(seen) == 1
+
+
+def test_a_new_build_pushes_once(hub, people, tmp_path):
+    hub.app_update.path = tmp_path / "app_update.json"
+    sent = []
+
+    async def fake_send(**kw):
+        sent.append(kw)
+        return []
+
+    hub.notify.send = fake_send
+
+    async def go():
+        hub._app_update_changed({"latest_build": 46, "latest_version": "2.0", "source": "upload",
+                                 "testflight_url": "itms-beta://x"})
+        hub._app_update_changed({"latest_build": 46, "latest_version": "2.0", "source": "testflight"})
+        hub._app_update_changed({"latest_build": 50, "source": "manual"})
+        await asyncio.sleep(0)
+
+    asyncio.run(go())
+    assert len(sent) == 1
+    assert sent[0]["cat"] == "updates" and "2.0 (46)" in sent[0]["body"] and "child" in sent[0]["roles"]

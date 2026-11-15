@@ -57,16 +57,30 @@ class Release(BaseModel):
 
 @router.post("/release")
 async def app_release(body: Release, x_test_key: str | None = Header(default=None),
+                      x_asc_token: str | None = Header(default=None, max_length=4000),
                       h: Hub = Depends(hub)) -> dict[str, Any]:
     """The Mac's upload script: TestFlight has finished processing `build`, tell the phones.
 
-    Signed with the Mac's test key (~/.thomascreek/test-key, made on the hub web page), which
-    must belong to an admin. Only ever raises the latest build, never lowers it.
+    Signed either way:
+    - `X-ASC-Token`: a short-lived App Store Connect token the script signed with the upload key.
+      The hub asks Apple with it, so Apple's answer is both the proof and the build number.
+      Nothing is set up on the hub for this.
+    - `X-Test-Key`: the Mac's test key (~/.thomascreek/test-key, made on the hub web page), which
+      must belong to an admin.
+    Only ever raises the latest build, never lowers it.
     """
+    if x_asc_token:
+        try:
+            best = await h.app_update.confirm_with(x_asc_token.strip())
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=401, detail=f"App Store Connect didn't confirm it: {exc}") from exc
+        h.db.log("app.release", "ok", target=str(body.build),
+                 params={"version": body.version, "testflight": best}, source="mac")
+        return {"changed": bool(best and best["build"] >= body.build), **h.app_update.info()}
     row = testkeys.check(h, x_test_key or "")
     person = h.db.person(row["person_id"]) if row else None
     if not person or person.get("role") != "admin":
-        raise HTTPException(status_code=401, detail="Needs the Mac's test key")
+        raise HTTPException(status_code=401, detail="Needs the Mac's test key or an App Store Connect token")
     changed = h.app_update.learn(body.build, body.version, source="upload")
     h.db.log("app.release", "ok", person_id=person["id"], target=str(body.build),
              params={"version": body.version, "changed": changed}, source="mac")
