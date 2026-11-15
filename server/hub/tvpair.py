@@ -52,6 +52,21 @@ class TvPair:
             return self._approved(install_id)
         if existing is None and len(tvs) >= 40:
             raise TvAppError(429, "too_many", "Too many TVs are registered. Remove old ones on the hub.")
+        box = self._box_for(ip) if not (existing and existing.get("status") == "revoked") else None
+        if box is not None:
+            # An adult added this box on the hub (TVs and boxes, or the admin page): the TV on that address
+            # is approved with the box's profile, with no second tap on the iPhone.
+            record = dict(existing or {"created_at": now})
+            record.update(public_key=public_key, name=box.get("name") or name, model=model, app_version=version,
+                          last_seen_at=now, ip=ip, status="pending", profile=box.get("profile") or "adult")
+            if box.get("room") or (room and not record.get("room")):
+                record["room"] = box.get("room") or room
+            tvs[install_id] = record
+            self.hub.tv_app._save_tvs(tvs)
+            self.hub.tv_app.set_tv(install_id, status="approved")
+            self.hub.bus.publish({"type": "tv_pair", "data": {"install_id": install_id, "name": record["name"],
+                                                              "status": "approved"}})
+            return self._approved(install_id)
         record = dict(existing or {"status": "pending", "profile": "adult", "created_at": now})
         record.update(public_key=public_key, name=name, model=model, app_version=version, last_seen_at=now, ip=ip,
                       status="pending")
@@ -74,6 +89,13 @@ class TvPair:
             self._save(pending)
             self._tell(current)
         return _pending_body(current)
+
+    def _box_for(self, ip: str | None) -> dict[str, Any] | None:
+        """A box an adult set up on the hub, at this exact address."""
+        if not ip:
+            return None
+        box = (self.hub.tv_app.boxes() or {}).get(ip)
+        return box if isinstance(box, dict) and box.get("setup") else None
 
     def poll(self, pair_id: str, now: float | None = None) -> dict[str, Any]:
         now = time.time() if now is None else now
