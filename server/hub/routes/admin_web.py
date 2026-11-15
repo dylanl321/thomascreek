@@ -74,6 +74,11 @@ DESCRIPTIONS = {
     "trek.mcp_client_secret": "TREK machine client secret (for changing trips)",
     "anthropic.api_key": "Claude API key for the Ask Thomas Creek assistant",
     "youtube.api_key": "YouTube Data API key (optional: channel video counts in the add wizard)",
+    "tmdb.api_key": "TMDB API key (posters, descriptions, cast)",
+    "fanart.api_key": "Fanart.tv API key (logos and backdrops)",
+    "omdb.api_key": "OMDb API key (IMDb and Rotten Tomatoes ratings)",
+    "opensubtitles.api_key": "OpenSubtitles API key (subtitle search)",
+    "subdl.api_key": "SubDL API key (subtitle search)",
     "vpn.pia.admin_username": "PIA username (Private VPN)",
     "vpn.pia.admin_password": "PIA password (Private VPN)",
     "appstore.auth_key_p8": "App Store Connect API key (.p8 file), for spotting new app builds",
@@ -393,6 +398,20 @@ SECTIONS: list[dict[str, Any]] = [
         ("iptv.xtream_password", "Xtream password", "text", "From your IPTV provider."),
         ("iptv.m3u_url", "M3U playlist address", "text", "Only if your provider gave you an M3U link instead of an Xtream login."),
         ("iptv.epg_url", "TV guide address (XMLTV)", "text", "Optional. Xtream providers usually include the guide already."),
+    ]},
+    {"title": "Metadata sources (artwork, ratings, subtitles)", "always": True, "optional": True, "fields": [
+        ("tmdb.api_key", "TMDB API key", "text",
+         "Posters, backdrops, descriptions, cast and trailers, for the hub's artwork and the TV app. themoviedb.org: "
+         "Settings, API, create a developer key; paste the \"API Key\" (32 letters and digits), not the long Read Access Token."),
+        ("fanart.api_key", "Fanart.tv API key", "text",
+         "Clear logos and better backdrops on top of TMDB. fanart.tv: sign in, Profile, API, Personal API key."),
+        ("omdb.api_key", "OMDb API key", "text",
+         "IMDb and Rotten Tomatoes ratings in the TV app. omdbapi.com/apikey.aspx: the free key arrives by email "
+         "and has to be activated from that email."),
+        ("opensubtitles.api_key", "OpenSubtitles API key", "text",
+         "Online subtitle search in the TV app's player. opensubtitles.com/consumers: New consumer, then copy its API key."),
+        ("subdl.api_key", "SubDL API key", "text",
+         "A second subtitle search, used alongside OpenSubtitles. subdl.com/panel/api: copy the API key."),
     ]},
     {"title": "Homebox", "always": True, "optional": True, "fields": [
         ("homebox.password", "Homebox password", "text", "Optional: the password of the Homebox account the hub signs in as."),

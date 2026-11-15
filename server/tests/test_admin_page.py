@@ -347,3 +347,33 @@ def test_pia_refusal_says_what_to_fix():
     assert "look like p1234567" in refusal(401, "dylan", "1Password")
     assert "check the password" in refusal(401, "p1234567", "admin page") and "admin page" in refusal(401, "p1234567", "admin page")
     assert "limiting" in refusal(429, "p1234567", "admin page")
+
+
+def test_metadata_sources_section_and_key_checks(hub, people, home_client):
+    csrf = _sign_in(people, home_client)
+    page = home_client.get("/admin").text
+    assert "Metadata sources (artwork, ratings, subtitles)" in page
+    for name in ("tmdb.api_key", "fanart.api_key", "omdb.api_key", "opensubtitles.api_key", "subdl.api_key"):
+        assert f"name='v:{name}'" in page
+    home_client.post("/admin/secrets/bulk", data={"csrf": csrf, "v:tmdb.api_key": "a" * 32, "v:omdb.api_key": "om1",
+                                                  "v:opensubtitles.api_key": "os1", "v:subdl.api_key": "sd1",
+                                                  "v:fanart.api_key": "fa1"})
+    with respx.mock() as mock:
+        mock.get("https://api.themoviedb.org/3/configuration").mock(return_value=httpx.Response(200, json={}))
+        mock.get("https://webservice.fanart.tv/v3/movies/603").mock(return_value=httpx.Response(401))
+        mock.get("https://www.omdbapi.com/").mock(return_value=httpx.Response(
+            401, json={"Response": "False", "Error": "Invalid API key!"}))
+        mock.post("https://api.opensubtitles.com/api/v1/download").mock(return_value=httpx.Response(
+            404, json={"message": "Invalid file_id"}))
+        mock.get("https://api.subdl.com/api/v1/subtitles").mock(return_value=httpx.Response(
+            200, json={"status": True, "subtitles": []}))
+        asyncio.run(hub.keychecks.run(ids=["tmdb", "fanart", "omdb", "opensubtitles", "subdl"]))
+    states = {k: hub.keychecks.results[k]["state"] for k in ("tmdb", "fanart", "omdb", "opensubtitles", "subdl")}
+    assert states == {"tmdb": "ok", "fanart": "bad", "omdb": "bad", "opensubtitles": "ok", "subdl": "ok"}
+    # The long TMDB Read Access Token works for TMDB but not for the TV app: say so.
+    hub.vault.set("tmdb.api_key", "eyJhbGciOiJIUzI1NiJ9.x.y")
+    with respx.mock() as mock:
+        route = mock.get("https://api.themoviedb.org/3/configuration").mock(return_value=httpx.Response(200, json={}))
+        asyncio.run(hub.keychecks.run(ids=["tmdb"]))
+        assert route.calls[0].request.headers["authorization"].startswith("Bearer ")
+    assert hub.keychecks.results["tmdb"]["state"] == "warn"

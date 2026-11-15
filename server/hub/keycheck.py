@@ -154,6 +154,77 @@ async def _youtube(h: "Hub") -> Result:
     return result("down", f"YouTube answered {r.status_code}")
 
 
+def _key(h: "Hub", name: str) -> str:
+    return str(h.vault.get(name) or "").strip()
+
+
+async def _tmdb(h: "Hub") -> Result:
+    key = _key(h, "tmdb.api_key")
+    async with httpx.AsyncClient(timeout=15) as c:
+        if key.startswith("eyJ"):  # the v4 Read Access Token
+            r = await c.get("https://api.themoviedb.org/3/configuration", headers={"Authorization": f"Bearer {key}"})
+        else:
+            r = await c.get("https://api.themoviedb.org/3/configuration", params={"api_key": key})
+    if r.status_code == 200:
+        if key.startswith("eyJ"):
+            return result("warn", "TMDB accepted it, but this is the Read Access Token: the TV app needs the short API Key")
+        return result("ok", "TMDB accepted it")
+    if r.status_code in (401, 403):
+        return result("bad", "TMDB refused it (use the API Key from Settings, API)")
+    return result("down", f"TMDB answered {r.status_code}")
+
+
+async def _fanart(h: "Hub") -> Result:
+    async with httpx.AsyncClient(timeout=15) as c:
+        r = await c.get("https://webservice.fanart.tv/v3/movies/603", params={"api_key": _key(h, "fanart.api_key")})
+    if r.status_code in (200, 404):
+        return result("ok", "Fanart.tv accepted it")
+    if r.status_code in (401, 403):
+        return result("bad", "Fanart.tv refused it")
+    return result("down", f"Fanart.tv answered {r.status_code}")
+
+
+async def _omdb(h: "Hub") -> Result:
+    async with httpx.AsyncClient(timeout=15) as c:
+        r = await c.get("https://www.omdbapi.com/", params={"apikey": _key(h, "omdb.api_key"), "i": "tt0111161"})
+    body = r.text
+    if r.status_code == 200 and '"Response":"True"' in body:
+        return result("ok", "OMDb accepted it")
+    if "limit reached" in body.lower():
+        return result("warn", "works, but today's 1,000 lookups are used up")
+    if "not activated" in body.lower():
+        return result("bad", "OMDb key isn't activated yet: open the link in OMDb's email")
+    if r.status_code == 401 or "invalid api key" in body.lower():
+        return result("bad", "OMDb refused it")
+    return result("down", f"OMDb answered {r.status_code}")
+
+
+async def _opensubtitles(h: "Hub") -> Result:
+    # Searching works with any key; asking to download a file that doesn't exist tells whether the key is known.
+    async with httpx.AsyncClient(timeout=15) as c:
+        r = await c.post("https://api.opensubtitles.com/api/v1/download", json={"file_id": 1},
+                         headers={"Api-Key": _key(h, "opensubtitles.api_key"), "User-Agent": "ThomasCreekHub v1",
+                                  "Accept": "application/json"})
+    if r.status_code == 200 or "invalid file_id" in r.text.lower():
+        return result("ok", "OpenSubtitles accepted it")
+    if r.status_code in (401, 403, 503):
+        return result("bad", "OpenSubtitles refused it")
+    if r.status_code == 429:
+        return result("warn", "accepted, but rate limited right now")
+    return result("down", f"OpenSubtitles answered {r.status_code}")
+
+
+async def _subdl(h: "Hub") -> Result:
+    async with httpx.AsyncClient(timeout=15) as c:
+        r = await c.get("https://api.subdl.com/api/v1/subtitles",
+                        params={"api_key": _key(h, "subdl.api_key"), "tmdb_id": 27205, "type": "movie", "languages": "EN"})
+    if r.status_code == 200 and '"status":true' in r.text.replace(" ", ""):
+        return result("ok", "SubDL accepted it")
+    if r.status_code in (401, 403) or "api_key" in r.text.lower():
+        return result("bad", "SubDL refused it")
+    return result("down", f"SubDL answered {r.status_code}")
+
+
 def _github_expiry(value: str | None) -> float | None:
     if not value:
         return None
@@ -363,6 +434,11 @@ def checks(h: "Hub") -> list[Check]:
                          lambda h: h.family_board.enabled and h.vault.has(h.family_board.cfg.token_secret)))
     out.append(Check("anthropic", "Claude API", (h.config.brain.key_secret,), _anthropic, _has(h.config.brain.key_secret)))
     out.append(Check("youtube", "YouTube", ("youtube.api_key",), _youtube, _has("youtube.api_key")))
+    for cid, title, name, fn in (("tmdb", "TMDB", "tmdb.api_key", _tmdb), ("fanart", "Fanart.tv", "fanart.api_key", _fanart),
+                                 ("omdb", "OMDb", "omdb.api_key", _omdb),
+                                 ("opensubtitles", "OpenSubtitles", "opensubtitles.api_key", _opensubtitles),
+                                 ("subdl", "SubDL", "subdl.api_key", _subdl)):
+        out.append(Check(cid, title, (name,), fn, _has(name)))
     out.append(Check("github", "GitHub (TV app builds)", ("github.tv_app_token",), _github, _has("github.tv_app_token")))
     out.append(Check("apns", "Apple push", (h.apns.cfg.key_secret, "apns.key_id"), _apns, lambda h: h.apns.enabled))
     out.append(Check("appstore", "App Store Connect", ("appstore.auth_key_p8", "appstore.key_id", "appstore.issuer_id"),
