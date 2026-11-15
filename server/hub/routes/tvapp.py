@@ -23,6 +23,7 @@ GET    /v1/tv/apps                       bearer, {allowed:[packages]} for this p
 POST   /v1/tv/config                     {install_id, ts, signature}  ETag / 304
 POST   /v1/tv/token                      {install_id, ts, signature, person_id?} -> bearer
 GET    /v1/tv/lineup                     bearer, phones and TVs
+GET    /v1/tv/basic                      bearer, the basic cable lineup (locals + networks, numbered)
 POST   /v1/tv/state                      bearer, now playing and health
 GET    /v1/tv/commands                   bearer, long-poll tv.play / tv.stop
 POST   /v1/tv/commands/ack               bearer, {ids}
@@ -526,6 +527,19 @@ async def tv_lineup(request: Request, c: Caller = Depends(caller), h: Hub = Depe
     lineup = h.tv_catalog.lineup(kids_only=c.subject.is_child_like) or h.tv_app.public_lineup(kids_only=c.subject.is_child_like)
     h.source_health.annotate(lineup.get("channels") or [])
     return _cached(request, lineup)
+
+
+@tv_router.get("/basic")
+async def tv_basic(request: Request, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> Response:
+    """The basic cable lineup: the home market's locals and one copy of each standard network, numbered."""
+    if not (h.policy.has(c.subject, "media.all") or h.policy.has(c.subject, "media.own_tv")):
+        raise error(403, "forbidden", "Not available", ask_parent=c.subject.is_child_like)
+    try:
+        home = await h.smart.weather._location()
+    except Exception:  # noqa: BLE001
+        home = None
+    body = h.tv_catalog.basic(home) or {"version": 0, "market": None, "channels": []}
+    return _cached(request, body)
 
 
 @tv_router.get("/commands")

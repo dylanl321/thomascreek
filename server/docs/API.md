@@ -460,6 +460,8 @@ Channel keys never contain a URL or a password. Xtream puts the password in the 
 | `series:thomas-creek:12` | series |
 | `ep:thomas-creek:555` | episode (`id` from `get_series_info`, not the episode number) |
 
+`GET /v1/tv/basic` (same callers). The basic cable lineup a TV shows first ("Your TV"): the local affiliates of the television market nearest the house (Home Assistant's location, within 250 km, at least two stations found), numbered by the station's own number when the name has one, plus one copy of each standard US network on fixed numbers from 20 up (news 20s, sports 30s-40s, entertainment 50s-80s, factual 90s-100s, kids 110s, premium 200s). Among copies the hub prefers one with a guide, then HD/East over SD/West/+1; 4K, PPV, event and foreign copies are left out. `{"version":1,"market":"Raleigh","channels":[{"key","name","number","local"}]}`. ETag / 304. Nothing is hidden: everything else stays in the lineup.
+
 `GET /v1/tv/lineup` (bearer, `media.all` or `media.own_tv`). ETag / 304 like config.
 
 ```json

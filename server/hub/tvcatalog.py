@@ -484,6 +484,26 @@ class TvCatalog:
         rows.sort(key=lambda row: (row.get("number") is None, row.get("number") or 0, str(row.get("name") or "").casefold()))
         return {"version": int(doc.get("fetched_at") or 0), "channels": rows}
 
+    def basic(self, home: tuple[float, float] | None) -> dict[str, Any] | None:
+        """The household's basic cable lineup (see tvbasic). Worked out once per provider snapshot."""
+        from . import tvbasic
+        doc = self.load()
+        if not doc.get("channels"):
+            return None
+        stamp = (doc.get("fetched_at"), doc.get("guide_at"), home, tvbasic.VERSION, len(self._overlay()))
+        cached = getattr(self, "_basic_cache", None)
+        if cached and cached[0] == stamp:
+            return cached[1]
+        rows = []
+        for row in doc["channels"]:
+            shown = self._present_channel(row)
+            if shown is not None:
+                rows.append({"key": shown["key"], "name": shown["name"], "category": shown["group"]})
+        guide = doc.get("guide") or {}
+        out = tvbasic.build(rows, home, has_guide=lambda key: bool(guide.get(key)))
+        self._basic_cache = (stamp, out)
+        return out
+
     def channel(self, key: str) -> dict[str, Any] | None:
         for row in self.load().get("channels") or []:
             if row.get("key") == key:
