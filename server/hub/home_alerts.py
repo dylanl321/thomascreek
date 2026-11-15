@@ -217,18 +217,21 @@ class HomeAlerts:
         return clock >= start or clock < end
 
 
-def rewrite_playlist(text: str, alert_id: str, base: str = "") -> str:
+def rewrite_playlist(text: str, alert_id: str, base: str = "", route: str | None = None) -> str:
     """Point every HLS line at the hub, so the TV never calls go2rtc itself.
 
     `base` is the go2rtc folder the playlist came from (`api/` for the first one, `api/hls/` for the
     media playlist). go2rtc writes relative lines (`hls/playlist.m3u8?id=..`, `segment.ts?id=..&n=..`,
-    `URI="init.mp4?id=.."`), and they only resolve against that folder.
+    `URI="init.mp4?id=.."`), and they only resolve against that folder. `route` is the hub path the lines
+    point at (default: this alert's `/media`; the Cameras screen uses `/v1/tv/cameras/{cam}/media`).
     """
+    media = route or f"/v1/tv/alerts/{alert_id}/media"
+
     def hub(ref: str) -> str | None:
         ref = ref.strip()
         if not ref or "://" in ref or ref.startswith("/") or ".." in ref:
             return None
-        return f"/v1/tv/alerts/{alert_id}/media?src={quote(base + ref, safe='')}"
+        return f"{media}?src={quote(base + ref, safe='')}"
 
     lines = []
     for line in (text or "").splitlines():
