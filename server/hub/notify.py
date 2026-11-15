@@ -19,28 +19,138 @@ if TYPE_CHECKING:
 
 log = logging.getLogger("hub.notify")
 
+# Who each kind of notice is for. `group` is the audience:
+#   household  something happening at the house (doorbell, doors, weather)
+#   personal   about one person (their movie is ready, their print finished)
+#   technical  keeping the systems running (NAS, apps, builds): admins only
+# `roles` get it unless they switch it off. Technical ones stay off for everyone
+# else, and only an admin can switch one on for someone (admin page).
 CATEGORIES = [
-    {"id": "doors", "title": "Doors and garage", "detail": "Opened, closed, or left open", "default": True},
-    {"id": "cameras", "title": "Cameras", "detail": "Doorbell and the cameras you pick under Alerts", "default": True},
-    {"id": "requests", "title": "Requests", "detail": "Asks from the kids and their answers", "default": True},
-    {"id": "media", "title": "Movies and shows", "detail": "When something you asked for is ready", "default": True},
-    {"id": "chores", "title": "Chores and rewards", "detail": "Reminders and approvals", "default": True},
-    {"id": "holiday", "title": "Holiday lights", "detail": "Show start, look changes", "default": False},
-    {"id": "kitchen", "title": "Kitchen", "detail": "Oven preheated, timers, oven left on", "default": True},
-    {"id": "weather", "title": "Weather alerts", "detail": "Warnings from the weather service", "default": True},
-    {"id": "house", "title": "House alerts", "detail": "Freezer, leaks, things left on", "default": True},
-    {"id": "systems", "title": "Servers and network", "detail": "NAS, apps, internet (admin)", "default": True},
-    {"id": "devices", "title": "New devices", "detail": "A phone or tablet joined (admin)", "default": True},
-    {"id": "updates", "title": "App updates", "detail": "A new version of Thomas Creek is ready", "default": True},
-    {"id": "feedback", "title": "Family feedback", "detail": "Notes sent with Tell Dylan (admin)", "default": True},
+    {"id": "doors", "group": "household", "title": "Doors and garage", "detail": "Opened, closed, or left open",
+     "roles": ("admin", "adult")},
+    {"id": "cameras", "group": "household", "title": "Cameras", "detail": "Doorbell and the cameras you pick under Alerts",
+     "roles": ("admin", "adult")},
+    {"id": "house", "group": "household", "title": "House alerts", "detail": "Freezer, leaks, things left on",
+     "roles": ("admin", "adult")},
+    {"id": "weather", "group": "household", "title": "Weather alerts", "detail": "Warnings from the weather service",
+     "roles": ("admin", "adult", "child")},
+    {"id": "kitchen", "group": "household", "title": "Kitchen", "detail": "Oven preheated, timers, oven left on",
+     "roles": ("admin", "adult")},
+    {"id": "kids", "group": "household", "title": "Kids' asks", "detail": "When a kid asks a grown-up for something",
+     "roles": ("admin", "adult")},
+    {"id": "holiday", "group": "household", "title": "Holiday lights", "detail": "Show start, look changes",
+     "roles": ()},
+    {"id": "media", "group": "personal", "title": "Movies and shows", "detail": "When something you asked for is ready",
+     "roles": ("admin", "adult", "child")},
+    {"id": "requests", "group": "personal", "title": "Requests", "detail": "Asks from the kids and their answers",
+     "roles": ("admin", "adult", "child")},
+    {"id": "printer", "group": "personal", "title": "3D prints", "detail": "Your print finished or needs you",
+     "roles": ("admin", "adult", "child")},
+    {"id": "chores", "group": "personal", "title": "Chores and rewards", "detail": "Reminders and approvals",
+     "roles": ("admin", "adult", "child")},
+    {"id": "systems", "group": "technical", "title": "Servers and network",
+     "detail": "NAS, apps, Home Assistant device health, internet", "roles": ("admin",)},
+    {"id": "devices", "group": "technical", "title": "New devices", "detail": "A phone or tablet joined",
+     "roles": ("admin",)},
+    {"id": "updates", "group": "technical", "title": "App updates", "detail": "A new build of Thomas Creek or the TV app",
+     "roles": ("admin",)},
+    {"id": "feedback", "group": "technical", "title": "Family feedback", "detail": "Notes sent with Tell Dylan",
+     "roles": ("admin",)},
 ]
-DEFAULT_PREFS = {c["id"]: c["default"] for c in CATEGORIES}
+CATEGORY = {c["id"]: c for c in CATEGORIES}
+GROUPS = {"household": "For the household", "personal": "Just for you", "technical": "Technical (admins)"}
+# Kept for older callers: the admin's defaults.
+DEFAULT_PREFS = {c["id"]: "admin" in c["roles"] for c in CATEGORIES}
+
+
+def role_defaults(role: str | None) -> dict[str, bool]:
+    return {c["id"]: (role or "") in c["roles"] for c in CATEGORIES}
+
+
+def categories_for(role: str | None, prefs: dict[str, bool] | None = None) -> list[dict[str, Any]]:
+    """The category list a person sees: technical ones only for admins, or when an admin switched one on."""
+    out = []
+    for c in CATEGORIES:
+        if c["group"] == "technical" and role != "admin" and not (prefs or {}).get(c["id"]):
+            continue
+        out.append({"id": c["id"], "title": c["title"], "detail": c["detail"], "group": c["group"],
+                    "default": (role or "") in c["roles"], "locked": c["group"] == "technical" and role != "admin"})
+    return out
+
+
 LEVELS = ("act_now", "decision", "maintenance", "fyi")
 
 
 class Notifier:
     def __init__(self, hub: "Hub"):
         self.hub = hub
+        from .notify_sort import Sorter
+
+        self.sorter = Sorter(hub)
+
+    # -- who wants what ----------------------------------------------------
+    def _overrides(self, person_id: str) -> dict[str, bool] | None:
+        return self.hub.db.kv_get(f"notify.cats.{person_id}")
+
+    def _seed(self, person: dict[str, Any]) -> dict[str, bool]:
+        """First read for a person: carry over a category they switched off on every phone before prefs
+        moved from each device to the person."""
+        old_default = {"doors", "cameras", "requests", "media", "chores", "kitchen", "weather", "house",
+                       "systems", "devices", "updates", "feedback"}
+        devs = [d for d in self.hub.db.devices(person["id"]) if d["status"] == "active" and d.get("prefs")]
+        seeded: dict[str, bool] = {}
+        if devs:
+            mine = role_defaults(person.get("role"))
+            for cat in old_default:
+                if mine.get(cat) and all((d.get("prefs") or {}).get(cat) is False for d in devs):
+                    seeded[cat] = False
+        self.hub.db.kv_set(f"notify.cats.{person['id']}", seeded)
+        return seeded
+
+    def prefs(self, person: dict[str, Any] | str) -> dict[str, bool]:
+        """A person's categories: their role's defaults with their own (or an admin's) changes on top."""
+        p = self.hub.db.person(person) if isinstance(person, str) else person
+        if not p:
+            return {}
+        over = self._overrides(p["id"])
+        if over is None:
+            over = self._seed(p)
+        out = role_defaults(p.get("role"))
+        for k, v in over.items():
+            if k in out and isinstance(v, bool):
+                out[k] = v
+        return out
+
+    def set_prefs(self, person_id: str, changes: dict[str, Any], *, by_admin: bool) -> dict[str, bool]:
+        """Change some categories. Only an admin can switch a technical one on for someone who isn't one."""
+        p = self.hub.db.person(person_id)
+        if not p:
+            return {}
+        cur = self.prefs(p)
+        over = dict(self._overrides(p["id"]) or {})
+        base = role_defaults(p.get("role"))
+        for k, v in changes.items():
+            c = CATEGORY.get(k)
+            if not c or not isinstance(v, bool):
+                continue
+            if v and c["group"] == "technical" and p.get("role") != "admin" and not by_admin and not cur.get(k):
+                continue
+            if v == base[k]:
+                over.pop(k, None)
+            else:
+                over[k] = v
+        self.hub.db.kv_set(f"notify.cats.{p['id']}", over)
+        return self.prefs(p)
+
+    def wants(self, person: dict[str, Any], cat: str, *, named: bool = False) -> bool:
+        """`named`: the sender picked this person on purpose (an automation sent "to: kids"). That beats the
+        role default for a household or personal kind, but not the person's own "off", and never a technical one."""
+        c = CATEGORY.get(cat)
+        if c is None:  # an unlisted kind: whoever the sender chose
+            return True
+        if named and c["group"] != "technical":
+            return (self._overrides(person["id"]) or {}).get(cat, True) is not False
+        return self.prefs(person).get(cat, False)
 
     def _recipients(self, person_ids: Iterable[str] | None, roles: Iterable[str] | None) -> list[dict[str, Any]]:
         db = self.hub.db
@@ -72,12 +182,21 @@ class Notifier:
         image: str | None = None,
         interruption: str | None = None,
         extra: dict[str, Any] | None = None,
+        named: bool = False,
+        sort: bool = True,
     ) -> list[str]:
         assert level in LEVELS
         db = self.hub.db
+        # Fixed categories (doorbell, doors, NAS ...) go straight out. Free text is sorted first,
+        # but an urgent one never waits for the AI.
+        urgent = level == "act_now" or interruption in ("time-sensitive", "critical")
+        if sort:
+            cat = await self.sorter.sort(cat=cat, title=title, body=body, urgent=urgent)
         ids = []
         for p in self._recipients(person_ids, roles):
             if p["id"] == exclude_person:
+                continue
+            if not self.wants(p, cat, named=named):
                 continue
             iid = new_id("inb")
             db.insert("inbox", {
@@ -127,9 +246,7 @@ class Notifier:
         for d in self.hub.db.all(
             "SELECT * FROM devices WHERE person_id=? AND status='active' AND apns_token IS NOT NULL", [person_id]
         ):
-            prefs = {**DEFAULT_PREFS, **(d.get("prefs") or {})}
-            if not prefs.get(kw["cat"], True):
-                continue
+            # Categories are the person's now (self.prefs), the same on every phone they use.
             payload = alert_payload(title, body, cat=kw["cat"], inbox_id=kw.get("inbox_id"), ref=kw.get("ref"),
                                     category=kw.get("category"), level=kw.get("level", "fyi"), thread=thread,
                                     silent=kw.get("silent", False), image=kw.get("image"),

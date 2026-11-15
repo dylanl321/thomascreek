@@ -36,7 +36,11 @@ struct AlertsReply: Codable {
             case skipKnown = "skip_known", onlyAway = "only_away", gapS = "gap_s", awayDoors = "away_doors"
         }
     }
-    struct Category: Codable, Identifiable { var id: String; var title: String; var detail: String; var `default`: Bool }
+    struct Category: Codable, Identifiable {
+        var id: String; var title: String; var detail: String; var `default`: Bool
+        /// household, personal or technical: who this kind of notification is for.
+        var group: String?
+    }
     struct Thing: Codable, Identifiable, Hashable {
         var entityId: String; var name: String
         var id: String { entityId }
@@ -315,12 +319,18 @@ struct AlertsView: View {
             }
         }
 
-        Section("Family and app") {
-            ForEach(r.categories) { c in
-                Toggle(isOn: Binding(get: { model.reply?.devicePrefs[c.id] ?? c.default },
-                                     set: { v in model.reply?.devicePrefs[c.id] = v; model.set(c.id, v, device: true) })) {
-                    VStack(alignment: .leading, spacing: 2) { Text(c.title); Text(c.detail).font(.caption).foregroundStyle(Theme.dim) }
-                }
+        // The hub keeps these per person, so they're the same on every phone and iPad you use.
+        ForEach(Self.groups, id: \.id) { g in
+            let cats = r.categories.filter { ($0.group ?? "household") == g.id }
+            if !cats.isEmpty {
+                Section {
+                    ForEach(cats) { c in
+                        Toggle(isOn: Binding(get: { model.reply?.devicePrefs[c.id] ?? c.default },
+                                             set: { v in model.reply?.devicePrefs[c.id] = v; model.set(c.id, v, device: true) })) {
+                            VStack(alignment: .leading, spacing: 2) { Text(c.title); Text(c.detail).font(.caption).foregroundStyle(Theme.dim) }
+                        }
+                    }
+                } header: { Text(g.title) } footer: { Text(g.footer) }
             }
         }
 
@@ -344,6 +354,13 @@ struct AlertsView: View {
             if r.found.listening == false && r.grownUp { Text("The hub isn't hearing from Home Assistant right now, so doorbell and house alerts may be late.") }
         }
     }
+
+    private struct AudienceGroup { let id: String; let title: String; let footer: String }
+    private static let groups: [AudienceGroup] = [
+        AudienceGroup(id: "household", title: "For the household", footer: "Things happening at the house."),
+        AudienceGroup(id: "personal", title: "Just for you", footer: "Only about things you asked for."),
+        AudienceGroup(id: "technical", title: "Technical", footer: "Servers, Home Assistant health and new builds. Only admins get these unless Dylan turns one on for you."),
+    ]
 
     private func row(_ title: String, _ detail: String, _ icon: String) -> some View {
         Label {

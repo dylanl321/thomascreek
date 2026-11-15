@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 
 from ..alerts import ALERT_ROLES, GAPS, LABEL_TITLES
-from ..notify import CATEGORIES, DEFAULT_PREFS
+from ..notify import categories_for
 from ..state import Hub
 from .cameras import camera_name
 from .deps import Caller, caller, caller_ip, error, hub, require_confirm
@@ -36,12 +36,14 @@ def _view(h: Hub, c: Caller) -> dict[str, Any]:
     prefs = h.alerts.prefs(pid)
     if not grown:
         prefs = {k: v for k, v in prefs.items() if k in CHILD_KEYS}
-    admin_only = {"systems", "devices"}
-    cats = [cat for cat in CATEGORIES if cat["id"] not in REPLACED and (cat["id"] not in admin_only or role == "admin")]
+    mine = h.notify.prefs(pid)
+    cats = [cat for cat in categories_for(role, mine) if cat["id"] not in REPLACED]
     out: dict[str, Any] = {
         "role": role,
         "prefs": prefs,
-        "device_prefs": {**DEFAULT_PREFS, **(c.device.get("prefs") or {})},
+        # The person's categories (same on every device). Still called device_prefs for older apps.
+        "device_prefs": mine,
+        "notify": mine,
         "categories": cats,
         "push_ready": h.apns.enabled and bool(c.device.get("apns_token")),
         "gaps": list(GAPS),
@@ -77,13 +79,9 @@ async def put_alerts(body: dict[str, Any], c: Caller = Depends(caller), h: Hub =
     if c.subject.role not in ALERT_ROLES:
         changes = {k: v for k, v in changes.items() if k in CHILD_KEYS}
     h.alerts.set_prefs(pid, changes)
-    dev = body.get("device_prefs")
-    if isinstance(dev, dict):
-        known = {cat["id"] for cat in CATEGORIES}
-        merged = {**DEFAULT_PREFS, **(c.device.get("prefs") or {}),
-                  **{k: bool(v) for k, v in dev.items() if k in known and isinstance(v, bool)}}
-        h.db.update("devices", "id", c.device["id"], {"prefs": merged})
-        c.device["prefs"] = merged
+    cats = body.get("notify") if isinstance(body.get("notify"), dict) else body.get("device_prefs")
+    if isinstance(cats, dict):
+        h.notify.set_prefs(pid, cats, by_admin=False)
     h.db.log("alerts.prefs", "ok", person_id=pid, device_id=c.device["id"], source="app")
     return _view(h, c)
 

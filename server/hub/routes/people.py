@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 
 from ..home import iso
-from ..notify import CATEGORIES, DEFAULT_PREFS, Notifier
+from ..notify import Notifier, categories_for
 from ..policy import ROLES
 from ..state import Hub
 from ..vpn import VpnError, valid_wg_key
@@ -32,14 +32,16 @@ class PushBody(BaseModel):
 
 @router.post("/devices/push")
 async def register_push(body: PushBody, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
-    prefs = {**DEFAULT_PREFS, **(c.device.get("prefs") or {}), **(body.prefs or {})}
-    h.db.update("devices", "id", c.device["id"], {"apns_token": body.apns_token, "apns_env": body.env, "prefs": prefs})
-    return {"prefs": prefs, "categories": _categories_for(h, c)}
+    # Older apps send their whole stored prefs with every registration; categories live on the person
+    # now, so only the token is kept here (POST /v1/devices/prefs or /v1/alerts change categories).
+    h.db.update("devices", "id", c.device["id"], {"apns_token": body.apns_token, "apns_env": body.env})
+    return _my_categories(h, c)
 
 
-def _categories_for(h: Hub, c: Caller) -> list[dict[str, Any]]:
-    admin_only = {"systems", "devices"}
-    return [cat for cat in CATEGORIES if cat["id"] not in admin_only or c.subject.role == "admin"]
+def _my_categories(h: Hub, c: Caller) -> dict[str, Any]:
+    pid = c.subject.person_id
+    prefs = h.notify.prefs(pid) if pid else {}
+    return {"prefs": prefs, "categories": categories_for(c.subject.role, prefs)}
 
 
 class PrefsBody(BaseModel):
@@ -48,10 +50,11 @@ class PrefsBody(BaseModel):
 
 @router.post("/devices/prefs")
 async def set_prefs(body: PrefsBody, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
-    known = {cat["id"] for cat in CATEGORIES}
-    prefs = {**DEFAULT_PREFS, **(c.device.get("prefs") or {}), **{k: v for k, v in body.prefs.items() if k in known}}
-    h.db.update("devices", "id", c.device["id"], {"prefs": prefs})
-    return {"prefs": prefs, "categories": _categories_for(h, c)}
+    """Change the caller's own categories. They follow the person to every device."""
+    if c.subject.person_id:
+        h.notify.set_prefs(c.subject.person_id, body.prefs, by_admin=False)
+        h.db.log("notify.prefs", "ok", person_id=c.subject.person_id, device_id=c.device["id"], source="app")
+    return _my_categories(h, c)
 
 
 class ActivityBody(BaseModel):

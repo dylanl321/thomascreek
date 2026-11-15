@@ -15,6 +15,7 @@ from urllib.parse import quote
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
+from ..notify import CATEGORIES, CATEGORY, GROUPS, role_defaults
 from ..policy import ROLES
 from ..state import Hub
 from .admin_health import ago
@@ -58,6 +59,55 @@ def _device_row(d: dict[str, Any], csrf: str, people: list[dict[str, Any]], mine
             f"<div class=kbody><div class=dim>{info}</div><div class=factions>{actions}</div></div></details>")
 
 
+def _notify_card(h: Hub, p: dict[str, Any], csrf: str) -> str:
+    """Which kinds of notifications this person gets. Unticking or ticking one only changes them."""
+    e = html.escape
+    mine = h.notify.prefs(p)
+    base = role_defaults(p["role"])
+    changed = sum(1 for k, v in mine.items() if v != base.get(k))
+    groups = []
+    for g, label in GROUPS.items():
+        boxes = "".join(
+            f"<label style='display:flex;gap:8px;align-items:flex-start;padding:4px 0'>"
+            f"<input type=checkbox name=on value={c['id']}{' checked' if mine.get(c['id']) else ''}>"
+            f"<span>{e(c['title'])} <span class=dim>{e(c['detail'])}"
+            f"{' · changed' if mine.get(c['id']) != base.get(c['id']) else ''}</span></span></label>"
+            for c in CATEGORIES if c["group"] == g)
+        groups.append(f"<div style='margin-top:6px'><b style='font-size:13px'>{e(label)}</b>{boxes}</div>")
+    note = f"{sum(mine.values())} of {len(mine)} on" + (f", {changed} changed from the {e(ROLE_LABELS.get(p['role'], p['role']).lower())} defaults" if changed else "")
+    return (f"<details class=key><summary><span>Notifications</span><span class=dim>{note}</span></summary>"
+            f"<div class=kbody><form method=post action=/admin/people/notify>{_hid(csrf, person=p['id'])}"
+            f"{''.join(groups)}<div class=factions><button>Save</button>"
+            f"<button class=ghost name=reset value=1>Back to defaults</button></div></form></div></details>")
+
+
+def _sorted_html(h: Hub, csrf: str) -> str:
+    """What the sorter decided for free-text alerts (Home Assistant automations and the like), with a fix."""
+    e = html.escape
+    rows = h.notify.sorter.recent()[:25]
+    if not rows:
+        return ""
+    opts_for = lambda cur: "".join(  # noqa: E731
+        f"<option value={c['id']}{' selected' if c['id'] == cur else ''}>{e(c['title'])} ({e(c['group'])})</option>"
+        for c in CATEGORIES)
+    how_words = {"ai": "AI", "rules": "rules", "urgent": "urgent, sent at once by rules", "admin": "your fix"}
+    lines = []
+    for r in rows:
+        cur = r.get("fixed") or r.get("cat")
+        reset = (f"<button class=ghost name=reset value=1>Let the AI decide</button>" if r.get("fixed") else "")
+        lines.append(
+            f"<div class=row style='flex-wrap:wrap'><div style='flex:1;min-width:220px'><b>{e(r.get('title') or '')}</b>"
+            f"<div class=dim>{ago(r.get('t'))} · {e(CATEGORY.get(r.get('cat'), {}).get('title', r.get('cat') or ''))}"
+            f" · {e(how_words.get(r.get('how'), r.get('how') or ''))}"
+            f"{' · ' + e(r['reason']) if r.get('reason') else ''}</div></div>"
+            f"<form method=post action=/admin/people/sorted class=fform style='flex:0'>{_hid(csrf, sig=r['sig'])}"
+            f"<select name=cat>{opts_for(cur)}</select><button class=ghost2>Always this</button>{reset}</form></div>")
+    return (f"<h2 style='margin-top:28px'>How alerts were sorted</h2><div class=dim>Alerts written somewhere else "
+            f"(Home Assistant automations) are sorted by AI so technical ones only reach admins. Urgent ones never "
+            f"wait for it. Pick a category to always send that kind of alert there.</div>"
+            f"<div class=card style='margin-top:10px'>{''.join(lines)}</div>")
+
+
 def _page_html(h: Hub, claims: dict[str, Any], flash: str | None) -> str:
     e = html.escape
     csrf = _csrf(claims)
@@ -97,7 +147,7 @@ def _page_html(h: Hub, claims: dict[str, Any], flash: str | None) -> str:
         cards.append(f"<h3 style='display:flex;justify-content:space-between;align-items:center;text-transform:none;"
                      f"font-size:15px;color:var(--fg)'><span>{e(p['name'])} <span class=dim style='font-weight:400'>"
                      f"{len(devs)} device{'s' if len(devs) != 1 else ''}{e(expires)}</span></span>{role}</h3>"
-                     f"<div class=card>{rows}</div>")
+                     f"<div class=card>{rows}{_notify_card(h, p, csrf)}</div>")
 
     gone = "".join(f"<div class=row><div>{e(d['name'])} <span class=dim>{e(d.get('model') or '')}</span></div>"
                    f"<div class=dim>last seen {ago(d.get('last_seen_at'))}</div></div>" for d in removed[-30:][::-1])
@@ -119,6 +169,7 @@ and shows up under <i>Waiting for you</i> here (you also get a notification). Pi
 <input name=name placeholder="Name" maxlength=60 required autocomplete=off><select name=role>{role_new}</select><button>Add person</button></form>
 </div></details></div>
 {''.join(cards)}
+{_sorted_html(h, csrf)}
 {gone_html}
 """)
 
@@ -199,3 +250,38 @@ async def add_person(request: Request, h: Hub = Depends(hub)) -> Response:
     p = h.db.add_person(name, role)
     h.db.log("people.create", "ok", person_id=claims.get("per"), device_id=claims.get("dev"), target=p["id"], source="web")
     return _go(f"Added {name}. Approve their device under Waiting for you once they open the app at home.")
+
+
+@pages.post("/admin/people/notify")
+async def set_notify(request: Request, h: Hub = Depends(hub)) -> Response:
+    claims, form = await _form_session(request, h)
+    p = h.db.person(str(form.get("person", "")))
+    if p is None:
+        return _go("Pick a person.")
+    if form.get("reset"):
+        h.db.kv_set(f"notify.cats.{p['id']}", {})
+        msg = f"{p['name']} is back to the {ROLE_LABELS.get(p['role'], p['role']).lower()} notifications."
+    else:
+        on = set(form.getlist("on"))
+        h.notify.set_prefs(p["id"], {c["id"]: c["id"] in on for c in CATEGORIES}, by_admin=True)
+        msg = f"Saved {p['name']}'s notifications."
+    h.db.log("notify.prefs", "ok", person_id=claims.get("per"), device_id=claims.get("dev"), target=p["id"], source="web")
+    h.bus.publish({"type": "settings", "data": {"reason": "notify"}}, person_id=p["id"])
+    return _go(msg)
+
+
+@pages.post("/admin/people/sorted")
+async def fix_sorted(request: Request, h: Hub = Depends(hub)) -> Response:
+    claims, form = await _form_session(request, h)
+    sig, cat = str(form.get("sig", ""))[:32], str(form.get("cat", ""))
+    if not sig:
+        return _go("Pick an alert.")
+    if form.get("reset"):
+        h.notify.sorter.correct(sig, None)
+        return _go("The AI decides that kind of alert again.")
+    if cat not in CATEGORY:
+        return _go("Pick a category.")
+    h.notify.sorter.correct(sig, cat)
+    h.db.log("notify.sort_fix", "ok", person_id=claims.get("per"), device_id=claims.get("dev"), target=sig,
+             params={"cat": cat}, source="web")
+    return _go(f"That kind of alert now always goes to {CATEGORY[cat]['title']}.")

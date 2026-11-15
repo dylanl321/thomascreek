@@ -116,12 +116,25 @@ Show this quietly (e.g. a "Practice mode" chip from `/v1/me.dry_run`).
 
 ## Push and inbox
 
-`POST /v1/devices/push {apns_token, env, prefs?}` -> `{prefs, categories:[{id,title,detail,default}]}`
-`POST /v1/devices/prefs {prefs}` -> same
+`POST /v1/devices/push {apns_token, env}` -> `{prefs, categories:[{id,title,detail,group,default,locked}]}` (a `prefs` sent here is ignored)
+`POST /v1/devices/prefs {prefs}` -> same; changes the caller's own categories
 `POST /v1/devices/activity {start_token?, activity_id?, token?}` (send `activity_id` with no `token` when an activity ends)
 
-Categories: `doors, cameras, requests, media, chores, holiday, house, systems, devices`
-(the last two only for admin). APNs custom keys: `cat`, `inbox_id`, `ref`. `aps.category`
+Categories belong to the person, not the device, so they are the same on every phone and iPad. Each has an
+audience `group`: `household` (doors, cameras, house, weather, kitchen, kids, holiday), `personal` (media,
+requests, printer, chores) or `technical` (systems, devices, updates, feedback). Defaults come from the role:
+technical ones are on for admins only; kids get no doors, cameras, house or kitchen notices. A person can turn
+their own categories on or off, except that only an admin can turn a technical one on for someone who isn't an
+admin (People on the hub web page, which also sets anyone's categories). `GET /v1/alerts` returns them as
+`notify` (and `device_prefs` for older apps); `PUT /v1/alerts {notify:{cat:bool}}` changes them.
+
+Sorting: notices whose words come from elsewhere (`house` from Home Assistant automations, or `auto`) are
+sorted into a category before they go out (`hub/notify_sort.py`): an admin's fix for that kind of notice, then
+the AI's cached answer, then the AI (the brain's cheap model, at most 6 s), then keyword rules. Urgent notices
+(`act_now`, time-sensitive) never wait for the AI: rules decide and the AI learns that kind in the background.
+Every other category is fixed and goes out at once. The AI only picks the category; recipients are still the
+sender's list narrowed by each person's categories, so it can remove people but never add them. The People page
+lists recent sorting with a per-kind fix. APNs custom keys: `cat`, `inbox_id`, `ref`. `aps.category`
 is `NEW_DEVICE` or `REQUEST` for notices with buttons. `thread-id` matches `apns-collapse-id`
 (the alert's group, so a repeat replaces the one on screen and related alerts sit together);
 an alert with no group uses the category as `thread-id` and does not collapse.
