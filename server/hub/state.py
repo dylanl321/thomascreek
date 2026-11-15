@@ -101,6 +101,7 @@ class Hub:
                                    ref="thomascreek://tvs", group_key="tvapp")
 
         self.tv_app = TvApp(config.tv_app, vault, db, data, notify=_tv_notice)
+        self.tv_app.hub_config = config
         from datetime import datetime
         from zoneinfo import ZoneInfo
 

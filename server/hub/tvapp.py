@@ -407,6 +407,8 @@ class TvApp:
         self.adb = adb or Adb(data / "adb")
         self._transport = transport
         self.notify = notify
+        # The whole hub config, for IPTV providers. state.py sets it; tests may leave it None.
+        self.hub_config: Any = None
         self._task: asyncio.Task | None = None
         self._lock = asyncio.Lock()
         self._waiters: dict[str, list[asyncio.Event]] = {}
@@ -701,13 +703,41 @@ class TvApp:
             return str(self.vault.get(n) or "").strip()
 
         playlists: list[dict[str, Any]] = []
-        if v("iptv.xtream_server") and v("iptv.xtream_username") and v("iptv.xtream_password"):
-            playlists.append({"type": "xtream", "name": "Thomas Creek", "server": v("iptv.xtream_server"),
-                              "username": v("iptv.xtream_username"), "password": v("iptv.xtream_password")})
+        # One playlist per provider, so the TV lists every provider's catalog. The TV loads it with
+        # that provider's first login; playback picks a free login per stream through /v1/tv/tune.
+        seen: set[str] = set()
+        for login in self._iptv_logins():
+            provider = str(login.get("provider") or "")
+            secret = str(login.get("password_secret") or "")
+            password = str(self.vault.get(secret) or "").strip() if secret and self.vault.has(secret) else ""
+            if not provider or provider in seen or not login.get("server") or not login.get("username") or not password:
+                continue
+            seen.add(provider)
+            # The original login keeps its address exactly as saved, so a TV that has it doesn't add it twice.
+            server = v("iptv.xtream_server") if secret == "iptv.xtream_password" else login["server"]
+            playlists.append({"type": "xtream", "name": str(login.get("name") or provider), "server": server,
+                              "username": login["username"], "password": password})
         if v("iptv.m3u_url"):
             playlists.append({"type": "m3u", "name": "Thomas Creek" if not playlists else "Thomas Creek M3U",
                               "url": v("iptv.m3u_url")})
         return {"playlists": playlists, "epg_url": v("iptv.epg_url") or None}
+
+    def _iptv_logins(self) -> list[dict[str, Any]]:
+        """Saved logins in provider order. The legacy single login comes back as provider "thomas-creek"."""
+        from types import SimpleNamespace
+
+        from . import iptvplay
+
+        shim = SimpleNamespace(config=self.hub_config or SimpleNamespace(iptv=None), vault=self.vault, db=self.db)
+        rows = iptvplay.logins(shim)
+        # logins() drops the original vault login once any other is saved; the TV still wants its catalog.
+        v = lambda n: str(self.vault.get(n) or "").strip() if self.vault.has(n) else ""  # noqa: E731
+        if v("iptv.xtream_server") and v("iptv.xtream_username") and v("iptv.xtream_password") \
+                and not any(r.get("password_secret") == "iptv.xtream_password" for r in rows):
+            rows.append({"provider": "thomas-creek", "login": "main", "server": v("iptv.xtream_server"),
+                         "username": v("iptv.xtream_username"), "password_secret": "iptv.xtream_password",
+                         "name": "Thomas Creek"})
+        return sorted(rows, key=lambda r: (str(r.get("provider")), str(r.get("login"))))
 
     def _short_code(self) -> str:
         return "".join(secrets.choice(_CODE_ALPHABET) for _ in range(6))
@@ -940,6 +970,8 @@ class TvApp:
             "room": tv.get("room"),
             "media_entity": tv.get("media_entity"),
             "playlists": src["playlists"],
+            # Channel-id label. Fixed, so favorites keep their ids when providers are added or reordered.
+            "source": "thomas-creek",
             "epg_url": src["epg_url"],
             "lineup_version": self.lineup_version(),
             "theme": self.theme(),
@@ -962,6 +994,8 @@ class TvApp:
             "room": tv.get("room"),
             "media_entity": tv.get("media_entity"),
             "playlists": src["playlists"],
+            # Channel-id label. Fixed, so favorites keep their ids when providers are added or reordered.
+            "source": "thomas-creek",
             "epg_url": src["epg_url"],
             "lineup_version": self.lineup_version(),
             "theme": self.theme(),

@@ -276,6 +276,28 @@ def test_tv_waits_for_approval_then_gets_its_source(hub, home_client, people):
                                  "username": "household", "password": "s3cret"}]
 
 
+def test_tv_gets_one_playlist_per_provider_including_the_original_login(hub, home_client):
+    from hub import iptvplay
+
+    hub.vault.set("iptv.xtream_server", "http://iptv.example:8080/")
+    hub.vault.set("iptv.xtream_username", "household")
+    hub.vault.set("iptv.xtream_password", "s3cret")
+    iptvplay.add_login(hub, "acme", "http://acme.example/", "one", "a1", "p1")
+    iptvplay.add_login(hub, "acme", "http://acme.example/", "two", "a2", "p2")
+    iptvplay.add_login(hub, "beta", "http://beta.example", "main", "b1", "p3")
+    key = TvKey()
+    home_client.post("/v1/tv/enroll", json={"install_id": TV_ID, "name": "Shield", "public_key": key.pub})
+    hub.tv_app.set_tv(TV_ID, status="approved")
+    cfg = _config(home_client, key).json()
+    assert cfg["source"] == "thomas-creek"
+    assert cfg["playlists"] == [
+        {"type": "xtream", "name": "acme", "server": "http://acme.example", "username": "a1", "password": "p1"},
+        {"type": "xtream", "name": "beta", "server": "http://beta.example", "username": "b1", "password": "p3"},
+        {"type": "xtream", "name": "Thomas Creek", "server": "http://iptv.example:8080/", "username": "household",
+         "password": "s3cret"},
+    ]
+
+
 def test_tv_on_an_added_box_is_approved_with_the_box_profile(hub, home_client):
     hub.tv_app.db.kv_set("tvapp.boxes", {"192.168.1.50": {"name": "Theo's TV", "auto": True, "profile": "kids"}})
     hub.tv_app.set_kids_categories(["Kids", "Cartoons", "Kids"])
