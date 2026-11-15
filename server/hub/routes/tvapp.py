@@ -2,6 +2,9 @@
 
 GET    /v1/tvapp                         latest build, pinned signer, boxes with their installed version
 POST   /v1/tvapp/check                   look for a new build on GitHub now
+GET    /v1/tvapp/fleet                   every Android TV, whether it has the app, and what to do next
+POST   /v1/tvapp/install                 {ips, profile?, room?, home?, pairing_code?} install in the background
+POST   /v1/tvapp/update-all              newest build to every TV that is behind
 POST   /v1/tvapp/boxes                   {ip, name?, auto?} add a box (the TV then shows "Allow debugging?")
 POST   /v1/tvapp/boxes/{ip}/refresh      reconnect and read the installed version
 POST   /v1/tvapp/boxes/{ip}/install      {force?} install or update now (force: even while the app is open)
@@ -301,6 +304,77 @@ async def rollback_home(ip: str, c: Caller = Depends(caller), h: Hub = Depends(h
         return await Setup(h.tv_app).rollback_home(ip)
     except TvAppError as exc:
         raise _err(exc) from None
+
+
+class InstallIn(BaseModel):
+    ips: list[str] = Field(default_factory=list, max_length=50)
+    name: str | None = Field(default=None, max_length=80)
+    room: str | None = Field(default=None, max_length=40)
+    profile: str = "adult"
+    home: bool = False
+    pairing_code: str | None = Field(default=None, max_length=8)
+    pairing_port: int | None = None
+
+
+@router.get("/fleet")
+async def fleet(fresh: bool = False, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """Every Android TV in the house, whether it has the app, and the one thing to do next for each."""
+    need(h, c, "systems")
+    from ..tvinstall import inventory
+
+    return await inventory(h, fresh=fresh, installer=h.tv_installer)
+
+
+@router.post("/install")
+async def install_on(body: InstallIn, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """Install on one or more TVs in the background. Poll GET /v1/tvapp/fleet or /v1/tvapp/setup/{ip}."""
+    need(h, c, "systems")
+    from ..tvinstall import inventory
+
+    if not body.ips:
+        raise error(400, "bad_request", "Pick at least one TV")
+    if len(body.ips) > 1 and body.pairing_code:
+        raise error(400, "bad_request", "A pairing code is for one TV")
+    names = {}
+    if not body.name:
+        names = {row["ip"]: row["name"] for row in (await inventory(h, installer=h.tv_installer))["tvs"]}
+    started, problems = [], []
+    for ip in body.ips:
+        try:
+            started.append(await h.tv_installer.start(
+                ip, name=body.name or names.get(ip), room=body.room, profile=body.profile, home=body.home,
+                pairing_code=body.pairing_code, pairing_port=body.pairing_port))
+        except TvAppError as exc:
+            problems.append({"ip": ip, "code": exc.code, "message": exc.message})
+    if not started and problems:
+        raise error(409 if problems[0]["code"] in ("no_adb", "no_build") else 400, problems[0]["code"], problems[0]["message"])
+    _log(h, c, "tvapp.install", ",".join(body.ips)[:200])
+    return {"started": started, "problems": problems}
+
+
+@router.post("/update-all")
+async def update_all_now(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """Send the newest build to every TV that is behind. A TV with the app on screen finishes overnight."""
+    need(h, c, "systems")
+    from ..tvinstall import inventory
+    from .. import tvs as tvs_mod
+
+    page = await inventory(h, installer=h.tv_installer)
+    results = []
+    for row in page["tvs"]:
+        if row["state"] != "update":
+            continue
+        try:
+            if row.get("tv_id"):
+                out = await tvs_mod.act(h, row["tv_id"], {"action": "update"}, c.subject.person_id)
+                results.append({"ip": row["ip"], "name": row["name"], "ok": bool(out.get("ok")), "message": out.get("message")})
+            else:
+                await h.tv_installer.start(row["ip"], name=row["name"], profile=row.get("profile") or "adult")
+                results.append({"ip": row["ip"], "name": row["name"], "ok": True, "message": "Updating."})
+        except (TvAppError, tvs_mod.TvsError) as exc:
+            results.append({"ip": row["ip"], "name": row["name"], "ok": False, "message": exc.message})
+    _log(h, c, "tvapp.update_all", str(len(results)))
+    return {"results": results}
 
 
 @router.post("/catalog/refresh")

@@ -159,6 +159,9 @@ class Hub:
         from .remotes import RemoteSetup
 
         self.remotes = RemoteSetup(self)
+        from .tvinstall import Installer
+
+        self.tv_installer = Installer(self)
         from .hookups import Hookups
         from .watch import Watch
 

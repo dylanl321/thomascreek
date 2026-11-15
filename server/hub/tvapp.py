@@ -621,7 +621,20 @@ class TvApp:
 
     # -- boxes ---------------------------------------------------------------------------------------------------------
     def _serial(self, ip: str) -> str:
-        return f"{ip}:{int(self.cfg.adb_port)}"
+        """ip:port. Wireless debugging (Android 11+) listens on a random port the hub learned from mDNS."""
+        port = (self.boxes().get(ip) or {}).get("connect_port") or self.cfg.adb_port
+        return f"{ip}:{int(port)}"
+
+    async def wireless_ports(self, ip: str) -> dict[str, Any]:
+        """{connect_port?, pairing_port?} this TV advertises for Wireless debugging right now."""
+        from .tvsetup import parse_mdns
+
+        if not self.adb.available:
+            return {}
+        for row in parse_mdns(await self.adb.mdns()):
+            if row.get("ip") == ip:
+                return row
+        return {}
 
     async def add_box(self, ip: str, name: str | None, auto: bool = True, profile: str = "adult") -> dict[str, Any]:
         ip = clean_ip(ip)
@@ -663,6 +676,15 @@ class TvApp:
         serial = self._serial(ip)
         state = await self.adb.connect(serial)
         fields: dict[str, Any] = {"state": state, "checked_at": time.time()}
+        if state == "offline":
+            # Wireless debugging picks a new port after a reboot or a toggle; look it up and try once more.
+            found = await self.wireless_ports(ip)
+            port = found.get("connect_port")
+            if port and f"{ip}:{int(port)}" != serial:
+                self._update_box(ip, connect_port=int(port), wireless=True)
+                serial = self._serial(ip)
+                state = await self.adb.connect(serial)
+                fields["state"] = state
         if state == "ok":
             fields["installed"] = await self.adb.installed_version(serial, self.cfg.package)
         return self._update_box(ip, **fields)

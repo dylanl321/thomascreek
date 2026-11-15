@@ -18,6 +18,7 @@ enum Destination: Hashable {
     case kidsIPads                      // what's on the kids' iPads; send them shows
     case tvSetup                        // find and add TVs and boxes for everyone's remote
     case tvDetail(String)               // one Thomas Creek TV: now playing, health, restart / update / open
+    case tvFleet                        // Thomas Creek TV on every Android TV: install, update all, what each needs
     case tvGuide                        // live guide, series and movies, played on a house TV
     case tvSeries(String), tvMovie(String)
     case roomEdit(String), hiddenDevices  // admin: set up a room; devices hidden for everyone and clean-up
@@ -249,8 +250,10 @@ final class Router {
         case "view-as": if role == .admin { showProfile = true }
         case "search": startSearch(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "q" }?.value)
         case "tvs":
-            // thomascreek://tvs, /tvs/<install_id> (one TV's detail)
-            if role == .admin || role == .adult {
+            // thomascreek://tvs, /tvs/fleet (install and update on every TV, admins), /tvs/<install_id> (one TV's detail)
+            if role == .admin, parts.count > 1, parts[1] == "fleet" {
+                tab = .media; paths[.media] = [.tvSetup, .tvFleet]
+            } else if role == .admin || role == .adult {
                 if parts.count > 1 { tab = .media; paths[.media] = [.tvSetup, .tvDetail(parts[1])] } else { show(.media, .tvSetup) }
             } else { show(.home) }
         case "tv":

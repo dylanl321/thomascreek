@@ -701,6 +701,16 @@ Every status and every TV record has `mode`: `adb` or `non-adb`. The phone shows
 
 The first time the app opens it enrolls on its own. A box the hub added is approved immediately, with the room from setup.
 
+### TV fleet (`hub/tvinstall.py`)
+
+`GET /v1/tvapp/fleet?fresh=` (`systems`) lists every Android TV in the house, keyed by IP. It merges the remote setup's network scan, `adb mdns services` (Wireless debugging), the hub's ADB boxes and the registered TVs. It never connects to a TV, so listing never pops an Allow prompt. Each row has `{ip, name, model, room, kind, profile, tv_id, online, app_version, managed, wireless, pairing_port, warning, guide[], state, next, you_do, approve_code}`. `state` is one of `needs_allow`, `pairing`, `installing`, `failed`, `approve`, `update`, `not_installed`, `not_set_up`, `ready` or `offline`. `next` is the one line to show. `guide` is the steps to press on that kind of TV (Shield, Google TV, Fire TV). `others` lists Apple TVs and other non-Android TVs, with a note.
+
+`POST /v1/tvapp/install` `{ips[], name?, room?, profile?, home?, pairing_code?, pairing_port?}` starts `Setup.run` in the background for each IP and returns `{started[status], problems[]}` right away. The hub retries each TV every 5 seconds for 10 minutes while it is `offline` (debugging off) or `needs_allow`. It sends a push when a TV first needs Allow and when it finishes. A pairing code is for one TV; without `pairing_port` the hub reads it from mDNS. Poll `GET /v1/tvapp/setup/{ip}` or the fleet list.
+
+`POST /v1/tvapp/update-all` sends the newest build to every row in `update`: registered TVs through `POST /v1/tvs/{id}/actions` `update`, and unregistered hub boxes through a background install. It returns `{results:[{ip, name, ok, message}]}`.
+
+Wireless debugging listens on a random port. The hub stores `connect_port` from mDNS, connects to `ip:connect_port`, and looks the port up again when a box goes offline.
+
 ## Plex row for the TV
 
 `GET /v1/tv/plex` with a TV or phone bearer that can watch media.

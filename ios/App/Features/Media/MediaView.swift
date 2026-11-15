@@ -63,6 +63,10 @@ struct MediaView: View {
                     SectionTile(symbol: "plus.rectangle.on.rectangle", title: "Add a TV or box",
                                 detail: "Android TV and Apple TV, added once for everyone") { router.go(.tvSetup) }
                 }
+                if store.me?.role == .admin {
+                    SectionTile(symbol: "square.and.arrow.down.on.square", title: "Thomas Creek TV on every TV",
+                                detail: "Install, update and check the app on all Android TVs") { router.go(.tvFleet) }
+                }
             }
             .screen()
         }
