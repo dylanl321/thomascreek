@@ -529,8 +529,10 @@ class Alerts:
                         or (tl in ("kids", "children") and p["role"] == "child") or p["name"].lower() == tl):
                     chosen[p["id"]] = p
         # The words come from Home Assistant, so the hub sorts them first (hub/notify_sort.py): a NAS or
-        # device-health message reaches admins only, whoever the automation named. Urgent ones skip the AI.
-        cat = await self.hub.notify.sorter.sort(cat="house", title=title, body=message, urgent=urgent)
+        # device-health message reaches admins only, whoever the automation named. Urgent ones, doorbells and
+        # anything with a camera snapshot skip the AI and go out at once.
+        cat = await self.hub.notify.sorter.sort(cat="house", title=title, body=message,
+                                                urgent=urgent or bool(camera))
         named = to is not None
         chosen = {pid: p for pid, p in chosen.items() if self.hub.notify.wants(p, cat, named=named)}
         who = [(p, pr) for p in chosen.values() if (pr := self.prefs(p["id"]))["on"] and pr["automations"]]

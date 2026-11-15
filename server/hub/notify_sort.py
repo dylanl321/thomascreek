@@ -10,8 +10,10 @@ brain, anything sent as `auto`) are sorted here:
 3. otherwise the AI (Haiku, a few seconds at most), and
 4. if the AI is off, slow or unsure, plain keyword rules.
 
-Urgent notices never wait for the AI: they use rules 1, 2 and 4 and go out at
-once, and the AI learns the kind in the background for next time.
+Instant notices never go through the AI at all, not even in the background: an
+urgent or time-sensitive one, a doorbell or someone at the door, or an automation
+that carries a camera snapshot. They use an admin's correction if there is one,
+otherwise the keyword rules, and go out at once.
 
 The sorter only picks a category. Who gets it is still the sender's list,
 narrowed by each person's settings for that category, so the AI can take
@@ -89,10 +91,14 @@ def by_rules(cat: str, title: str, body: str | None) -> str:
     return "house" if cat in SORTED else cat
 
 
+def instant(title: str, body: str | None, urgent: bool) -> bool:
+    """Notices that must go out with no delay and never reach the AI: urgent ones and doorbells."""
+    return urgent or bool(_DOOR.search(f"{title}\n{body or ''}"))
+
+
 class Sorter:
     def __init__(self, hub: "Hub"):
         self.hub = hub
-        self._learning: set[str] = set()
 
     # -- storage ----------------------------------------------------------
     def rules(self) -> dict[str, str]:
@@ -150,16 +156,6 @@ class Sorter:
             return None
         return got, str(d.get("reason") or "")
 
-    async def _learn(self, sig: str, cat: str, title: str, body: str | None) -> None:
-        try:
-            got = await self._ask(cat, title, body)
-            if got:
-                self._remember(sig, *got)
-        except Exception as exc:  # noqa: BLE001  (never let learning break anything)
-            log.info("notify sort learn failed: %s", type(exc).__name__)
-        finally:
-            self._learning.discard(sig)
-
     # -- sorting ------------------------------------------------------------
     async def sort(self, *, cat: str, title: str, body: str | None, urgent: bool) -> str:
         if cat not in SORTED:
@@ -169,23 +165,17 @@ class Sorter:
         if fixed:
             self._log(sig=sig, src=cat, title=title, cat=fixed, how="admin")
             return fixed
+        rule = by_rules(cat, title, body)
+        if instant(title, body, urgent):
+            # Doorbells and urgent notices skip the classifier entirely: keyword rules, sent now.
+            self._log(sig=sig, src=cat, title=title, cat=rule, how="instant")
+            return rule
         hit = self._cache().get(sig)
         if hit and hit.get("cat") in CATEGORY:
             self._log(sig=sig, src=cat, title=title, cat=hit["cat"], how="ai", reason=hit.get("reason", ""))
             return hit["cat"]
-        rule = by_rules(cat, title, body)
         if not self._ai_ready():
             self._log(sig=sig, src=cat, title=title, cat=rule, how="rules")
-            return rule
-        if urgent:
-            # Never hold an urgent notice for the AI. Send by rules now, learn for next time.
-            if sig not in self._learning:
-                self._learning.add(sig)
-                try:
-                    asyncio.get_running_loop().create_task(self._learn(sig, cat, title, body))
-                except RuntimeError:
-                    self._learning.discard(sig)
-            self._log(sig=sig, src=cat, title=title, cat=rule, how="urgent")
             return rule
         try:
             got = await asyncio.wait_for(self._ask(cat, title, body), AI_TIMEOUT_S)

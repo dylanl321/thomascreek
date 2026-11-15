@@ -90,7 +90,8 @@ def _sorted_html(h: Hub, csrf: str) -> str:
     opts_for = lambda cur: "".join(  # noqa: E731
         f"<option value={c['id']}{' selected' if c['id'] == cur else ''}>{e(c['title'])} ({e(c['group'])})</option>"
         for c in CATEGORIES)
-    how_words = {"ai": "AI", "rules": "rules", "urgent": "urgent, sent at once by rules", "admin": "your fix"}
+    how_words = {"ai": "AI", "rules": "rules", "urgent": "urgent, sent at once by rules",
+                 "instant": "doorbell or urgent, sent at once (no AI)", "admin": "your fix"}
     lines = []
     for r in rows:
         cur = r.get("fixed") or r.get("cat")

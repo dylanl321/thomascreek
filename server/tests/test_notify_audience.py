@@ -114,9 +114,23 @@ async def test_urgent_never_waits_for_the_ai(hub, people):
                           roles=("admin", "adult"))
     assert loop.time() - start < 1
     assert _inbox(hub, people["avery"]["id"]) == ["Water leak in the basement"]
-    assert hub.notify.sorter.recent()[0]["how"] == "urgent"
-    await asyncio.sleep(0)  # the AI is learning in the background
-    assert len(model.calls) == 1
+    assert hub.notify.sorter.recent()[0]["how"] == "instant"
+    await asyncio.sleep(0.01)
+    assert model.calls == []  # urgent notices never reach the AI, not even in the background
+
+
+async def test_doorbell_from_automation_never_reaches_the_ai(hub, people):
+    model = _ai(hub, FakeModel("systems", delay=5))
+    loop = asyncio.get_running_loop()
+    start = loop.time()
+    await hub.notify.send(title="Doorbell", body="Someone is at the front door", cat="auto",
+                          roles=("admin", "adult"))
+    assert loop.time() - start < 1
+    assert _inbox(hub, people["avery"]["id"]) == ["Doorbell"]
+    row = hub.notify.sorter.recent()[0]
+    assert row["how"] == "instant" and row["cat"] == "cameras"
+    await asyncio.sleep(0.01)
+    assert model.calls == []
 
 
 async def test_slow_ai_falls_back_to_rules(hub, people, monkeypatch):
