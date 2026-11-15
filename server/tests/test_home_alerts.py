@@ -114,6 +114,41 @@ def test_the_playlist_points_back_at_the_hub():
     assert "go2rtc" not in text and "passwd" not in text and "secret" not in text
 
 
+def test_go2rtc_playlists_resolve_through_the_hub():
+    """The shapes go2rtc really sends: a master with `hls/playlist.m3u8?id=`, then `segment.ts?id=&n=`."""
+    from urllib.parse import parse_qs, urlparse
+    from hub.home_alerts import playlist_folder
+
+    master = rewrite_playlist('#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=192000,CODECS="avc1.640029,mp4a.40.2"\n'
+                              "hls/playlist.m3u8?id=Rox4fs6U\n", "ha_abc123", "api/")
+    link = [ln for ln in master.splitlines() if ln.startswith("/v1/")][0]
+    src = parse_qs(urlparse(link).query)["src"][0]
+    assert src == "api/hls/playlist.m3u8?id=Rox4fs6U" and 'CODECS="avc1' in master
+    media = rewrite_playlist("#EXTM3U\n#EXT-X-MAP:URI=\"init.mp4?id=Rox4fs6U\"\n#EXTINF:0.500,\n"
+                             "segment.ts?id=Rox4fs6U&n=0\n", "ha_abc123", playlist_folder(src))
+    seg = [ln for ln in media.splitlines() if ln.startswith("/v1/")][0]
+    assert parse_qs(urlparse(seg).query)["src"][0] == "api/hls/segment.ts?id=Rox4fs6U&n=0"
+    assert "src=api%2Fhls%2Finit.mp4%3Fid%3DRox4fs6U" in media
+
+
+async def test_go2rtc_keeps_the_session_id():
+    import httpx
+    from hub.adapters.cameras import Frigate
+    from hub.config import FrigateConfig
+
+    seen = []
+
+    def answer(req):
+        seen.append(str(req.url))
+        return httpx.Response(200, text="#EXTM3U\n")
+
+    fr = Frigate(FrigateConfig(url="http://frigate:5000", go2rtc_url="http://frigate:1984"), None)
+    fr._stream = httpx.AsyncClient(base_url="http://frigate:1984", transport=httpx.MockTransport(answer))
+    resp = await fr.open_go2rtc("api/hls/segment.ts?id=Rox4fs6U&n=3")
+    await resp.aclose()
+    assert seen == ["http://frigate:1984/api/hls/segment.ts?id=Rox4fs6U&n=3"]
+
+
 def test_a_phone_away_from_home_does_not_get_the_picture(hub, home_client, away_client, people):
     _door(hub)
     alert = hub.home_alerts.note_doorbell("binary_sensor.front_doorbell", now=time.time())

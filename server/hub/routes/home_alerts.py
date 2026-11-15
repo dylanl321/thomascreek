@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import Response, StreamingResponse
 
 from ..adapters.base import AdapterError
-from ..home_alerts import rewrite_playlist
+from ..home_alerts import playlist_folder, rewrite_playlist
 from ..state import Hub
 from .deps import Caller, caller, error, hub
 
@@ -71,7 +71,7 @@ async def stream(alert_id: str, c: Caller = Depends(caller), h: Hub = Depends(hu
         raise error(404, "gone", "That picture has passed")
     playlist = await h.frigate.hls_playlist(camera) if h.frigate.cfg.go2rtc_url else None
     if playlist:
-        body = rewrite_playlist(playlist, row["id"])
+        body = rewrite_playlist(playlist, row["id"], "api/")
         return Response(body, media_type="application/vnd.apple.mpegurl",
                         headers={"Cache-Control": "no-store"})
     upstream = await h.frigate.open_go2rtc("api/stream.mjpeg", {"src": camera}) if h.frigate.cfg.go2rtc_url else None
@@ -91,6 +91,14 @@ async def media(alert_id: str, src: str, c: Caller = Depends(caller), h: Hub = D
     upstream = await h.frigate.open_go2rtc(src)
     if upstream is None:
         raise error(404, "gone", "That part of the stream has passed")
+    if src.split("?", 1)[0].endswith(".m3u8"):
+        # The media playlist: its segment lines are relative to go2rtc, so they are rewritten too.
+        try:
+            text = (await upstream.aread()).decode("utf-8", "replace")
+        finally:
+            await upstream.aclose()
+        return Response(rewrite_playlist(text, alert_id, playlist_folder(src)),
+                        media_type="application/vnd.apple.mpegurl", headers={"Cache-Control": "no-store"})
     return _relay(upstream)
 
 
