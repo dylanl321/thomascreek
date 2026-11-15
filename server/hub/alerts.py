@@ -313,14 +313,14 @@ class Alerts:
     async def _deliver(self, people: list[tuple[dict[str, Any], dict[str, Any]]], *, title: str, body: str | None,
                        cat: str, urgent: bool = False, level: str = "fyi", ref: str | None = None,
                        image: str | None = None, push_category: str | None = None, group: str | None = None,
-                       extra: dict[str, Any] | None = None) -> int:
+                       extra: dict[str, Any] | None = None, named: bool = False, sort: bool = True) -> int:
         n = 0
         for person, prefs in people:
             silent = self._quiet_now(prefs["quiet"]) and not (urgent and prefs["quiet"].get("ring_urgent", True))
             await self.hub.notify.send(
                 title=title, body=body, cat=cat, level=("act_now" if urgent and not silent else level),
                 person_ids=[person["id"]], ref=ref, group_key=group, push_category=push_category,
-                silent=silent, image=image, interruption=None if urgent else "active", extra=extra,
+                silent=silent, image=image, interruption=None if urgent else "active", extra=extra, named=named, sort=sort,
             )
             n += 1
         self.sent += n
@@ -528,12 +528,20 @@ class Alerts:
                         or (tl in ("admin", "admins") and p["role"] == "admin")
                         or (tl in ("kids", "children") and p["role"] == "child") or p["name"].lower() == tl):
                     chosen[p["id"]] = p
+        # The words come from Home Assistant, so the hub sorts them first (hub/notify_sort.py): a NAS or
+        # device-health message reaches admins only, whoever the automation named. Urgent ones, doorbells and
+        # anything with a camera snapshot skip the AI and go out at once.
+        cat = await self.hub.notify.sorter.sort(cat="house", title=title, body=message,
+                                                urgent=urgent or bool(camera))
+        named = to is not None
+        chosen = {pid: p for pid, p in chosen.items() if self.hub.notify.wants(p, cat, named=named)}
         who = [(p, pr) for p in chosen.values() if (pr := self.prefs(p["id"]))["on"] and pr["automations"]]
         image = f"/v1/cameras/{camera}/snapshot.jpg" if camera else None
         self.record("house", title, message, list(chosen.values()),
                     ref=f"thomascreek://camera/{camera}" if camera else None, image=image)
-        return await self._deliver(who, title=title, body=message, cat="house", urgent=urgent,
-                                   ref=f"thomascreek://camera/{camera}" if camera else None, image=image, group="automation")
+        return await self._deliver(who, title=title, body=message, cat=cat, urgent=urgent,
+                                   ref=f"thomascreek://camera/{camera}" if camera else None, image=image,
+                                   group="automation", named=named, sort=False)
 
     # -- "That's not a person" ----------------------------------------------
     def suppressions(self) -> list[dict[str, Any]]:

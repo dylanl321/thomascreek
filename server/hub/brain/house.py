@@ -531,7 +531,7 @@ async def brief_deliver(b: "Brain", trig: Trigger, finding: Finding, words: dict
     if b.cfg.briefing_push:
         await b.hub.notify.send(title=title, body="; ".join(f"{r['title']}: {r['value']}" for r in rows),
                                 cat="house", level="fyi", roles=["admin", "adult"], ref="thomascreek://home",
-                                group_key="brain.briefing")
+                                group_key="brain.briefing", sort=False)
     return {"cards": [cid], "outcome": "suggested"}
 
 
