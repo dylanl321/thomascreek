@@ -37,6 +37,8 @@ log = logging.getLogger("hub.tvcatalog")
 SOURCE = "thomas-creek"
 LIST_TTL_S = 6 * 3600
 GUIDE_TTL_S = 3 * 3600
+GUIDE_RETRY_S = 15 * 60  # an empty guide is tried again sooner than a good one
+GUIDE_FORMAT = 2  # bump when the stored guide changes shape, so an old copy is fetched again
 DETAIL_TTL_S = 24 * 3600
 MAX_GUIDE_BYTES = 512 * 1024 * 1024
 GUIDE_TIMEOUT_S = 300
@@ -312,7 +314,9 @@ class TvCatalog:
             log.info("tv guide: %d of %d guide ids matched, %d channels with programmes",
                      sum(1 for keys in epg_ids.values() if any(k in guide for k in keys)), len(epg_ids), len(guide))
         doc = {
-            "fetched_at": now, "guide_at": now if xmltv is not None else 0,
+            "fetched_at": now,
+            "guide_at": (now if guide else now - GUIDE_TTL_S + GUIDE_RETRY_S) if xmltv is not None else 0,
+            "guide_format": GUIDE_FORMAT,
             "channels": [c for c in channels if c], "movies": [m for m in movies if m],
             "series": [s for s in shows if s], "guide": guide,
             "categories": {
@@ -404,7 +408,8 @@ class TvCatalog:
         doc = self.load()
         now = time.time()
         lists_ok = bool(doc) and now - float(doc.get("fetched_at") or 0) < LIST_TTL_S
-        guide_ok = now - float(doc.get("guide_at") or 0) < GUIDE_TTL_S
+        guide_ok = (now - float(doc.get("guide_at") or 0) < GUIDE_TTL_S
+                    and doc.get("guide_format") == GUIDE_FORMAT)
         if lists_ok and guide_ok:
             return doc
         if not self.configured():

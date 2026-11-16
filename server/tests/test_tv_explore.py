@@ -221,3 +221,36 @@ def test_english_art_is_chosen_over_other_languages():
     ]
     assert english_title_card(backs) == "/titled.jpg"
     assert english_title_card([{"iso_639_1": None, "file_path": "/clean.jpg"}]) is None
+
+
+def test_provider_names_and_the_plex_library_count_as_owned(hub, people):
+    hub.tv_catalog.ingest(vod=[
+        {"stream_id": 200, "name": "EN - The Shawshank Redemption (1994)", "category_id": "1"},
+    ], vod_categories=[{"category_id": "1", "category_name": "Drama"}])
+    hub.db.kv_set("tv.plex.index", [
+        {"kind": "movie", "id": "777", "title": "The Godfather", "year": 1972, "tmdb": 238, "rating": "R"},
+        {"kind": "series", "id": "778", "title": "Bluey", "year": 2018, "tmdb": None, "rating": "TV-Y"},
+    ])
+    lists = {
+        "new": [{"tmdb_id": 278, "kind": "movie", "title": "The Shawshank Redemption", "year": 1994, "rating": "R"}],
+        "popular": [{"tmdb_id": 238, "kind": "movie", "title": "The Godfather", "year": 1972, "rating": "R"},
+                    {"tmdb_id": 82728, "kind": "series", "title": "Bluey", "year": 2018, "rating": "TV-Y"}],
+        "acclaimed": [{"tmdb_id": 1, "kind": "movie", "title": "Not Here", "year": 2020, "rating": "PG"}],
+    }
+    publish(hub, lists, can_request=True)
+    dylan = people["phones"]["Dylan"]
+    body = dylan.client.get("/v1/tv/explore", headers=dylan.h).json()
+    cards = {item["title"]: item for row in body["rows"] for item in row["items"]}
+    assert cards["The Shawshank Redemption"]["availability"] == "play"
+    assert cards["The Shawshank Redemption"]["movie_id"] == "vod:thomas-creek:200"
+    assert cards["The Godfather"]["availability"] == "play" and cards["The Godfather"]["plex_id"] == "777"
+    assert cards["Bluey"]["availability"] == "play" and cards["Bluey"]["series_id"] == "series:plex:778"
+    assert cards["Not Here"]["availability"] == "request"
+    assert all("match_only" not in item for item in cards.values())
+
+
+def test_plex_index_rows_never_fill_the_library_row(hub, people):
+    hub.db.kv_set("tv.plex.index", [{"kind": "movie", "id": "9", "title": "Hidden", "year": 2000, "tmdb": 5}])
+    publish(hub, None, can_request=False)
+    dylan = people["phones"]["Dylan"]
+    assert dylan.client.get("/v1/tv/explore", headers=dylan.h).json() == {"hero": None, "rows": []}
