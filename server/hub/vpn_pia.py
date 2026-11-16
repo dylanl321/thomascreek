@@ -142,6 +142,8 @@ class Pia:
         self._add_key = add_key or self._add_key_blocking
         self.last_error: str | None = None
         self.last_ok: float | None = None
+        # Why the app's last look at the Private button found it off (shown on the admin page too).
+        self.exits_error: str | None = None
 
     # -- state ---------------------------------------------------------------
     def _login(self) -> tuple[str, str, str] | None:
@@ -235,6 +237,12 @@ class Pia:
         # PIA's own apps time only "auto_region" ones (real locations) to find the nearest.
         return [{"id": r["id"], "name": r["name"], "country": r["country"], "auto": r["auto"],
                  "probe": f"{r['servers'][0]['ip']}:1337"} for r in await self.regions()]
+
+    async def featured(self) -> list[dict[str, Any]]:
+        """The short list of places a person can pick, in the configured order; ones PIA has dropped are skipped."""
+        by_id = {r["id"]: r for r in await self.regions()}
+        return [{"id": i, "name": by_id[i]["name"], "country": by_id[i]["country"]}
+                for i in self.cfg.featured_regions if i in by_id]
 
     # -- addKey --------------------------------------------------------------
     def _add_key_blocking(self, ip: str, cn: str, token: str, pubkey: str) -> dict[str, Any]:

@@ -305,9 +305,12 @@ The app's second VPN button. The PIA login lives only in the vault: the pair typ
 `vpn.pia.password` copied from the 1Password item PIA. Phones never see it or the PIA token.
 
 `GET /v1/vpn/exits` -> `{exits:[{id:"home", available}, {id:"private", available, provider:"pia", problem?}],
-regions?:[{id, name, country, auto, probe:"ip:1337"}]}`. `regions` only when Private is available to this
-person (`vpn.pia.roles`, default admin and adult). The app times a TCP connect to each `auto` region's
-`probe` and asks for the fastest.
+regions?:[{id, name, country, auto, probe:"ip:1337"}], choices?:[{id, name, country}]}`. `regions` and `choices`
+only when Private is available to this person (`vpn.pia.roles`, default admin and adult). When it isn't,
+`problem` says why in words the app shows (no login on the hub, not for this role, PIA's server list
+unreachable); the same reason shows on the admin page's Private VPN status. The app times a TCP connect to each
+`auto` region's `probe` and asks for the fastest, unless the person picked one of `choices`
+(`vpn.pia.featured_regions`, a short list in a fixed order).
 
 `POST /v1/vpn/config {exit:"private", wg_public_key, region?}` -> the same shape as above (no
 `private_key`: the phone uses its own), plus `exit` and `region:{id, name, country}`. Everything is

@@ -36,17 +36,42 @@ struct VPNView: View {
             Section {
                 HStack(spacing: 10) {
                     ForEach(VPN.Exit.allCases) { e in
-                        ExitCard(exit: e, selected: vpn.exit == e, enabled: e == .home || vpn.privateAvailable) {
+                        ExitCard(exit: e, detail: e == .home ? e.blurb : privateDetail(vpn),
+                                 selected: vpn.exit == e, enabled: e == .home || vpn.privateAvailable) {
                             choose(e)
                         }
                     }
                 }
+                // Room for the selected card's outline, which the list would otherwise clip.
+                .padding(2)
                 .listRowInsets(EdgeInsets()).listRowBackground(Color.clear)
-                if !vpn.privateAvailable {
-                    Text("Private needs the PIA login on the hub. Ask Dylan.")
-                        .font(.caption).foregroundStyle(Theme.dim)
-                        .listRowBackground(Color.clear).listRowInsets(EdgeInsets(top: 0, leading: 4, bottom: 0, trailing: 4))
+            }
+
+            if !vpn.privateAvailable {
+                Section {
+                    Label {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Private isn't available").font(.subheadline.weight(.semibold))
+                            Text(vpn.privateProblem ?? "Checking with the hub…").font(.subheadline).foregroundStyle(Theme.dim)
+                        }
+                    } icon: {
+                        Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Theme.warn)
+                    }
+                    .padding(.vertical, 4)
                 }
+                .listRowBackground(Theme.card)
+            } else if !vpn.choices.isEmpty {
+                Section {
+                    LocationRow(flag: "📍", title: "Nearest", subtitle: "Picked automatically, fastest from where you are",
+                                checked: vpn.exit == .private && vpn.regionChoice == nil) { pick(nil) }
+                    ForEach(vpn.choices, id: \.id) { r in
+                        LocationRow(flag: flag(r.country), title: r.name, subtitle: nil,
+                                    checked: vpn.exit == .private && vpn.regionChoice == r.id) { pick(r.id) }
+                    }
+                } header: { Text("Private location") } footer: {
+                    Text("Picking a place switches to Private. If it's connected, it moves there now.")
+                }
+                .listRowBackground(Theme.card)
             }
 
             Section {
@@ -123,6 +148,27 @@ struct VPNView: View {
         }
     }
 
+    private func pick(_ id: String?) {
+        guard !busy else { return }
+        busy = true
+        Task {
+            defer { busy = false }
+            do { try await VPN.shared.setRegion(id) }
+            catch { store.show(error.localizedDescription, isError: true) }
+        }
+    }
+
+    private func privateDetail(_ vpn: VPN) -> String {
+        let place = vpn.regionChoice.flatMap { id in vpn.choices.first { $0.id == id }?.name } ?? "Nearest location"
+        return "PIA · \(place). For hotel and public Wi-Fi"
+    }
+
+    private func flag(_ country: String?) -> String {
+        guard let c = country?.uppercased(), c.count == 2 else { return "🌐" }
+        let code = c == "UK" ? "GB" : c
+        return String(String.UnicodeScalarView(code.unicodeScalars.compactMap { UnicodeScalar(127397 + $0.value) }))
+    }
+
     private func auto(_ e: VPN.Exit?) {
         busy = true
         Task {
@@ -164,6 +210,7 @@ struct VPNView: View {
 
 private struct ExitCard: View {
     let exit: VPN.Exit
+    let detail: String
     let selected: Bool
     let enabled: Bool
     let action: () -> Void
@@ -176,20 +223,20 @@ private struct ExitCard: View {
                     .background(selected ? Theme.accent : Theme.card2, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                     .foregroundStyle(selected ? Theme.onAccent : Theme.fg)
                 Text(exit.title).font(.headline).foregroundStyle(Theme.fg)
-                Text(exit.blurb).font(.caption).foregroundStyle(Theme.dim).multilineTextAlignment(.leading)
+                Text(detail).font(.caption).foregroundStyle(Theme.dim).multilineTextAlignment(.leading)
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 0)
             }
             .frame(maxWidth: .infinity, minHeight: 112, alignment: .topLeading)
             .padding(14)
             .background(Theme.card, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(selected ? Theme.accent : .clear, lineWidth: 2))
+            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(selected ? Theme.accent : .clear, lineWidth: 2))
         }
         .buttonStyle(.plain)
         .disabled(!enabled)
         .opacity(enabled ? 1 : 0.45)
         .accessibilityAddTraits(selected ? .isSelected : [])
-        .accessibilityHint(exit.blurb)
+        .accessibilityHint(detail)
     }
 }
 
@@ -201,6 +248,28 @@ private struct AutoRow: View {
         Button(action: action) {
             HStack {
                 Text(title).foregroundStyle(Theme.fg)
+                Spacer()
+                if checked { Image(systemName: "checkmark").foregroundStyle(Theme.accent).fontWeight(.semibold) }
+            }
+        }
+        .accessibilityAddTraits(checked ? .isSelected : [])
+    }
+}
+
+private struct LocationRow: View {
+    let flag: String
+    let title: String
+    let subtitle: String?
+    let checked: Bool
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                Text(flag).font(.title3).frame(width: 30)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).foregroundStyle(Theme.fg)
+                    if let subtitle { Text(subtitle).font(.caption).foregroundStyle(Theme.dim) }
+                }
                 Spacer()
                 if checked { Image(systemName: "checkmark").foregroundStyle(Theme.accent).fontWeight(.semibold) }
             }

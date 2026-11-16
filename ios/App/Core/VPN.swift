@@ -35,7 +35,7 @@ final class VPN {
         var blurb: String { self == .home ? "Reach the cameras, NAS and other home devices" : "PIA, nearest region. For hotel and public Wi-Fi" }
     }
 
-    struct Region: Decodable, Hashable {
+    struct Region: Codable, Hashable {
         var id: String
         var name: String
         var country: String?
@@ -79,6 +79,19 @@ final class VPN {
         struct Item: Decodable { var id: String; var available: Bool; var problem: String? }
         var exits: [Item]
         var regions: [Region]?
+        var choices: [Region]?
+        private struct Lossy<T: Decodable>: Decodable {
+            var value: T?
+            init(from decoder: Decoder) throws { value = try? T(from: decoder) }
+        }
+        private enum Keys: String, CodingKey { case exits, regions, choices }
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: Keys.self)
+            exits = try c.decode([Item].self, forKey: .exits)
+            // One odd region from PIA's list must not hide the Private button.
+            regions = (try? c.decodeIfPresent([Lossy<Region>].self, forKey: .regions))?.compactMap(\.value)
+            choices = (try? c.decodeIfPresent([Lossy<Region>].self, forKey: .choices))?.compactMap(\.value)
+        }
     }
 
     /// Present only in builds made with project-vpn.yml.
@@ -93,6 +106,15 @@ final class VPN {
     private(set) var problem: String?
     /// Whether this person gets the Private button (from the hub; remembered for when home can't be reached).
     private(set) var privateAvailable = AppSettings.defaults.bool(forKey: "vpnPrivateAvailable")
+    /// Why Private is off, in the hub's words (nil when it's on or not asked yet).
+    private(set) var privateProblem: String?
+    /// The few Private locations the hub offers to pick (remembered for when home can't be reached).
+    private(set) var choices: [Region] = {
+        guard let d = AppSettings.defaults.data(forKey: "vpnRegionChoices") else { return [] }
+        return (try? JSONDecoder().decode([Region].self, from: d)) ?? []
+    }()
+    /// The picked Private location; nil means the nearest one, found automatically.
+    var regionChoice: String? { AppSettings.defaults.string(forKey: "vpnRegionChoice") }
     /// The region the current Private settings point at.
     private(set) var regionName: String? = AppSettings.defaults.string(forKey: "vpnRegionName")
     private var regions: [Region] = []
@@ -105,10 +127,22 @@ final class VPN {
 
     /// Ask the hub which buttons this person gets (and the Private regions to time).
     func loadExits() async {
-        guard let e: Exits = try? await HubClient.shared.get("/v1/vpn/exits") else { return }
-        privateAvailable = e.exits.first { $0.id == "private" }?.available ?? false
+        let e: Exits
+        do { e = try await HubClient.shared.get("/v1/vpn/exits") }
+        catch {
+            // Keep the last answer; say why it may be stale.
+            privateProblem = privateAvailable ? nil : "Couldn't ask the hub about Private: \(error.localizedDescription)"
+            return
+        }
+        let item = e.exits.first { $0.id == "private" }
+        privateAvailable = item?.available ?? false
+        privateProblem = privateAvailable ? nil : (item?.problem ?? "The hub doesn't offer Private yet. Update the hub.")
         AppSettings.defaults.set(privateAvailable, forKey: "vpnPrivateAvailable")
         regions = e.regions ?? []
+        if let c = e.choices {
+            choices = c
+            AppSettings.defaults.set(try? JSONEncoder().encode(c), forKey: "vpnRegionChoices")
+        }
         if !privateAvailable && exit == .private && status != .connected { AppSettings.vpnExit = Exit.home.rawValue }
     }
 
@@ -148,6 +182,7 @@ final class VPN {
               pc["wg"] != nil else { return false }
         let configured = Exit(rawValue: pc["exit"] as? String ?? "home") ?? .home
         guard configured == exit else { return false }
+        if exit == .private, (pc["regionChoice"] as? String ?? "") != (regionChoice ?? "") { return false }
         if let maxAge {
             let fetched = pc["fetched"] as? Double ?? 0
             return Date().timeIntervalSince1970 - fetched < maxAge
@@ -182,9 +217,9 @@ final class VPN {
             // Kept in the keychain: PIA re-registers the same key on every Connect.
             key = Self.privateKey()
             if regions.isEmpty { await loadExits() }
-            let region = await nearestRegion()
             body = ["exit": "private", "wg_public_key": key.publicKey.rawRepresentation.base64EncodedString()]
-            if let region { body["region"] = region.id }
+            if let picked = regionChoice { body["region"] = picked }
+            else if let region = await nearestRegion() { body["region"] = region.id }
         } else {
             key = Curve25519.KeyAgreement.PrivateKey()
             body = ["wg_public_key": key.publicKey.rawRepresentation.base64EncodedString()]
@@ -206,7 +241,8 @@ final class VPN {
         if let m = cfg.interface.mtu { wg["mtu"] = m }
         if let p = cfg.peer.presharedKey { wg["preshared_key"] = p }
         proto.providerConfiguration = ["wg": wg, "exit": place.rawValue,
-                                       "region": cfg.region?.name ?? "", "fetched": Date().timeIntervalSince1970]
+                                       "region": cfg.region?.name ?? "", "regionChoice": place == .private ? (regionChoice ?? "") : "",
+                                       "fetched": Date().timeIntervalSince1970]
         problem = nil
         regionName = cfg.region?.name
         AppSettings.defaults.set(regionName, forKey: "vpnRegionName")
@@ -345,6 +381,25 @@ final class VPN {
             }
         }
         if wasOn {
+            try await connectNow()
+        } else if mode != .off {
+            try await reinstall()
+        }
+    }
+
+    /// Pick where Private comes out (nil = nearest). Picking a place also switches to Private, and a
+    /// connected tunnel moves there straight away.
+    func setRegion(_ id: String?) async throws {
+        AppSettings.defaults.set(id, forKey: "vpnRegionChoice")
+        problem = nil
+        if exit != .private { try await setExit(.private); return }
+        let mgr = try? await NETunnelProviderManager.loadAllFromPreferences().first
+        let wasOn = [.connected, .connecting, .reasserting].contains(mgr?.connection.status ?? .invalid)
+        if wasOn, let mgr {
+            mgr.connection.stopVPNTunnel()
+            for _ in 0..<30 where mgr.connection.status != .disconnected && mgr.connection.status != .invalid {
+                try? await Task.sleep(for: .milliseconds(100))
+            }
             try await connectNow()
         } else if mode != .off {
             try await reinstall()
