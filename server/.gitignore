@@ -10,3 +10,4 @@ data/
 vault.json
 config.yaml
 .env
+.venv/

@@ -7,6 +7,7 @@ login or a stream address.
 
 from __future__ import annotations
 
+import json
 import time
 from typing import Any
 
@@ -19,7 +20,7 @@ from ..adapters.base import AdapterError
 from ..policy import Target
 from ..state import Hub
 from ..tvapp import TvAppError
-from .. import tvcontrol, tvexplore, tvhandoff, tvsport
+from .. import tvcontrol, tvexplore, tvhandoff, tvnames, tvsport
 from ..tvapp import _household as household
 from ..upnext import shelf, who_key
 from .deps import Caller, caller, error, hub, need
@@ -253,6 +254,26 @@ async def sport(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str,
     basic = h.tv_catalog.basic(home)
     body = tvsport.match(games, h.tv_catalog, basic, kids_only=kids, now=now)
     return {"games": body, "leagues": [name for name, *_rest in tvsport.LEAGUES], "at": now}
+
+
+@router.get("/names")
+async def names(request: Request, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> Response:
+    """Clean film, series and category names keyed by the provider's ids, so screens never clean names.
+
+    Answers 304 when the TV already holds this `version` (sent back as If-None-Match).
+    """
+    kids = _media(h, c)
+    await _ready(h)
+    doc = h.tv_catalog.load()
+    cache = h.__dict__.setdefault("_tv_names", {})
+    memo = cache.get(kids)
+    if memo is None or memo[0] is not doc:
+        body = tvnames.names(doc, kids_only=kids, is_kids=h.tv_catalog._is_kids)
+        memo = cache[kids] = (doc, body["version"], json.dumps(body, separators=(",", ":")).encode())
+    tag = f'"{memo[1]}"'
+    if request.headers.get("if-none-match") == tag:
+        return Response(status_code=304, headers={"ETag": tag})
+    return Response(memo[2], media_type="application/json", headers={"ETag": tag})
 
 
 @router.get("/series")
