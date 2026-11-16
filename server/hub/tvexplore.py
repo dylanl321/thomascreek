@@ -106,6 +106,21 @@ def _tmdb_card(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def poster_path(h: Any, subject: Any, media: str, tmdb_id: object, tmdb_path: object) -> str | None:
+    """A TMDB poster as the hub's cached copy (/v1/tv/explore/art), so every phone and TV gets it from the hub and
+    the hub fetches it once. Falls back to TMDB's own address when the hub has no TMDB key or the caller may not use
+    the TV art route."""
+    direct = f"https://image.tmdb.org/t/p/w342{tmdb_path}" if isinstance(tmdb_path, str) and tmdb_path.startswith("/") else None
+    tid = str(tmdb_id or "")
+    if media not in ("movie", "tv") or not tid.isdigit():
+        return direct
+    allowed = h.policy.has(subject, "media.all") or h.policy.has(subject, "media.own_tv")
+    secret = h.config.artwork.tmdb_key_secret
+    if not allowed or not h.vault.has(secret):
+        return direct
+    return f"/v1/tv/explore/art/poster/{media}/{tid}"
+
+
 async def cached_art(h: Any, kind: str, media: str, tmdb_id: str) -> tuple[bytes, str] | None:
     """A poster, backdrop or logo kept on the hub. The first ask downloads it."""
     if kind not in ("poster", "backdrop", "logo", "title") or media not in ("movie", "tv") or not tmdb_id.isdigit():
