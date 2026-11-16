@@ -38,15 +38,41 @@ TITLES = {
 }
 
 
-def remember(db: Any, profile: str, playing: dict[str, Any] | None, now: float | None = None) -> None:
-    """Count a play. The same title reporting progress does not count twice in half an hour."""
+def remember(db: Any, profile: str, playing: dict[str, Any] | None, now: float | None = None, *,
+             person: str | None = None, tv: str | None = None) -> None:
+    """Count a play. The same title reporting progress does not count twice in half an hour.
+
+    The profile bucket (adult or kids) always counts. A named person gets their own bucket, and so does
+    the TV, which is what a TV with nobody picked reads back."""
     if profile not in ("adult", "kids") or not isinstance(playing, dict):
         return
     now = time.time() if now is None else now
     doc = db.kv_get(KV) or {}
     if not isinstance(doc, dict):
         doc = {}
-    bucket = doc.get(profile) if isinstance(doc.get(profile), dict) else {}
+    changed = False
+    for key in (profile, who_key(person=person), who_key(tv=tv)):
+        if not key:
+            continue
+        bucket = doc.get(key) if isinstance(doc.get(key), dict) else {}
+        updated = _add(bucket, playing, now)
+        if updated is not None:
+            doc[key] = updated
+            changed = True
+    if changed:
+        db.kv_set(KV, doc)
+
+
+def who_key(*, person: str | None = None, tv: str | None = None) -> str | None:
+    """The history bucket of one person or one TV."""
+    if person:
+        return f"person:{person}"[:80]
+    if tv:
+        return f"tv:{tv}"[:80]
+    return None
+
+
+def _add(bucket: dict[str, Any], playing: dict[str, Any], now: float) -> dict[str, Any] | None:
     channels = dict(bucket.get("channels") or {})
     series = dict(bucket.get("series") or {})
     movies = dict(bucket.get("movies") or {})
@@ -73,20 +99,22 @@ def remember(db: Any, profile: str, playing: dict[str, Any] | None, now: float |
         series[key] = _touch(series.get(key), now, **extra)
         changed = True
     if not changed:
-        return
-    doc[profile] = {
+        return None
+    return {
         "channels": _trim(channels),
         "series": _trim(series),
         "movies": _trim(movies),
     }
-    db.kv_set(KV, doc)
 
 
-def shelf(h: Any, profile: str, now: float | None = None) -> dict[str, Any]:
-    """Rows for one profile. Kids only see kids' titles. Empty groups are left out."""
+def shelf(h: Any, profile: str, now: float | None = None, *, who: str | None = None) -> dict[str, Any]:
+    """Rows for one profile. Kids only see kids' titles. Empty groups are left out.
+
+    `who` is a person's or a TV's bucket (see who_key). It is used when it has any history; a person or TV
+    with none yet gets the profile's rows, so a new TV is not empty."""
     now = time.time() if now is None else now
     kids = profile == "kids"
-    history = _history(h, profile)
+    history = (_history(h, who) if who else {}) or _history(h, profile)
     seen: set[str] = set()
     rows = [
         _row("continue", _continue(h, history, kids), seen),

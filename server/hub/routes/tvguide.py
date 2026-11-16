@@ -20,7 +20,8 @@ from ..policy import Target
 from ..state import Hub
 from ..tvapp import TvAppError
 from .. import tvcontrol, tvexplore, tvhandoff
-from ..upnext import shelf
+from ..tvapp import _household as household
+from ..upnext import shelf, who_key
 from .deps import Caller, caller, error, hub, need
 from .media import _filter, _watch_cap
 
@@ -138,14 +139,24 @@ async def explore_art(kind: str, media: str, tmdb_id: str, c: Caller = Depends(c
 
 
 @router.get("/upnext")
-async def up_next(profile: str | None = None, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
-    """What to play next for this profile, ranked from what that profile watches."""
+async def up_next(profile: str | None = None, person: str | None = None, c: Caller = Depends(caller),
+                  h: Hub = Depends(hub)) -> dict[str, Any]:
+    """What to play next, ranked from what this person watches.
+
+    A phone gets its own person's rows. A TV names who is watching with `person`; with nobody named it gets
+    its own history. Either falls back to the profile's rows until there is history of its own."""
     kids = _media(h, c)
     if profile == "kids":
         kids = True
     elif profile == "adult" and kids:
         kids = True
-    return shelf(h, "kids" if kids else "adult")
+    subject = c.subject
+    if getattr(subject, "tv", False):
+        named = person if person and any(p["id"] == person for p in household(h.db)) else None
+        who = who_key(person=named or subject.person_id, tv=subject.tv_id)
+    else:
+        who = who_key(person=subject.person_id)
+    return shelf(h, "kids" if kids else "adult", who=who)
 
 
 @router.post("/playback_events")

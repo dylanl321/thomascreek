@@ -862,7 +862,7 @@ class ActionRunner:
         info["command_id"] = command["id"]
         if command.get("action") == "play":
             tv = self.hub.tv_app.tvs().get(info["install_id"]) or {}
-            remember(self.hub.db, "kids" if tv.get("profile") == "kids" else "adult", command)
+            remember(self.hub.db, "kids" if tv.get("profile") == "kids" else "adult", command, tv=info["install_id"])
         self.hub.bus.publish({"type": "tv_command", "data": command}, device_id=f"tv:{info['install_id']}")
         if plan.action == "tv.stop":
             release_tv(self.hub, info["install_id"])

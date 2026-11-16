@@ -607,6 +607,8 @@ class StateIn(BaseModel):
     command_id: str | None = Field(default=None, max_length=48)
     command_ok: bool | None = None
     command_error: str | None = Field(default=None, max_length=300)
+    # Who is watching, when someone picked themselves on the TV. History and Continue watching follow them.
+    person_id: str | None = Field(default=None, max_length=40)
 
 
 @tv_router.post("/state")

@@ -99,3 +99,25 @@ def test_shelf_ranks_history_and_hides_what_a_child_cannot_watch(hub, people):
     assert "Drama" not in child.text and "Newsroom" not in child.text
     explicit = dylan.client.get("/v1/tv/upnext", headers=dylan.h, params={"profile": "kids"})
     assert "dvr_abc123" not in explicit.text
+
+
+def test_continue_follows_the_person_and_falls_back_to_the_tv(hub, people):
+    from hub.upnext import who_key
+
+    _catalog(hub)
+    now = datetime.now(timezone.utc).timestamp()
+    remember(hub.db, "adult", {"movie_id": "vod:thomas-creek:100", "title": "Drama Movie", "position_s": 900},
+             now=now, person="p_dylan", tv="tv-basement")
+    remember(hub.db, "adult", {"movie_id": "vod:thomas-creek:101", "title": "Kids Movie", "position_s": 600},
+             now=now, tv="tv-office")
+
+    def titles(who):
+        rows = shelf(hub, "adult", who=who)["rows"]
+        cont = next((r for r in rows if r["id"] == "continue"), {"items": []})
+        return [i["title"] for i in cont["items"]]
+
+    assert titles(who_key(person="p_dylan")) == ["Drama Movie"]
+    assert titles(who_key(tv="tv-basement")) == ["Drama Movie"]
+    assert titles(who_key(tv="tv-office")) == ["Kids Movie"]
+    # Nobody with history of their own yet: the house's adult rows.
+    assert sorted(titles(who_key(person="p_new"))) == ["Drama Movie", "Kids Movie"]
