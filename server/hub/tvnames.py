@@ -67,6 +67,13 @@ def title(raw: object) -> dict[str, Any]:
     if mark:
         episode = f"S{int(mark.group(1))}E{int(mark.group(2))}"
         text = text[:mark.start()]
+    # A cut-off name ("Show (", "Show (2025", "Show [EN"): an opening bracket that never closes is a lost note.
+    cut = re.search(r"\s*[(\[]([^)\]]*)$", text)
+    if cut:
+        bare_year = re.fullmatch(r"\s*((?:19|20)\d{2})\s*", cut.group(1))
+        if _LANG_NOTE.search(cut.group(1)):
+            subs = True
+        text = text[:cut.start()] + (f" ({bare_year.group(1)})" if bare_year else "")
     year = None
     # Everything after the year is notes (cast lists, "UNCREDIT" ...): "Blonde 4K (2022) Marilyn Monroe".
     found = re.search(r"[(\[]\s*((?:19|20)\d{2})\s*[)\]]", text)

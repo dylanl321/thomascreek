@@ -16,11 +16,16 @@ def test_provider_tags_quality_and_notes_come_off_titles():
         "EN - Blade Runner 2049 (2017)": ("Blade Runner 2049", 2017, None, None),
         "|EN| Dune": ("Dune", None, None, None),
         "SPT - UFC 300": ("UFC 300", None, None, None),
+        "NF - Take Charge Of My Heart (": ("Take Charge Of My Heart", None, None, "Netflix"),
+        "NF - Take Charge Of My Heart (2025": ("Take Charge Of My Heart", 2025, None, "Netflix"),
+        "EN - Dune [MULTI": ("Dune", None, None, None),
     }
     for raw, (name, year, quality, service) in cases.items():
         got = tvnames.title(raw)
         assert (got["name"], got["year"], got["quality"], got["service"]) == (name, year, quality, service), raw
     assert tvnames.title("EN - Shogun (2024) MULTI")["subs"] is True
+    cut = tvnames.title("NF - Take Charge Of My Heart (2026) (KR) (MULTI")
+    assert (cut["name"], cut["year"], cut["subs"]) == ("Take Charge Of My Heart", 2026, True)
     for raw in ("NF - Take Charge Of My Heart (2025) S01 E01", "NF - Take Charge Of My Heart S01E01",
                 "NF - Take Charge Of My Heart - S01E01 - Pilot"):
         got = tvnames.title(raw)
