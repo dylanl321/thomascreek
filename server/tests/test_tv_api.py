@@ -493,3 +493,12 @@ def test_apps_are_filtered_by_profile(hub, home_client, people, away_client):
     assert "com.amazon.amazonvideo.livingroom" in grown.json()["allowed"]
     assert people["phones"]["Dylan"].client.get("/v1/tv/apps", headers=people["phones"]["Dylan"].h).status_code == 403
     assert away_client.get("/v1/tv/apps", headers=_auth(_token(home_client, adult, clock)["access_token"])).status_code == 403
+
+
+
+def test_a_child_asking_for_several_channels_still_gets_only_kids_channels(hub, people):
+    _library(hub)
+    theo = people["phones"]["Theo"]
+    kid = theo.client.get("/v1/tv/guide", headers=theo.h,
+                          params={"channels": "xc:thomas-creek:10,xc:thomas-creek:11"}).json()
+    assert [row["name"] for row in kid["channels"]] == ["Cartoon"]

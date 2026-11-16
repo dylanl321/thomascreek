@@ -168,7 +168,8 @@ def merge(h: "Hub", s: Subject, q: str, *, plex: list[dict[str, Any]], seerr: li
         card = take(kind, title, _year(row.get("releaseDate") or row.get("firstAirDate")), tmdb=str(row.get("id")))
         card.score += 2
         if row.get("posterPath") and not card.poster:
-            card.poster = f"https://image.tmdb.org/t/p/w342{row['posterPath']}"
+            from .tvexplore import poster_path
+            card.poster = poster_path(h, s, "movie" if kind == "movie" else "tv", row.get("id"), row["posterPath"])
         card.summary = card.summary or row.get("overview")
         _status_from_seerr(card, row.get("mediaInfo") or {})
 
