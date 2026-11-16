@@ -135,3 +135,28 @@ def test_a_movie_resumes_and_a_kids_room_refuses_the_grown_up_one(hub, home_clie
     assert blocked.json()["message"] == "That room isn't one you can use"
     kid_rows = theo.client.get("/v1/tv/devices", headers=theo.h).json()["devices"]
     assert [row["id"] for row in kid_rows] == [KID_TV]
+
+
+def test_tv_history_is_kept_per_person_and_per_tv(hub, home_client, people):
+    from tests.test_upnext import _catalog
+
+    _catalog(hub)
+    office, bed = _two_tvs(hub, home_client)
+    clock = Clock()
+    office_auth = _auth(_token(home_client, office, clock)["access_token"])
+    bed_auth = _auth(_token(home_client, bed, clock, BED)["access_token"])
+    dylan = people["phones"]["Dylan"]
+    dylan_id = hub.db.device(dylan.device_id)["person_id"]
+    # Dylan picked himself on the office TV; nobody picked on the bedroom TV.
+    home_client.post("/v1/tv/state", headers=office_auth, json={
+        "person_id": dylan_id, "playing": {"movie_id": "vod:thomas-creek:100", "title": "Drama Movie", "position_s": 900}})
+    home_client.post("/v1/tv/state", headers=bed_auth, json={
+        "person_id": "nobody_here", "playing": {"movie_id": "vod:thomas-creek:101", "title": "Kids Movie", "position_s": 600}})
+
+    def cont(client, headers, query=""):
+        rows = client.get("/v1/tv/upnext" + query, headers=headers).json()["rows"]
+        return [i["title"] for r in rows if r["id"] == "continue" for i in r["items"]]
+
+    assert cont(dylan.client, dylan.h) == ["Drama Movie"]
+    assert cont(home_client, office_auth, f"?person={dylan_id}") == ["Drama Movie"]
+    assert cont(home_client, bed_auth) == ["Kids Movie"]

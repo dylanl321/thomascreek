@@ -33,7 +33,9 @@ _REASONS = {
     "acclaimed": "Acclaimed",
     "library": "In your library",
 }
-_ROW_TITLES = {"new": "New releases", "popular": "Popular", "acclaimed": "Must watch", "library": "Recently added"}
+_ROW_TITLES = {"top10": "Top 10 today", "new": "New releases", "popular": "Popular", "acclaimed": "Must watch",
+               "library": "Recently added"}
+TOP10_MIN = 3
 
 
 class ExploreError(Exception):
@@ -171,7 +173,29 @@ def build_feed(library: list[dict[str, Any]], lists: dict[str, list[dict[str, An
             if link:
                 links[link[0]] = link[1]
         rows.append((row_id, cards))
+    top = _top10(dict(rows))
+    if top:
+        rows.insert(0, ("top10", top))
     return _dedupe(rows), links
+
+
+def _top10(rows: dict[str, list[dict[str, Any]]]) -> list[dict[str, Any]]:
+    """The ten most popular titles the house can play now, in TMDB order; acclaimed ones fill a short list.
+
+    It leads the feed, so the rows after it skip these titles. Fewer than three is no row."""
+    seen: set[str] = set()
+    out = []
+    for card in (rows.get("popular") or []) + (rows.get("acclaimed") or []):
+        if card.get("availability") != "play":
+            continue
+        key = str(card.get("tmdb_id") or card.get("movie_id") or card.get("series_id") or card.get("title"))
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(card)
+        if len(out) == 10:
+            break
+    return out if len(out) >= TOP10_MIN else []
 
 
 def publish(h: Any, lists: dict[str, list[dict[str, Any]]] | None, *, can_request: bool) -> dict[str, dict[str, Any]]:

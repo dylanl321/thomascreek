@@ -254,3 +254,31 @@ def test_plex_index_rows_never_fill_the_library_row(hub, people):
     publish(hub, None, can_request=False)
     dylan = people["phones"]["Dylan"]
     assert dylan.client.get("/v1/tv/explore", headers=dylan.h).json() == {"hero": None, "rows": []}
+
+
+def test_top10_leads_with_popular_titles_the_house_can_play(hub, people):
+    hub.tv_catalog.ingest(vod=[
+        {"stream_id": 300 + n, "name": f"Film {n}", "year": "2020", "category_id": "1"} for n in range(12)
+    ], vod_categories=[{"category_id": "1", "category_name": "Drama"}])
+    lists = {
+        "new": [],
+        "popular": [{"tmdb_id": 9000, "kind": "movie", "title": "Not Owned", "year": 2024, "rating": "PG"}]
+        + [{"tmdb_id": 1000 + n, "kind": "movie", "title": f"Film {n}", "year": 2020, "rating": "PG"} for n in range(11)],
+        "acclaimed": [{"tmdb_id": 1011, "kind": "movie", "title": "Film 11", "year": 2020, "rating": "PG"}],
+    }
+    publish(hub, lists, can_request=True)
+    dylan = people["phones"]["Dylan"]
+    body = dylan.client.get("/v1/tv/explore", headers=dylan.h).json()
+    assert body["rows"][0]["id"] == "top10" and body["rows"][0]["title"] == "Top 10 today"
+    top = [item["title"] for item in body["rows"][0]["items"]]
+    assert top == [f"Film {n}" for n in range(10)]
+    popular = next(row for row in body["rows"] if row["id"] == "popular")
+    assert [item["title"] for item in popular["items"]] == ["Not Owned", "Film 10"]
+
+
+def test_no_top10_row_with_fewer_than_three_playable(hub, people):
+    _library(hub)
+    publish(hub, LISTS, can_request=True)
+    dylan = people["phones"]["Dylan"]
+    body = dylan.client.get("/v1/tv/explore", headers=dylan.h).json()
+    assert all(row["id"] != "top10" for row in body["rows"])

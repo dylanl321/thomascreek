@@ -1351,7 +1351,8 @@ class TvApp:
                     params={"playing": (playing or {}).get("channel_key"), "foreground": foreground,
                             "command": None if command is None else command.get("id")}, source="tv")
         if playing:
-            remember(self.db, "kids" if tv.get("profile") == "kids" else "adult", playing, now)
+            remember(self.db, "kids" if tv.get("profile") == "kids" else "adult", playing, now,
+                     person=self._watcher(body.get("person_id")), tv=install_id)
         event = self.watch_event(install_id)
         if command is not None:
             event["command"] = command
@@ -1369,6 +1370,12 @@ class TvApp:
             "playing": tv.get("playing"),
             "at": iso(tv.get("state_at")),
         }
+
+    def _watcher(self, raw: object) -> str | None:
+        """A household person the TV says is watching. Anything else is ignored, never an error."""
+        if not isinstance(raw, str) or not _PERSON_ID.fullmatch(raw):
+            return None
+        return raw if any(p["id"] == raw for p in _household(self.db)) else None
 
     def _playing(self, raw: object) -> dict[str, Any] | None:
         if raw is None:
