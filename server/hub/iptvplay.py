@@ -86,7 +86,7 @@ def tune(h: Any, canonical_id: str, tv_id: str, *, avoid: set[str] | None = None
     """Give this TV one stream. The previous session for that TV is released."""
     now = time.time() if now is None else now
     _release_idle(h, now)
-    item = _canonical(h, canonical_id)
+    item = _canonical(h, canonical_id) or _episode(h, canonical_id)
     if item is None:
         return {"ok": False, "message": "That title isn't in the catalog."}
     _release_tv(h, tv_id)
@@ -324,6 +324,21 @@ def _canonical(h: Any, canonical_id: str) -> dict[str, Any] | None:
         if isinstance(item, dict) and item.get("id") == canonical_id:
             return item
     return None
+
+
+def _episode(h: Any, ref: str) -> dict[str, Any] | None:
+    """A series episode (`ep:<provider>:<id>`) the catalog knows, played like a film from its own provider."""
+    if not ref.startswith("ep:"):
+        return None
+    catalog = getattr(h, "tv_catalog", None)
+    try:
+        known = catalog.episode(ref) if catalog is not None else None
+    except Exception:  # noqa: BLE001 - a catalog read must not stop playback
+        known = None
+    if not known:
+        return None
+    _kind, provider, _stream = _split_ref(ref)
+    return {"id": ref, "sources": [{"provider": provider, "ref": ref, "quality": None}]}
 
 
 def _mark_failed(h: Any, row: dict[str, Any], now: float) -> None:
