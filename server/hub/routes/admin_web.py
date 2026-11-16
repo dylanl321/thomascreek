@@ -939,6 +939,13 @@ def _iptv_changed(h: Hub, claims: dict[str, Any], what: str, target: str, secret
         h.tv_app.bump_config()
     if secrets_ and getattr(h, "keychecks", None):
         h.keychecks.after_save_many(secrets_)
+    # Read the other providers' lists now, so their copies count for playback without waiting for the next refresh.
+    catalog = getattr(h, "tv_catalog", None)
+    if catalog is not None:
+        try:
+            asyncio.get_running_loop().create_task(catalog.refresh_extras())
+        except RuntimeError:
+            pass
 
 
 _SERVER_RE = re.compile(r"https?://[^\s/]+(:\d+)?(/\S*)?")

@@ -26,6 +26,9 @@ KV_ASKED = "tv.catalog.ai.asked"
 FINGERPRINT_VERSION = 4
 
 
+MAIN_PROVIDER = "thomas-creek"
+
+
 def sources_from_catalog(doc: dict[str, Any], provider: str = "thomas-creek") -> list[dict[str, Any]]:
     """The rows already stored for one provider. This does not download anything."""
     rows = []
@@ -265,8 +268,10 @@ def playable(db: Any, *, kind: str, title: str, year: int | None = None, tmdb: s
                 break
     if best is None:
         return None
+    # The ref opens the title's page, which the main provider's catalog has, so its copy comes first; other
+    # providers' copies are still used when the canonical id is tuned.
     sources = list(best.get("sources") or [])
-    sources.sort(key=lambda source: _quality_rank(source.get("quality")))
+    sources.sort(key=lambda source: (source.get("provider") != MAIN_PROVIDER, _quality_rank(source.get("quality"))))
     chosen = sources[0] if sources else None
     if chosen is None:
         return None

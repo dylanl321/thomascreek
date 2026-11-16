@@ -340,12 +340,131 @@ class TvCatalog:
             },
         }
         self._write(doc)
+        self.fold(doc)
+        return doc
+
+    # -- other providers ---------------------------------------------------------------------------------------------
+    # The main provider (the iptv.xtream_* login) fills the guide, the films and the series. Every other provider
+    # added on the admin page is read as a light list (names, ids, file types) and folded into the same catalog, so
+    # a title both providers carry gets both copies, and /v1/tv/tune can spread TVs over every provider's logins.
+    def _extra_logins(self) -> dict[str, dict[str, str]]:
+        from types import SimpleNamespace
+
+        from . import iptvplay
+
+        shim = SimpleNamespace(config=SimpleNamespace(iptv=None), vault=self.vault, db=self.db)
+        out: dict[str, dict[str, str]] = {}
+        for lg in iptvplay.logins(shim):
+            pid = str(lg.get("provider") or "")
+            if pid == SOURCE or not pid or ":" in pid or "/" in pid or pid in out:
+                continue
+            secret = str(lg.get("password_secret") or "")
+            password = str(self.vault.get(secret) or "").strip() if secret and self.vault.has(secret) else ""
+            if lg.get("server") and lg.get("username") and password:
+                out[pid] = {"server": str(lg["server"]).rstrip("/"), "username": str(lg["username"]), "password": password}
+        return out
+
+    def _extra_path(self, pid: str) -> Path:
+        safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in pid)[:60]
+        return self.path.parent / f"extra-{safe}.json"
+
+    def extra(self, pid: str) -> dict[str, Any]:
+        path = self._extra_path(pid)
+        try:
+            stamp = path.stat().st_mtime
+        except OSError:
+            return {}
+        cache = self.__dict__.setdefault("_extra_cache", {})
+        hit = cache.get(pid)
+        if hit and hit[0] == stamp:
+            return hit[1]
+        try:
+            doc = json.loads(path.read_text())
+        except (OSError, ValueError):
+            return {}
+        cache[pid] = (stamp, doc)
+        return doc
+
+    def extra_movie(self, ref: str) -> dict[str, Any] | None:
+        """A film from another provider (`vod:<provider>:<id>`): its name and file type, for playback."""
+        parts = ref.split(":")
+        if len(parts) != 3 or parts[0] != "vod" or parts[1] == SOURCE:
+            return None
+        return next((row for row in self.extra(parts[1]).get("movies") or [] if row.get("id") == ref), None)
+
+    def ingest_extra(self, pid: str, *, live: list[Any] | None, vod: list[Any] | None, series: list[Any] | None,
+                     now: float | None = None) -> dict[str, Any]:
+        def key(prefix: str, value: object) -> str | None:
+            part = _id_part(value)
+            return f"{prefix}:{pid}:{part}" if part else None
+
+        channels, movies, shows = [], [], []
+        for row in live or []:
+            if isinstance(row, dict) and (k := key("xc", row.get("stream_id"))):
+                channels.append({"key": k, "name": _clip(row.get("name"), 80) or "Channel",
+                                 "epg_id": _clip(row.get("epg_channel_id"), 80)})
+        for rows, out, prefix, id_field in ((vod, movies, "vod", "stream_id"), (series, shows, "series", "series_id")):
+            for row in rows or []:
+                if not isinstance(row, dict) or not (k := key(prefix, row.get(id_field))):
+                    continue
+                item = {"id": k, "name": _clip(row.get("name") or row.get("title"), 120) or "Untitled",
+                        "year": _clip(row.get("year") or row.get("releaseDate"), 20)}
+                tmdb = _tmdb_id(row.get("tmdb") or row.get("tmdb_id"))
+                if tmdb:
+                    item["tmdb"] = tmdb
+                ext = _ext(row.get("container_extension"))
+                if ext:
+                    item["ext"] = ext
+                out.append(item)
+        doc = {"provider": pid, "fetched_at": time.time() if now is None else now,
+               "channels": channels, "movies": movies, "series": shows}
+        path = self._extra_path(pid)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(doc))
+        tmp.replace(path)
+        return doc
+
+    def fold(self, doc: dict[str, Any] | None = None) -> None:
+        """Fold every provider's titles into the one catalog. All providers go in one call: a source left out
+        of a call is treated as gone."""
         try:
             from .iptvcanon import observe, sources_from_catalog
-            observe(self.db, sources_from_catalog(doc))
+
+            doc = self.load() if doc is None else doc
+            sources = sources_from_catalog(doc) if doc else []
+            for pid in self._extra_logins():
+                extra = self.extra(pid)
+                if extra:
+                    sources += sources_from_catalog(extra, pid)
+            observe(self.db, sources)
         except Exception as exc:  # noqa: BLE001
             log.info("catalog fold: %s", exc)
-        return doc
+
+    async def refresh_extras(self) -> dict[str, str]:
+        """Read every other provider's lists. One provider failing keeps its last list and doesn't stop the rest."""
+        result: dict[str, str] = {}
+        logins = self._extra_logins()
+        for pid, lg in logins.items():
+            params = {"username": lg["username"], "password": lg["password"]}
+            try:
+                async with httpx.AsyncClient(timeout=60, follow_redirects=False, transport=self._transport) as client:
+                    got = []
+                    for action in ("get_live_streams", "get_vod_streams", "get_series"):
+                        r = await client.get(f"{lg['server']}/player_api.php", params={**params, "action": action})
+                        if r.status_code >= 300:
+                            raise TvAppError(502, "bad_provider", f"answered {r.status_code}")
+                        part = r.json()
+                        got.append(part if isinstance(part, list) else [])
+                doc = self.ingest_extra(pid, live=got[0], vod=got[1], series=got[2])
+                result[pid] = f"{len(doc['channels'])} channels, {len(doc['movies'])} films, {len(doc['series'])} series"
+                log.info("provider %s: %s", pid, result[pid])
+            except (httpx.HTTPError, TvAppError, ValueError) as exc:
+                result[pid] = "not read"
+                log.info("provider %s: lists not read (%s)", pid, type(exc).__name__)
+        if logins:
+            self.fold()
+        return result
 
     def store_series(self, payload: dict[str, Any], series_id: str) -> dict[str, Any]:
         info = payload.get("info") if isinstance(payload.get("info"), dict) else {}
@@ -473,6 +592,7 @@ class TvCatalog:
             finally:
                 if isinstance(xmltv, Path):
                     xmltv.unlink(missing_ok=True)
+        await self.refresh_extras()
         if self.settle is not None:
             try:
                 await self.settle()

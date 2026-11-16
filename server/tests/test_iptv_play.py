@@ -173,3 +173,60 @@ def test_a_series_episode_plays_through_a_session_and_kids_only_get_kids_episode
     assert late.status_code in (200, 403)
     if late.status_code == 200:
         assert late.json() == {"ok": False, "message": "That show isn't in the kids' library."}
+
+
+def test_a_second_provider_is_read_folded_in_and_its_logins_take_the_overflow(hub, people, home_client):
+    """A different provider added on the admin page: its lists are read, a film both carry becomes one title
+    with both copies, and a TV goes to the second provider when the main login is full."""
+    import asyncio
+
+    import httpx
+    import respx
+
+    from hub import iptvcanon, iptvplay
+
+    hub.config.iptv.providers = []
+    hub.vault.set("iptv.xtream_server", "http://main.test")
+    hub.vault.set("iptv.xtream_username", "house")
+    hub.vault.set("iptv.xtream_password", "secret-main")
+    iptvplay.add_provider(hub, "Other TV", "http://other.test", "spare", "secret-other")
+    hub.tv_catalog.ingest(vod=[{"stream_id": 100, "name": "EN - The Matrix (1999)", "tmdb": "603", "container_extension": "mp4"}],
+                          vod_categories=[], live=[{"stream_id": 7, "name": "US: ESPN HD", "epg_channel_id": "espn.us"}],
+                          live_categories=[], series=[], series_categories=[])
+    with respx.mock(assert_all_called=False) as mock:
+        def answer(request):
+            action = request.url.params.get("action")
+            return httpx.Response(200, json={
+                "get_vod_streams": [{"stream_id": 55, "name": "The Matrix 1999 FHD", "tmdb": "603", "container_extension": "mkv"}],
+                "get_live_streams": [{"stream_id": 9, "name": "ESPN", "epg_channel_id": "espn.us"}],
+                "get_series": [],
+            }[action])
+        mock.get("http://other.test/player_api.php").mock(side_effect=answer)
+        got = asyncio.run(hub.tv_catalog.refresh_extras())
+    assert got == {"Other-TV": "1 channels, 1 films, 0 series"}
+    assert "secret-other" not in hub.tv_catalog._extra_path("Other-TV").read_text()
+    film = next(i for i in hub.db.kv_get("tv.catalog.canonical")["items"] if i.get("kind") == "movie")
+    assert {s["provider"] for s in film["sources"]} == {"thomas-creek", "Other-TV"}
+    channel = next(i for i in hub.db.kv_get("tv.catalog.canonical")["items"] if i.get("kind") == "live")
+    assert {s["provider"] for s in channel["sources"]} == {"thomas-creek", "Other-TV"}
+    # The page the TV opens is still the main provider's.
+    assert iptvcanon.playable(hub.db, kind="movie", title="The Matrix", tmdb="603")["ref"] == "vod:thomas-creek:100"
+
+    # The main login is full: the TV gets the other provider's copy, under its own file type.
+    iptvplay.note_usage(hub, "thomas-creek", "main", {"max_connections": "1", "active_cons": "1", "status": "Active"})
+    iptvplay.note_usage(hub, "Other-TV", "1", {"max_connections": "1", "active_cons": "0", "status": "Active"})
+    key = Key()
+    _enroll(home_client, key, TV_ID, "Living room")
+    hub.tv_app.set_tv(TV_ID, status="approved", room="living_room")
+    tv_headers = _auth(_token(home_client, key, Clock())["access_token"])
+    dylan = people["phones"]["Dylan"]
+    started = dylan.client.post("/v1/tv/tune", headers=dylan.h, json={"canonical_id": film["id"], "device": TV_ID}).json()
+    assert started["ok"] is True and started["stream"]["ref"] == "vod:Other-TV:55"
+    opened = home_client.get(started["stream"]["url"], headers=tv_headers, follow_redirects=False)
+    assert opened.headers["location"].startswith("http://other.test/movie/spare/") and opened.headers["location"].endswith("/55.mkv")
+
+    # Removing the provider takes its copies out at the next fold.
+    iptvplay.remove_provider(hub, "Other-TV")
+    hub.tv_catalog.fold()
+    film = next(i for i in hub.db.kv_get("tv.catalog.canonical")["items"] if i.get("kind") == "movie")
+    assert {s["provider"] for s in film["sources"]} == {"thomas-creek"}
