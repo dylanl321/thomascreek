@@ -128,39 +128,36 @@ class TvCatalog:
         self.db = db
         self.path = Path(data) / "tvapp" / "catalog.json"
         self.details_path = Path(data) / "tvapp" / "catalog-details.json"
-        # Parsed files, kept while the file on disk is unchanged. The catalog is tens of megabytes (every channel and
-        # the whole guide); parsing it for every request made each /v1/tv/guide call take seconds.
-        self._parsed: dict[Path, tuple[tuple[int, int], Any]] = {}
         self._transport = transport
         self.kids_categories: KidsFn = lambda: []
         self._lock = asyncio.Lock()
 
     # -- cache -----------------------------------------------------------------------------------------------------
-    def _read(self, path: Path) -> Any:
-        """The parsed JSON file, from memory while its size and modification time are unchanged. Callers must not
-        change the returned document in place without writing it back."""
+    def load(self) -> dict[str, Any]:
+        """The cached catalog, parsed once per file change. The file holds the whole provider library and guide
+        (tens of MB): parsing it on every request took about 15 s per guide call and blocked the hub, so the parsed
+        copy is kept while the file's size and change time stay the same. Callers read it and must not change it."""
         try:
-            st = path.stat()
+            stat = self.path.stat()
         except OSError:
-            self._parsed.pop(path, None)
-            return None
-        stamp = (st.st_mtime_ns, st.st_size)
-        hit = self._parsed.get(path)
-        if hit is not None and hit[0] == stamp:
-            return hit[1]
+            return {}
+        stamp = (stat.st_mtime_ns, stat.st_size)
+        cached = getattr(self, "_loaded", None)
+        if cached is not None and cached[0] == stamp:
+            return cached[1]
         try:
-            doc = json.loads(path.read_text())
+            doc = json.loads(self.path.read_text())
         except (OSError, json.JSONDecodeError):
-            return None
-        self._parsed[path] = (stamp, doc)
+            return {}
+        doc = doc if isinstance(doc, dict) else {}
+        self._loaded = (stamp, doc)
         return doc
 
-    def load(self) -> dict[str, Any]:
-        doc = self._read(self.path)
-        return doc if isinstance(doc, dict) else {}
-
     def _details(self) -> dict[str, Any]:
-        doc = self._read(self.details_path)
+        try:
+            doc = json.loads(self.details_path.read_text())
+        except (OSError, json.JSONDecodeError):
+            return {"series": {}, "movies": {}, "episodes": {}}
         if not isinstance(doc, dict):
             return {"series": {}, "movies": {}, "episodes": {}}
         doc.setdefault("series", {})
@@ -171,12 +168,11 @@ class TvCatalog:
     def _write(self, doc: dict[str, Any]) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.write_text(json.dumps(doc))
-        self._parsed.pop(self.path, None)
+        self._loaded = None
 
     def _write_details(self, doc: dict[str, Any]) -> None:
         self.details_path.parent.mkdir(parents=True, exist_ok=True)
         self.details_path.write_text(json.dumps(doc))
-        self._parsed.pop(self.details_path, None)
 
     def _overlay(self) -> dict[str, dict[str, Any]]:
         raw = self.db.kv_get("tvapp.lineup") or {}
@@ -618,18 +614,19 @@ class TvCatalog:
             "category": row.get("category"),
         }
 
-    def guide(self, *, start: float, end: float, channel: str | None, kids_only: bool, now: float | None = None) -> dict[str, Any]:
+    def guide(self, *, start: float, end: float, channel: str | None, kids_only: bool, now: float | None = None,
+              channels: list[str] | None = None) -> dict[str, Any]:
+        """`channel` asks for one channel, `channels` for several in one call (the TVs used to ask one at a time)."""
         now = time.time() if now is None else now
+        picked = set(channels or []) | ({channel} if channel else set())
         doc = self.load()
         overlay = self._overlay()
         notes: dict[str, dict[str, Any]] = {}
         wanted = []
-        # One channel, or several separated by commas, so a screen can ask for what it shows in one call.
-        only = {part.strip() for part in channel.split(",") if part.strip()} if channel else None
         for row in doc.get("channels") or []:
             if len(wanted) >= 200:
                 break
-            if only is not None and row.get("key") not in only:
+            if picked and row.get("key") not in picked:
                 continue
             shown = self._present_channel(row, overlay)
             if shown is None or (kids_only and not shown["kids"]):
@@ -648,7 +645,7 @@ class TvCatalog:
                     nxt = view
                 if finishes > start and begins < end:
                     programmes.append(view)
-            if only is not None or programmes or current:
+            if picked or programmes or current:
                 wanted.append({
                     "key": shown["key"], "name": shown["name"], "number": shown["number"],
                     "group": shown["group"], "logo": shown["logo"], "logo_url": self._art("logo", shown["key"]),

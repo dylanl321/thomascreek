@@ -391,6 +391,23 @@ def test_guide_series_movies_and_search_are_filtered(hub, people):
     assert dylan.client.get("/v1/tv/library/search", headers=dylan.h, params={"q": "n"}).status_code == 400
 
 
+def test_guide_answers_several_channels_in_one_call_and_parses_the_catalog_once(hub, people, monkeypatch):
+    _library(hub)
+    dylan = people["phones"]["Dylan"]
+    keys = {row["name"]: row["key"] for row in dylan.client.get("/v1/tv/guide", headers=dylan.h).json()["channels"]}
+    reads = []
+    real = hub.tv_catalog.path.read_text
+    monkeypatch.setattr(type(hub.tv_catalog.path), "read_text", lambda self, *a, **k: (reads.append(self), real())[1])
+    both = dylan.client.get("/v1/tv/guide", headers=dylan.h, params={"channels": f"{keys['CNN']},{keys['Cartoon']}"})
+    assert both.status_code == 200, both.text
+    assert sorted(row["name"] for row in both.json()["channels"]) == ["CNN", "Cartoon"]
+    one = dylan.client.get("/v1/tv/guide", headers=dylan.h, params={"channels": keys["CNN"]}).json()
+    assert [row["name"] for row in one["channels"]] == ["CNN"]
+    assert not [p for p in reads if p == hub.tv_catalog.path]  # already parsed: no second read of the big file
+    many = ",".join(f"live:x:{n}" for n in range(101))
+    assert dylan.client.get("/v1/tv/guide", headers=dylan.h, params={"channels": many}).status_code == 400
+
+
 def test_play_catchup_movie_and_episode(hub, people):
     hub.config.hub.live_actions = ["tv.play"]
     _library(hub)
@@ -478,28 +495,10 @@ def test_apps_are_filtered_by_profile(hub, home_client, people, away_client):
     assert away_client.get("/v1/tv/apps", headers=_auth(_token(home_client, adult, clock)["access_token"])).status_code == 403
 
 
-def test_one_guide_call_answers_for_several_channels(hub, people):
+
+def test_a_child_asking_for_several_channels_still_gets_only_kids_channels(hub, people):
     _library(hub)
-    dylan, theo = people["phones"]["Dylan"], people["phones"]["Theo"]
-    both = dylan.client.get("/v1/tv/guide", headers=dylan.h,
-                            params={"channel": "xc:thomas-creek:10,xc:thomas-creek:11"}).json()
-    assert sorted(row["name"] for row in both["channels"]) == ["CNN", "Cartoon"]
-    one = dylan.client.get("/v1/tv/guide", headers=dylan.h, params={"channel": "xc:thomas-creek:10"}).json()
-    assert [row["name"] for row in one["channels"]] == ["CNN"]
-    # A child asking for both still gets only the kids' channel.
+    theo = people["phones"]["Theo"]
     kid = theo.client.get("/v1/tv/guide", headers=theo.h,
-                          params={"channel": "xc:thomas-creek:10,xc:thomas-creek:11"}).json()
+                          params={"channels": "xc:thomas-creek:10,xc:thomas-creek:11"}).json()
     assert [row["name"] for row in kid["channels"]] == ["Cartoon"]
-
-
-def test_the_catalog_is_parsed_once_until_it_changes(hub, monkeypatch):
-    _library(hub)
-    catalog = hub.tv_catalog
-    first = catalog.load()
-    reads = []
-    real = type(catalog.path).read_text
-    monkeypatch.setattr(type(catalog.path), "read_text", lambda self, *a, **k: reads.append(self) or real(self, *a, **k))
-    assert catalog.load() is first
-    assert reads == []
-    catalog._write({**first, "channels": []})
-    assert catalog.load()["channels"] == []
