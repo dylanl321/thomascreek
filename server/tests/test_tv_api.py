@@ -391,6 +391,23 @@ def test_guide_series_movies_and_search_are_filtered(hub, people):
     assert dylan.client.get("/v1/tv/library/search", headers=dylan.h, params={"q": "n"}).status_code == 400
 
 
+def test_guide_answers_several_channels_in_one_call_and_parses_the_catalog_once(hub, people, monkeypatch):
+    _library(hub)
+    dylan = people["phones"]["Dylan"]
+    keys = {row["name"]: row["key"] for row in dylan.client.get("/v1/tv/guide", headers=dylan.h).json()["channels"]}
+    reads = []
+    real = hub.tv_catalog.path.read_text
+    monkeypatch.setattr(type(hub.tv_catalog.path), "read_text", lambda self, *a, **k: (reads.append(self), real())[1])
+    both = dylan.client.get("/v1/tv/guide", headers=dylan.h, params={"channels": f"{keys['CNN']},{keys['Cartoon']}"})
+    assert both.status_code == 200, both.text
+    assert sorted(row["name"] for row in both.json()["channels"]) == ["CNN", "Cartoon"]
+    one = dylan.client.get("/v1/tv/guide", headers=dylan.h, params={"channels": keys["CNN"]}).json()
+    assert [row["name"] for row in one["channels"]] == ["CNN"]
+    assert not [p for p in reads if p == hub.tv_catalog.path]  # already parsed: no second read of the big file
+    many = ",".join(f"live:x:{n}" for n in range(101))
+    assert dylan.client.get("/v1/tv/guide", headers=dylan.h, params={"channels": many}).status_code == 400
+
+
 def test_play_catchup_movie_and_episode(hub, people):
     hub.config.hub.live_actions = ["tv.play"]
     _library(hub)
