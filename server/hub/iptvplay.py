@@ -344,6 +344,8 @@ def _file_type(h: Any, kind: str, ref: str) -> str:
     if catalog is not None:
         try:
             row = catalog.movie(ref) if kind == "vod" else catalog.episode(ref) if kind == "ep" else None
+            if row is None and kind == "vod" and hasattr(catalog, "extra_movie"):
+                row = catalog.extra_movie(ref)
         except Exception:  # noqa: BLE001 - a catalog read must not stop playback
             row = None
     ext = str((row or {}).get("ext") or "").strip().lower().lstrip(".")

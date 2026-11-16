@@ -587,7 +587,8 @@ def _canonical_rows(h: Any) -> list[dict[str, Any]]:
     for item in search(h.db)["items"]:
         if item.get("kind") not in ("movie", "series"):
             continue
-        sources = list(item.get("sources") or [])
+        # Only the main provider's copies have a page the TV can open; the others play through /tune.
+        sources = [s for s in item.get("sources") or [] if s.get("provider") == "thomas-creek"]
         if not sources:
             continue
         sources.sort(key=lambda source: {"2160p": 0, "1080p": 1, "720p": 2, "sd": 3}.get(str(source.get("quality") or ""), 4))
