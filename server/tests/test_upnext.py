@@ -121,3 +121,19 @@ def test_continue_follows_the_person_and_falls_back_to_the_tv(hub, people):
     assert titles(who_key(tv="tv-office")) == ["Kids Movie"]
     # Nobody with history of their own yet: the house's adult rows.
     assert sorted(titles(who_key(person="p_new"))) == ["Drama Movie", "Kids Movie"]
+
+
+def test_the_players_length_draws_how_far_a_film_got(hub, people):
+    """The catalog rarely knows a film's length; the TV sends it with the position, so the card gets a progress line."""
+    _catalog(hub)
+    now = datetime.now(timezone.utc).timestamp()
+    remember(hub.db, "adult", {"movie_id": "vod:thomas-creek:100", "title": "Drama Movie", "position_s": 1800,
+                               "duration_s": 7200}, now=now, tv="tv-office")
+    remember(hub.db, "adult", {"movie_id": "vod:thomas-creek:101", "title": "Kids Movie", "position_s": 600,
+                               "duration_s": True}, now=now - 10, tv="tv-office")
+    from hub.upnext import who_key
+
+    rows = shelf(hub, "adult", who=who_key(tv="tv-office"))["rows"]
+    cont = {i["title"]: i for i in next(r for r in rows if r["id"] == "continue")["items"]}
+    assert cont["Drama Movie"]["progress"] == 0.25
+    assert cont["Kids Movie"].get("progress") is None
