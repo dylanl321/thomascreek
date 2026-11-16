@@ -171,3 +171,49 @@ def test_plex_films_continue_too(hub, people):
     assert item["poster_url"] == "/v1/tv/explore/art/poster/movie/238"
     assert shelf(hub, "kids", who=who_key(tv="tv-office"))["rows"] == [] or all(
         i.get("movie_id") != "vod:plex:777" for r in shelf(hub, "kids", who=who_key(tv="tv-office"))["rows"] for i in r["items"])
+
+
+def test_a_shuffle_continues_on_any_screen_and_ends_when_played_in_order(hub, people):
+    _catalog(hub)
+    hub.tv_catalog.store_series({
+        "info": {"name": "Cartoon Show"},
+        "episodes": {"1": [
+            {"id": "900", "episode_num": 1, "title": "Pilot"},
+            {"id": "901", "episode_num": 2, "title": "Next"},
+            {"id": "902", "episode_num": 3, "title": "Third"},
+        ]},
+    }, "series:thomas-creek:50")
+    now = datetime.now(timezone.utc).timestamp()
+    order = ["ep:thomas-creek:902", "ep:thomas-creek:900", "ep:thomas-creek:901"]
+    remember(hub.db, "adult", {
+        "series_id": "series:thomas-creek:50", "episode_id": "ep:thomas-creek:902", "title": "Third",
+        "shuffle": {"order": order, "seasons": [1]},
+    }, now=now, person="p_dylan")
+
+    def nxt(who="person:p_dylan"):
+        rows = {row["id"]: row for row in shelf(hub, "adult", who=who)["rows"]}
+        return (rows.get("next") or {"items": [{}]})["items"][0]
+
+    item = nxt()
+    # In order the next would be nothing after 902; the shuffle says 900.
+    assert item["episode_id"] == "ep:thomas-creek:900"
+    assert item["reason"] == "next in your shuffle"
+    assert item["shuffle"] == {"order": order, "seasons": [1]}
+
+    remember(hub.db, "adult", {"series_id": "series:thomas-creek:50", "episode_id": "ep:thomas-creek:901",
+                               "title": "Next", "shuffle": {"order": order}}, now=now + 4000, person="p_dylan")
+    assert nxt() == {}  # the last episode of the shuffle: nothing is next
+
+    remember(hub.db, "adult", {"series_id": "series:thomas-creek:50", "episode_id": "ep:thomas-creek:900",
+                               "title": "Pilot"}, now=now + 8000, person="p_dylan")
+    item = nxt()
+    assert item["episode_id"] == "ep:thomas-creek:901" and "shuffle" not in item
+
+
+def test_the_tv_state_keeps_a_clean_shuffle(hub):
+    from hub.tvapp import _play_shuffle
+
+    assert _play_shuffle({"order": ["ep:a", "ep:a", "bad id", "https://x/y", "ep:b"], "seasons": [2, 1, True, -3]}) \
+        == {"order": ["ep:a", "ep:b"], "seasons": [1, 2]}
+    assert _play_shuffle({"order": []}) is None
+    assert _play_shuffle("yes") is None

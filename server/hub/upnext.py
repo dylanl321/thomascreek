@@ -24,6 +24,7 @@ ROW_LIMIT = 8
 REASONS = {
     "continue": "continue watching",
     "next": "new episode of a series you watch or record",
+    "shuffle": "next in your shuffle",
     "recordings": "recording ready",
     "arrived": "ready to watch",
     "onnow": "starting now on a channel you watch",
@@ -99,7 +100,13 @@ def _add(bucket: dict[str, Any], playing: dict[str, Any], now: float) -> dict[st
             extra["position_s"] = position
         if duration is not None:
             extra["duration_s"] = duration
-        series[key] = _touch(series.get(key), now, **extra)
+        row = _touch(series.get(key), now, **extra)
+        # A shuffled play keeps the TV's order so any screen continues it; a play in order ends the shuffle.
+        if episode and isinstance(playing.get("shuffle"), dict):
+            row["shuffle"] = playing["shuffle"]
+        elif episode:
+            row.pop("shuffle", None)
+        series[key] = row
         changed = True
     if not changed:
         return None
@@ -225,8 +232,24 @@ def _next_episodes(h: Any, history: dict[str, Any], kids: bool) -> list[dict[str
         episodes = by_series.get(str(series_id)) or []
         if not episodes:
             continue
-        watched = 0
         current = row.get("episode_id")
+        shuffled = _shuffle_next(row, episodes)
+        if shuffled is not None:
+            nxt, shuffle = shuffled
+            if kids and not nxt.get("kids"):
+                continue
+            item = _item(
+                h, kind="episode", title=nxt.get("title") or "Next episode",
+                subtitle=nxt.get("series_name"), reason="shuffle",
+                episode_id=nxt.get("id"), series_id=series_id,
+                rank=float(row.get("n") or 0) * 1000 + float(row.get("last") or 0),
+            )
+            item["shuffle"] = shuffle
+            items.append(item)
+            continue
+        if isinstance(row.get("shuffle"), dict):
+            continue  # the shuffle reached its end: nothing is "next" until a new play
+        watched = 0
         if current:
             found = next((ep for ep in episodes if ep.get("id") == current), None)
             watched = int((found or {}).get("number") or 0)
@@ -246,6 +269,22 @@ def _next_episodes(h: Any, history: dict[str, Any], kids: bool) -> list[dict[str
     for item in items:
         item.pop("_rank", None)
     return items
+
+
+def _shuffle_next(row: dict[str, Any], episodes: list[dict[str, Any]]) -> tuple[dict[str, Any], dict[str, Any]] | None:
+    """The episode after the current one in the TV's shuffle order, and the shuffle to hand back."""
+    shuffle = row.get("shuffle")
+    if not isinstance(shuffle, dict):
+        return None
+    order = [str(item) for item in shuffle.get("order") or []]
+    current = str(row.get("episode_id") or "")
+    if current not in order:
+        return None
+    known = {str(ep.get("id")): ep for ep in episodes}
+    for episode_id in order[order.index(current) + 1:]:
+        if episode_id in known:
+            return known[episode_id], shuffle
+    return None
 
 
 def _recordings(h: Any, kids: bool, now: float) -> list[dict[str, Any]]:

@@ -170,6 +170,32 @@ def _play_id(value: object) -> str | None:
     return text
 
 
+SHUFFLE_MAX = 2000
+
+
+def _play_shuffle(value: object) -> dict[str, Any] | None:
+    """A TV's shuffle of a show: the episode order it plays and the seasons it picked. Bad input is dropped."""
+    if not isinstance(value, dict):
+        return None
+    order = value.get("order")
+    if not isinstance(order, list) or not order:
+        return None
+    ids: list[str] = []
+    for item in order[:SHUFFLE_MAX]:
+        clean = _play_id(item)
+        if clean and clean not in ids:
+            ids.append(clean)
+    if not ids:
+        return None
+    out: dict[str, Any] = {"order": ids}
+    seasons = value.get("seasons")
+    if isinstance(seasons, list):
+        picked = sorted({int(n) for n in seasons if isinstance(n, int) and not isinstance(n, bool) and 0 <= n <= 1000})
+        if picked:
+            out["seasons"] = picked
+    return out
+
+
 def _play_start(value: object) -> int | str | None:
     if value is None or isinstance(value, bool):
         return None
@@ -1423,6 +1449,9 @@ class TvApp:
         start = _play_start(raw.get("start"))
         if start is not None:
             out["start"] = start
+        shuffle = _play_shuffle(raw.get("shuffle"))
+        if shuffle is not None and episode:
+            out["shuffle"] = shuffle
         return out
 
     def _health(self, raw: object) -> dict[str, Any]:
