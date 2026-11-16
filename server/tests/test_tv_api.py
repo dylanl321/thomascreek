@@ -476,3 +476,30 @@ def test_apps_are_filtered_by_profile(hub, home_client, people, away_client):
     assert "com.amazon.amazonvideo.livingroom" in grown.json()["allowed"]
     assert people["phones"]["Dylan"].client.get("/v1/tv/apps", headers=people["phones"]["Dylan"].h).status_code == 403
     assert away_client.get("/v1/tv/apps", headers=_auth(_token(home_client, adult, clock)["access_token"])).status_code == 403
+
+
+def test_one_guide_call_answers_for_several_channels(hub, people):
+    _library(hub)
+    dylan, theo = people["phones"]["Dylan"], people["phones"]["Theo"]
+    both = dylan.client.get("/v1/tv/guide", headers=dylan.h,
+                            params={"channel": "xc:thomas-creek:10,xc:thomas-creek:11"}).json()
+    assert sorted(row["name"] for row in both["channels"]) == ["CNN", "Cartoon"]
+    one = dylan.client.get("/v1/tv/guide", headers=dylan.h, params={"channel": "xc:thomas-creek:10"}).json()
+    assert [row["name"] for row in one["channels"]] == ["CNN"]
+    # A child asking for both still gets only the kids' channel.
+    kid = theo.client.get("/v1/tv/guide", headers=theo.h,
+                          params={"channel": "xc:thomas-creek:10,xc:thomas-creek:11"}).json()
+    assert [row["name"] for row in kid["channels"]] == ["Cartoon"]
+
+
+def test_the_catalog_is_parsed_once_until_it_changes(hub, monkeypatch):
+    _library(hub)
+    catalog = hub.tv_catalog
+    first = catalog.load()
+    reads = []
+    real = type(catalog.path).read_text
+    monkeypatch.setattr(type(catalog.path), "read_text", lambda self, *a, **k: reads.append(self) or real(self, *a, **k))
+    assert catalog.load() is first
+    assert reads == []
+    catalog._write({**first, "channels": []})
+    assert catalog.load()["channels"] == []
