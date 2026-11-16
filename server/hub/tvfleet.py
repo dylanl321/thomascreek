@@ -720,6 +720,8 @@ def _params(action: str, params: dict[str, Any], package: str) -> dict[str, Any]
             return {"level": level}
         if params.get("delta") in (-1, 1):
             return {"delta": params["delta"]}
+        if params.get("mute") is True:
+            return {"mute": True}
         raise FleetError(400, "Say how loud.")
     raise FleetError(400, "That isn't a command this TV knows.")
 
