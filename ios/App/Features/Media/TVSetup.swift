@@ -635,6 +635,7 @@ struct HubTvRow: Decodable, Identifiable, Hashable {
     var model: String?
     var screenshot: Shot?
     var canScreenshot: Bool?
+    var canCec: Bool?
 }
 
 struct HubTvDetail: Decodable {
@@ -649,17 +650,28 @@ struct HubTvDetail: Decodable {
         var android: String?
     }
     struct LastCommand: Decodable { var action: String; var ok: Bool?; var detail: String?; var at: String? }
+    /// What the box knows about HDMI-CEC, from the hub's last check (hub/tvcec.py).
+    struct Cec: Decodable {
+        var enabled: Bool?
+        var tvAnswers: Bool?
+        var volume: Bool?
+        var awake: Bool?
+        var checked: String?
+        var note: String?
+    }
     var tv: HubTvRow
     var device: Device?
     var lastCommand: LastCommand?
+    var cec: Cec?
 
     init(from decoder: Decoder) throws {
         tv = try HubTvRow(from: decoder)
         let c = try decoder.container(keyedBy: Keys.self)
         device = try? c.decodeIfPresent(Device.self, forKey: .device)
         lastCommand = try? c.decodeIfPresent(LastCommand.self, forKey: .lastCommand)
+        cec = try? c.decodeIfPresent(Cec.self, forKey: .cec)
     }
-    private enum Keys: String, CodingKey { case device, lastCommand }
+    private enum Keys: String, CodingKey { case device, lastCommand, cec }
 }
 
 struct TvActionReply: Decodable { var ok: Bool; var via: String?; var message: String?; var id: String? }
@@ -767,6 +779,7 @@ struct TVDetailView: View {
     @State private var busy: String?
     @State private var shotWanted: String?   // screenshot `at` before the request; cleared when it changes
     @State private var loadFailed = false    // `problem` came from loading, so a good refresh clears it
+    @State private var cecChecked = false    // one CEC check per visit, so the note is current
 
     var body: some View {
         ScrollView {
@@ -777,6 +790,7 @@ struct TVDetailView: View {
                 }
                 if let d = detail {
                     header(d.tv)
+                    if d.tv.canCec == true { tvControls(d) }
                     actions(d.tv)
                     if let note {
                         Label(note, systemImage: "info.circle.fill").font(.subheadline).foregroundStyle(Theme.fg).card()
@@ -846,11 +860,46 @@ struct TVDetailView: View {
         .disabled(tv.status != "approved")
     }
 
-    private func actionButton(_ title: String, _ symbol: String, _ action: String) -> some View {
-        Button { Task { await run(action) } } label: {
+    /// Power, input and volume over HDMI-CEC. The hub runs them on the box over network debugging.
+    private func tvControls(_ d: HubTvDetail) -> some View {
+        let columns = [GridItem(.flexible()), GridItem(.flexible())]
+        return VStack(alignment: .leading, spacing: 8) {
+            SectionHeader("TV")
+            LazyVGrid(columns: columns, spacing: 10) {
+                actionButton("Turn on", "power", "tv_power", ["power": "on"], key: "tv_power_on")
+                actionButton("Turn off", "power.dotted", "tv_power", ["power": "off"], key: "tv_power_off")
+            }
+            actionButton("Switch TV to this box", "rectangle.connected.to.line.below", "tv_input")
+            HStack(spacing: 10) {
+                actionButton("", "speaker.minus.fill", "tv_volume", ["volume": "down"], key: "vol_down")
+                    .accessibilityLabel("Volume down")
+                actionButton("", "speaker.slash.fill", "tv_volume", ["volume": "mute"], key: "vol_mute")
+                    .accessibilityLabel("Mute")
+                actionButton("", "speaker.plus.fill", "tv_volume", ["volume": "up"], key: "vol_up")
+                    .accessibilityLabel("Volume up")
+            }
+            if let cecNote = d.cec?.note {
+                Label(cecNote, systemImage: "exclamationmark.circle").font(.caption).foregroundStyle(Theme.dim)
+            } else if d.cec?.tvAnswers == true {
+                Label("HDMI-CEC: the TV answers this box.", systemImage: "checkmark.circle").font(.caption).foregroundStyle(Theme.dim)
+            }
+        }
+        .disabled(d.tv.status != "approved")
+        .task(id: tvID) {
+            guard !cecChecked else { return }
+            cecChecked = true
+            _ = try? await HubClient.shared.post("/v1/tvs/\(tvID)/actions", ["action": "cec_check"], as: TvActionReply.self)
+            await load()
+        }
+    }
+
+    private func actionButton(_ title: String, _ symbol: String, _ action: String,
+                              _ extra: [String: String] = [:], key: String? = nil) -> some View {
+        let id = key ?? action
+        return Button { Task { await run(action, extra, key: id) } } label: {
             HStack(spacing: 8) {
-                if busy == action { ProgressView().controlSize(.small) } else { Image(systemName: symbol) }
-                Text(title).lineLimit(1).minimumScaleFactor(0.8)
+                if busy == id { ProgressView().controlSize(.small) } else { Image(systemName: symbol) }
+                if !title.isEmpty { Text(title).lineLimit(1).minimumScaleFactor(0.8) }
             }
             .font(.subheadline.weight(.semibold))
             .frame(maxWidth: .infinity, minHeight: 44)
@@ -934,11 +983,13 @@ struct TVDetailView: View {
         if latest == nil, let page: HubTvsPage = try? await HubClient.shared.get("/v1/tvs") { latest = page.latestVersion }
     }
 
-    private func run(_ action: String) async {
-        busy = action
+    private func run(_ action: String, _ extra: [String: String] = [:], key: String? = nil) async {
+        busy = key ?? action
         defer { busy = nil }
         do {
-            let reply: TvActionReply = try await HubClient.shared.post("/v1/tvs/\(tvID)/actions", ["action": action])
+            var body: [String: Any] = ["action": action]
+            for (k, v) in extra { body[k] = v }
+            let reply: TvActionReply = try await HubClient.shared.post("/v1/tvs/\(tvID)/actions", body)
             note = reply.message
             problem = nil
             if action == "screenshot" { shotWanted = detail?.tv.screenshot?.at ?? "" }

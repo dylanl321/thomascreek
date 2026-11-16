@@ -15,14 +15,14 @@ import re
 import time
 from typing import Any
 
-from . import tvfleet
+from . import tvcec, tvfleet
 from .home import iso
 from .tvapp import TvAppError
 from .tvlineup import valid_key
 
 # A TV counts as online when it has checked in within this window (fleet report, state or config pull).
 ONLINE_S = tvfleet.ONLINE_S
-ACTIONS = ("restart_app", "update", "open_app", "screenshot", "play")
+ACTIONS = ("restart_app", "update", "open_app", "screenshot", "play") + tvcec.ACTIONS
 # Settings that stay on each TV and never come from the hub.
 LOCAL_ONLY = ("picture", "audio", "display", "sound")
 
@@ -63,6 +63,7 @@ def detail(h: Any, install_id: str, now: float | None = None) -> dict[str, Any]:
         out["device"] = None
         out["last_command"] = None
     out["settings"] = settings_of(tv)
+    out["cec"] = tvcec.view(tv)
     out["actions"] = list(ACTIONS)
     return out
 
@@ -95,6 +96,7 @@ def summary(h: Any, install_id: str, tv: dict[str, Any], now: float) -> dict[str
         "ip": tv.get("ip"),
         "screenshot": _screenshot(h, install_id),
         "can_screenshot": _can_screenshot(h, install_id),
+        "can_cec": _can_adb(h, tv),
         "settings_rev": int(tv.get("settings_rev") or 0),
     }
 
@@ -175,6 +177,8 @@ async def act(h: Any, install_id: str, body: dict[str, Any], who: str | None, no
     online = summary(h, install_id, tv, now)["online"]
     if action == "screenshot":
         return await _screenshot_now(h, install_id, tv, online, who)
+    if action in tvcec.ACTIONS:
+        return await _cec(h, install_id, tv, body, online, who)
     if action == "restart_app":
         if online:
             sent = _fleet(h, install_id, "restart_app", {}, who)
@@ -217,6 +221,29 @@ def _health(h: Any, install_id: str, fleet: dict[str, Any], seen: float, now: fl
 
 def _root(h: Any, install_id: str) -> bool:
     return (tvfleet._devices(h).get(install_id) or {}).get("capability") == "root"
+
+
+def _can_adb(h: Any, tv: dict[str, Any]) -> bool:
+    """The hub can reach this box over network debugging: power, input and volume over HDMI-CEC."""
+    return bool(tv.get("ip") and h.tv_app.adb.available)
+
+
+async def _cec(h: Any, install_id: str, tv: dict[str, Any], body: dict[str, Any], online: bool,
+               who: str | None) -> dict[str, Any]:
+    """HDMI-CEC power, input and volume (hub/tvcec.py). Over adb; volume falls back to the app."""
+    try:
+        serial = await _adb_ready(h, tv)
+    except TvsError as exc:
+        volume = str(body.get("volume") or "")
+        if body.get("action") == "tv_volume" and online and volume in ("up", "down", "mute") and exc.code != "needs_allow":
+            params = {"mute": True} if volume == "mute" else {"delta": 1 if volume == "up" else -1}
+            sent = _fleet(h, install_id, "tv_volume", params, who)
+            return {"ok": True, "via": "app", "id": sent["id"], "message": "Sent the volume to the TV app."}
+        raise
+    try:
+        return await tvcec.act(h, install_id, tv, body, serial)
+    except tvcec.CecError as exc:
+        raise TvsError(exc.status, exc.code, exc.message) from None
 
 
 def _can_screenshot(h: Any, install_id: str) -> bool:

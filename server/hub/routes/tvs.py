@@ -3,7 +3,7 @@
 GET    /v1/tvs                        every TV: name, room, profile, online, now playing, version, last error
 GET    /v1/tvs/{id}                   one TV: the same plus device health, settings and the last command
 PATCH  /v1/tvs/{id}/settings          {name?, room?, profile?, settings?: {key: value|null}} -> config_changed
-POST   /v1/tvs/{id}/actions           {action: restart_app|update|open_app|screenshot|play, ...}
+POST   /v1/tvs/{id}/actions           {action: restart_app|update|open_app|screenshot|play|tv_power|tv_input|tv_volume|cec_check, ...}
 GET    /v1/tvs/{id}/screenshot        the last screen picture (PNG)
 
 Called by the TV app with its bearer:
