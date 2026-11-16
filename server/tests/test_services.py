@@ -848,6 +848,8 @@ def test_admin_web_session_survives_restart_renews_and_signs_out(hub, people, ho
     r = home_client.get(url, follow_redirects=False)
     token = r.cookies["tc_admin"]
     assert f"Max-Age={admin_web.SESSION_IDLE_S}" in r.headers["set-cookie"]
+    # Lax: a Strict cookie is not sent when the page is opened from a link on another site.
+    assert "samesite=lax" in r.headers["set-cookie"].lower()
 
     # A restart: a new Hub and app over the same vault and database keep the session.
     hub2 = Hub(config, hub.vault, DB(tmp_path / "hub.db"))

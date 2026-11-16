@@ -18,6 +18,7 @@ import asyncio
 import hashlib
 import html
 import json
+import logging
 import os
 import re
 import secrets
@@ -40,6 +41,8 @@ from ..onepassword import NAME_RE
 from ..state import Hub
 from . import admin_health
 from .deps import Caller, caller, caller_ip, error, hub, need, require_confirm
+
+log = logging.getLogger("hub.admin_web")
 
 pages = APIRouter(tags=["admin-web"], include_in_schema=False)
 api = APIRouter(prefix="/v1/admin", tags=["admin-web"])
@@ -132,13 +135,16 @@ def _session(request: Request, h: Hub) -> dict[str, Any] | None:
     try:
         claims = h.tokens.verify(token, audience=AUD)
     except CryptoError:
+        log.info("admin web: sign-in cookie refused (expired or not signed by this hub)")
         return None
     sid = claims.get("sid")
     if sid and sid in (h.db.kv_get(REVOKED_KV) or {}):
+        log.info("admin web: sign-in cookie refused (signed out)")
         return None
     dev = h.db.device(claims.get("dev", ""))
     person = h.db.person(claims.get("per")) if claims.get("per") else None
     if not dev or dev["status"] != "active" or not person or person["role"] != "admin":
+        log.info("admin web: sign-in cookie refused (the approving phone is no longer an active admin)")
         return None
     if not h.can_open_web(caller_ip(request, h)):
         return None
@@ -163,7 +169,10 @@ def _set_session(resp: Response, h: Hub, dev: str, per: str, *, sid: str | None 
         return
     token, _ = h.tokens.issue_scoped({"aud": AUD, "dev": dev, "per": per, "sid": sid or secrets.token_hex(16),
                                       "st": started}, ttl)
-    resp.set_cookie(COOKIE, token, max_age=ttl, httponly=True, secure=True, samesite="strict", path="/admin")
+    # Lax, not Strict: Strict drops the cookie when the page is opened from a link on another site (a chat,
+    # an email, the app), which showed the sign-in code again. Lax still keeps it off cross-site form posts,
+    # and every form also needs the session's CSRF token.
+    resp.set_cookie(COOKIE, token, max_age=ttl, httponly=True, secure=True, samesite="lax", path="/admin")
 
 
 def renew_session(request: Request, resp: Response, h: Hub) -> None:
