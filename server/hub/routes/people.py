@@ -549,18 +549,34 @@ async def vpn_pool_add(body: PoolBody, request: Request, c: Caller = Depends(cal
 
 @router.get("/vpn/exits")
 async def vpn_exits(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
-    """The VPN buttons this person gets, and for Private the regions the app times to find the nearest."""
-    private = h.pia.allowed(c.subject.role)
-    out: dict[str, Any] = {"exits": [
-        {"id": "home", "available": h.vpn.enabled},
-        {"id": "private", "available": private, "provider": "pia"},
-    ]}
-    if private:
+    """The VPN buttons this person gets, and for Private the regions the app times to find the nearest.
+
+    When Private is off, `problem` says why in words the app shows under the button.
+    """
+    private: dict[str, Any] = {"id": "private", "available": False, "provider": "pia"}
+    out: dict[str, Any] = {"exits": [{"id": "home", "available": h.vpn.enabled}, private]}
+    if not h.pia.cfg.enabled:
+        private["problem"] = "Private VPN is turned off on the hub"
+    elif not h.pia.configured:
+        private["problem"] = "Private needs the PIA login on the hub web page (Private VPN row)"
+    elif not h.pia.allowed(c.subject.role):
+        private["problem"] = "Private VPN is for adults"
+    else:
         try:
             out["regions"] = await h.pia.public_regions()
+            out["choices"] = await h.pia.featured()
+            private["available"] = True
+            if h.pia.last_error and h.pia.last_error == h.pia.exits_error:
+                h.pia.last_error = None
+            h.pia.exits_error = None
         except PiaError as exc:
-            out["exits"][1]["available"] = False
-            out["exits"][1]["problem"] = str(exc)
+            private["problem"] = str(exc)
+        except Exception as exc:  # network trouble reaching PIA's server list
+            private["problem"] = f"The hub couldn't reach PIA's server list ({type(exc).__name__})"
+        if not private["available"]:
+            h.pia.last_error = h.pia.exits_error = private["problem"]
+            h.db.log("vpn.exits", "error", person_id=c.subject.person_id, device_id=c.device["id"],
+                     target="private", detail=private["problem"])
     return out
 
 

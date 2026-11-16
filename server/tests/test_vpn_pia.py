@@ -70,6 +70,9 @@ def test_private_config_for_adult(hub, people, home_client):
     assert set(ids) == {"us_chicago", "de-frankfurt", "us_alaska-pf"}          # offline one dropped
     assert ids["us_chicago"]["auto"] and not ids["us_alaska-pf"]["auto"]       # virtual location not probed
     assert ids["de-frankfurt"]["probe"] == "198.51.100.20:1337"
+    # The pickable short list keeps the configured order and skips places PIA doesn't list.
+    assert body["choices"] == [{"id": "us_chicago", "name": "US Chicago", "country": "US"},
+                               {"id": "de-frankfurt", "name": "DE Frankfurt", "country": "DE"}]
     key = wg_pub()
     r = home_client.post("/v1/vpn/config", json={"exit": "private", "region": "de-frankfurt", "wg_public_key": key},
                          headers=ph.h)
@@ -163,3 +166,29 @@ def test_admin_page_alone_is_enough(hub, people, home_client):
     hub.vault.set("vpn.pia.admin_username", "p7654321")
     hub.vault.set("vpn.pia.admin_password", "typed-in")
     assert hub.pia.configured and hub.pia.login_source == "admin page"
+
+
+def test_private_off_says_why(people, home_client):
+    r = home_client.get("/v1/vpn/exits", headers=people["phones"]["Avery"].h)
+    private = [e for e in r.json()["exits"] if e["id"] == "private"][0]
+    assert private["available"] is False and "PIA login" in private["problem"]
+
+
+@respx.mock
+def test_server_list_trouble_is_shown_then_clears(hub, people, home_client):
+    _setup(hub)
+    route = respx.get(hub_serverlist())
+    route.mock(return_value=httpx.Response(503, text="down"))
+    ph = people["phones"]["Avery"]
+    r = home_client.get("/v1/vpn/exits", headers=ph.h)
+    private = [e for e in r.json()["exits"] if e["id"] == "private"][0]
+    assert private["available"] is False and "HTTP 503" in private["problem"]
+    assert "HTTP 503" in hub.pia.status()                       # the admin page shows it too
+    route.mock(side_effect=httpx.ConnectError("no route"))
+    r = home_client.get("/v1/vpn/exits", headers=ph.h)
+    private = [e for e in r.json()["exits"] if e["id"] == "private"][0]
+    assert private["available"] is False and "couldn't reach" in private["problem"]
+    route.mock(return_value=httpx.Response(200, text=SERVERLIST))
+    r = home_client.get("/v1/vpn/exits", headers=ph.h)
+    assert [e["available"] for e in r.json()["exits"] if e["id"] == "private"] == [True]
+    assert hub.pia.last_error is None and "ready" in hub.pia.status()

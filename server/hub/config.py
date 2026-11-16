@@ -130,6 +130,9 @@ class PiaConfig(BaseModel):
     serverlist_url: str = "https://serverlist.piaservers.net/vpninfo/servers/v6"
     regions_cache_s: int = 6 * 3600
     default_region: str = "us_chicago"  # used only when the app sends no region
+    # The few places the app offers to pick from, in this order (PIA region ids); "Nearest" is always first.
+    featured_regions: list[str] = Field(default_factory=lambda: [
+        "us_new_york_city", "us_chicago", "us_california", "ca_toronto", "uk", "de-frankfurt", "france", "japan"])
 
 
 class VpnConfig(BaseModel):
