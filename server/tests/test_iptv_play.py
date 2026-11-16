@@ -108,3 +108,35 @@ def test_a_tv_learns_which_copies_are_one_title(hub, home_client):
     assert len(body["version"]) == 12
     assert home_client.get("/v1/tv/copies", headers=tv_headers).json()["version"] == body["version"]
     assert home_client.get("/v1/tv/copies").status_code in (401, 403)
+
+
+def test_a_film_opens_under_its_own_file_type(hub, people, home_client, monkeypatch):
+    """The provider serves a film only under its real extension: an .mkv film asked for as .mp4 stays black."""
+    canonical, tv_headers = _ready(hub, home_client)
+    monkeypatch.setattr(hub.tv_catalog, "movie", lambda ref: {"id": ref, "ext": "mkv"} if ref == "vod:alpha:100" else None)
+    dylan = people["phones"]["Dylan"]
+    started = dylan.client.post("/v1/tv/tune", headers=dylan.h, json={"canonical_id": canonical, "device": TV_ID})
+    assert started.status_code == 200, started.text
+    opened = home_client.get(started.json()["stream"]["url"], headers=tv_headers, follow_redirects=False)
+    assert opened.status_code == 302
+    assert opened.headers["location"].endswith("/100.mkv")
+
+
+def test_the_first_login_stays_after_a_second_is_saved(hub):
+    from hub.iptvplay import logins
+
+    hub.config.iptv.providers = []
+    hub.vault.set("iptv.xtream_server", "http://first.test/")
+    hub.vault.set("iptv.xtream_username", "house")
+    hub.vault.set("iptv.xtream_password", "secret-first")
+    hub.db.kv_set("iptv.logins", [
+        {"provider": "thomas-creek", "login": "spare", "server": "http://first.test", "username": "spare",
+         "password_secret": "iptv.thomas-creek.spare.password"},
+    ])
+    assert sorted(row["login"] for row in logins(hub)) == ["main", "spare"]
+    # The same account saved again on the admin page is not counted twice.
+    hub.db.kv_set("iptv.logins", [
+        {"provider": "thomas-creek", "login": "again", "server": "http://first.test", "username": "house",
+         "password_secret": "iptv.xtream_password"},
+    ])
+    assert [row["login"] for row in logins(hub)] == ["again"]

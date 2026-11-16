@@ -149,10 +149,25 @@ def target(h: Any, session: str, tv_id: str) -> str | None:
     password = h.vault.get(login["password_secret"]) if h.vault.has(login["password_secret"]) else None
     if not password:
         return None
-    kind, _provider, stream_id = _split_ref(str(row.get("ref") or ""))
-    folder = {"vod": "movie", "series": "series"}.get(kind, "live")
-    ext = "mp4" if folder != "live" else "ts"
+    ref = str(row.get("ref") or "")
+    kind, _provider, stream_id = _split_ref(ref)
+    folder = {"vod": "movie", "series": "series", "ep": "series"}.get(kind, "live")
+    ext = "ts" if folder == "live" else _file_type(h, kind, ref)
     return f"{login['server']}/{folder}/{quote(login['username'])}/{quote(str(password))}/{quote(stream_id)}.{ext}"
+
+
+def _file_type(h: Any, kind: str, ref: str) -> str:
+    """The provider's own file type for a film or episode (mkv, avi, ...). The provider only serves a
+    film under its real extension, so guessing mp4 left an .mkv film black. mp4 when the catalog has none."""
+    catalog = getattr(h, "tv_catalog", None)
+    row = None
+    if catalog is not None:
+        try:
+            row = catalog.movie(ref) if kind == "vod" else catalog.episode(ref) if kind == "ep" else None
+        except Exception:  # noqa: BLE001 - a catalog read must not stop playback
+            row = None
+    ext = str((row or {}).get("ext") or "").strip().lower().lstrip(".")
+    return ext if ext.isalnum() and 0 < len(ext) <= 5 else "mp4"
 
 
 def note_usage(h: Any, provider: str, login: str, info: dict[str, Any], now: float | None = None) -> dict[str, Any]:
@@ -191,13 +206,18 @@ def logins(h: Any) -> list[dict[str, Any]]:
             "password_secret": str(row.get("password_secret") or ""),
             "name": str(row.get("provider")),
         }
-    if not found and h.vault.has("iptv.xtream_server") and h.vault.has("iptv.xtream_username"):
-        found[("thomas-creek", "main")] = {
-            "provider": "thomas-creek", "login": "main",
-            "server": str(h.vault.get("iptv.xtream_server") or "").rstrip("/"),
-            "username": str(h.vault.get("iptv.xtream_username") or ""),
-            "password_secret": "iptv.xtream_password", "name": "Thomas Creek",
-        }
+    # The first login, saved on the setup page, stays in the pool after a second one is added on the
+    # admin page. Before, any saved login replaced it, and with one stream per login every tune was busy.
+    if h.vault.has("iptv.xtream_server") and h.vault.has("iptv.xtream_username"):
+        server = str(h.vault.get("iptv.xtream_server") or "").rstrip("/")
+        username = str(h.vault.get("iptv.xtream_username") or "")
+        same = any(row["provider"] == "thomas-creek" and row["server"] == server and row["username"] == username
+                   for row in found.values())
+        if ("thomas-creek", "main") not in found and not same:
+            found[("thomas-creek", "main")] = {
+                "provider": "thomas-creek", "login": "main", "server": server, "username": username,
+                "password_secret": "iptv.xtream_password", "name": "Thomas Creek",
+            }
     return list(found.values())
 
 
