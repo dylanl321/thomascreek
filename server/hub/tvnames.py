@@ -61,6 +61,12 @@ def title(raw: object) -> dict[str, Any]:
         tag = re.sub(r"[\s|\[\]\-–—:]", "", found.group(0)).upper()
         service = service or _SERVICES.get(tag)
         text = text[found.end():]
+    episode = None
+    # "Show (2025) S01 E01" or "Show - S01E02 - Pilot": the episode mark and anything after it are not the title.
+    mark = re.search(r"[\s\-\u2013(\[]*\bS(\d{1,2})\s*[.\-]?\s*E(\d{1,4})\b", text, re.I)
+    if mark:
+        episode = f"S{int(mark.group(1))}E{int(mark.group(2))}"
+        text = text[:mark.start()]
     year = None
     # Everything after the year is notes (cast lists, "UNCREDIT" ...): "Blonde 4K (2022) Marilyn Monroe".
     found = re.search(r"[(\[]\s*((?:19|20)\d{2})\s*[)\]]", text)
@@ -104,7 +110,8 @@ def title(raw: object) -> dict[str, Any]:
         text = original
     if text.isupper() and len(text) > 4:
         text = _title_case(text)
-    return {"name": text[:_MAX], "year": year, "service": service, "quality": quality, "subs": subs}
+    return {"name": text[:_MAX], "year": year, "service": service, "quality": quality, "subs": subs,
+            "episode": episode}
 
 
 def _quality(tag: str) -> str | None:
@@ -168,7 +175,10 @@ def names(doc: dict[str, Any], *, kids_only: bool, is_kids: Any) -> dict[str, An
             if not key:
                 continue
             clean = title(row.get("name"))
-            out[key] = [clean["name"], clean["year"] or row.get("year"), clean["quality"], clean["service"]]
+            entry = [clean["name"], clean["year"] or row.get("year"), clean["quality"], clean["service"]]
+            if clean["episode"]:
+                entry.append(clean["episode"])  # loose episodes listed as films group under `name`
+            out[key] = entry
         return out
 
     def labels(kind: str) -> dict[str, str]:
@@ -178,5 +188,5 @@ def names(doc: dict[str, Any], *, kids_only: bool, is_kids: Any) -> dict[str, An
     body = {"movies": rows("movies"), "series": rows("series"),
             "categories": {"live": labels("live"), "vod": labels("vod"), "series": labels("series")}}
     body["version"] = hashlib.sha1(json.dumps(body, sort_keys=True).encode()).hexdigest()[:16]
-    body["fields"] = ["name", "year", "quality", "service"]
+    body["fields"] = ["name", "year", "quality", "service", "episode"]
     return body
