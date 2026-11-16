@@ -21,6 +21,10 @@ def test_provider_tags_quality_and_notes_come_off_titles():
         got = tvnames.title(raw)
         assert (got["name"], got["year"], got["quality"], got["service"]) == (name, year, quality, service), raw
     assert tvnames.title("EN - Shogun (2024) MULTI")["subs"] is True
+    for raw in ("NF - Take Charge Of My Heart (2025) S01 E01", "NF - Take Charge Of My Heart S01E01",
+                "NF - Take Charge Of My Heart - S01E01 - Pilot"):
+        got = tvnames.title(raw)
+        assert (got["name"], got["episode"]) == ("Take Charge Of My Heart", "S1E1"), raw
 
 
 def test_real_titles_that_look_like_tags_are_left_alone():
