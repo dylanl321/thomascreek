@@ -140,3 +140,36 @@ def test_the_first_login_stays_after_a_second_is_saved(hub):
          "password_secret": "iptv.xtream_password"},
     ])
     assert [row["login"] for row in logins(hub)] == ["again"]
+
+
+def test_a_series_episode_plays_through_a_session_and_kids_only_get_kids_episodes(hub, people, home_client):
+    _, tv_headers = _ready(hub, home_client)
+    hub.tv_app.set_kids_categories(["Kids"])
+    hub.tv_catalog.ingest(series=[{"series_id": 50, "name": "Cartoon Show", "category_id": "5"},
+                                  {"series_id": 60, "name": "Late Show", "category_id": "6"}],
+                          series_categories=[{"category_id": "5", "category_name": "Kids"},
+                                             {"category_id": "6", "category_name": "Drama"}])
+    hub.tv_catalog.store_series({"info": {"name": "Cartoon Show"}, "episodes": {"1": [
+        {"id": "900", "episode_num": 1, "title": "Pilot", "container_extension": "mkv"}]}}, "series:thomas-creek:50")
+    hub.tv_catalog.store_series({"info": {"name": "Late Show"}, "episodes": {"1": [
+        {"id": "950", "episode_num": 1, "title": "Night"}]}}, "series:thomas-creek:60")
+    hub.vault.set("iptv.tc.main.password", "secret-main")
+    hub.db.kv_set("iptv.logins", hub.db.kv_get("iptv.logins") + [
+        {"provider": "thomas-creek", "login": "main", "server": "http://tc.test", "username": "main",
+         "password_secret": "iptv.tc.main.password"}])
+    note_usage(hub, "thomas-creek", "main", {"max_connections": "2", "active_cons": "0", "exp_date": EXP, "status": "Active"})
+
+    dylan = people["phones"]["Dylan"]
+    started = dylan.client.post("/v1/tv/tune", headers=dylan.h,
+                                json={"episode_id": "ep:thomas-creek:900", "device": TV_ID}).json()
+    assert started["ok"] is True and started["stream"]["ref"] == "ep:thomas-creek:900"
+    opened = home_client.get(started["stream"]["url"], headers=tv_headers, follow_redirects=False)
+    assert opened.status_code == 302 and "/series/main/" in opened.headers["location"]
+    assert dylan.client.post("/v1/tv/tune", headers=dylan.h,
+                             json={"canonical_id": "ep:thomas-creek:404", "device": TV_ID}).json()["ok"] is False
+
+    theo = people["phones"]["Theo"]
+    late = theo.client.post("/v1/tv/tune", headers=theo.h, json={"episode_id": "ep:thomas-creek:950", "device": TV_ID})
+    assert late.status_code in (200, 403)
+    if late.status_code == 200:
+        assert late.json() == {"ok": False, "message": "That show isn't in the kids' library."}

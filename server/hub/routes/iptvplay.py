@@ -32,10 +32,14 @@ async def tv_copies(c: Caller = Depends(caller), h=Depends(hub)) -> dict[str, An
 
 @router.post("/tune")
 async def tv_tune(body: dict[str, Any], c: Caller = Depends(caller), h=Depends(hub)) -> dict[str, Any]:
-    _media(h, c)
-    canonical_id = str((body or {}).get("canonical_id") or "")
+    kids = _media(h, c)
+    canonical_id = str((body or {}).get("canonical_id") or (body or {}).get("episode_id") or "")
     if not canonical_id:
         return {"ok": False, "message": "That title isn't in the catalog."}
+    if canonical_id.startswith("ep:") and kids:
+        episode = h.tv_catalog.episode(canonical_id) if h.tv_catalog else None
+        if not episode or not episode.get("kids"):
+            return {"ok": False, "message": "That show isn't in the kids' library."}
     if c.subject.tv and c.subject.tv_id:
         tv_id = c.subject.tv_id
     else:
