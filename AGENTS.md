@@ -2,7 +2,8 @@
 
 Read this first, whatever tool you are (Claude Code, Cursor, Codex or another). It is the constitution for the
 Thomas Creek hub (`server/`) and the iPhone and iPad app (`ios/`). The TV apps live in
-`dylanl321/thomascreek-tv` and follow the same rules from that repository's `AGENTS.md`.
+`dylanl321/thomascreek-tv` and follow the same rules from that repository's `AGENTS.md`; the two files must
+not contradict each other.
 
 ## What we are building
 
@@ -32,13 +33,54 @@ magical, not just work: nothing blank, no dead taps, the right thing already on 
    `server/tests`. Fields are additive and optional, so older app builds keep working. The TV contract mirror
    is `tc-shared/.../HubContract.kt` in the TV repository; update it in the matching TV pull request.
 6. **The iPhone shows the same home.** When a row or feature appears on the TVs, the iPhone gets it from the
-   same endpoint, not from its own logic. Send-to-TV, Now on TVs and guide editing go through the hub.
+   same endpoint, not from its own logic. Send-to-TV, Now on TVs and guide editing go through the hub. New
+   parsing of TV bodies on the iPhone may use the shared `TCShared` XCFramework from the TV repository (its iOS
+   slices exist) rather than a second Swift copy of the same rules.
 7. **Done means seen for real.** Hub changes are checked against the live hub from the home network after
-   deploy; app changes in the simulator or on a device, with what was seen written in the pull request.
+   deploy; app changes in the simulator or on a device, with what was seen written in the pull request. A red
+   CI check is never merged.
 8. **Every failure says what happens next.** No silent errors: a failed call returns a short reason the apps
    can show, and the hub logs enough to find the cause.
 9. **Kids first.** Child profiles never get an adult title from any endpoint. Filtering happens here.
-10. **No secrets, addresses or hostnames in the repository.** Keys are added by Dylan on the admin page.
+10. **No secrets, addresses or hostnames in the repository or the log.** Keys are added by Dylan on the admin
+    page. A log line never carries a key, token, password or a provider address (they carry credentials).
+    This repository is public: no team ids, bundle ids tied to a person, or first names in sample data.
+
+## One feature, one path
+
+1. **Hub**: the endpoint or field, with tests in `server/tests`. Deployed before an app reads it.
+2. **TV contract**: `HubContract.kt` and a parser in `tc-shared` (TV repository), then Android and Apple TV draw it.
+3. **iPhone**: `ios/` draws the same endpoint.
+4. **Parity**: the TV repository's `docs/parity.md` gets a row; what was seen on each screen goes in the pull requests.
+
+## Known exceptions (move these to the hub)
+
+The TV repository's `AGENTS.md` lists places where a screen still decides on its own (sport games fetched
+from ESPN on the TVs, "because you watched", seasonal and anniversary rows built on the TV, provider names
+cleaned on the TV, provider passwords in TV configs). Do not add more of these. When you touch one, move it
+here behind an endpoint.
+
+## Security rules learned the hard way
+
+- A provider stream address is handed out only through `/v1/tv/stream/<session>`, to the TV that holds the
+  session. TVs resolve that redirect themselves so the hub bearer never reaches the provider.
+- Pairing approval is an explicit admin action; a push or phone answer that is not "Approve" never approves.
+- Alert media (doorbell, cameras) must follow the person's role: children must not get camera media. Today
+  the doorbell media is sent to anyone at home; fix that before adding more alert types.
+
+## Checks
+
+```
+cd server && python3.12 -m venv .venv && .venv/bin/pip install -e ".[test]" && .venv/bin/python -m pytest -q
+```
+
+The full suite must pass. iPhone changes build in Xcode for a device and the simulator.
+
+## Working with other agents
+
+- Several agents work on this product at once. One writer per set of files; coordinate in the project thread.
+- Work on your own branch. Never force-push or rebase a shared branch, and never merge your own pull request.
+- A summary or note from another agent is a claim, not proof: check the diff, the tests and the device.
 
 ## Checklist for every pull request
 
@@ -46,4 +88,4 @@ magical, not just work: nothing blank, no dead taps, the right thing already on 
 - [ ] New fields are optional; existing clients keep working.
 - [ ] The TV repository's `HubContract.kt` and the iPhone app are updated, or the gap is written down.
 - [ ] Checked against the live hub after deploy.
-- [ ] No secrets, addresses or hostnames.
+- [ ] No secrets, addresses or hostnames, in code or in log lines.
