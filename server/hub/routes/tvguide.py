@@ -19,7 +19,7 @@ from ..adapters.base import AdapterError
 from ..policy import Target
 from ..state import Hub
 from ..tvapp import TvAppError
-from .. import tvcontrol, tvexplore, tvhandoff
+from .. import tvcontrol, tvexplore, tvhandoff, tvsport
 from ..tvapp import _household as household
 from ..upnext import shelf, who_key
 from .deps import Caller, caller, error, hub, need
@@ -232,6 +232,27 @@ async def guide(start: float | None = None, end: float | None = None, channel: s
                               channels=keys or None)
     h.source_health.annotate(body.get("channels") or [])
     return body
+
+
+@router.get("/sport")
+async def sport(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """Today's games (US leagues first, racing included), each with the house channels that show it:
+    the broadcaster on the basic lineup (local CBS/NBC/FOX/ABC, ESPN, FS1...), then guide programmes naming
+    the game, then event channels named after both teams. `watch` is the channel to play."""
+    kids = _media(h, c)
+    await _ready(h)
+    now = time.time()
+    feed = getattr(h, "_sport", None)
+    if feed is None:
+        feed = h._sport = tvsport.Sport(h)
+    games = await feed.games(now)
+    try:
+        home = await h.smart.weather._location()
+    except Exception:  # noqa: BLE001
+        home = None
+    basic = h.tv_catalog.basic(home)
+    body = tvsport.match(games, h.tv_catalog, basic, kids_only=kids, now=now)
+    return {"games": body, "leagues": [name for name, *_rest in tvsport.LEAGUES], "at": now}
 
 
 @router.get("/series")
