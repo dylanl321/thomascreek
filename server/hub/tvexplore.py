@@ -32,9 +32,11 @@ _REASONS = {
     "popular": "Popular this week",
     "acclaimed": "Acclaimed",
     "library": "In your library",
+    "rewatch": "Made for shuffling",
 }
 _ROW_TITLES = {"top10": "Top 10 today", "new": "New releases", "popular": "Popular", "acclaimed": "Must watch",
-               "library": "Recently added"}
+               "library": "Recently added", "rewatch": "Shuffle a favorite"}
+_ROW_LIMITS = {"rewatch": 30}
 TOP10_MIN = 3
 
 
@@ -50,6 +52,11 @@ async def refresh(h: Any) -> None:
     key = h.vault.get(secret) if h.vault.has(secret) else None
     await remember_plex(h)
     await remember_plex_index(h)
+    try:
+        from .rewatch import refresh_titles
+        await refresh_titles(h)
+    except Exception as exc:  # noqa: BLE001
+        log.info("rewatch: %s", type(exc).__name__)
     if not key:
         publish(h, None, can_request=bool(h.jellyseerr.enabled))
         return
@@ -171,18 +178,29 @@ def feed(h: Any, profile: str) -> dict[str, Any]:
     return built
 
 
+def _rewatch_names(h: Any) -> list[str]:
+    from .rewatch import titles
+    return titles(h.db)
+
+
 def library_feed(h: Any, profile: str) -> dict[str, Any]:
     built, _links = build_feed(_library(h, profile == "kids"), None, can_request=False, kids=profile == "kids",
-                               allowed=_allowed(h))
+                               allowed=_allowed(h), rewatch=_rewatch_names(h))
     return built
 
 
 def build_feed(library: list[dict[str, Any]], lists: dict[str, list[dict[str, Any]]] | None, *,
-               can_request: bool, kids: bool, allowed: set[str]) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
+               can_request: bool, kids: bool, allowed: set[str],
+               rewatch: list[str] | None = None) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
     """Turn a library and optional TMDB lists into the public feed. Nothing here touches the network."""
+    shuffle_row = _rewatch_cards(library, rewatch)
     if not lists:
         items = [_library_card(row) for row in _recent(library)]
-        return _pack("library", items), {}
+        packed = _pack("library", items)
+        if shuffle_row:
+            packed["rows"].append({"id": "rewatch", "title": _ROW_TITLES["rewatch"], "items": shuffle_row})
+            packed["hero"] = packed["hero"] or _hero(shuffle_row)
+        return packed, {}
     index = _index(library)
     rows = []
     links: dict[str, dict[str, Any]] = {}
@@ -199,7 +217,20 @@ def build_feed(library: list[dict[str, Any]], lists: dict[str, list[dict[str, An
     top = _top10(dict(rows))
     if top:
         rows.insert(0, ("top10", top))
+    if shuffle_row:
+        rows.append(("rewatch", shuffle_row))
     return _dedupe(rows), links
+
+
+def _rewatch_cards(library: list[dict[str, Any]], names: list[str] | None) -> list[dict[str, Any]]:
+    """Comfort shows the house can play, as cards whose press starts a shuffle of the whole show."""
+    from .rewatch import CLASSICS, row
+    cards = []
+    for item in row(library, list(names) if names else list(CLASSICS)):
+        card = _view(item, reason="rewatch", badges=[])
+        card["play"] = "shuffle"
+        cards.append(card)
+    return cards
 
 
 def _top10(rows: dict[str, list[dict[str, Any]]]) -> list[dict[str, Any]]:
@@ -224,8 +255,11 @@ def _top10(rows: dict[str, list[dict[str, Any]]]) -> list[dict[str, Any]]:
 def publish(h: Any, lists: dict[str, list[dict[str, Any]]] | None, *, can_request: bool) -> dict[str, dict[str, Any]]:
     """Build both profiles and keep them. `lists` is None when there is no TMDB key."""
     allowed = _allowed(h)
-    adult, links_a = build_feed(_library(h, False), lists, can_request=can_request, kids=False, allowed=allowed)
-    kids, links_k = build_feed(_library(h, True), lists, can_request=can_request, kids=True, allowed=allowed)
+    names = _rewatch_names(h)
+    adult, links_a = build_feed(_library(h, False), lists, can_request=can_request, kids=False, allowed=allowed,
+                                rewatch=names)
+    kids, links_k = build_feed(_library(h, True), lists, can_request=can_request, kids=True, allowed=allowed,
+                               rewatch=names)
     raw = _cache(h)
     raw["adult"] = adult
     raw["kids"] = kids
@@ -732,7 +766,7 @@ def _dedupe(rows: list[tuple[str, list[dict[str, Any]]]]) -> dict[str, Any]:
                 continue
             seen.add(key)
             fresh.append(card)
-            if len(fresh) >= ROW_LIMIT:
+            if len(fresh) >= _ROW_LIMITS.get(row_id, ROW_LIMIT):
                 break
         if fresh:
             kept.append({"id": row_id, "title": _ROW_TITLES[row_id], "items": fresh})
