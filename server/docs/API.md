@@ -1516,7 +1516,7 @@ A command the box cannot do is still `200`, with `"ok":false` and a `detail` sen
 | `screenshot` | all | `{}` | Root takes a silent `screencap`. Owner and basic ask on screen, once: "Share this screen with the house?" If the person declines: "The screen stayed private." The TV does not ask again for that command. |
 | `show_message` | all | `{style, text}` | `style` is `fullscreen` or `toast`. `text` is plain, at most 240 characters. Fullscreen has a way to dismiss it. Toast goes away on its own. |
 | `tv_power` | best effort | `{on:true}` or `{on:false}` | HDMI-CEC or a key when the box has one. Otherwise: "This TV can't change the power." |
-| `tv_volume` | best effort | `{level:0}` to `{level:100}`, or `{delta:-1}` or `{delta:1}` | Otherwise: "This TV can't change the volume." Neither field: "Say how loud." |
+| `tv_volume` | best effort | `{level:0}` to `{level:100}`, `{delta:-1}` or `{delta:1}`, or `{mute:true}` | Otherwise: "This TV can't change the volume." Neither field: "Say how loud." |
 
 The hub will not send `uninstall` or `disable` for `me.dlewis.thomascreek.tv`. A kill-list ack that found something:
 
@@ -1696,6 +1696,12 @@ Every change bumps the config version once and sends `config_changed` to that TV
 | `update` | The newest kept build. Over adb for a box on the TV app list, else sent to the app (`install_apk` with `/v1/tv/apk`); the TV may show an Install prompt. Already current: `via: "none"`. |
 | `screenshot` | The hub takes it over network debugging (`adb exec-out screencap -p`) and answers `via: "adb"` with the picture already saved; `needs_allow` until the hub's key is allowed. A rooted box without adb sends its own (`via: "app"`; poll for it). `can_screenshot` on the TV says whether either way exists; the phone hides the button otherwise. The rest of this row: Poll `GET /v1/tvs/{id}` until `screenshot.at` changes, then load `screenshot.url`. |
 | `play` | `{channel_key}`, `{movie_id}` or `{episode_id, series_id?}`, plus `title?`. Same delivery as `tv.play`. |
+| `tv_power` | `{power: "on"\|"off"}` over HDMI-CEC, run by the hub over adb. On: an asleep box is woken, which sends One Touch Play (`<Text View On>` + `<Active Source>`); an awake box is put to sleep and woken with "power off TV" held off, so the TV never gets `<Standby>`. Off: the box sleeps and sends `<Standby>`. |
+| `tv_input` | Switches the TV to this box (One Touch Play, as above). A playback box can't choose another of the TV's inputs; CEC leaves that to the TV. |
+| `tv_volume` | `{volume: "up"\|"down"\|"mute"}`: the box's volume keys, which go to the TV or receiver over CEC when the box has CEC volume control on. Without adb, an online app gets `tv_volume` `{delta}` or `{mute:true}`. |
+| `cec_check` | Reads the box's CEC state now and answers `{cec, message}`. |
+
+Every CEC action first reads the box (`settings get global hdmi_control_*`, `dumpsys power`, `dumpsys hdmi_control`) and keeps it on the TV as `cec`: `{enabled, tv_answers, volume, auto_off, awake, checked, note}` in `GET /v1/tvs/{id}` (null before the first check). `tv_answers` is false while the CEC bus has carried nothing but the box's own messages, which usually means CEC is off in the TV's own settings; `note` then says so, and each action's `message` repeats it. `can_cec` on every TV row says the hub can reach the box over adb.
 
 A TV that needs the hub's one-time adb Allow answers `409` `needs_allow` "Living room needs one Allow for the hub: press Allow on the TV, then try again." Offline TVs answer `409` `offline` for actions that need the app.
 
