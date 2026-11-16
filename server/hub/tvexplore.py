@@ -616,15 +616,13 @@ def _index(library: list[dict[str, Any]]) -> dict[tuple, dict[str, Any]]:
     return found
 
 
-_PREFIX = re.compile(r"^\s*(?:[\[|(]?[A-Z0-9]{2,4}(?:-[A-Z0-9]{2,4})?[\]|)]?(?:\s+-\s+|\s*\|\s*))+")
 _YEAR_TAIL = re.compile(r"[\s(\[]*((?:19|20)\d{2})[)\]]?\s*$")
 
 
 def _clean_name(title: str) -> str:
     """A provider name like "EN - The Shawshank Redemption (1994)" as the plain title."""
-    text = _PREFIX.sub("", title)
-    text = _YEAR_TAIL.sub("", text)
-    return text.strip() or title
+    from .tvnames import title as clean_title
+    return clean_title(title)["name"] or title
 
 
 def _resolve(raw: dict[str, Any], index: dict[tuple, dict[str, Any]], *, can_request: bool, kids: bool,
