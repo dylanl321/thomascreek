@@ -7,6 +7,7 @@ path. The provider address is only the redirect for that one TV.
 from __future__ import annotations
 
 import logging
+import re
 import time
 from datetime import datetime, timezone
 from typing import Any
@@ -67,6 +68,185 @@ def add_login(h: Any, provider: str, server: str, login: str, username: str, pas
     })
     h.db.kv_set(KV_LOGINS, rows)
     return "Saved the login."
+
+
+MAIN = "thomas-creek"
+KV_NAMES = "iptv.provider_names"
+MAIN_SECRETS = ("iptv.xtream_server", "iptv.xtream_username", "iptv.xtream_password")
+_BAD_ID = re.compile(r"[./|:\s]+")
+
+
+def _main_saved(h: Any) -> bool:
+    return all(h.vault.has(n) for n in MAIN_SECRETS)
+
+
+def provider_names(h: Any) -> dict[str, str]:
+    raw = h.db.kv_get(KV_NAMES) or {}
+    return {str(k): str(v) for k, v in raw.items()} if isinstance(raw, dict) else {}
+
+
+def providers(h: Any) -> list[dict[str, Any]]:
+    """Every provider with its name, address and logins: the first (main) provider first.
+
+    The main provider is the one the hub's guide, films and series are loaded from. Its first login
+    is the original iptv.xtream_* vault login, shown here like any other login."""
+    names = provider_names(h)
+    from_config = {p.id for p in (getattr(getattr(h.config, "iptv", None), "providers", None) or [])}
+    out: dict[str, dict[str, Any]] = {}
+    if _main_saved(h):
+        out[MAIN] = {"id": MAIN, "name": names.get(MAIN) or "Main provider", "main": True, "config": False,
+                     "server": str(h.vault.get("iptv.xtream_server") or "").rstrip("/"),
+                     "logins": [{"provider": MAIN, "login": "main", "username": str(h.vault.get("iptv.xtream_username") or ""),
+                                 "password_secret": "iptv.xtream_password", "first": True}]}
+    for lg in logins(h):
+        if lg["provider"] == MAIN and (lg["login"] == "main" or (MAIN in out and lg["username"] == out[MAIN]["logins"][0]["username"])):
+            continue
+        p = out.setdefault(lg["provider"], {
+            "id": lg["provider"], "name": names.get(lg["provider"]) or lg.get("name") or lg["provider"],
+            "main": lg["provider"] == MAIN, "config": lg["provider"] in from_config, "server": lg["server"], "logins": []})
+        p["logins"].append({"provider": lg["provider"], "login": lg["login"], "username": lg["username"],
+                            "password_secret": lg["password_secret"], "first": False})
+    rows = sorted(out.values(), key=lambda p: (not p["main"], p["name"].lower()))
+    main_server = out.get(MAIN, {}).get("server")
+    for p in rows:
+        p["same_as_main"] = bool(not p["main"] and main_server and p["server"] == main_server)
+    return rows
+
+
+def _next_login_id(h: Any, provider: str) -> str:
+    taken = {lg["login"] for lg in logins(h) if lg["provider"] == provider}
+    n = 2 if provider == MAIN else 1
+    while str(n) in taken:
+        n += 1
+    return str(n)
+
+
+def add_provider(h: Any, name: str, server: str, username: str, password: str) -> tuple[str, str]:
+    """A new provider with its first login. Returns (provider id, message); the id is "" when refused.
+
+    With no main provider yet, this one becomes the main provider (the original vault keys), so the
+    hub's guide, films and series load from it."""
+    name, server, username = name.strip()[:40], server.strip().rstrip("/"), username.strip()
+    if not name or not username or not password:
+        return "", "Fill in the provider name, address, username and password."
+    if not _main_saved(h):
+        h.vault.set("iptv.xtream_server", server)
+        h.vault.set("iptv.xtream_username", username)
+        h.vault.set("iptv.xtream_password", password)
+        names = provider_names(h)
+        names[MAIN] = name
+        h.db.kv_set(KV_NAMES, names)
+        return MAIN, f"Added {name}."
+    pid = _BAD_ID.sub("-", name).strip("-")[:40]
+    taken = {p["id"].lower() for p in providers(h)} | {p["name"].lower() for p in providers(h)}
+    if not pid or pid.lower() in taken or name.lower() in taken:
+        return "", f"{name} is already listed. Open it and add the login there."
+    add_login(h, pid, server, _next_login_id(h, pid), username, password)
+    names = provider_names(h)
+    names[pid] = name
+    h.db.kv_set(KV_NAMES, names)
+    return pid, f"Added {name}."
+
+
+def add_provider_login(h: Any, provider: str, username: str, password: str) -> tuple[str, str]:
+    """Another username and password for a listed provider. The same username again changes its password.
+    Returns (vault secret written, message); the secret is "" when refused."""
+    username = username.strip()
+    p = next((p for p in providers(h) if p["id"] == provider), None)
+    if p is None:
+        return "", "That provider isn't listed."
+    if p["config"]:
+        return "", "That provider comes from the hub's config file."
+    if not username or not password:
+        return "", "Type the username and the password."
+    for lg in p["logins"]:
+        if lg["username"] == username:
+            h.vault.set(lg["password_secret"], password)
+            return lg["password_secret"], f"Changed the password for {username}."
+    login = _next_login_id(h, provider)
+    add_login(h, provider, p["server"], login, username, password)
+    return f"iptv.{provider}.{login}.password", f"Added {username} to {p['name']}."
+
+
+def update_provider(h: Any, provider: str, name: str, server: str) -> str:
+    """Rename a provider or change its address; every login of that provider follows."""
+    name, server = name.strip()[:40], server.strip().rstrip("/")
+    p = next((p for p in providers(h) if p["id"] == provider), None)
+    if p is None or p["config"]:
+        return ""
+    if name:
+        names = provider_names(h)
+        names[provider] = name
+        h.db.kv_set(KV_NAMES, names)
+    if server and server != p["server"]:
+        if p["main"]:
+            h.vault.set("iptv.xtream_server", server)
+        rows = _saved(h)
+        for row in rows:
+            if row.get("provider") == provider:
+                row["server"] = server
+        h.db.kv_set(KV_LOGINS, rows)
+    return f"Saved {name or p['name']}."
+
+
+def merge_into_main(h: Any, provider: str) -> int:
+    """Move a provider's saved logins under the main provider (same service typed under another name).
+    Returns how many logins moved."""
+    rows = _saved(h)
+    moving = [r for r in rows if r.get("provider") == provider]
+    if provider == MAIN or not moving or not _main_saved(h):
+        return 0
+    main_server = str(h.vault.get("iptv.xtream_server") or "").rstrip("/")
+    main_users = {str(h.vault.get("iptv.xtream_username") or "")} | {
+        str(r.get("username")) for r in rows if r.get("provider") == MAIN}
+    keep = [r for r in rows if r.get("provider") != provider]
+    moved = 0
+    for r in moving:
+        if str(r.get("username")) in main_users:
+            if r.get("password_secret"):
+                h.vault.delete(str(r["password_secret"]))
+            continue
+        h.db.kv_set(KV_LOGINS, keep)
+        r = {**r, "provider": MAIN, "login": _next_login_id(h, MAIN), "server": main_server}
+        keep.append(r)
+        main_users.add(str(r.get("username")))
+        moved += 1
+    h.db.kv_set(KV_LOGINS, keep)
+    names = provider_names(h)
+    if names.pop(provider, None) is not None:
+        h.db.kv_set(KV_NAMES, names)
+    return moved
+
+
+def remove_provider_login(h: Any, provider: str, login: str) -> str:
+    """Forget one login. The main provider's first login is replaced by its next one, so the guide,
+    films and series keep loading; the provider's only login can't be removed that way."""
+    if provider == MAIN and login == "main":
+        rows = _saved(h)
+        nxt = next((r for r in sorted(rows, key=lambda r: str(r.get("login"))) if r.get("provider") == MAIN), None)
+        if nxt is None:
+            return "That is the provider's only login. Add another one first, or remove the whole provider."
+        h.vault.set("iptv.xtream_username", str(nxt.get("username") or ""))
+        h.vault.set("iptv.xtream_password", str(h.vault.get(str(nxt.get("password_secret"))) or ""))
+        remove_login(h, MAIN, str(nxt.get("login")))
+        return "Removed the login."
+    return "Removed the login." if remove_login(h, provider, login) else "That login isn't saved on the hub."
+
+
+def remove_provider(h: Any, provider: str) -> str:
+    p = next((p for p in providers(h) if p["id"] == provider), None)
+    if p is None or p["config"]:
+        return ""
+    for lg in p["logins"]:
+        if not lg["first"]:
+            remove_login(h, provider, lg["login"])
+    if p["main"]:
+        for n in MAIN_SECRETS:
+            h.vault.delete(n)
+    names = provider_names(h)
+    if names.pop(provider, None) is not None:
+        h.db.kv_set(KV_NAMES, names)
+    return f"Removed {p['name']}."
 
 
 def remove_login(h: Any, provider: str, login: str) -> bool:

@@ -329,7 +329,7 @@ def test_iptv_providers_and_logins_listed_added_and_removed(hub, people, home_cl
     assert got == {("Strong", "one"): "http://strong.test:8080", ("Strong", "two"): "http://strong.test:8080",
                    ("Other", "main"): "http://other.test"}
     page = home_client.get("/admin").text
-    assert "3 logins, 2 providers" in page and "pw-1" not in page and "iptv.Strong.one.password" not in page
+    assert "2 logins" in page and "1 login " in page and "pw-1" not in page and "iptv.Strong.one.password" not in page
     # A new provider needs its server; bad names are refused.
     r = home_client.post("/admin/iptv/login", data={"csrf": csrf, "provider": "New", "login": "x", "username": "u",
                                                     "password": "p"}, follow_redirects=False)
@@ -337,6 +337,53 @@ def test_iptv_providers_and_logins_listed_added_and_removed(hub, people, home_cl
     r = home_client.post("/admin/iptv/login/remove", data={"csrf": csrf, "provider": "Strong", "login": "one"}, follow_redirects=False)
     assert "Removed" in r.headers["location"] and not hub.vault.has("iptv.Strong.one.password")
     assert ("Strong", "one") not in {(lg["provider"], lg["login"]) for lg in logins(hub)}
+
+
+def test_one_provider_with_a_name_address_and_every_login(hub, people, home_client):
+    from hub import iptvplay
+
+    csrf = _sign_in(people, home_client)
+    # The first provider becomes the main one (the guide, films and series load from it).
+    r = home_client.post("/admin/iptv/provider/add", data={"csrf": csrf, "name": "Strong", "server": "http://strong.test:8080",
+                                                           "username": "u1", "password": "pw-1"}, follow_redirects=False)
+    assert "Added%20Strong" in r.headers["location"]
+    assert hub.vault.get("iptv.xtream_username") == "u1" and hub.vault.get("iptv.xtream_server") == "http://strong.test:8080"
+    for user in ("u2", "u3"):
+        home_client.post("/admin/iptv/provider/login", data={"csrf": csrf, "provider": "thomas-creek", "username": user,
+                                                             "password": f"pw-{user}"})
+    got = {(lg["provider"], lg["username"]) for lg in iptvplay.logins(hub)}
+    assert got == {("thomas-creek", "u1"), ("thomas-creek", "u2"), ("thomas-creek", "u3")}
+    [p] = iptvplay.providers(hub)
+    assert p["name"] == "Strong" and [lg["username"] for lg in p["logins"]] == ["u1", "u2", "u3"]
+    # The same username again only changes its password.
+    home_client.post("/admin/iptv/provider/login", data={"csrf": csrf, "provider": "thomas-creek", "username": "u2", "password": "new"})
+    assert len(iptvplay.logins(hub)) == 3 and hub.vault.get("iptv.thomas-creek.2.password") == "new"
+    page = home_client.get("/admin").text
+    assert ">Strong<" in page and "3 logins" in page and "pw-1" not in page and "Xtream username" not in page
+    # A new address moves every login with it.
+    home_client.post("/admin/iptv/provider/save", data={"csrf": csrf, "provider": "thomas-creek", "name": "Strong TV",
+                                                        "server": "http://new.test"})
+    assert {lg["server"] for lg in iptvplay.logins(hub)} == {"http://new.test"}
+    assert iptvplay.providers(hub)[0]["name"] == "Strong TV"
+    # The TV keeps the original login first for its list.
+    assert hub.tv_app._source()["playlists"][0]["username"] == "u1"
+    # Removing the first login hands its place to the next one, so the catalog keeps loading.
+    home_client.post("/admin/iptv/login/remove", data={"csrf": csrf, "provider": "thomas-creek", "login": "main"})
+    assert hub.vault.get("iptv.xtream_username") == "u2" and hub.vault.get("iptv.xtream_password") == "new"
+    assert sorted(lg["username"] for lg in iptvplay.logins(hub)) == ["u2", "u3"]
+    # A second provider, and one typed under another name with the same address, which can be moved over.
+    r = home_client.post("/admin/iptv/provider/add", data={"csrf": csrf, "name": "Strong TV", "server": "http://x.test",
+                                                           "username": "a", "password": "b"}, follow_redirects=False)
+    assert "already%20listed" in r.headers["location"]
+    home_client.post("/admin/iptv/login", data={"csrf": csrf, "provider": "Dup", "server": "http://new.test", "login": "one",
+                                                "username": "u9", "password": "pw-9"})
+    assert next(p for p in iptvplay.providers(hub) if p["id"] == "Dup")["same_as_main"]
+    assert "Move to Strong TV" in home_client.get("/admin").text
+    home_client.post("/admin/iptv/provider/merge", data={"csrf": csrf, "provider": "Dup"})
+    assert {(lg["provider"], lg["username"]) for lg in iptvplay.logins(hub)} == {
+        ("thomas-creek", "u2"), ("thomas-creek", "u3"), ("thomas-creek", "u9")}
+    home_client.post("/admin/iptv/provider/remove", data={"csrf": csrf, "provider": "thomas-creek"})
+    assert iptvplay.logins(hub) == [] and not hub.vault.has("iptv.xtream_server")
 
 
 def test_pia_refusal_says_what_to_fix():

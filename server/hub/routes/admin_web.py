@@ -31,8 +31,9 @@ from pydantic import BaseModel, Field
 from .. import __version__, bambu_cloud, testkeys
 from ..iptvcanon import fold_stats as catalog_fold_stats
 from ..iptvplay import accounts as iptv_accounts
-from ..iptvplay import add_login, remove_login
+from ..iptvplay import add_login
 from ..iptvplay import logins as iptv_logins
+from .. import iptvplay
 from ..bambu_cloud import token_expiry
 from ..crypto import CryptoError
 from ..onepassword import NAME_RE
@@ -428,12 +429,10 @@ SECTIONS: list[dict[str, Any]] = [
          "github.com, Settings, Developer settings, Fine-grained tokens, Generate new token: only the "
          "dylanl321/thomascreek-tv repository, permission Contents read-only. The hub uses it to download new "
          "builds of the TV app from the repo's releases."),
-        ("iptv.xtream_server", "Xtream server", "text",
-         "From your IPTV provider, e.g. http://example.tv:8080. Fill in the three Xtream rows, or the M3U row."),
-        ("iptv.xtream_username", "Xtream username", "text", "From your IPTV provider."),
-        ("iptv.xtream_password", "Xtream password", "text", "From your IPTV provider."),
-        ("iptv.m3u_url", "M3U playlist address", "text", "Only if your provider gave you an M3U link instead of an Xtream login."),
-        ("iptv.epg_url", "TV guide address (XMLTV)", "text", "Optional. Xtream providers usually include the guide already."),
+    ]},
+    {"title": "IPTV providers", "always": True, "iptv": True, "fields": [
+        ("iptv.m3u_url", "M3U playlist address", "text", "Only if a provider gave you an M3U link instead of a username and password."),
+        ("iptv.epg_url", "TV guide address (XMLTV)", "text", "Optional. Providers with a username and password usually include the guide already."),
     ]},
     {"title": "Metadata sources (artwork, ratings, subtitles)", "always": True, "optional": True, "fields": [
         ("tmdb.api_key", "TMDB API key", "text",
@@ -540,54 +539,81 @@ def _bambu_html(h: Hub, csrf: str) -> str:
     return f"<details class=key><summary><span>Bambu account (optional)</span>{badge}</summary><div class=kbody>{body}</div></details>"
 
 
-def _iptv_logins_html(h: Hub, csrf: str) -> str:
-    """Every IPTV provider and login the hub can hand out, with slots in use, and a form to add more."""
+def _iptv_providers_html(h: Hub, csrf: str) -> str:
+    """One row per provider (name and address), with every username and password under it."""
     e = html.escape
     hid = f"<input type=hidden name=csrf value={csrf}>"
     try:
         usage = {(r["provider"], r["login"]): r for r in iptv_accounts(h)["logins"]}
     except Exception:  # noqa: BLE001
         usage = {}
-    saved = {(str(r.get("provider")), str(r.get("login"))) for r in (h.db.kv_get("iptv.logins") or []) if isinstance(r, dict)}
-    rows, providers = [], {}
-    for lg in iptv_logins(h):
-        key = (lg["provider"], lg["login"])
-        providers.setdefault(lg["provider"], lg["server"])
-        u = usage.get(key) or {}
-        bits = [lg["username"] or "?"]
-        if u:
-            bits.append(f"{u.get('active', 0)} of {u.get('max_connections', 1)} in use")
-            if u.get("expires"):
-                bits.append(f"until {str(u['expires'])[:10]}")
-            if u.get("status") not in (None, "ok", "full"):
-                bits.append(str(u["status"]))
-        if key in saved:
-            action = (f"<form method=post action=/admin/iptv/login/remove class=inline>{hid}"
-                      f"<input type=hidden name=provider value='{e(lg['provider'])}'><input type=hidden name=login value='{e(lg['login'])}'>"
-                      f"<button class=ghost onclick=\"return confirm('Remove the {e(lg['provider'])} login {e(lg['login'])}?')\">Remove</button></form>")
-        elif key == ("thomas-creek", "main"):
-            action = "<span class=dim>the Xtream rows above</span>"
+    results = getattr(getattr(h, "keychecks", None), "results", None) or {}
+    out = []
+    for p in iptvplay.providers(h):
+        pid = e(p["id"])
+        rows = []
+        for lg in p["logins"]:
+            u = usage.get((lg["provider"], lg["login"])) or {}
+            bits = []
+            if u:
+                bits.append(f"{u.get('active', 0)} of {u.get('max_connections', 1)} in use")
+                if u.get("expires"):
+                    bits.append(f"until {str(u['expires'])[:10]}")
+                if u.get("status") not in (None, "ok", "full"):
+                    bits.append(str(u["status"]))
+            check = results.get(f"iptv:{lg['provider']}:{lg['login']}")
+            pill = admin_health.key_pill(check) if check else ""
+            if p["config"]:
+                action = "<span class=dim>config file</span>"
+            else:
+                action = (f"<form method=post action=/admin/iptv/login/remove class=inline>{hid}"
+                          f"<input type=hidden name=provider value='{pid}'><input type=hidden name=login value='{e(lg['login'])}'>"
+                          f"<button class=ghost onclick=\"return confirm('Remove the login {e(lg['username'])}?')\">Remove</button></form>")
+            rows.append(f"<div class=row><div><b>{e(lg['username'] or '?')}</b> {pill}"
+                        f"<div class=dim>{e(' · '.join(bits) or 'Not used yet')}</div></div><div>{action}</div></div>")
+        n = len(p["logins"])
+        in_use = sum(int((usage.get((lg["provider"], lg["login"])) or {}).get("active") or 0) for lg in p["logins"])
+        slots = sum(int((usage.get((lg["provider"], lg["login"])) or {}).get("max_connections") or 1) for lg in p["logins"])
+        summary_pill = f"<span class=pill-ok>{n} {'login' if n == 1 else 'logins'} · {in_use} of {slots} in use</span>"
+        role = ("The hub loads the guide, films and series from this provider." if p["main"]
+                else "The TVs get this provider's channels and films as their own list.")
+        if p["config"]:
+            body = f"<div class=dim>{e(p['server'])} · set in the hub's config file.</div>{''.join(rows)}"
         else:
-            action = "<span class=dim>from the hub's config file</span>"
-        rows.append(f"<div class=row><div><b>{e(lg['provider'])}</b> · {e(lg['login'])} <span class=dim>{e(lg['server'])}</span>"
-                    f"<div class=dim>{e(' · '.join(bits))}</div></div><div>{action}</div></div>")
-    opts = "".join(f"<option value='{e(p)}'>" for p in providers)
-    count = len(rows)
-    pill = f"<span class=pill-ok>{count} {'login' if count == 1 else 'logins'}, {len(providers)} {'provider' if len(providers) == 1 else 'providers'}</span>" \
-        if count else "<span class=pill-miss>None yet</span>"
-    return f"""<details class=key id=iptv-logins><summary><span>IPTV providers and logins</span>{pill}</summary><div class=kbody>
-<div class=dim>Add every provider, and every login you have with each one. The hub spreads the TVs over the logins so no login
-goes over its connection limit, and moves a TV to the next login when a stream fails. For another login with a provider
-already listed, the server address can stay empty.</div>
+            merge = ""
+            if p["same_as_main"]:
+                main_name = next((q["name"] for q in iptvplay.providers(h) if q["main"]), "the main provider")
+                merge = (f"<div class=dim style='margin-top:8px'>Same address as {e(main_name)}. Move these logins there so the hub "
+                         f"can use them for the films and channels it already knows.</div>"
+                         f"<form method=post action=/admin/iptv/provider/merge class=inline>{hid}"
+                         f"<input type=hidden name=provider value='{pid}'><button>Move to {e(main_name)}</button></form>")
+            body = f"""<div class=dim>{e(role)}</div>
+<form method=post action=/admin/iptv/provider/save class=fform style="padding:8px 0">{hid}<input type=hidden name=provider value='{pid}'>
+<input name=name value='{e(p['name'])}' placeholder="Name" maxlength=40 required>
+<input name=server value='{e(p['server'])}' placeholder="Address (http://…:8080)" required><button class=ghost2>Save</button></form>{merge}
 {''.join(rows)}
-<form method=post action=/admin/iptv/login class=fform style="padding:10px 0">{hid}
-<input name=provider placeholder="Provider, e.g. Strong" list=iptv-providers required maxlength=40>
-<datalist id=iptv-providers>{opts}</datalist>
-<input name=server placeholder="Server address (http://…:8080)">
-<input name=login placeholder="Login name, e.g. living room" required maxlength=40>
-<input name=username placeholder="Xtream username" required autocomplete=off>
-<input type=password name=password placeholder="Xtream password" autocomplete=off required>
-<button>Add login</button></form><div class=dim>The password is saved and not shown again.</div></div></details>"""
+<form method=post action=/admin/iptv/provider/login class=fform style="padding:10px 0">{hid}<input type=hidden name=provider value='{pid}'>
+<input name=username placeholder="Username" required autocomplete=off>
+<input type=password name=password placeholder="Password" autocomplete=off required>
+<button>Add login</button></form>
+<div class=dim>Type a username that's already listed to change its password. Passwords are saved and not shown again.</div>
+<form method=post action=/admin/iptv/provider/remove class=inline>{hid}<input type=hidden name=provider value='{pid}'>
+<button class=ghost onclick="return confirm('Remove {e(p['name'])} and all its logins?')">Remove provider</button></form>"""
+        out.append(f"<details class=key id='iptv-{pid}'><summary><span>{e(p['name'])}</span>{summary_pill}</summary>"
+                   f"<div class=kbody>{body}</div></details>")
+    first = not any(p["main"] for p in iptvplay.providers(h))
+    out.append(f"""<details class=key id=iptv-add{' open' if not out else ''}><summary><span>Add a provider</span>
+<span class=pill-{'miss' if first else 'ok'}>{'None yet' if first else 'Optional'}</span></summary><div class=kbody>
+<div class=dim>A provider is one IPTV service: its name and address, then every username and password you have with it.
+To add another login to a provider above, open it instead. The hub spreads the TVs over the logins so none goes over its
+connection limit, and moves a TV to the next login when a stream fails.</div>
+<form method=post action=/admin/iptv/provider/add class=fform style="padding:10px 0">{hid}
+<input name=name placeholder="Name, e.g. Strong" required maxlength=40>
+<input name=server placeholder="Address (http://…:8080)" required>
+<input name=username placeholder="First username" required autocomplete=off>
+<input type=password name=password placeholder="Password" autocomplete=off required>
+<button>Add provider</button></form></div></details>""")
+    return "".join(out)
 
 
 def _sections_html(h: Hub, csrf: str) -> str:
@@ -599,8 +625,8 @@ def _sections_html(h: Hub, csrf: str) -> str:
         fields = "".join(_field_html(h, csrf, *f) for f in sec["fields"])
         if sec.get("service") == "printers":
             fields += _bambu_html(h, csrf)
-        if sec["title"].startswith("TV app"):
-            fields += _iptv_logins_html(h, csrf)
+        if sec.get("iptv"):
+            fields = _iptv_providers_html(h, csrf) + fields
         opt = " <span class=dim>(optional)</span>" if sec.get("optional") else ""
         out.append(f"<h3>{e(sec['title'])}{opt}</h3><div class=card>{fields}</div>")
     # VPN: the Firewalla client files.
@@ -632,7 +658,7 @@ A file named after someone in the hub (LAUREN.conf) is kept for that person; the
 <input type=hidden name=csrf value={csrf}><input type=file name=file accept=".json,application/json" required>
 <button>{'Replace' if have_model else 'Save'}</button></form></div></div></details></div>""")
     # Anything else in the vault the sections don't cover.
-    known = {f[0] for sec in SECTIONS for f in sec["fields"]} | NEVER_EDIT | BAMBU_KEYS
+    known = {f[0] for sec in SECTIONS for f in sec["fields"]} | NEVER_EDIT | BAMBU_KEYS | set(iptvplay.MAIN_SECRETS)
     login_secrets = {str(r.get("password_secret")) for r in (h.db.kv_get("iptv.logins") or []) if isinstance(r, dict)}
     extra = [n for n in sorted(h.vault.names()) if n not in known and n not in login_secrets
              and not n.startswith(h.config.vpn.pool_prefix)]
@@ -900,13 +926,81 @@ async def add_iptv_login(request: Request, h: Hub = Depends(hub)) -> Response:
 async def remove_iptv_login(request: Request, h: Hub = Depends(hub)) -> Response:
     claims, form = await _form_session(request, h)
     provider, login = str(form.get("provider") or ""), str(form.get("login") or "")
-    if not remove_login(h, provider, login):
-        return _back("That login isn't saved on the hub.")
-    h.db.log("admin.iptv_login_remove", "ok", person_id=claims.get("per"), device_id=claims.get("dev"),
-             target=f"{provider}/{login}", source="web")
+    msg = iptvplay.remove_provider_login(h, provider, login)
+    if msg.startswith("Removed"):
+        _iptv_changed(h, claims, "admin.iptv_login_remove", f"{provider}/{login}", list(iptvplay.MAIN_SECRETS))
+    return _back(msg)
+
+
+def _iptv_changed(h: Hub, claims: dict[str, Any], what: str, target: str, secrets_: list[str]) -> None:
+    """A provider or login changed: log it (no secret), tell the TVs, and test the logins again."""
+    h.db.log(what, "ok", person_id=claims.get("per"), device_id=claims.get("dev"), target=target, source="web")
     if getattr(h, "tv_app", None):
         h.tv_app.bump_config()
-    return _back(f"Removed the {provider} login {login}.")
+    if secrets_ and getattr(h, "keychecks", None):
+        h.keychecks.after_save_many(secrets_)
+
+
+_SERVER_RE = re.compile(r"https?://[^\s/]+(:\d+)?(/\S*)?")
+
+
+@pages.post("/admin/iptv/provider/add")
+async def add_iptv_provider(request: Request, h: Hub = Depends(hub)) -> Response:
+    claims, form = await _form_session(request, h)
+    name = re.sub(r"\s+", " ", str(form.get("name") or "")).strip()
+    server = str(form.get("server") or "").strip()
+    if not _SERVER_RE.fullmatch(server):
+        return _back("Add the provider's address, like http://example.tv:8080.")
+    pid, msg = iptvplay.add_provider(h, name, server, str(form.get("username") or ""), str(form.get("password") or ""))
+    if pid:
+        names = list(iptvplay.MAIN_SECRETS) if pid == iptvplay.MAIN else [f"iptv.{pid}.1.password"]
+        _iptv_changed(h, claims, "admin.iptv_provider_add", pid, names)
+    return _back(msg)
+
+
+@pages.post("/admin/iptv/provider/save")
+async def save_iptv_provider(request: Request, h: Hub = Depends(hub)) -> Response:
+    claims, form = await _form_session(request, h)
+    provider = str(form.get("provider") or "")
+    server = str(form.get("server") or "").strip()
+    if server and not _SERVER_RE.fullmatch(server):
+        return _back("The address should look like http://example.tv:8080.")
+    msg = iptvplay.update_provider(h, provider, re.sub(r"\s+", " ", str(form.get("name") or "")), server)
+    if not msg:
+        return _back("That provider can't be changed here.")
+    secrets_ = [lg["password_secret"] for p in iptvplay.providers(h) if p["id"] == provider for lg in p["logins"]]
+    _iptv_changed(h, claims, "admin.iptv_provider_save", provider, secrets_)
+    return _back(msg)
+
+
+@pages.post("/admin/iptv/provider/login")
+async def add_iptv_provider_login(request: Request, h: Hub = Depends(hub)) -> Response:
+    claims, form = await _form_session(request, h)
+    provider = str(form.get("provider") or "")
+    secret, msg = iptvplay.add_provider_login(h, provider, str(form.get("username") or ""), str(form.get("password") or ""))
+    if secret:
+        _iptv_changed(h, claims, "admin.iptv_login", provider, [secret])
+    return _back(msg)
+
+
+@pages.post("/admin/iptv/provider/merge")
+async def merge_iptv_provider(request: Request, h: Hub = Depends(hub)) -> Response:
+    claims, form = await _form_session(request, h)
+    provider = str(form.get("provider") or "")
+    moved = iptvplay.merge_into_main(h, provider)
+    _iptv_changed(h, claims, "admin.iptv_provider_merge", provider, list(iptvplay.MAIN_SECRETS))
+    return _back(f"Moved {moved} {'login' if moved == 1 else 'logins'}." if moved else "Nothing to move.")
+
+
+@pages.post("/admin/iptv/provider/remove")
+async def remove_iptv_provider(request: Request, h: Hub = Depends(hub)) -> Response:
+    claims, form = await _form_session(request, h)
+    provider = str(form.get("provider") or "")
+    msg = iptvplay.remove_provider(h, provider)
+    if not msg:
+        return _back("That provider can't be removed here.")
+    _iptv_changed(h, claims, "admin.iptv_provider_remove", provider, [])
+    return _back(msg)
 
 
 @pages.post("/admin/secrets")
