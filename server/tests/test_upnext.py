@@ -121,3 +121,53 @@ def test_continue_follows_the_person_and_falls_back_to_the_tv(hub, people):
     assert titles(who_key(tv="tv-office")) == ["Kids Movie"]
     # Nobody with history of their own yet: the house's adult rows.
     assert sorted(titles(who_key(person="p_new"))) == ["Drama Movie", "Kids Movie"]
+
+
+def test_the_players_length_draws_how_far_a_film_got(hub, people):
+    """The catalog rarely knows a film's length; the TV sends it with the position, so the card gets a progress line."""
+    _catalog(hub)
+    now = datetime.now(timezone.utc).timestamp()
+    remember(hub.db, "adult", {"movie_id": "vod:thomas-creek:100", "title": "Drama Movie", "position_s": 1800,
+                               "duration_s": 7200}, now=now, tv="tv-office")
+    remember(hub.db, "adult", {"movie_id": "vod:thomas-creek:101", "title": "Kids Movie", "position_s": 600,
+                               "duration_s": True}, now=now - 10, tv="tv-office")
+    from hub.upnext import who_key
+
+    rows = shelf(hub, "adult", who=who_key(tv="tv-office"))["rows"]
+    cont = {i["title"]: i for i in next(r for r in rows if r["id"] == "continue")["items"]}
+    assert cont["Drama Movie"]["progress"] == 0.25
+    assert cont["Kids Movie"].get("progress") is None
+
+
+def test_provider_names_are_cleaned_and_length_is_kept(hub, people, home_client):
+    from tests.test_tv_api import TV_ID, Clock, Key, _auth, _enroll, _token
+
+    hub.tv_catalog.ingest(vod=[{"stream_id": 300, "name": "EN - Resident Evil (2026)", "category_id": "1",
+                                "container_extension": "mkv"}],
+                          vod_categories=[{"category_id": "1", "category_name": "Action"}])
+    key, clock = Key(), Clock()
+    _enroll(home_client, key, TV_ID, "Office")
+    hub.tv_app.set_tv(TV_ID, status="approved", room="office")
+    auth = _auth(_token(home_client, key, clock)["access_token"])
+    sent = home_client.post("/v1/tv/state", headers=auth, json={"playing": {
+        "movie_id": "vod:thomas-creek:300", "title": "EN - Resident Evil (2026)", "position_s": 600, "duration_s": 6000}})
+    assert sent.status_code == 200, sent.text
+    rows = home_client.get("/v1/tv/upnext", headers=auth).json()["rows"]
+    item = next(i for r in rows if r["id"] == "continue" for i in r["items"])
+    assert item["title"] == "Resident Evil"
+    assert item["progress"] == 0.1
+
+
+def test_plex_films_continue_too(hub, people):
+    from hub.upnext import who_key
+
+    hub.db.kv_set("tv.plex.index", [{"kind": "movie", "id": "777", "title": "The Godfather", "year": 1972,
+                                     "tmdb": 238, "rating": "R"}])
+    remember(hub.db, "adult", {"movie_id": "vod:plex:777", "title": "The Godfather", "position_s": 1200,
+                               "duration_s": 10500}, tv="tv-office")
+    rows = shelf(hub, "adult", who=who_key(tv="tv-office"))["rows"]
+    item = next(i for r in rows if r["id"] == "continue" for i in r["items"])
+    assert item["movie_id"] == "vod:plex:777" and item["title"] == "The Godfather"
+    assert item["poster_url"] == "/v1/tv/explore/art/poster/movie/238"
+    assert shelf(hub, "kids", who=who_key(tv="tv-office"))["rows"] == [] or all(
+        i.get("movie_id") != "vod:plex:777" for r in shelf(hub, "kids", who=who_key(tv="tv-office"))["rows"] for i in r["items"])

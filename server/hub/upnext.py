@@ -12,7 +12,7 @@ import time
 from typing import Any
 
 from .artwork import programme_key
-from .tvexplore import ready_items
+from .tvexplore import _clean_name, ready_items
 
 KV = "tv.watch"
 KV_RECORDINGS = "dvr.recordings"
@@ -77,6 +77,7 @@ def _add(bucket: dict[str, Any], playing: dict[str, Any], now: float) -> dict[st
     series = dict(bucket.get("series") or {})
     movies = dict(bucket.get("movies") or {})
     position = _position(playing)
+    duration = _duration(playing)
     title = _text(playing.get("title") or playing.get("name"))
     changed = False
     channel = _text(playing.get("channel_key"))
@@ -85,7 +86,7 @@ def _add(bucket: dict[str, Any], playing: dict[str, Any], now: float) -> dict[st
         changed = True
     movie = _text(playing.get("movie_id"))
     if movie:
-        movies[movie] = _touch(movies.get(movie), now, title=title, position_s=position)
+        movies[movie] = _touch(movies.get(movie), now, title=title, position_s=position, duration_s=duration)
         changed = True
     episode = _text(playing.get("episode_id"))
     series_id = _text(playing.get("series_id"))
@@ -96,6 +97,8 @@ def _add(bucket: dict[str, Any], playing: dict[str, Any], now: float) -> dict[st
             extra["episode_id"] = episode
         if position is not None:
             extra["position_s"] = position
+        if duration is not None:
+            extra["duration_s"] = duration
         series[key] = _touch(series.get(key), now, **extra)
         changed = True
     if not changed:
@@ -149,6 +152,8 @@ def _continue(h: Any, history: dict[str, Any], kids: bool) -> list[dict[str, Any
     items = []
     for movie_id, row in (history.get("movies") or {}).items():
         movie = h.tv_catalog.movie(str(movie_id)) if h.tv_catalog else None
+        if movie is None:
+            movie = _plex_movie(h, str(movie_id))
         if movie is None or (kids and not movie.get("kids")):
             continue
         position = row.get("position_s")
@@ -175,12 +180,36 @@ def _continue(h: Any, history: dict[str, Any], kids: bool) -> list[dict[str, Any
             h, kind="episode", title=episode.get("title") or row.get("title") or "Episode",
             subtitle=episode.get("series_name"), reason="continue",
             episode_id=episode["id"], series_id=episode.get("series_id") or key,
-            progress=_progress(position, None), rank=float(row.get("last") or 0),
+            progress=_progress(position, row.get("duration_s")), rank=float(row.get("last") or 0),
         ))
     items.sort(key=lambda item: float(item.get("_rank") or 0), reverse=True)
     for item in items:
         item.pop("_rank", None)
     return items
+
+
+_KID_RATINGS = frozenset({"G", "PG", "TV-Y", "TV-Y7", "TV-G"})
+
+
+def _plex_movie(h: Any, movie_id: str) -> dict[str, Any] | None:
+    """A Plex film the TVs report as vod:plex:<id>, from the hub's Plex lists. None when unknown."""
+    if not movie_id.startswith("vod:plex:"):
+        return None
+    from .tvexplore import _plex_index, _plex_shelf
+
+    plex_id = movie_id.removeprefix("vod:plex:")
+    for row in _plex_shelf(h) + _plex_index(h):
+        if row.get("kind") != "movie" or str(row.get("plex_id") or "") != plex_id:
+            continue
+        tmdb = row.get("tmdb_id")
+        art = (lambda kind: f"/v1/tv/explore/art/{kind}/movie/{tmdb}") if isinstance(tmdb, int) else (lambda kind: None)
+        return {
+            "id": movie_id, "name": row.get("title"),
+            "poster_url": row.get("poster_url") or art("poster"),
+            "backdrop_url": row.get("backdrop_url") or art("backdrop"),
+            "kids": bool(row.get("kids")) or row.get("rating") in _KID_RATINGS,
+        }
+    return None
 
 
 def _next_episodes(h: Any, history: dict[str, Any], kids: bool) -> list[dict[str, Any]]:
@@ -281,6 +310,8 @@ def _trending(h: Any, history: dict[str, Any], kids: bool, now: float) -> list[d
         ))
     for movie_id, row in (history.get("movies") or {}).items():
         movie = h.tv_catalog.movie(str(movie_id)) if h.tv_catalog else None
+        if movie is None:
+            movie = _plex_movie(h, str(movie_id))
         if movie is None or (kids and not movie.get("kids")):
             continue
         items.append(_item(
@@ -299,9 +330,12 @@ def _item(h: Any, *, kind: str, title: str, subtitle: str | None, reason: str, r
           channel_key: str | None = None, movie_id: str | None = None, series_id: str | None = None,
           episode_id: str | None = None, recording_id: str | None = None,
           poster: str | None = None, backdrop: str | None = None, progress: float | None = None) -> dict[str, Any]:
+    shown = _clean_name(title) if kind in ("movie", "episode") else title
     item: dict[str, Any] = {
-        "kind": kind, "title": title, "reason": REASONS[reason], "_rank": rank,
+        "kind": kind, "title": shown, "reason": REASONS[reason], "_rank": rank,
     }
+    if subtitle and kind == "episode":
+        subtitle = _clean_name(subtitle)
     if subtitle:
         item["subtitle"] = subtitle
     if channel_key:
@@ -355,6 +389,15 @@ def _trim(rows: dict[str, dict[str, Any]]) -> dict[str, Any]:
         return rows
     ranked = sorted(rows.items(), key=lambda kv: float((kv[1] or {}).get("last") or 0), reverse=True)
     return dict(ranked[:200])
+
+
+def _duration(playing: dict[str, Any]) -> int | None:
+    """The player's length of a film or episode, in seconds; None when unknown or not believable."""
+    value = playing.get("duration_s")
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    seconds = int(value)
+    return seconds if 60 <= seconds <= 24 * 3600 else None
 
 
 def _position(playing: dict[str, Any]) -> int | None:

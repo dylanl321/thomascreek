@@ -590,6 +590,8 @@ class PlayingIn(BaseModel):
     series_id: str | None = Field(default=None, max_length=80)
     episode_id: str | None = Field(default=None, max_length=80)
     start: str | int | float | None = None
+    # Length of a film or episode, from the player, so Continue watching can show how far it got.
+    duration_s: float | None = None
 
 
 class HealthIn(BaseModel):
