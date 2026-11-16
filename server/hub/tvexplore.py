@@ -56,7 +56,7 @@ async def refresh(h: Any) -> None:
     try:
         lists = await _tmdb(str(key))
     except Exception as exc:  # noqa: BLE001
-        log.info("tmdb: %s", exc)
+        log.info("tmdb: %s", _safe(exc))
         if not isinstance(_cache(h).get("adult"), dict):
             publish(h, None, can_request=bool(h.jellyseerr.enabled))
         return
@@ -73,6 +73,14 @@ async def _tmdb(key: str) -> dict[str, list[dict[str, Any]]]:
         "popular": [_tmdb_card(row) for row in popular[:20]],
         "acclaimed": [_tmdb_card(row) for row in acclaimed[:20]],
     }
+
+
+def _safe(exc: Exception) -> str:
+    """An error for the log without its address: an httpx status error names the URL, and TMDB's carries the key."""
+    if isinstance(exc, httpx.HTTPStatusError):
+        return f"HTTP {exc.response.status_code}"
+    text = str(exc)
+    return type(exc).__name__ if "api_key=" in text else text
 
 
 async def _gather(*calls: Any) -> list[list[dict[str, Any]]]:
@@ -131,7 +139,7 @@ async def cached_art(h: Any, kind: str, media: str, tmdb_id: str) -> tuple[bytes
             image = await client.get(f"https://image.tmdb.org/t/p/{size}{file_path}")
             image.raise_for_status()
     except Exception as exc:  # noqa: BLE001
-        log.info("explore art: %s", exc)
+        log.info("explore art: %s", _safe(exc))
         return None
     ext = "png" if "png" in image.headers.get("content-type", "") else "webp" if "webp" in image.headers.get("content-type", "") else "jpg"
     (folder / f"{kind}-{media}-{tmdb_id}.{ext}").write_bytes(image.content)
