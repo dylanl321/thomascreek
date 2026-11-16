@@ -836,7 +836,9 @@ class TvApp:
             rows.append({"provider": "thomas-creek", "login": "main", "server": v("iptv.xtream_server"),
                          "username": v("iptv.xtream_username"), "password_secret": "iptv.xtream_password",
                          "name": "Thomas Creek"})
-        return sorted(rows, key=lambda r: (str(r.get("provider")), str(r.get("login"))))
+        # The original login leads its provider, so the TV keeps loading the list it already has.
+        return sorted(rows, key=lambda r: (str(r.get("provider")), r.get("password_secret") != "iptv.xtream_password",
+                                           str(r.get("login"))))
 
     def _short_code(self) -> str:
         return "".join(secrets.choice(_CODE_ALPHABET) for _ in range(6))
