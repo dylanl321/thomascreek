@@ -33,6 +33,7 @@ LIVE_TTL_S = 60
 IDLE_TTL_S = 15 * 60
 WINDOW_BEFORE_S = 12 * 3600
 WINDOW_AFTER_S = 36 * 3600
+EVENT_AHEAD_S = 7 * 86400
 MAX_CHANNELS = 4
 
 TEAM, RACE, FIGHT, GOLF, TENNIS = "team", "race", "fight", "golf", "tennis"
@@ -143,7 +144,7 @@ def _broadcasts(comp: dict[str, Any]) -> list[str]:
     return names[:8]
 
 
-def _team(c: dict[str, Any]) -> dict[str, Any]:
+def _team(c: dict[str, Any], started: bool = True) -> dict[str, Any]:
     t = c.get("team") or {}
     name = str(t.get("displayName") or t.get("name") or "")
     logo = t.get("logo") or (((t.get("logos") or [{}])[0]) or {}).get("href")
@@ -151,7 +152,8 @@ def _team(c: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": str(t.get("id") or ""), "name": name, "short": str(t.get("shortDisplayName") or name),
         "abbr": str(t.get("abbreviation") or ""), "logo": logo if isinstance(logo, str) and logo.startswith("https://") else None,
-        "color": t.get("color") or None, "score": (str(c["score"]) if c.get("score") not in (None, "") else None),
+        "color": t.get("color") or None,
+        "score": (str(c["score"]) if started and c.get("score") not in (None, "") else None),
         "winner": bool(c.get("winner")), "record": ((records[0] or {}).get("summary") if records else None),
     }
 
@@ -186,7 +188,8 @@ def parse(body: dict[str, Any], league: tuple[str, str, str, str, str]) -> list[
                 away = next((c for c in teams if c.get("homeAway") == "away"), None)
                 if home is None or away is None:
                     continue
-                game["home"], game["away"] = _team(home), _team(away)
+                started = game["state"] != "upcoming"  # ESPN sends "0" before kickoff
+                game["home"], game["away"] = _team(home, started), _team(away, started)
                 notes = comp.get("notes") or []
                 game["note"] = str((notes[0] or {}).get("headline") or "") if notes else ""
             else:
@@ -215,9 +218,8 @@ class Sport:
         _name, path, _sport, _kind, mode = league
         url = f"{ESPN}/{path}/scoreboard"
         if mode == "day":
-            local = datetime.fromtimestamp(now, self._zone())
-            days = f"{local:%Y%m%d}-{(local + timedelta(days=1)):%Y%m%d}"
-            url += f"?dates={days}"
+            # One local day: ESPN's day boards do not take a range for every league (a range came back empty).
+            url += f"?dates={datetime.fromtimestamp(now, self._zone()):%Y%m%d}"
         return url
 
     async def _fetch(self, client: httpx.AsyncClient, league: tuple[str, str, str, str, str], now: float) -> None:
@@ -228,8 +230,9 @@ class Sport:
             games = parse(resp.json(), league)
         except Exception as exc:  # noqa: BLE001
             log.info("sport %s: %s", name, type(exc).__name__)
-            if name not in self._boards:
-                self._boards[name] = (now, [])
+            # Keep what we had; try again within a minute rather than a quarter hour.
+            had = self._boards.get(name)
+            self._boards[name] = (now - IDLE_TTL_S + LIVE_TTL_S, had[1] if had else [])
             return
         self._boards[name] = (now, games)
 
@@ -249,8 +252,10 @@ class Sport:
                     await asyncio.gather(*(self._fetch(client, league, now) for league in stale))
         out = []
         for league in LEAGUES:
+            # A race, fight or golf board lists its whole weekend: show it from the week before.
+            after = WINDOW_AFTER_S if league[3] == TEAM else EVENT_AHEAD_S
             for game in (self._boards.get(league[0]) or (0, []))[1]:
-                if game["start"] and now - WINDOW_BEFORE_S <= game["start"] <= now + WINDOW_AFTER_S or game["state"] == "live":
+                if game["state"] == "live" or (game["start"] and now - WINDOW_BEFORE_S <= game["start"] <= now + after):
                     out.append(game)
         return out
 

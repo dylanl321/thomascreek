@@ -134,3 +134,29 @@ def test_route_answers_from_espn_once_and_ranks_the_live_nfl_game_first(hub, peo
     assert any(c["why"] == "guide" for c in body["games"][0]["channels"])
     dylan.client.get("/v1/tv/sport", headers=dylan.h)
     assert nfl.call_count == 1  # kept for a minute while live, not fetched again per screen
+
+
+def test_scores_are_empty_before_the_start_and_day_boards_ask_for_one_day(hub):
+    now = datetime.now(timezone.utc)
+    [game] = tvsport.parse(_nfl(now + timedelta(hours=2), state="pre"), tvsport.LEAGUES[0])
+    assert game["state"] == "upcoming" and game["home"]["score"] is None and game["away"]["score"] is None
+    nba = next(l for l in tvsport.LEAGUES if l[0] == "NBA")
+    url = tvsport.Sport(hub)._url(nba, now.timestamp())
+    assert url.startswith(f"{tvsport.ESPN}/basketball/nba/scoreboard?dates=") and "-" not in url.split("dates=")[1]
+
+
+@respx.mock
+def test_every_league_is_asked_and_next_weeks_race_weekend_is_kept(hub):
+    now = datetime.now(timezone.utc)
+    race = {"events": [{"id": "9", "name": "Las Vegas Grand Prix", "date": _espn_time(now + timedelta(days=5)),
+                        "competitions": [{"id": "92", "date": _espn_time(now + timedelta(days=5)), "type": {"abbreviation": "Race"},
+                                          "status": {"type": {"state": "pre", "name": "STATUS_SCHEDULED"}}}]}]}
+    f1 = respx.get(url__startswith=f"{tvsport.ESPN}/racing/f1/").mock(return_value=httpx.Response(200, json=race))
+    nba = respx.get(url__startswith=f"{tvsport.ESPN}/basketball/nba/").mock(return_value=httpx.Response(503))
+    respx.get(url__startswith=tvsport.ESPN).mock(return_value=httpx.Response(200, json={"events": []}))
+    feed = tvsport.Sport(hub)
+    import asyncio
+    games = asyncio.run(feed.games(now.timestamp()))
+    assert f1.called and nba.called and [g["league"] for g in games] == ["Formula 1"]
+    asyncio.run(feed.games(now.timestamp() + 61))
+    assert nba.call_count == 2  # a failed board is tried again after a minute, not a quarter hour
