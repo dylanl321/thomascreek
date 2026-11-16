@@ -441,6 +441,30 @@ class TvCatalog:
         except Exception as exc:  # noqa: BLE001
             log.info("catalog fold: %s", exc)
 
+    def _extras_due(self, now: float) -> None:
+        """Read another provider's lists in the background when they are missing or older than the main list's
+        refresh time (a provider just added, or a hub that restarted with a fresh main list)."""
+        if self.__dict__.get("_extras_running"):
+            return
+        try:
+            due = any(now - float(self.extra(pid).get("fetched_at") or 0) >= LIST_TTL_S for pid in self._extra_logins())
+        except Exception:  # noqa: BLE001
+            return
+        if not due:
+            return
+
+        async def run() -> None:
+            try:
+                await self.refresh_extras()
+            finally:
+                self._extras_running = False
+
+        try:
+            asyncio.get_running_loop().create_task(run())
+            self._extras_running = True
+        except RuntimeError:
+            pass
+
     async def refresh_extras(self) -> dict[str, str]:
         """Read every other provider's lists. One provider failing keeps its last list and doesn't stop the rest."""
         result: dict[str, str] = {}
@@ -544,6 +568,7 @@ class TvCatalog:
         guide_ok = (now - float(doc.get("guide_at") or 0) < GUIDE_TTL_S
                     and doc.get("guide_format") == GUIDE_FORMAT)
         if lists_ok and guide_ok:
+            self._extras_due(now)
             return doc
         if not self.configured():
             if doc:

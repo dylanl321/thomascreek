@@ -230,3 +230,33 @@ def test_a_second_provider_is_read_folded_in_and_its_logins_take_the_overflow(hu
     hub.tv_catalog.fold()
     film = next(i for i in hub.db.kv_get("tv.catalog.canonical")["items"] if i.get("kind") == "movie")
     assert {s["provider"] for s in film["sources"]} == {"thomas-creek"}
+
+
+def test_a_fresh_main_list_still_reads_a_provider_added_since(hub):
+    """After a restart the main list is fresh, so refresh() doesn't run; the other provider is read anyway."""
+    import asyncio
+
+    from hub import iptvplay
+
+    hub.config.iptv.providers = []
+    hub.vault.set("iptv.xtream_server", "http://main.test")
+    hub.vault.set("iptv.xtream_username", "house")
+    hub.vault.set("iptv.xtream_password", "secret-main")
+    hub.tv_catalog.ingest(xmltv=b"<tv></tv>")
+    doc = hub.tv_catalog.load()
+    doc["guide_at"] = doc["fetched_at"]
+    hub.tv_catalog._write(doc)
+    iptvplay.add_provider(hub, "Other", "http://other.test", "spare", "pw")
+    calls = []
+
+    async def fake():
+        calls.append(1)
+        return {}
+    hub.tv_catalog.refresh_extras = fake  # type: ignore[method-assign]
+
+    async def go():
+        await hub.tv_catalog.ensure()
+        await hub.tv_catalog.ensure()  # a second request while the first read runs starts no other
+        await asyncio.sleep(0)
+    asyncio.run(go())
+    assert calls == [1]
