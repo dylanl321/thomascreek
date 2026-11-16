@@ -12,7 +12,7 @@ import time
 from typing import Any
 
 from .artwork import programme_key
-from .tvexplore import ready_items
+from .tvexplore import _clean_name, ready_items
 
 KV = "tv.watch"
 KV_RECORDINGS = "dvr.recordings"
@@ -152,6 +152,8 @@ def _continue(h: Any, history: dict[str, Any], kids: bool) -> list[dict[str, Any
     items = []
     for movie_id, row in (history.get("movies") or {}).items():
         movie = h.tv_catalog.movie(str(movie_id)) if h.tv_catalog else None
+        if movie is None:
+            movie = _plex_movie(h, str(movie_id))
         if movie is None or (kids and not movie.get("kids")):
             continue
         position = row.get("position_s")
@@ -184,6 +186,30 @@ def _continue(h: Any, history: dict[str, Any], kids: bool) -> list[dict[str, Any
     for item in items:
         item.pop("_rank", None)
     return items
+
+
+_KID_RATINGS = frozenset({"G", "PG", "TV-Y", "TV-Y7", "TV-G"})
+
+
+def _plex_movie(h: Any, movie_id: str) -> dict[str, Any] | None:
+    """A Plex film the TVs report as vod:plex:<id>, from the hub's Plex lists. None when unknown."""
+    if not movie_id.startswith("vod:plex:"):
+        return None
+    from .tvexplore import _plex_index, _plex_shelf
+
+    plex_id = movie_id.removeprefix("vod:plex:")
+    for row in _plex_shelf(h) + _plex_index(h):
+        if row.get("kind") != "movie" or str(row.get("plex_id") or "") != plex_id:
+            continue
+        tmdb = row.get("tmdb_id")
+        art = (lambda kind: f"/v1/tv/explore/art/{kind}/movie/{tmdb}") if isinstance(tmdb, int) else (lambda kind: None)
+        return {
+            "id": movie_id, "name": row.get("title"),
+            "poster_url": row.get("poster_url") or art("poster"),
+            "backdrop_url": row.get("backdrop_url") or art("backdrop"),
+            "kids": bool(row.get("kids")) or row.get("rating") in _KID_RATINGS,
+        }
+    return None
 
 
 def _next_episodes(h: Any, history: dict[str, Any], kids: bool) -> list[dict[str, Any]]:
@@ -284,6 +310,8 @@ def _trending(h: Any, history: dict[str, Any], kids: bool, now: float) -> list[d
         ))
     for movie_id, row in (history.get("movies") or {}).items():
         movie = h.tv_catalog.movie(str(movie_id)) if h.tv_catalog else None
+        if movie is None:
+            movie = _plex_movie(h, str(movie_id))
         if movie is None or (kids and not movie.get("kids")):
             continue
         items.append(_item(
@@ -302,9 +330,12 @@ def _item(h: Any, *, kind: str, title: str, subtitle: str | None, reason: str, r
           channel_key: str | None = None, movie_id: str | None = None, series_id: str | None = None,
           episode_id: str | None = None, recording_id: str | None = None,
           poster: str | None = None, backdrop: str | None = None, progress: float | None = None) -> dict[str, Any]:
+    shown = _clean_name(title) if kind in ("movie", "episode") else title
     item: dict[str, Any] = {
-        "kind": kind, "title": title, "reason": REASONS[reason], "_rank": rank,
+        "kind": kind, "title": shown, "reason": REASONS[reason], "_rank": rank,
     }
+    if subtitle and kind == "episode":
+        subtitle = _clean_name(subtitle)
     if subtitle:
         item["subtitle"] = subtitle
     if channel_key:

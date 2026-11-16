@@ -1408,6 +1408,9 @@ class TvApp:
         out: dict[str, Any] = {"channel_key": key, "title": title, "name": name, "number": number}
         if position is not None:
             out["position_s"] = position
+        duration = raw.get("duration_s")
+        if isinstance(duration, (int, float)) and not isinstance(duration, bool) and 60 <= duration <= 24 * 3600:
+            out["duration_s"] = int(duration)
         if movie:
             out["movie_id"] = movie
         if series:
