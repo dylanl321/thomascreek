@@ -268,10 +268,10 @@ def playable(db: Any, *, kind: str, title: str, year: int | None = None, tmdb: s
                 break
     if best is None:
         return None
-    # The ref opens the title's page, which only the main provider's catalog has; other providers' copies
-    # are still used when the canonical id is tuned.
-    sources = [s for s in best.get("sources") or [] if s.get("provider") == MAIN_PROVIDER]
-    sources.sort(key=lambda source: _quality_rank(source.get("quality")))
+    # The ref opens the title's page, which the main provider's catalog has, so its copy comes first; other
+    # providers' copies are still used when the canonical id is tuned.
+    sources = list(best.get("sources") or [])
+    sources.sort(key=lambda source: (source.get("provider") != MAIN_PROVIDER, _quality_rank(source.get("quality"))))
     chosen = sources[0] if sources else None
     if chosen is None:
         return None

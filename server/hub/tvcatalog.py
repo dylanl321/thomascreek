@@ -437,8 +437,7 @@ class TvCatalog:
                 extra = self.extra(pid)
                 if extra:
                     sources += sources_from_catalog(extra, pid)
-            if sources:
-                observe(self.db, sources)
+            observe(self.db, sources)
         except Exception as exc:  # noqa: BLE001
             log.info("catalog fold: %s", exc)
 
