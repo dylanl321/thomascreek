@@ -47,6 +47,7 @@ async def refresh(h: Any) -> None:
     secret = h.config.artwork.tmdb_key_secret
     key = h.vault.get(secret) if h.vault.has(secret) else None
     await remember_plex(h)
+    await remember_plex_index(h)
     if not key:
         publish(h, None, can_request=bool(h.jellyseerr.enabled))
         return
@@ -312,8 +313,13 @@ def _library(h: Any, kids: bool) -> list[dict[str, Any]]:
     if not kids:
         seen = {item.get("movie_id") or item.get("series_id") for item in items}
         for row in _canonical_rows(h):
-            if (row.get("movie_id") or row.get("series_id")) not in seen:
-                items.append(row)
+            if (row.get("movie_id") or row.get("series_id")) in seen:
+                row["match_only"] = True  # the clean name of a provider title already listed
+            items.append(row)
+    for row in _plex_index(h):
+        if kids and row.get("rating") not in allowed:
+            continue
+        items.append(row)
     return items
 
 
@@ -445,6 +451,53 @@ def _plex_query_path(value: object) -> str | None:
     return text if text.startswith("/library/") else None
 
 
+PLEX_INDEX = "tv.plex.index"
+PLEX_INDEX_LIMIT = 20000
+
+
+async def remember_plex_index(h: Any) -> None:
+    """Every Plex movie and show by name and TMDB id, so Explore can tell what the house already has."""
+    plex = getattr(h, "plex", None)
+    library = getattr(h, "plex_library", None)
+    if plex is None or library is None or not getattr(plex, "enabled", False):
+        return
+    try:
+        doc = await library.load()
+    except Exception as exc:  # noqa: BLE001
+        log.info("plex index: %s", exc)
+        return
+    rows = []
+    for bucket, kind in (("movies", "movie"), ("shows", "series")):
+        for row in doc.get(bucket) or []:
+            if not isinstance(row, dict) or not row.get("id") or not row.get("title"):
+                continue
+            tmdb = str(row.get("tmdb") or "")
+            rows.append({"kind": kind, "id": str(row["id"]), "title": str(row["title"]), "year": _year(row.get("year")),
+                         "tmdb": int(tmdb) if tmdb.isdigit() else None, "rating": _text(row.get("rating"))})
+    h.db.kv_set(PLEX_INDEX, rows[:PLEX_INDEX_LIMIT])
+
+
+def _plex_index(h: Any) -> list[dict[str, Any]]:
+    raw = h.db.kv_get(PLEX_INDEX) or []
+    if not isinstance(raw, list):
+        return []
+    out = []
+    for row in raw:
+        if not isinstance(row, dict) or not row.get("id") or not row.get("title"):
+            continue
+        kind = "series" if row.get("kind") == "series" else "movie"
+        ident = str(row["id"])
+        key = f"{'series' if kind == 'series' else 'vod'}:plex:{ident}"
+        out.append({
+            "kind": kind, "title": str(row["title"]), "year": _year(row.get("year")), "overview": None,
+            "tagline": None, "poster_url": None, "backdrop_url": None, "logo_url": None,
+            "rating": _text(row.get("rating")), "genres": [], "availability": "play", "kids": False,
+            "tmdb_id": row.get("tmdb") if isinstance(row.get("tmdb"), int) else None,
+            ("movie_id" if kind == "movie" else "series_id"): key, "plex_id": ident, "match_only": True,
+        })
+    return out
+
+
 def _canonical_rows(h: Any) -> list[dict[str, Any]]:
     """Cleaned titles from the folded catalog, so Explore can see past a messy provider name."""
     from .iptvcanon import search
@@ -490,6 +543,7 @@ def _recordings(h: Any) -> list[dict[str, Any]]:
 
 
 def _recent(library: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    library = [row for row in library if not row.get("match_only")]
     return sorted(library, key=lambda row: (-(row.get("year") or 0), str(row.get("title") or "").casefold()))[:ROW_LIMIT]
 
 
@@ -499,15 +553,31 @@ def _library_card(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def _index(library: list[dict[str, Any]]) -> dict[tuple, dict[str, Any]]:
+    """Library rows by TMDB id and by name. A row the feed shows wins over one that is only for matching."""
     found: dict[tuple, dict[str, Any]] = {}
-    for row in library:
-        name = _norm(row.get("title") or "")
+    ordered = [row for row in library if not row.get("match_only")] + [row for row in library if row.get("match_only")]
+    for row in ordered:
+        raw = str(row.get("title") or "")
+        tail = _YEAR_TAIL.search(raw)
+        year = row.get("year") or (int(tail.group(1)) if tail else None)
         if row.get("tmdb_id"):
-            found[("tmdb", row["kind"], int(row["tmdb_id"]))] = row
-        if name:
-            found[("name", name, row.get("year"))] = row
-            found.setdefault(("name", name, None), row)
+            found.setdefault(("tmdb", row["kind"], int(row["tmdb_id"])), row)
+        for name in dict.fromkeys((_norm(raw), _norm(_clean_name(raw)))):
+            if name:
+                found.setdefault(("name", name, year), row)
+                found.setdefault(("name", name, None), row)
     return found
+
+
+_PREFIX = re.compile(r"^\s*(?:[\[|(]?[A-Z0-9]{2,4}(?:-[A-Z0-9]{2,4})?[\]|)]?(?:\s+-\s+|\s*\|\s*))+")
+_YEAR_TAIL = re.compile(r"[\s(\[]*((?:19|20)\d{2})[)\]]?\s*$")
+
+
+def _clean_name(title: str) -> str:
+    """A provider name like "EN - The Shawshank Redemption (1994)" as the plain title."""
+    text = _PREFIX.sub("", title)
+    text = _YEAR_TAIL.sub("", text)
+    return text.strip() or title
 
 
 def _resolve(raw: dict[str, Any], index: dict[tuple, dict[str, Any]], *, can_request: bool, kids: bool,

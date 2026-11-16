@@ -50,3 +50,14 @@ def test_a_broken_tail_keeps_what_was_read():
     assert "xc:tc:20" in _parse_xmltv(body, {"cnn.us": ["xc:tc:20"]}, NOW)
 
 
+
+
+def test_an_old_or_empty_guide_is_fetched_again(hub):
+    from hub.tvcatalog import GUIDE_FORMAT, GUIDE_RETRY_S, GUIDE_TTL_S
+
+    doc = hub.tv_catalog.ingest(live=[{"stream_id": 1, "name": "A", "epg_channel_id": "a.us"}], xmltv=b"<tv></tv>", now=NOW)
+    assert doc["guide_format"] == GUIDE_FORMAT
+    assert doc["guide_at"] == NOW - GUIDE_TTL_S + GUIDE_RETRY_S
+    full = hub.tv_catalog.ingest(live=[{"stream_id": 1, "name": "A", "epg_channel_id": "a.us"}],
+                                 xmltv=_xml("a.us", [NOW - 60]), now=NOW)
+    assert full["guide_at"] == NOW
