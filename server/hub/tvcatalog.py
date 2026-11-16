@@ -134,11 +134,24 @@ class TvCatalog:
 
     # -- cache -----------------------------------------------------------------------------------------------------
     def load(self) -> dict[str, Any]:
+        """The cached catalog, parsed once per file change. The file holds the whole provider library and guide
+        (tens of MB): parsing it on every request took about 15 s per guide call and blocked the hub, so the parsed
+        copy is kept while the file's size and change time stay the same. Callers read it and must not change it."""
+        try:
+            stat = self.path.stat()
+        except OSError:
+            return {}
+        stamp = (stat.st_mtime_ns, stat.st_size)
+        cached = getattr(self, "_loaded", None)
+        if cached is not None and cached[0] == stamp:
+            return cached[1]
         try:
             doc = json.loads(self.path.read_text())
         except (OSError, json.JSONDecodeError):
             return {}
-        return doc if isinstance(doc, dict) else {}
+        doc = doc if isinstance(doc, dict) else {}
+        self._loaded = (stamp, doc)
+        return doc
 
     def _details(self) -> dict[str, Any]:
         try:
@@ -155,6 +168,7 @@ class TvCatalog:
     def _write(self, doc: dict[str, Any]) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.write_text(json.dumps(doc))
+        self._loaded = None
 
     def _write_details(self, doc: dict[str, Any]) -> None:
         self.details_path.parent.mkdir(parents=True, exist_ok=True)
@@ -600,8 +614,11 @@ class TvCatalog:
             "category": row.get("category"),
         }
 
-    def guide(self, *, start: float, end: float, channel: str | None, kids_only: bool, now: float | None = None) -> dict[str, Any]:
+    def guide(self, *, start: float, end: float, channel: str | None, kids_only: bool, now: float | None = None,
+              channels: list[str] | None = None) -> dict[str, Any]:
+        """`channel` asks for one channel, `channels` for several in one call (the TVs used to ask one at a time)."""
         now = time.time() if now is None else now
+        picked = set(channels or []) | ({channel} if channel else set())
         doc = self.load()
         overlay = self._overlay()
         notes: dict[str, dict[str, Any]] = {}
@@ -609,7 +626,7 @@ class TvCatalog:
         for row in doc.get("channels") or []:
             if len(wanted) >= 200:
                 break
-            if channel and row.get("key") != channel:
+            if picked and row.get("key") not in picked:
                 continue
             shown = self._present_channel(row, overlay)
             if shown is None or (kids_only and not shown["kids"]):
@@ -628,7 +645,7 @@ class TvCatalog:
                     nxt = view
                 if finishes > start and begins < end:
                     programmes.append(view)
-            if channel or programmes or current:
+            if picked or programmes or current:
                 wanted.append({
                     "key": shown["key"], "name": shown["name"], "number": shown["number"],
                     "group": shown["group"], "logo": shown["logo"], "logo_url": self._art("logo", shown["key"]),

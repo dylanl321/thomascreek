@@ -214,8 +214,10 @@ def _profile(c: Caller, requested: str) -> str:
 
 @router.get("/guide")
 async def guide(start: float | None = None, end: float | None = None, channel: str | None = None,
+                channels: str | None = None,
                 c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
-    """Now, next and the programmes in a window. `start` and `end` are unix seconds."""
+    """Now, next and the programmes in a window. `start` and `end` are unix seconds. `channels` is a comma-separated
+    list of up to 100 channel keys, answered in one call."""
     kids = _media(h, c)
     await _ready(h)
     now = time.time()
@@ -223,7 +225,11 @@ async def guide(start: float | None = None, end: float | None = None, channel: s
     finish = now + 6 * 3600 if end is None else end
     if finish <= begin or finish - begin > 48 * 3600:
         raise error(400, "bad_request", "Ask for a window of up to 48 hours")
-    body = h.tv_catalog.guide(start=begin, end=finish, channel=channel or None, kids_only=kids, now=now)
+    keys = [key.strip() for key in (channels or "").split(",") if key.strip()]
+    if len(keys) > 100:
+        raise error(400, "bad_request", "Ask for up to 100 channels at a time")
+    body = h.tv_catalog.guide(start=begin, end=finish, channel=channel or None, kids_only=kids, now=now,
+                              channels=keys or None)
     h.source_health.annotate(body.get("channels") or [])
     return body
 
