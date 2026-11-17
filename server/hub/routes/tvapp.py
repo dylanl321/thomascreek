@@ -53,6 +53,7 @@ from .. import tvfleet, tvlauncher, tvupdate, tvwho
 from ..iptvplay import touch
 from ..tvremote import allowed_packages
 from .deps import Caller, caller, caller_ip, error, hub, need
+from ..faults import note
 
 router = APIRouter(prefix="/v1/tvapp", tags=["tvapp"])
 tv_router = APIRouter(prefix="/v1/tv", tags=["tvapp"])
@@ -657,7 +658,8 @@ async def tv_basic(request: Request, c: Caller = Depends(caller), h: Hub = Depen
         raise error(403, "forbidden", "Not available", ask_parent=c.subject.is_child_like)
     try:
         home = await h.smart.weather._location()
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001  the lineup falls back to no home market
+        note("basic lineup: house location", exc)
         home = None
     body = h.tv_catalog.basic(home) or {"version": 0, "market": None, "channels": []}
     return _cached(request, body)

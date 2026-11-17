@@ -42,6 +42,7 @@ from ..onepassword import NAME_RE
 from ..state import Hub
 from . import admin_health
 from .deps import Caller, caller, caller_ip, error, hub, need, require_confirm
+from ..faults import note
 
 log = logging.getLogger("hub.admin_web")
 
@@ -569,7 +570,8 @@ def _iptv_providers_html(h: Hub, csrf: str) -> str:
     hid = f"<input type=hidden name=csrf value={csrf}>"
     try:
         usage = {(r["provider"], r["login"]): r for r in iptv_accounts(h)["logins"]}
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001  the providers section shows without usage
+        note("admin: IPTV logins in use", exc, log)
         usage = {}
     results = getattr(getattr(h, "keychecks", None), "results", None) or {}
     out = []

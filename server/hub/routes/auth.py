@@ -16,6 +16,7 @@ from ..db import new_id
 from ..home import iso
 from ..state import Hub
 from .deps import Caller, caller, caller_ip, consume_nonce, error, hub, issue_nonce
+from ..faults import note
 
 log = logging.getLogger("hub.auth")
 router = APIRouter(prefix="/v1", tags=["auth"])
@@ -201,7 +202,8 @@ async def me(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, An
             try:
                 st = await h.firewalla.internet_state(person["id"])
                 internet["paused"] = st["paused"]
-            except Exception:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001  the child's screen says "unknown" instead
+                note("me: internet state", exc, log)
                 internet["unknown"] = True
         restore = next((t for t in h.timers.pending("network.restore") if t["payload"].get("person_id") == person["id"]), None)
         if restore:

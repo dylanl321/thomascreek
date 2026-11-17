@@ -17,6 +17,7 @@ from ..home import iso
 from ..state import Hub
 from .deps import Caller, caller, error, hub, need, require_confirm
 from .home import perform
+from ..faults import describe, note
 
 router = APIRouter(prefix="/v1", tags=["media"])
 
@@ -318,7 +319,8 @@ async def download_file(pass_token: str, request: Request, h: Hub = Depends(hub)
     try:
         client = plex.client()
         upstream = await client.send(client.build_request("GET", job.passthrough, headers=headers), stream=True)
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001  the phone is told the movie server didn't answer
+        note("download passthrough", exc)
         raise error(502, "unavailable", "The movie server didn't answer") from None
     if upstream.status_code >= 400:
         await upstream.aclose()
@@ -501,9 +503,10 @@ async def _approve(h: Hub, c: Caller, r: dict[str, Any]) -> None:
             person = h.db.person(r["requester_id"])
             if live("chores.redeem") and person and person.get("family_board_id"):
                 await h.family_board.redeem(payload["reward_id"], person["family_board_id"])
-    except Exception as exc:  # noqa: BLE001
-        h.db.log("request.approve", "error", person_id=c.subject.person_id, target=r["id"], detail=str(exc)[:300])
-        raise error(502, "failed", f"Approved, but it didn't go through: {exc}") from None
+    except Exception as exc:  # noqa: BLE001  the approval stands; the parent is told it didn't go through
+        note("request approve", exc)
+        h.db.log("request.approve", "error", person_id=c.subject.person_id, target=r["id"], detail=describe(exc, 300))
+        raise error(502, "failed", f"Approved, but it didn't go through ({type(exc).__name__}). Try again.") from None
     h.db.update("requests", "id", r["id"], {"status": status, "decided_by": c.subject.person_id,
                                             "decided_at": time.time(), "external_id": external})
     h.db.log("request.approve", "ok", person_id=c.subject.person_id, device_id=c.device["id"], target=r["id"])
@@ -533,7 +536,8 @@ async def pipeline(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[s
             return await coro
         except AdapterError as exc:
             failures.append({"source": source, "error": str(exc)})
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001  one source failing leaves the others
+            note(f"media status: {source}", exc)
             failures.append({"source": source, "error": f"{type(exc).__name__}"})
         return None
 
