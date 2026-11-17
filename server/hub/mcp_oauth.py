@@ -190,7 +190,9 @@ class OAuth:
         _, key = aikeys.create(self.hub, c["person_id"], c["client_name"], created_by=c["person_id"])
         self.hub.db.log("mcp.connect", "ok", person_id=c["person_id"], device_id=c["device_id"],
                         params={"app": c["client_name"]}, source="mcp")
-        return {"access_token": key, "token_type": "Bearer", "scope": "home"}
+        person = self.hub.db.person(c["person_id"]) or {"name": "Someone"}
+        return {"access_token": key, "token_type": "Bearer", "scope": "home",
+                "_notice": f"{c['client_name']} is now connected as {person['name']}"}
 
     # -- the page ------------------------------------------------------------
     @staticmethod

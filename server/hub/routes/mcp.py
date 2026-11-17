@@ -127,4 +127,8 @@ async def oauth_token(request: Request, h: Hub = Depends(hub)) -> Response:
         out = h.mcp_oauth.token({k: str(v) for k, v in form.items()})
     except OAuthError as exc:
         return JSONResponse(exc.body(), status_code=exc.status)
+    notice = out.pop("_notice")
+    # Every new AI connection is announced to the admins, so one nobody expected is noticed.
+    await h.notify.send(roles=("admin",), level="fyi", cat="devices", title=notice,
+                        body="It can control the house with that person's rights. Turn it off on the admin page if this wasn't you.")
     return JSONResponse(out, headers={"Cache-Control": "no-store"})
