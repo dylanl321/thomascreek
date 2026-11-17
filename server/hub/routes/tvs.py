@@ -85,6 +85,10 @@ async def copy_settings(install_id: str, body: dict[str, Any] = Body(...), c: Ca
 @router.post("/{install_id}/actions")
 async def tv_action(install_id: str, body: dict[str, Any] = Body(...), c: Caller = Depends(caller),
                     h: Hub = Depends(hub)) -> dict[str, Any]:
+    """Do something on a TV. play takes channel_key, movie_id, episode_id, or ambience_id (a /v1/ambient/scenes id).
+
+    Other actions: restart_app, update, open_app, screenshot and the HDMI-CEC ones.
+    """
     need(h, c, CAP)
     action = str((body or {}).get("action") or "")
     try:

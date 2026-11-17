@@ -393,9 +393,15 @@ def _play(h: Any, install_id: str, tv: dict[str, Any], body: dict[str, Any], onl
     elif body.get("episode_id"):
         command.update(kind="episode", episode_id=str(body["episode_id"])[:80],
                        series_id=str(body.get("series_id") or "")[:80] or None)
+    elif body.get("ambience_id"):
+        scene = h.ambient.scenes.item(str(body["ambience_id"]))
+        if scene is None:
+            raise TvsError(404, "gone", "That ambiance scene isn't in the list any more.")
+        h.ambient.scenes.want(scene["id"])
+        command.update(kind="ambience", ambience_id=scene["id"], title=scene["title"][:120])
     else:
-        raise TvsError(400, "bad_request", "Say what to play: a channel_key, movie_id or episode_id.")
-    if isinstance(body.get("title"), str):
+        raise TvsError(400, "bad_request", "Say what to play: a channel_key, movie_id, episode_id or ambience_id.")
+    if isinstance(body.get("title"), str) and command.get("kind") != "ambience":
         command["title"] = body["title"][:120]
     sent = h.tv_app.enqueue_command(install_id, command)
     h.bus.publish({"type": "tv_command", "data": sent}, device_id=f"tv:{install_id}")

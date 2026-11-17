@@ -477,6 +477,14 @@ class AmbientConfig(BaseModel):
 
     pin: str | None = None
     streams: list[AmbientStream] = Field(default_factory=list)
+    # YouTube ambiance scenes (hub/ambient_scenes.py). The hub saves the first clip_min minutes of a scene to
+    # loop on the TVs; save: false opens every scene in the YouTube app instead.
+    save: bool = True
+    clip_min: int = Field(default=30, ge=5, le=180)
+    clip_height: int = Field(default=1080, ge=360, le=2160)
+    cap_gb: float = Field(default=30, ge=1)
+    suggest_every_h: int = Field(default=72, ge=6)
+    idle_after_min: int = Field(default=10, ge=1, le=240)
 
 
 class Config(BaseModel):

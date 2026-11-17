@@ -73,6 +73,9 @@ def pick_id(moment: datetime, pin: str | None) -> str:
 class Ambient:
     def __init__(self, hub: Any):
         self.hub = hub
+        from .ambient_scenes import Scenes
+
+        self.scenes = Scenes(hub)
 
     def view(self, device: str | None = None, now: datetime | None = None) -> dict[str, Any]:
         moment = self._now(now)
@@ -80,10 +83,11 @@ class Ambient:
         holiday = holiday_of(moment)
         chosen = _BY_ID[pick_id(moment, self._pin(device))]
         ambience = self._ambience(chosen)
-        return {
+        out: dict[str, Any] = {
             "season": season,
             "holiday": holiday,
             "ambience": ambience,
+            "idle": self.scenes.idle(device),
             "widgets": {
                 "weather": self._weather(),
                 "calendar": self._calendar(),
@@ -91,6 +95,11 @@ class Ambient:
                 "art": self._art(moment),
             },
         }
+        # A saved YouTube scene loops on the idle screen; without one the TV keeps the picture and channel above.
+        video = self.scenes.idle_scene(device, moment)
+        if video:
+            out["video"] = video
+        return out
 
     def library(self, device: str | None = None, now: datetime | None = None) -> dict[str, Any]:
         moment = self._now(now)
