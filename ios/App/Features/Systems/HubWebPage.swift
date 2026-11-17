@@ -30,7 +30,7 @@ struct HubWebPageView: View {
             } header: {
                 Text("On a computer")
             } footer: {
-                Text("On a computer at home, open the hub's address followed by /admin, and type the code it shows. The page signs itself in within a couple of seconds.")
+                Text("On a computer at home, open the hub's address followed by /admin, and type the code it shows. The page signs itself in within a couple of seconds. The same box connects an AI app such as Claude: type the code its Thomas Creek sign-in page shows.")
             }
             Section {
                 Button { Task { await openHere() } } label: {
@@ -53,8 +53,8 @@ struct HubWebPageView: View {
     private func approve() async {
         busy = true; defer { busy = false }
         do {
-            let _: OK = try await HubClient.shared.post("/v1/admin/web-approve", ["code": cleaned], confirm: "Sign in the hub web page")
-            message = ("Approved. The browser signs itself in now.", true)
+            let _: OK = try await HubClient.shared.post("/v1/admin/web-approve", ["code": cleaned], confirm: "Approve this sign-in")
+            message = ("Approved. The page continues by itself now.", true)
             code = ""
         } catch HubClient.HubError.cancelled {
         } catch HubClient.HubError.unreachable {
