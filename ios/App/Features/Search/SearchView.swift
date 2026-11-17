@@ -354,7 +354,7 @@ struct SearchView: View {
         failed = false
         defer { if !Task.isCancelled { loading = false } }
         if q.count >= 2 {
-            titles = try? await HubClient.shared.get("/v1/titles/search", ["q": q])
+            titles = await hubQuiet("title search", { try await HubClient.shared.get("/v1/titles/search", ["q": q]) })
         } else { titles = nil }
         do {
             var r: SearchResults = try await HubClient.shared.get("/v1/search", ["q": q])

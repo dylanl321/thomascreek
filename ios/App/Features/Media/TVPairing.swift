@@ -65,7 +65,7 @@ final class TVPairingCenter {
             asks = []
             return
         }
-        guard let list: TVPairList = try? await HubClient.shared.get(TVPairPath.list) else { return }
+        guard let list: TVPairList = await hubQuiet("tv pairing list", { try await HubClient.shared.get(TVPairPath.list) }) else { return }
         var next = list.pending
         let known = Set(asks.map(\.pairId))
         if next.contains(where: { !known.contains($0.pairId) && arrived[$0.pairId] == nil }) {

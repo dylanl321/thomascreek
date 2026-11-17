@@ -284,7 +284,7 @@ struct DoorHistory: View {
             } else { LoadingCard() }
         }
         .task {
-            let l: ActivityList? = try? await HubClient.shared.get("/v1/activity", ["category": "doors", "limit": "8"])
+            let l: ActivityList? = await hubQuiet("activity", { try await HubClient.shared.get("/v1/activity", ["category": "doors", "limit": "8"]) })
             items = l?.items ?? []
         }
     }

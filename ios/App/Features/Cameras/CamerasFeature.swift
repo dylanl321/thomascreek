@@ -40,7 +40,7 @@ struct CamerasView: View {
         .navigationTitle("Cameras")
         .catsStayAway()
         .refreshable { await reload() }
-        .task { if let list: CameraList = try? await HubClient.shared.get("/v1/cameras") { cameras = list.cameras } }
+        .task { if let list: CameraList = await hubQuiet("camera list", { try await HubClient.shared.get("/v1/cameras") }) { cameras = list.cameras } }
         .task(id: "\(cameraFilter ?? "")|\(labelFilter ?? "")") { await loadEvents(reset: true) }
         .onChange(of: store.recentEvents?.first?.id) { _, _ in
             // A new detection arrived over the live stream; show it at the top when it matches the filters.
@@ -90,7 +90,7 @@ struct CamerasView: View {
     }
 
     private func reload() async {
-        if let list: CameraList = try? await HubClient.shared.get("/v1/cameras") { cameras = list.cameras }
+        if let list: CameraList = await hubQuiet("camera list", { try await HubClient.shared.get("/v1/cameras") }) { cameras = list.cameras }
         await loadEvents(reset: true)
     }
 
@@ -221,6 +221,7 @@ struct CameraView: View {
     @State private var camera: Camera?
     @State private var events: [CameraEvent]?
     @State private var error: String?
+    @State private var eventsFailure: String?
     @State private var playerURL: URL?
     @State private var reload = 0
     @State private var fullScreen = false
@@ -237,6 +238,9 @@ struct CameraView: View {
                     Label(error, systemImage: "exclamationmark.triangle.fill").font(.footnote).foregroundStyle(Theme.warn)
                 }
                 SectionHeader("Recent events")
+                if let eventsFailure {
+                    LoadFailureNote(message: eventsFailure) { await loadCameraEvents() }
+                }
                 if let events {
                     if events.isEmpty {
                         EmptyCard(symbol: "video.badge.checkmark", title: "Nothing spotted lately")
@@ -303,15 +307,20 @@ struct CameraView: View {
     }
 
     private func start(_ cam: Camera?) async {
-        if camera == nil, let list: CameraList = try? await HubClient.shared.get("/v1/cameras") {
+        if camera == nil, let list: CameraList = await hubQuiet("camera list", { try await HubClient.shared.get("/v1/cameras") }) {
             camera = list.cameras.first { $0.id == cameraID }
         }
         do {
             let p: CameraPass = try await HubClient.shared.post("/v1/cameras/\(cameraID)/pass", [:], confirm: "Watch \(cam?.name ?? "the camera")")
             playerURL = await HubClient.shared.resolve(p.playerUrl)
         } catch { self.error = "Live view isn't available right now. \(error.localizedDescription)" }
-        let e: CameraEvents? = try? await HubClient.shared.get("/v1/cameras/events", ["camera": cameraID, "limit": "30"])
-        events = e?.items ?? []
+        await loadCameraEvents()
+    }
+
+    private func loadCameraEvents() async {
+        let got = await hubLoad { try await HubClient.shared.get("/v1/cameras/events", ["camera": cameraID, "limit": "30"], as: CameraEvents.self) }
+        if let e = got.value { events = e.items }
+        eventsFailure = got.failure
     }
 }
 
@@ -376,7 +385,7 @@ struct CameraEventView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task {
             if let e = store.recentEvents?.first(where: { $0.id == eventID }) { event = e; return }
-            if let e: CameraEvent = try? await HubClient.shared.get("/v1/cameras/events/\(eventID)") { event = e } else { failed = true }
+            if let e: CameraEvent = await hubQuiet("camera event", { try await HubClient.shared.get("/v1/cameras/events/\(eventID)") }) { event = e } else { failed = true }
         }
     }
 

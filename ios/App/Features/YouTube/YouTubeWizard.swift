@@ -215,7 +215,9 @@ struct YouTubeWizard: View {
     }
 
     private func loadStart() async {
-        start = try? await HubClient.shared.call("GET", "/v1/youtube/start")
+        let got = await hubLoad { try await HubClient.shared.call("GET", "/v1/youtube/start", as: YTStart.self) }
+        start = got.value
+        if let line = got.failure, problem == nil { problem = line }
     }
 }
 
@@ -696,7 +698,7 @@ struct YTAddView: View {
 
     private func loadKids() async {
         guard grownUp, kids.isEmpty else { return }
-        if let o: SendsOverview = try? await HubClient.shared.get("/v1/sends") {
+        if let o: SendsOverview = await hubQuiet("kids for youtube", { try await HubClient.shared.get("/v1/sends") }) {
             kids = o.people.map(\.person).filter { $0.role == "child" }
             if who.isEmpty { who = Set(kids.map(\.id)) }
         }

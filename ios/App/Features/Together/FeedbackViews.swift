@@ -126,9 +126,13 @@ struct TellDylanModifier: ViewModifier {
 struct FeedbackListView: View {
     @State private var items: [FeedbackItem]?
     @State private var full: FeedbackItem?
+    @State private var failure: String?
 
     var body: some View {
         List {
+            if let failure {
+                LoadFailureNote(message: failure) { await load() }.listRowBackground(Color.clear)
+            }
             if let items, items.isEmpty {
                 Text("Nothing yet. Anyone can shake their phone, or use Profile → Tell Dylan.").foregroundStyle(Theme.dim)
             }
@@ -153,7 +157,13 @@ struct FeedbackListView: View {
                 .buttonStyle(.plain)
                 .swipeActions {
                     if f.done != true {
-                        Button("Done") { Task { try? await HubClient.shared.send("/v1/feedback/\(f.id)/done"); await load() } }.tint(Theme.accent)
+                        Button("Done") {
+                            Task {
+                                do { try await HubClient.shared.send("/v1/feedback/\(f.id)/done") }
+                                catch { HomeStore.shared.failed("Couldn't mark that done", error) }
+                                await load()
+                            }
+                        }.tint(Theme.accent)
                     }
                 }
             }
@@ -177,6 +187,8 @@ struct FeedbackListView: View {
     }
 
     private func load() async {
-        items = (try? await HubClient.shared.get("/v1/feedback", as: FeedbackList.self))?.items ?? items ?? []
+        let got = await hubLoad { try await HubClient.shared.get("/v1/feedback", as: FeedbackList.self) }
+        if let list = got.value { items = list.items }
+        failure = got.failure
     }
 }

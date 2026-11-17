@@ -58,7 +58,7 @@ struct ChannelHealthList: View {
     }
 
     private func load() async {
-        guard let page: ChannelHealthPage = try? await HubClient.shared.get("/v1/tv/health") else {
+        guard let page: ChannelHealthPage = await hubQuiet("tv/health", { try await HubClient.shared.get("/v1/tv/health") }) else {
             quiet = true
             rows = []
             return

@@ -464,7 +464,7 @@ struct AddToIPadView: View {
 
     private func loadPeople() async {
         if !kids.isEmpty { people = kids.map(\.person) }
-        else if let o: SendsOverview = try? await HubClient.shared.get("/v1/sends") { people = o.people.map(\.person) }
+        else if let o: SendsOverview = await hubQuiet("sends", { try await HubClient.shared.get("/v1/sends") }) { people = o.people.map(\.person) }
         if who.isEmpty { who = Set(people.filter { $0.role == "child" }.map(\.id)) }
     }
 
@@ -479,7 +479,7 @@ struct AddToIPadView: View {
         case .request: return
         }
         guard !q.isEmpty else { return }
-        choices = try? await HubClient.shared.call("GET", "/v1/sends/choices", query: q)
+        choices = await hubQuiet("sends/choices", { try await HubClient.shared.call("GET", "/v1/sends/choices", query: q) })
     }
 
     private func send() async {
@@ -577,13 +577,13 @@ struct SendPickerView: View {
         .searchable(text: $query, prompt: kind == .show ? "Shows" : kind == .movie ? "Movies" : "Search")
         .task {
             if kind == .youtube { if yt.data == nil { await yt.load() }; return }
-            library = (try? await HubClient.shared.get("/v1/media/library", ["kind": kind == .show ? "show" : "movie"], as: MediaList.self))?.items ?? []
+            library = (await hubQuiet("media/library", { try await HubClient.shared.get("/v1/media/library", ["kind": kind == .show ? "show" : "movie"], as: MediaList.self) }))?.items ?? []
         }
         .task(id: query) {
             guard kind != .youtube, !query.isEmpty else { return }
             try? await Task.sleep(for: .milliseconds(350))
             guard !Task.isCancelled else { return }
-            if let l: WatchSearch = try? await HubClient.shared.get("/v1/media/search", ["q": query]) {
+            if let l: WatchSearch = await hubQuiet("media/search", { try await HubClient.shared.get("/v1/media/search", ["q": query]) }) {
                 results = l.items; requestable = l.requestable ?? []
             }
         }

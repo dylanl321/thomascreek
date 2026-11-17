@@ -27,9 +27,11 @@ final class DoorbellLive {
                 Task {
                     for await data in activity.pushTokenUpdates {
                         let tok = data.map { String(format: "%02x", $0) }.joined()
-                        try? await HubClient.shared.send("/v1/devices/live-activity",
-                                                         ["doorbell_activity_token": tok, "activity_id": activity.id,
-                                                          "env": PushRegistration.apsEnvironment])
+                        await hubQuiet("doorbell activity token") {
+                            try await HubClient.shared.send("/v1/devices/live-activity",
+                                                            ["doorbell_activity_token": tok, "activity_id": activity.id,
+                                                             "env": PushRegistration.apsEnvironment])
+                        }
                     }
                 }
             }
@@ -52,7 +54,9 @@ final class DoorbellLive {
 
     private func send(_ token: String) async {
         guard AppSettings.deviceID != nil, HomeStore.shared.role.isGrownUp else { return }
-        try? await HubClient.shared.send("/v1/devices/live-activity",
-                                         ["push_to_start_token": token, "env": PushRegistration.apsEnvironment])
+        await hubQuiet("doorbell start token") {
+            try await HubClient.shared.send("/v1/devices/live-activity",
+                                            ["push_to_start_token": token, "env": PushRegistration.apsEnvironment])
+        }
     }
 }

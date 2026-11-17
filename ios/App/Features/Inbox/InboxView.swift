@@ -223,7 +223,7 @@ struct InboxRow: View {
             if let ref = item.ref, let url = URL(string: ref) { close(); router.open(url) }
         }
         .swipeActions {
-            Button("Done") { Task { try? await HubClient.shared.send("/v1/inbox/\(item.id)/ack"); await store.loadInbox() } }.tint(Theme.accent)
+            Button("Done") { Task { await hubAct("Couldn't mark it done", { try await HubClient.shared.send("/v1/inbox/\(item.id)/ack") }); await store.loadInbox() } }.tint(Theme.accent)
         }
     }
 

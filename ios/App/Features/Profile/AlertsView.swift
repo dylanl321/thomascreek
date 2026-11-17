@@ -142,7 +142,7 @@ final class AlertsModel {
 
     func entities(_ q: String) async -> [HAEntity] {
         struct R: Codable { var entities: [HAEntity] }
-        guard let data = try? await HubClient.shared.raw("GET", "/v1/alerts/entities", query: ["q": q]) else { return [] }
+        guard let data = await hubQuiet("alert entity search", { try await HubClient.shared.raw("GET", "/v1/alerts/entities", query: ["q": q]) }) else { return [] }
         return (try? Self.plain.decode(R.self, from: data))?.entities ?? []
     }
 
@@ -457,12 +457,13 @@ struct CameraAlertsView: View {
     private struct IgnoredReply: Decodable { var items: [IgnoredSpot] }
 
     private func loadIgnored() async {
-        guard let d = try? await HubClient.shared.raw("GET", "/v1/cameras/ignored") else { return }
+        guard let d = await hubQuiet("ignored spots", { try await HubClient.shared.raw("GET", "/v1/cameras/ignored") }) else { return }
         ignored = (try? JSONDecoder().decode(IgnoredReply.self, from: d))?.items ?? []
     }
 
     private func unignore(_ i: IgnoredSpot) async {
-        _ = try? await HubClient.shared.raw("DELETE", "/v1/cameras/ignored/\(i.id)")
+        do { _ = try await HubClient.shared.raw("DELETE", "/v1/cameras/ignored/\(i.id)") }
+        catch { HomeStore.shared.failed("Couldn't turn that spot back on", error) }
         await loadIgnored()
     }
 

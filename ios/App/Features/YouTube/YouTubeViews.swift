@@ -76,6 +76,8 @@ final class YouTubeStore {
     static let shared = YouTubeStore()
     var data: YTOverview?
     var loading = false
+    /// Why the last load failed, shown on the manage screen and the shelf; nil once it loads.
+    var failure: String?
     private var poller: Task<Void, Never>?
 
     var ready: [YTVideo] { data?.videos.filter(\.ready) ?? [] }
@@ -85,14 +87,16 @@ final class YouTubeStore {
     func load() async {
         loading = true
         defer { loading = false }
-        if let d: YTOverview = try? await HubClient.shared.get("/v1/youtube") { data = d }
+        let got = await hubLoad { try await HubClient.shared.get("/v1/youtube", as: YTOverview.self) }
+        if let d = got.value { data = d }
+        failure = got.failure
         // While the hub is still fetching, look again every few seconds so progress moves.
         if waiting > 0, poller == nil {
             poller = Task { [weak self] in
                 while !Task.isCancelled {
                     try? await Task.sleep(for: .seconds(4))
                     guard let self else { return }
-                    if let d: YTOverview = try? await HubClient.shared.get("/v1/youtube") { self.data = d }
+                    if let d: YTOverview = await hubQuiet("youtube progress", { try await HubClient.shared.get("/v1/youtube") }) { self.data = d }
                     if self.waiting == 0 { break }
                 }
                 self?.poller = nil
@@ -102,7 +106,7 @@ final class YouTubeStore {
 
     func delete(_ path: String) async -> Bool {
         do { _ = try await HubClient.shared.raw("DELETE", path); await load(); return true }
-        catch { HomeStore.shared.show(error.localizedDescription, isError: true); return false }
+        catch { HomeStore.shared.failed("Couldn't remove that", error); return false }
     }
 }
 
@@ -368,7 +372,11 @@ struct YouTubeSourceView: View {
                     }
                     .tint(tint).card(padding: 14)
                     .onChange(of: follow) { _, f in
-                        Task { _ = try? await HubClient.shared.send("/v1/youtube/sources/\(source.id)", ["follow": f]); await yt.load() }
+                        Task {
+                            do { try await HubClient.shared.send("/v1/youtube/sources/\(source.id)", ["follow": f]) }
+                            catch { HomeStore.shared.failed(f ? "Couldn't follow that" : "Couldn't stop following", error) }
+                            await yt.load()
+                        }
                     }
                 }
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 160), spacing: 12)], spacing: 14) {
@@ -524,6 +532,9 @@ struct YouTubeManageView: View {
 
     var body: some View {
         List {
+            if let failure = yt.failure {
+                LoadFailureNote(message: failure) { await yt.load() }.listRowBackground(Color.clear)
+            }
             if let s = yt.data?.storage {
                 Section {
                     VStack(alignment: .leading, spacing: 6) {
@@ -567,7 +578,13 @@ struct YouTubeManageView: View {
                             Text(v.error ?? "").font(.caption).foregroundStyle(Theme.warn)
                         }
                         .swipeActions {
-                            Button("Try again") { Task { try? await HubClient.shared.send("/v1/youtube/videos/\(v.videoId)/retry"); await yt.load() } }.tint(.blue)
+                            Button("Try again") {
+                                Task {
+                                    do { try await HubClient.shared.send("/v1/youtube/videos/\(v.videoId)/retry") }
+                                    catch { HomeStore.shared.failed("Couldn't try that again", error) }
+                                    await yt.load()
+                                }
+                            }.tint(.blue)
                             Button("Remove", role: .destructive) { Task { _ = await yt.delete("/v1/youtube/videos/\(v.videoId)") } }
                         }
                     }
@@ -587,7 +604,15 @@ struct YouTubeManageView: View {
         .sheet(item: $sendTo) { AddToIPadView(target: $0) }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button { Task { refreshing = true; _ = try? await HubClient.shared.send("/v1/youtube/refresh"); await yt.load(); refreshing = false } } label: {
+                Button {
+                    Task {
+                        refreshing = true
+                        do { try await HubClient.shared.send("/v1/youtube/refresh") }
+                        catch { store.failed("Couldn't look for new videos", error) }
+                        await yt.load()
+                        refreshing = false
+                    }
+                } label: {
                     if refreshing { ProgressView() } else { Image(systemName: "arrow.clockwise") }
                 }
                 .accessibilityLabel("Look for new videos")

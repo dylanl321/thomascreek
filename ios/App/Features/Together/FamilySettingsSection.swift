@@ -45,13 +45,13 @@ struct FamilySettingsSection: View {
                  ? "When the family shakes their phones to tell you something, it shows up in your inbox and under Systems."
                  : "You can also shake your phone anywhere to tell Dylan something, with a picture of the screen.")
         }
-        .task { if grownUp { welcome = try? await HubClient.shared.get("/v1/me/welcome") } }
+        .task { if grownUp { welcome = await hubQuiet("welcome setting", { try await HubClient.shared.get("/v1/me/welcome") }) } }
     }
 
     private func setWelcome(_ mode: String?) async {
         do {
             let _: Empty = try await HubClient.shared.call("PUT", "/v1/me/welcome", body: ["mode": mode.map { $0 as Any } ?? NSNull()])
-            welcome = try? await HubClient.shared.get("/v1/me/welcome")
-        } catch { store.show(error.localizedDescription, isError: true) }
+            welcome = try await HubClient.shared.get("/v1/me/welcome")
+        } catch { store.failed("Couldn't change the welcome", error) }
     }
 }

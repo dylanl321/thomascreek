@@ -143,7 +143,7 @@ final class PresenceMonitor: NSObject, CLLocationManagerDelegate {
     private func setUpRegion() {
         Task {
             struct Loc: Decodable { var location: Coord?; struct Coord: Decodable { var lat: Double; var lon: Double } }
-            if let l: Loc = try? await HubClient.shared.get("/v1/me/welcome"), let c = l.location {
+            if let l: Loc = await hubQuiet("home location", { try await HubClient.shared.get("/v1/me/welcome") }), let c = l.location {
                 monitor(CLLocationCoordinate2D(latitude: c.lat, longitude: c.lon))
             } else if HomeStore.shared.me?.atHome == true {
                 manager.requestLocation()
@@ -183,7 +183,7 @@ final class PresenceMonitor: NSObject, CLLocationManagerDelegate {
         // The app may only have a few seconds in the background.
         let task = UIApplication.shared.beginBackgroundTask(withName: "presence")
         defer { UIApplication.shared.endBackgroundTask(task) }
-        if let r: PresenceReply = try? await HubClient.shared.post("/v1/presence", ["event": event]),
+        if let r: PresenceReply = await hubQuiet("presence", { try await HubClient.shared.post("/v1/presence", ["event": event]) }),
            let w = r.welcome, let msg = w.message {
             HomeStore.shared.show("Welcome home", msg)
         }

@@ -58,8 +58,13 @@ struct GuestHomeView: View {
             Button("Send") {
                 let t = message; message = ""
                 Task {
-                    try? await HubClient.shared.send("/v1/requests", ["kind": "message", "text": t])
-                    store.show("Message sent", "You'll get the reply here")
+                    do {
+                        try await HubClient.shared.send("/v1/requests", ["kind": "message", "text": t])
+                        store.show("Message sent", "You'll get the reply here")
+                    } catch {
+                        message = t  // keep what they wrote
+                        store.failed("Message not sent", error)
+                    }
                 }
             }
             Button("Cancel", role: .cancel) {}

@@ -109,7 +109,7 @@ enum SiriTV {
 
     /// `/v1/search` first. A channel, programme, or movie the house search doesn't know falls through to the TV library.
     static func find(_ query: String) async throws -> Choice? {
-        if let found = try? await HubClient.shared.get("/v1/search", ["q": query], as: SearchResults.self) {
+        if let found = await hubQuiet("search", { try await HubClient.shared.get("/v1/search", ["q": query], as: SearchResults.self) }) {
             if let top = found.top, let action = top.action, action.action == "tv.play" {
                 return Choice(title: top.title, params: action.body)
             }
@@ -120,7 +120,7 @@ enum SiriTV {
             }
         }
         guard query.trimmingCharacters(in: .whitespacesAndNewlines).count >= 2,
-              let library = try? await HubClient.shared.get("/v1/tv/library/search", ["q": query], as: TVLibrarySearch.self)
+              let library = await hubQuiet("tv/library/search", { try await HubClient.shared.get("/v1/tv/library/search", ["q": query], as: TVLibrarySearch.self) })
         else { return nil }
         let needle = words(query)
         if let channel = library.channels?.first(where: { words($0.name) == needle }) ?? library.channels?.first {

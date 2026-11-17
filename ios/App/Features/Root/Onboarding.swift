@@ -130,7 +130,7 @@ struct AskParentSheet: View {
             if !sent {
                 PrimaryButton(title: "Ask", symbol: "paperplane.fill", color: Theme.kid) {
                     Task {
-                        try? await HubClient.shared.send("/v1/requests", ["kind": ask.kind, "text": ask.what])
+                        await hubAct("Couldn't send that request", { try await HubClient.shared.send("/v1/requests", ["kind": ask.kind, "text": ask.what]) })
                         sent = true
                         try? await Task.sleep(for: .seconds(1.4))
                         dismiss()

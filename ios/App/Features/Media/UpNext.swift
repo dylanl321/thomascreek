@@ -113,7 +113,7 @@ struct UpNextStrip: View {
     }
 
     private func load() async {
-        guard let page: UpNextPage = try? await HubClient.shared.get("/v1/tv/upnext") else { return }
+        guard let page: UpNextPage = await hubQuiet("tv/upnext", { try await HubClient.shared.get("/v1/tv/upnext") }) else { return }
         rows = page.rows
     }
 }

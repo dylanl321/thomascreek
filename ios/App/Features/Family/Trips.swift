@@ -196,7 +196,7 @@ final class TripStore {
         guard let list else { return }
         for t in list.trips {
             if isKept(t.id) {
-                guard let full = try? await HubClient.shared.get("/v1/trips/\(t.id)", keep: true, as: Trip.self) else { continue }
+                guard let full = await hubQuiet("trips/…", { try await HubClient.shared.get("/v1/trips/\(t.id)", keep: true, as: Trip.self) }) else { continue }
                 for day in full.days ?? [] where TripMapPicture.load(trip: t.id, date: day.date) == nil {
                     await TripMapPicture.make(trip: t.id, day: day)
                 }
@@ -638,7 +638,7 @@ struct TripDayView: View {
         .background(Backdrop())
         .navigationTitle(day.map { "Day \($0.dayNumber)" } ?? "Day")
         .navigationBarTitleDisplayMode(.inline)
-        .task { trip = try? await TripStore.shared.detail(tripID) }
+        .task { trip = await hubQuiet("trip detail", { try await TripStore.shared.detail(tripID) }) }
     }
 }
 
@@ -749,7 +749,7 @@ struct NextTripCard: View {
     }
 
     private func loadToday(_ t: Trip) async {
-        guard let d = try? await TripStore.shared.detail(t.id) else { return }
+        guard let d = await hubQuiet("trip detail", { try await TripStore.shared.detail(t.id) }) else { return }
         today = d.days?.first { $0.date == d.today }
     }
 }
@@ -771,7 +771,7 @@ struct KidTripCard: View {
                     hero(t)
                     if let days = detail?.days, !days.isEmpty { dayList(t, days) }
                 }
-                .task(id: t.id) { detail = try? await TripStore.shared.detail(t.id) }
+                .task(id: t.id) { detail = await hubQuiet("trip detail", { try await TripStore.shared.detail(t.id) }) }
             }
         }
         // The list itself is loaded by KidHomeView (an empty Group never runs a task).

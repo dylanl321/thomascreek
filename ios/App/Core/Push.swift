@@ -210,7 +210,7 @@ final class PushRegistration {
         Task {
             var body: [String: Any] = ["apns_token": token, "env": Self.apsEnvironment]
             if !AppSettings.prefs.isEmpty { body["prefs"] = AppSettings.prefs }
-            if let r: Reply = try? await HubClient.shared.post("/v1/devices/push", body) {
+            if let r: Reply = await hubQuiet("push registration", { try await HubClient.shared.post("/v1/devices/push", body) }) {
                 if let p = r.prefs { AppSettings.prefs = p }
                 if let c = r.categories { categories = c }
             }
@@ -219,7 +219,10 @@ final class PushRegistration {
 
     func setPref(_ cat: String, _ on: Bool) {
         var p = AppSettings.prefs; p[cat] = on; AppSettings.prefs = p
-        Task { try? await HubClient.shared.send("/v1/devices/prefs", ["prefs": [cat: on]]) }
+        Task {
+            do { try await HubClient.shared.send("/v1/devices/prefs", ["prefs": [cat: on]]) }
+            catch { HomeStore.shared.failed("Couldn't save that alert choice", error) }
+        }
     }
 
     /// "development" builds (run from Xcode) use Apple's sandbox push server; TestFlight uses production.

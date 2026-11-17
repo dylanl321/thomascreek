@@ -101,8 +101,8 @@ struct TVForYouRows: View {
     private func load() async {
         failed = false
         let query = profile.map { ["profile": $0] } ?? [:]
-        async let rows: TVFeed? = try? await HubClient.shared.get("/v1/tv/explore", query, as: TVFeed.self)
-        async let shelf: TVFeed? = try? await HubClient.shared.get("/v1/tv/upnext", query, as: TVFeed.self)
+        async let rows: TVFeed? = await hubQuiet("tv/explore", { try await HubClient.shared.get("/v1/tv/explore", query, as: TVFeed.self) })
+        async let shelf: TVFeed? = await hubQuiet("tv/upnext", { try await HubClient.shared.get("/v1/tv/upnext", query, as: TVFeed.self) })
         let (r, s) = await (rows, shelf)
         next = s
         if let r { feed = r } else if feed == nil { failed = true }
@@ -519,7 +519,7 @@ struct TVHomeView: View {
 
     private func loadChannels() async {
         guard channels == nil else { return }
-        let page = try? await HubClient.shared.get("/v1/tv/guide", as: TVGuidePage.self)
+        let page = await hubQuiet("tv/guide", { try await HubClient.shared.get("/v1/tv/guide", as: TVGuidePage.self) })
         channels = (page?.channels ?? []).filter { $0.now != nil }
     }
 

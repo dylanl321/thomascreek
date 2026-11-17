@@ -58,7 +58,7 @@ struct FamilyView: View {
         .background(Backdrop())
         .navigationTitle("Family")
         .topBar()
-        .task { chores = (try? await HubClient.shared.get("/v1/chores/all", as: Boards.self))?.boards }
+        .task { chores = (await hubQuiet("chores/all", { try await HubClient.shared.get("/v1/chores/all", as: Boards.self) }))?.boards }
         .task { if store.me?.can(.tripsView) == true { await TripStore.shared.load() } }
     }
 
@@ -109,7 +109,7 @@ struct CalendarView: View {
         .scrollContentBackground(.hidden).background(Backdrop())
         .navigationTitle("Calendar")
         .task {
-            let r: Reply? = try? await HubClient.shared.get("/v1/calendar", ["days": "7"])
+            let r: Reply? = await hubQuiet("calendar", { try await HubClient.shared.get("/v1/calendar", ["days": "7"]) })
             events = r?.events ?? []
         }
     }
@@ -118,6 +118,7 @@ struct CalendarView: View {
 struct ShoppingView: View {
     @Environment(HomeStore.self) private var store
     @Environment(Router.self) private var router
+    @State private var loadFailure: String?
     @State private var data: ShoppingLists?
     @State private var newItem = ""
     @State private var listID: String?
@@ -156,11 +157,16 @@ struct ShoppingView: View {
                 Button { router.go(.shopBuilder([])) } label: { Label("Build from meals", systemImage: "wand.and.stars") }
             }
         }
+        .loadFailure(loadFailure) { await load() }
         .task { await load() }
         .refreshable { await load() }
     }
 
-    private func load() async { data = try? await HubClient.shared.get("/v1/shopping") }
+    private func load() async {
+        let got = await hubLoad { try await HubClient.shared.get("/v1/shopping", as: ShoppingLists.self) }
+        if let v = got.value { data = v }
+        loadFailure = got.failure
+    }
 
     private func add() {
         let t = newItem.trimmingCharacters(in: .whitespaces)
@@ -183,7 +189,7 @@ struct ShoppingView: View {
     private func toggle(_ item: ShoppingLists.Item, in list: ShoppingLists.ShoppingList?) {
         guard let list else { return }
         Task {
-            _ = try? await HubClient.shared.call("PATCH", "/v1/shopping/\(list.id)/items/\(item.id)", body: ["done": !item.done], as: Empty.self)
+            _ = await hubAct("Couldn't update the list", { try await HubClient.shared.call("PATCH", "/v1/shopping/\(list.id)/items/\(item.id)", body: ["done": !item.done], as: Empty.self) })
             await load()
         }
     }
@@ -221,7 +227,7 @@ struct ChoresManageView: View {
         }
         .scrollContentBackground(.hidden).background(Backdrop())
         .navigationTitle("Chores")
-        .task { boards = (try? await HubClient.shared.get("/v1/chores/all", as: Reply.self))?.boards ?? [] }
+        .task { boards = (await hubQuiet("chores/all", { try await HubClient.shared.get("/v1/chores/all", as: Reply.self) }))?.boards ?? [] }
     }
 
     @Environment(Router.self) private var router
@@ -248,7 +254,7 @@ struct InventoryView: View {
         .task(id: query) {
             guard !query.isEmpty else { items = []; return }
             try? await Task.sleep(for: .milliseconds(300))
-            if let l: InventoryList = try? await HubClient.shared.get("/v1/inventory/search", ["q": query]) { items = l.items }
+            if let l: InventoryList = await hubQuiet("inventory/search", { try await HubClient.shared.get("/v1/inventory/search", ["q": query]) }) { items = l.items }
         }
     }
 }

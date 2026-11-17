@@ -38,12 +38,12 @@ final class LiveActivities: ObservableObject {
         Task {
             for await data in activity.pushTokenUpdates {
                 let tok = data.map { String(format: "%02x", $0) }.joined()
-                try? await HubClient.shared.send("/v1/devices/activity", ["activity_id": activity.id, "token": tok])
+                await hubQuiet("show activity token") { try await HubClient.shared.send("/v1/devices/activity", ["activity_id": activity.id, "token": tok]) }
             }
         }
         Task {
             for await state in activity.activityStateUpdates where state == .ended || state == .dismissed {
-                try? await HubClient.shared.send("/v1/devices/activity", ["activity_id": activity.id, "token": ""])
+                await hubQuiet("show activity end") { try await HubClient.shared.send("/v1/devices/activity", ["activity_id": activity.id, "token": ""]) }
                 self.active = !Activity<ShowAttributes>.activities.filter { $0.activityState == .active }.isEmpty
             }
         }
@@ -52,7 +52,7 @@ final class LiveActivities: ObservableObject {
     func sendStartToken() async {
         let tok = AppSettings.autoLiveActivity ? (AppSettings.defaults.string(forKey: "startToken") ?? "") : ""
         guard AppSettings.deviceID != nil else { return }
-        try? await HubClient.shared.send("/v1/devices/activity", ["start_token": tok])
+        await hubQuiet("show start token") { try await HubClient.shared.send("/v1/devices/activity", ["start_token": tok]) }
     }
 
     /// Re-send tokens when the app opens (the player may have been reinstalled or restarted without devices.json).
