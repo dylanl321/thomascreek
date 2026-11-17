@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import html
 import json
+import time
 from typing import Any
 from urllib.parse import quote
 
@@ -13,9 +14,10 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
 from ..state import Hub
-from .. import tvlauncher, tvs as tvsettings
+from .. import tvlauncher, tvstate, tvs as tvsettings
 from ..tvbuilds import builds
-from ..tvfleet import SHELL_TEMPLATES, FleetError, command, devices, history, kill_list, policy, rollout, set_kill_list, set_policy, shell, start_rollout
+from ..tvfleet import (SHELL_TEMPLATES, FleetError, command, history, kill_list, policy, rollout, set_kill_list, set_policy,
+                       shell, start_rollout)
 from .admin_web import _csrf, _form_session, _headers, _home_only, _login_page, _nav, _page, _session
 from .deps import hub
 
@@ -23,8 +25,8 @@ pages = APIRouter(tags=["admin-web"], include_in_schema=False)
 OWNER = "adb shell dpm set-device-owner me.dlewis.thomascreek.tv/.DeviceAdminReceiver"
 
 
-def _go(path: str, msg: str) -> RedirectResponse:
-    return RedirectResponse(f"{path}?m={quote(msg)}", status_code=303)
+def _go(path: str, msg: str, tab: str | None = None) -> RedirectResponse:
+    return RedirectResponse(f"{path}?m={quote(msg)}" + (f"&tab={quote(tab)}" if tab else ""), status_code=303)
 
 
 def _open(request: Request, h: Hub) -> dict[str, Any] | None | HTMLResponse:
@@ -118,8 +120,8 @@ async def devices_command(install_id: str, request: Request, h: Hub = Depends(hu
     try:
         command(h, install_id, action, params, claims.get("name"))
     except FleetError as exc:
-        return _go(f"/admin/devices/{install_id}", exc.message)
-    return _go(f"/admin/devices/{install_id}", "Asked the TV.")
+        return _go(f"/admin/devices/{install_id}", exc.message, "remote")
+    return _go(f"/admin/devices/{install_id}", "Asked the TV.", "remote")
 
 
 @pages.post("/admin/devices/{install_id}/launcher")
@@ -134,17 +136,48 @@ async def devices_launcher(install_id: str, request: Request, h: Hub = Depends(h
     if extra:
         apps.append(extra)
     try:
+        mode = str(form.get("mode") or "")
+        on = mode in ("all", "only") if mode else bool(form.get("on"))
+        guard = mode == "only" if mode else bool(form.get("guard"))
         saved = tvlauncher.set_launcher(h, install_id, {
-            "on": bool(form.get("on")),
+            "on": on,
             "person_id": str(form.get("person_id") or "") or None,
             "apps": apps,
-            "guard": bool(form.get("guard")),
+            "guard": guard,
         })
     except tvlauncher.LauncherError as exc:
-        return _go(f"/admin/devices/{install_id}", exc.message)
+        return _go(f"/admin/devices/{install_id}", exc.message, "home")
     if not saved["on"]:
-        return _go(f"/admin/devices/{install_id}", "The launcher is off. The TV's own home screen comes back.")
-    return _go(f"/admin/devices/{install_id}", "Saved. The TV switches in a few seconds.")
+        return _go(f"/admin/devices/{install_id}", "The launcher is off. The TV's own home screen comes back.", "home")
+    return _go(f"/admin/devices/{install_id}", "Saved. The TV switches in a few seconds.", "home")
+
+
+@pages.post("/admin/devices/{install_id}/launcher/drop-missing")
+async def devices_launcher_drop(install_id: str, request: Request, h: Hub = Depends(hub)) -> Response:
+    """Take the picked apps that aren't installed on this TV off its home row."""
+    _claims, _form = await _form_session(request, h)
+    tv = h.tv_app.tvs().get(install_id) or {}
+    hs = tvstate.home_screen(tv)
+    if not hs["missing"]:
+        return _go(f"/admin/devices/{install_id}", "Every picked app is on this TV.", "home")
+    block = tvlauncher.view(tv)
+    keep = [p for p in block["apps"] if p not in hs["missing"]]
+    try:
+        tvlauncher.set_launcher(h, install_id, {**block, "apps": keep, "guard": block["guard"] and bool(keep)})
+    except tvlauncher.LauncherError as exc:
+        return _go(f"/admin/devices/{install_id}", exc.message, "home")
+    gone = len(hs["missing"])
+    extra = "" if keep or not block["guard"] else " With nothing left to allow, \"only the picked apps\" is off."
+    done = f"Took {gone} app{'s' if gone != 1 else ''} off the list.{extra}"
+    return _go(f"/admin/devices/{install_id}", done, "home")
+
+
+@pages.post("/admin/devices/{install_id}/launcher/store")
+async def devices_launcher_store(install_id: str, request: Request, h: Hub = Depends(hub)) -> Response:
+    """Open one app's Play Store page on the TV, so someone there can press Install."""
+    _claims, form = await _form_session(request, h)
+    result = await tvlauncher.open_store(h, install_id, str(form.get("package") or ""))
+    return _go(f"/admin/devices/{install_id}", result, "home")
 
 
 @pages.post("/admin/devices/{install_id}/settings")
@@ -156,7 +189,7 @@ async def devices_settings(install_id: str, request: Request, h: Hub = Depends(h
     try:
         if source:
             tvsettings.copy(h, install_id, source, by="admin")
-            return _go(path, "Copied. The TV takes the settings in a few seconds.")
+            return _go(path, "Copied. The TV takes the settings in a few seconds.", "settings")
         tv = h.tv_app.tvs().get(install_id) or {}
         current = tvsettings.settings_of(tv)
         changes: dict[str, Any] = {}
@@ -190,8 +223,8 @@ async def devices_settings(install_id: str, request: Request, h: Hub = Depends(h
         if changes:
             tvsettings.change(h, install_id, {"settings": changes}, by="admin")
     except tvsettings.TvsError as exc:
-        return _go(path, exc.message)
-    return _go(path, "Saved. The TV takes it in a few seconds." if changes else "Nothing changed.")
+        return _go(path, exc.message, "settings")
+    return _go(path, "Saved. The TV takes it in a few seconds." if changes else "Nothing changed.", "settings")
 
 
 def _settings_card(h: Hub, csrf: str, install_id: str) -> str:
@@ -261,81 +294,194 @@ async def device_page(install_id: str, request: Request, h: Hub = Depends(hub)) 
     claims = _open(request, h)
     if not isinstance(claims, dict):
         return claims
-    return HTMLResponse(_device_html(h, claims, install_id, request.query_params.get("m")), headers=_headers())
+    q = request.query_params
+    return HTMLResponse(_device_html(h, claims, install_id, q.get("m"), q.get("tab")), headers=_headers())
+
+
+SIG_LABEL = (("app", "App"), ("report", "Device report"), ("link", "Network debugging"))
+
+
+def _chip(level: str, text: str) -> str:
+    return f"<span class='chip {html.escape(level)}'>{html.escape(text)}</span>"
+
+
+def _sig(key: str, label: str, sig: dict[str, str]) -> str:
+    tip = html.escape(f"{label}: {sig['text']}")
+    return f"<span class='sig {html.escape(sig['state'])}' title='{tip}'><i></i>{html.escape(label)}</span>"
+
+
+def _ico(label: str) -> str:
+    return f"<span class=ico title='{html.escape(label)}'>{html.escape((label or '?')[:1].upper())}</span>"
 
 
 def _devices_html(h: Hub, claims: dict[str, Any], msg: str | None) -> str:
     csrf = _csrf(claims)
-    rows = devices(h)["devices"]
-    if rows:
-        body = "".join(
-            f"<div class=row><div><a href='/admin/devices/{html.escape(row['id'])}'>{html.escape(row['name'])}</a>"
-            f"<div class=dim>{'online' if row['online'] else 'offline'} · {html.escape(str(row['health']))} · "
-            f"{html.escape(str(row['capability']))} · {html.escape(str(row.get('app_version') or ''))}</div></div></div>"
-            for row in rows)
-    else:
-        body = "<p>No TVs have checked in yet.</p>"
+    rows = tvstate.rows(h)
+    body = []
+    for r in rows:
+        home = r["home"]
+        if r["apple"]:
+            home_cell = "<span class=dim>Apple TV home</span>"
+        elif home["mode"] == "tv_own":
+            home_cell = "<span class=dim>TV's own home</span>"
+        else:
+            tone = "bad" if home["state"] == "bad" else "warn"
+            cls = "" if home["state"] == "ok" else f" style='color:var(--{tone})'"
+            home_cell = (f"<div>{'Only picked apps' if home['mode'] == 'only' else 'Thomas Creek home'}</div>"
+                         f"<div class=s{cls}>{html.escape(home['line'])}</div>")
+        short = (("app", "App"), ("report", "Report"), ("link", "Debugging"))
+        sigs = "".join(_sig(k, label, r["signals"][k]) for k, label in short)
+        now = html.escape(r["playing"]) if r["playing"] else "<span class=dim>Nothing playing</span>"
+        version = html.escape(str(r["version"] or "?"))
+        if r["behind"]:
+            version += f" <span class='chip warn'>{r['behind']} behind</span>"
+        body.append(
+            f"<tr><td><a class=name href='/admin/devices/{html.escape(r['id'])}'>{html.escape(r['name'])}</a>"
+            f"<div class=s>{html.escape(str(r['model'] or r['platform']))}</div></td>"
+            f"<td>{_chip(r['state'], r['label'])}<div class=s>heard {html.escape(r['last_text'])}</div></td>"
+            f"<td class=wide>{sigs}</td><td class=wide>{now}</td><td class=wide>{home_cell}</td>"
+            f"<td class=wide><code>{version}</code></td></tr>")
+    head = ("<tr><th>TV</th><th>State</th><th class=wide>Signals</th><th class=wide>On screen</th>"
+            "<th class=wide>Home screen</th><th class=wide>Version</th></tr>")
+    table = (f"<div class='card scroll' style='padding:0'><table class=tvs><thead>{head}</thead>"
+             f"<tbody>{''.join(body)}</tbody></table></div>") if rows else "<div class='card pad'>No TVs have joined yet.</div>"
     stored = builds(h.tv_app)
     options = "".join(f"<option value={row['version_code']}>{html.escape(str(row['version_name']))}</option>" for row in stored)
     checks = "".join(
-        f"<label><input type=checkbox name=stage value={html.escape(row['id'])}> {html.escape(row['name'])}</label>"
-        for row in rows)
+        f"<label><input type=checkbox name=stage value={html.escape(r['id'])}> {html.escape(r['name'])}</label>"
+        for r in rows if not r["apple"])
     current = rollout(h)["rollout"]
     roll = ""
     if current:
         roll = f"<p class=dim>Rollout {html.escape(str(current['version_code']))} is {html.escape(str(current['state']))}.</p>"
     blocked = "\n".join(kill_list(h)["packages"])
     chosen = policy(h)
-    return _page("Devices", f"""
-{_nav("/admin/devices")}
-<h1>Devices</h1>
+    return _page("TVs · Thomas Creek Hub", f"""
+{_nav("/admin/devices", h)}
+<div class=head><div><h1>TVs</h1></div><a class='btn light' href=/admin/devices/provision>Set up a new box</a></div>
+<p class=lede>Each TV reaches the hub three ways: the <b>app</b> checking in, the app's <b>device report</b>
+(Android, every 15 minutes even when closed), and the hub's own <b>network debugging</b> link that sets the home
+screen and installs builds. A TV only counts as off when the app and its report are both quiet. Open a TV to see
+why it's in its state.</p>
 {f'<p class=flash>{html.escape(msg)}</p>' if msg else ''}
-<div class=card>{body}</div>
-<h2>Rollout</h2>
+{table}
+<h2 id=rollout>Roll out a TV build</h2>
 <div class=card><form method=post action=/admin/devices/rollout class=edit>
 <input type=hidden name=csrf value={csrf}>
 <select name=version_code>{options}</select>
-{checks}
+<div class=dim>First TVs:</div>{checks}
 <label><input type=checkbox name=then value=all checked> Then the rest</label>
 <label><input type=checkbox name=now value=1> Install now</label>
-<button>Start rollout</button></form>{roll}</div>
-<h2>Block list</h2>
+<div><button>Start rollout</button></div></form>{roll}</div>
+<details style="margin-top:18px"><summary>Rules for every Android TV: blocked apps and lock-down</summary>
+<h3>Block list</h3>
 <div class=card><form method=post action=/admin/devices/kill-list class=edit>
 <input type=hidden name=csrf value={csrf}>
+<div class=dim>Apps removed from every TV on sight (one package name a line).</div>
 <textarea name=packages rows=6>{html.escape(blocked)}</textarea>
-<button>Save block list</button></form></div>
-<h2>Policy</h2>
+<div><button>Save block list</button></div></form></div>
+<h3>Policy</h3>
 <div class=card><form method=post action=/admin/devices/policy class=edit>
 <input type=hidden name=csrf value={csrf}>
 <textarea name=blocked rows=3 placeholder="Blocked apps">{html.escape(chr(10).join(chosen['blocked']))}</textarea>
 <label><input type=checkbox name=restrict_settings {'checked' if chosen['restrict_settings'] else ''}> Restrict settings</label>
 <label><input type=checkbox name=hide_status_bar {'checked' if chosen['hide_status_bar'] else ''}> Hide the status bar</label>
 <label><input type=checkbox name=disable_keyguard {'checked' if chosen['disable_keyguard'] else ''}> Keyguard off</label>
-<button>Save policy</button></form></div>
-<p><a href=/admin/devices/provision>Set up a new box</a></p>
+<div><button>Save policy</button></div></form></div></details>
 """)
 
 
-def _device_html(h: Hub, claims: dict[str, Any], install_id: str, msg: str | None) -> str:
+TABS = (("status", "Status"), ("home", "Home screen"), ("settings", "Settings"), ("remote", "Remote and commands"))
+
+
+def _device_html(h: Hub, claims: dict[str, Any], install_id: str, msg: str | None, tab: str | None = None) -> str:
     csrf = _csrf(claims)
-    match = next((row for row in devices(h)["devices"] if row["id"] == install_id), None)
-    if match is None:
-        return _page("Devices", f"{_nav('/admin/devices')}<h1>Devices</h1><p>That TV isn't in the house.</p>")
+    r = tvstate.one(h, install_id)
+    if r is None:
+        return _page("TVs", f"{_nav('/admin/devices', h)}<h1>TVs</h1><p>That TV isn't in the house.</p>"
+                            "<p><a href=/admin/devices>All TVs</a></p>")
+    tabs = [t for t in TABS if not (r["apple"] and t[0] == "home")]
+    tab = tab if tab in {t[0] for t in tabs} else "status"
+    base = f"/admin/devices/{html.escape(install_id)}"
+    nav = "".join(f"<a href='{base}?tab={k}'{' class=on' if k == tab else ''}>{label}</a>" for k, label in tabs)
+    if tab == "home":
+        body = _launcher_card(h, csrf, install_id)
+    elif tab == "settings":
+        body = _settings_card(h, csrf, install_id)
+    elif tab == "remote":
+        body = _remote_html(h, csrf, install_id, r)
+    else:
+        body = _status_html(h, install_id, r)
+    sub = " · ".join(html.escape(str(x)) for x in (r["model"], r["platform"], r["version"]) if x)
+    return _page(f"{r['name']} · TVs", f"""
+{_nav("/admin/devices", h)}
+<div class=dim><a href=/admin/devices>TVs</a> › {html.escape(r['name'])}</div>
+<div class=head style="margin-top:6px"><div><h1>{html.escape(r['name'])}</h1><div class=dim>{sub}</div></div>
+<div>{_chip(r['state'], r['label'])}</div></div>
+{f'<p class=flash>{html.escape(msg)}</p>' if msg else ''}
+<nav class=tabs>{nav}</nav>
+{body}
+""")
+
+
+def _status_html(h: Hub, install_id: str, r: dict[str, Any]) -> str:
+    why = ""
+    if r["why"]:
+        level = "bad" if r["state"] == "bad" else "warn" if r["state"] == "warn" else ""
+        link = (f" <a href='/admin/devices/{html.escape(install_id)}?tab=home'>Open the home screen</a>"
+                if r["label"] == "Home screen differs" else "")
+        why = f"<div class='callout {level}'><b>{html.escape(r['label'])}.</b> {html.escape(r['why'])}{link}</div>"
+    explain = {
+        "app": "The Thomas Creek TV app checks in every 30 seconds while it's open.",
+        "report": "Sent by the app every 15 minutes, even when it's closed: health, and the apps the TV can open.",
+        "link": "The hub's own link to the box. It sets the home screen and installs builds without anyone at the TV.",
+    }
+    rows = "".join(
+        f"<div class=item><span class='sig {html.escape(r['signals'][k]['state'])}'><i></i></span>"
+        f"<div class=grow><div class=t>{label}</div><div class=s>{explain[k]}</div></div>"
+        f"<div class=s style='max-width:45%;text-align:right'>{html.escape(r['signals'][k]['text'])}</div></div>"
+        for k, label in SIG_LABEL)
     charts = []
     for metric, label in (("cpu", "CPU"), ("ram", "Memory"), ("storage", "Storage"), ("temperature", "Temperature"), ("ping", "Ping")):
-        points = history(h, install_id, metric, 24)["points"]
+        try:
+            points = history(h, install_id, metric, 24)["points"]
+        except FleetError:
+            points = []
         if not points:
             continue
         peak = max(abs(float(point["v"])) for point in points) or 1
         bars = "".join(f"<i style='height:{max(4, int(abs(float(point['v'])) / peak * 56))}px'></i>" for point in points[-24:])
-        charts.append(f"<h3>{label}</h3><div class=bars>{bars}</div>")
+        unit = {"cpu": "%", "ram": "%", "storage": "%", "temperature": " °C", "ping": " ms"}[metric]
+        charts.append(f"<div class='card pad'><div class=dim>{label}</div><b>{html.escape(str(points[-1]['v']))}{unit}</b>"
+                      f"<div class=bars>{bars}</div></div>")
+    who = "Whoever picks"
+    home = r["home"]
+    if home and home.get("person_id"):
+        person = next((p for p in tvlauncher._people(h) if str(p.get("id")) == home["person_id"]), None)
+        if person:
+            who = str(person.get("name"))
+    on_screen = html.escape(r["playing"]) if r["playing"] else "<span class=dim>Nothing playing</span>"
+    late = f" · {r['behind']} behind" if r["behind"] else ""
+    return f"""{why}
+<h2>Why it's in this state</h2><div class='card list'>{rows}</div>
+<h2>On screen</h2><div class='card pad'>{on_screen}
+<div class=dim>Last heard {html.escape(r['last_text'])}</div></div>
+{f"<h2>Last 24 hours</h2><div class=metrics>{''.join(charts)}</div>" if charts else ''}
+<h2>About</h2><div class='card pad'><dl class=kv><dt>Signs in as</dt><dd>{html.escape(who)}</dd>
+<dt>Profile</dt><dd>{'Kids' if r['profile'] == 'kids' else 'Grown-ups'}</dd>
+<dt>Room</dt><dd>{html.escape(str(r['room'] or '—'))}</dd>
+<dt>App version</dt><dd><code>{html.escape(str(r['version'] or '?'))}</code>{late}</dd>
+<dt>Control</dt><dd>{html.escape(r['capability'])}</dd></dl></div>"""
+
+
+def _remote_html(h: Hub, csrf: str, install_id: str, r: dict[str, Any]) -> str:
     buttons = [
-        ("reboot", "Reboot", {}),
         ("restart_app", "Restart the app", {}),
-        ("screenshot", "Screenshot", {}),
+        ("screenshot", "Take a screenshot", {}),
+        ("tv_power", "Turn the TV off", {"on": "false"}),
+        ("reboot", "Reboot", {}),
         ("set_kiosk", "Lock to the launcher", {"on": "true"}),
         ("set_kiosk", "Leave the launcher", {"on": "false"}),
-        ("tv_power", "Power", {"on": "false"}),
     ]
     forms = []
     for action, label, extra in buttons:
@@ -343,71 +489,121 @@ def _device_html(h: Hub, claims: dict[str, Any], install_id: str, msg: str | Non
         forms.append(
             f"<form method=post action='/admin/devices/{html.escape(install_id)}/command' class=inline>"
             f"<input type=hidden name=csrf value={csrf}><input type=hidden name=action value={action}>{hidden}"
-            f"<button class=ghost>{label}</button></form>")
-    forms.append(
-        f"<form method=post action='/admin/devices/{html.escape(install_id)}/command' class=fform>"
-        f"<input type=hidden name=csrf value={csrf}><input type=hidden name=action value=show_message>"
-        f"<input name=text placeholder='A short note'><input type=hidden name=style value=toast><button class=ghost>Show a note</button></form>")
+            f"<button class=light>{label}</button></form>")
+    note = (f"<form method=post action='/admin/devices/{html.escape(install_id)}/command' class=fform>"
+            f"<input type=hidden name=csrf value={csrf}><input type=hidden name=action value=show_message>"
+            f"<input name=text placeholder='Dinner in 5 minutes'><input type=hidden name=style value=toast>"
+            f"<button class=light>Show it on the TV</button></form>")
     shell_html = ""
-    if match.get("capability") == "root":
+    if r.get("capability") == "root":
         shells = "".join(
             f"<form method=post action='/admin/devices/{html.escape(install_id)}/shell' class=inline>"
             f"<input type=hidden name=csrf value={csrf}><input type=hidden name=template value={html.escape(name)}>"
-            f"<button class=ghost>{html.escape(name)}</button></form>"
+            f"<button class=light>{html.escape(name)}</button></form>"
             for name in SHELL_TEMPLATES)
         free = ""
         if h.config.tv_fleet.shell:
             free = (f"<form method=post action='/admin/devices/{html.escape(install_id)}/shell' class=fform>"
                     f"<input type=hidden name=csrf value={csrf}><input name=command placeholder='One command'>"
-                    f"<button class=ghost>Run</button></form>")
-        shell_html = f"<h2>Shell</h2><div class=card><div class=factions>{shells}</div>{free}</div>"
-    launcher_html = _settings_card(h, csrf, install_id) + _launcher_card(h, csrf, install_id)
-    return _page(match["name"], f"""
-{_nav("/admin/devices")}
-<h1>{html.escape(match['name'])}</h1>
-<p class=dim>{'online' if match['online'] else 'offline'} · {html.escape(str(match['health']))} · {html.escape(str(match['capability']))}</p>
-{f'<p class=flash>{html.escape(msg)}</p>' if msg else ''}
-<div class=card>{''.join(charts) or '<p class=dim>No chart yet.</p>'}</div>
-{launcher_html}
-<h2>Ask</h2>
-<div class=card><div class=factions>{''.join(forms)}</div></div>
-{shell_html}
-<p><a href=/admin/devices>All TVs</a></p>
-""")
+                    f"<button class=light>Run</button></form>")
+        shell_html = (f"<details style='margin-top:18px'><summary>Advanced: shell commands</summary>"
+                      f"<div class='card pad'><div class=factions>{shells}</div>{free}</div></details>")
+    if r["apple"]:
+        return ("<div class='card pad dim'>The Apple TV takes commands through the Thomas Creek app only "
+                "(play, stop, notes from the phone).</div>")
+    return f"""<h2>Quick</h2><div class='card pad'><div class=factions>{''.join(forms)}</div>
+<div class=dim style='margin-top:8px'>The TV answers in a few seconds while the app is running.</div></div>
+<h2>Show a note on screen</h2><div class='card pad'>{note}</div>{shell_html}"""
+
+
+MODES = (
+    ("tv_own", "The TV's own home screen", "Thomas Creek is just an app. Nothing is hidden or blocked."),
+    ("all", "Thomas Creek home, every app allowed",
+     "Thomas Creek opens when the TV turns on, with your picked apps as its tiles. "
+     "Other apps still open from the TV's menu."),
+    ("only", "Thomas Creek home, only the picked apps",
+     "Good for a kids' TV. Any app that isn't picked sends the TV back home. Pick only apps installed on this TV."),
+)
 
 
 def _launcher_card(h: Hub, csrf: str, install_id: str) -> str:
-    """Launcher: on or off, who the TV signs in as, the app tiles, and whether other apps are allowed."""
+    """The home screen: what you asked for next to what the TV reports, the three modes, who, and the app tiles."""
     tv = h.tv_app.tvs().get(install_id) or {}
-    block = tvlauncher.view(tv)
-    state = tvlauncher.status(tv)
+    hs = tvstate.home_screen(tv)
+    e = html.escape
+    installed = {a["package"]: a["label"] for a in hs["installed"]}
+    names = lambda pkgs: "".join(_ico(tvstate.app_name(p, installed)) for p in pkgs)  # noqa: E731
+    mode_name = {k: t for k, t, _ in MODES}[hs["mode"]]
+    applied = hs["applied"] or {}
+    when = f" · {tvstate.ago(applied.get('at'), time.time())}" if applied.get("at") else ""
+    listed = (f"Apps listed {tvstate.ago(hs['listed_at'], time.time())}" if hs["listed_at"]
+              else "The TV hasn't listed its apps yet")
+    asked = names(hs["asked"]) or "<span class=dim>Every app on the TV</span>"
+    if hs["mode"] == "tv_own":
+        asked, shows = "", "<span class=dim>Its own home screen</span>"
+    else:
+        shows = names(hs["shows"]) or "<span class=dim>No app tiles</span>"
+    said = f"<div class=dim>{e(str(applied.get('note')))}{e(when)}</div>" if applied.get("note") else ""
+    level = hs["state"]
+    verdict = ("Matches" if level == "ok" else "Different")
+    why = hs["why"] or "The TV can show what you asked for."
+    versus = f"""<div class=versus>
+<div><span class=dim>You asked for</span><b>{e(mode_name)}</b><div class=icos>{asked}</div></div>
+<div><span class=dim>The TV reports · {e(listed)}</span><b>{e(hs['line'])}</b><div class=icos>{shows}</div></div>
+<div class='why {e(level)}'>{_chip(level, verdict)}<div>{e(why)}{said}</div></div></div>"""
+    fix = ""
+    if hs["missing"]:
+        rows = "".join(
+            f"<div class=item><div class=grow><b>{e(tvstate.app_name(p, installed))}</b> <span class=dim>{e(p)}</span></div>"
+            f"<form method=post action='/admin/devices/{e(install_id)}/launcher/store' class=inline>"
+            f"<input type=hidden name=csrf value={csrf}><input type=hidden name=package value='{e(p)}'>"
+            f"<button class='light small'>Open in the Play Store on the TV</button></form></div>"
+            for p in hs["missing"])
+        them = "it" if len(hs["missing"]) == 1 else "them"
+        fix = f"""<div class='card' style='margin-top:12px'><div class=pad><b>Not installed on this TV</b>
+<div class=dim>Install them on the TV, then open Thomas Creek TV once so it lists them,
+or take them off the list.</div></div>
+<div class='list' style='padding:0 16px'>{rows}</div>
+<div class=pad><form method=post action='/admin/devices/{e(install_id)}/launcher/drop-missing' class=inline>
+<input type=hidden name=csrf value={csrf}><button class=light>Take {them} off the list</button></form></div></div>"""
     people = tvlauncher._people(h)
-    choices = "<option value=''>Whoever picks</option>" + "".join(
-        f"<option value='{html.escape(p['id'])}' {'selected' if p['id'] == block['person_id'] else ''}>"
-        f"{html.escape(p['name'])}{' (child)' if p['role'] == 'child' else ''}</option>" for p in people)
-    known = {a["package"]: a["label"] for a in tvlauncher.installed(tv)}
-    order = block["apps"] + [p for p in known if p not in block["apps"]]
-    boxes = "".join(
-        f"<label style='display:flex;gap:6px;align-items:center'><input type=checkbox name=app value='{html.escape(pkg)}' "
-        f"{'checked' if pkg in block['apps'] else ''}> {html.escape(known.get(pkg, pkg))}"
-        f"{'' if pkg in known else ' <span class=dim>(not on this TV)</span>'}</label>"
-        for pkg in order)
-    if not boxes:
-        boxes = "<p class=dim>The TV hasn't listed its apps yet. Open Thomas Creek TV on it once.</p>"
-    note = ""
-    if state.get("note"):
-        note = f"<p class=dim>{html.escape(str(state['note']))}</p>"
-    return f"""<h2>Launcher</h2>
-<div class=card><form method=post action='/admin/devices/{html.escape(install_id)}/launcher' class=edit>
+    choices = "<option value=''>Whoever picks on the TV</option>" + "".join(
+        f"<option value='{e(p['id'])}' {'selected' if p['id'] == hs['person_id'] else ''}>"
+        f"{e(p['name'])}{' (child: kids rows only)' if p['role'] == 'child' else ''}</option>" for p in people)
+    modes = "".join(
+        f"<label class=mode><input type=radio name=mode value={k} {'checked' if k == hs['mode'] else ''}>"
+        f"<span><b>{e(t)}</b><span>{e(d)}</span></span></label>" for k, t, d in MODES)
+    order = hs["asked"] + [p for p in installed if p not in hs["asked"] and p != h.tv_app.cfg.package]
+    tiles = "".join(
+        f"<label class='apptile{'' if p in installed or not hs['known'] else ' missing'}'>"
+        f"<input type=checkbox name=app value='{e(p)}' "
+        f"{'checked' if p in hs['asked'] else ''}>{_ico(tvstate.app_name(p, installed))}<span style='min-width:0'>"
+        f"<span class=nm>{e(tvstate.app_name(p, installed))}</span><span class=st>"
+        f"{'Installed' if p in installed else 'Not on this TV' if hs['known'] else 'Picked'}</span></span></label>"
+        for p in order)
+    if not tiles:
+        tiles = "<p class=dim>The TV hasn't listed its apps yet. Open Thomas Creek TV on it once.</p>"
+    on_row = hs["shows"] if hs["asked"] else list(installed)[:6]
+    preview_apps = ["Thomas Creek"] + [tvstate.app_name(p, installed) for p in on_row]
+    if hs["mode"] == "tv_own":
+        inner = "<div style='color:#9fb0aa'>The TV's own launcher. Thomas Creek is one of its apps.</div>"
+    else:
+        inner = "<div class=tiles2>" + "".join(f"<div class=pt>{e(n)}</div>" for n in preview_apps) + "</div>"
+        if hs["mode"] == "only":
+            inner += "<div style='font-size:11px;color:#9fb0aa'>Other apps are blocked</div>"
+    preview = ("<div class=preview><div class=row1><span>Thomas Creek</span><span>Home row as the TV shows it now</span></div>"
+               + inner + "</div>")
+    return f"""<h2>Right now</h2>{versus}{fix}
+<h2>Preview</h2>{preview}
+<form method=post action='/admin/devices/{e(install_id)}/launcher' class=edit>
 <input type=hidden name=csrf value={csrf}>
-<p class=dim>Thomas Creek TV becomes this TV's home screen, with the apps you tick as tiles (none ticked: every app).</p>
-<label><input type=checkbox name=on value=1 {'checked' if block['on'] else ''}> Use Thomas Creek TV as this TV's home screen</label>
-<label>Signs in as <select name=person_id>{choices}</select></label>
-<div style='display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:6px'>{boxes}</div>
-<input name=other placeholder="Another app by package name" style="font:inherit;padding:6px 8px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--fg)">
-<label><input type=checkbox name=guard value=1 {'checked' if block['guard'] else ''}> Only these apps: any other app sends the TV back home</label>
-<button>Save launcher</button></form>{note}</div>
-"""
+<h2>1 · What the TV opens to</h2><div class=modes>{modes}</div>
+<h2>2 · Who's watching</h2><select name=person_id>{choices}</select>
+<h2>3 · Apps on the home row</h2><div class=dim>Ticked apps become the tiles, in this order. None ticked shows every app
+(not allowed with "only the picked apps").</div>
+<div class=apps>{tiles}</div>
+<input name=other placeholder="Another app by package name, e.g. com.netflix.ninja">
+<div><button>Send to TV</button></div></form>"""
 
 
 def _provision_html(h: Hub, claims: dict[str, Any], request: Request, ssid: str | None, password: str | None) -> str:
@@ -438,7 +634,7 @@ def _provision_html(h: Hub, claims: dict[str, Any], request: Request, ssid: str 
     csrf = _csrf(claims)
     script = "#!/bin/sh\nadb install -r ThomasCreekTV.apk\n" + OWNER
     return _page("Set up a box", f"""
-{_nav("/admin/devices")}
+{_nav("/admin/devices", h)}
 <h1>Set up a box</h1>
 <ol>
 <li>Factory reset the box and skip the Google account.</li>

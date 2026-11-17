@@ -141,7 +141,7 @@ or upload them below.</p></div>"""
     else:
         listing = _build_card(h, latest, primary=True) + _older(h, older)
     return _page("Downloads", f"""
-{_nav("/admin/downloads")}
+{_nav("/admin/downloads", h)}
 <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px">
 <div><h1>Downloads</h1><div class=dim>Install Thomas Creek TV</div></div>
 <form method=post action=/admin/logout><input type=hidden name=csrf value={csrf}><button class=ghost>Sign out</button></form></div>

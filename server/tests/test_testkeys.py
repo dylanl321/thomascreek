@@ -70,7 +70,7 @@ def test_admin_page_make_and_turn_off_key(hub, people, home_client):
     dylan = people["phones"]["Dylan"]
     url = dylan.secure_post("/v1/admin/web-link", {}).json()["url"]
     home_client.get(url, follow_redirects=False)
-    page = home_client.get("/admin").text
+    page = home_client.get("/admin/updates").text
     assert "Test simulators" in page
     csrf = re.search(r"name=csrf value=(\w+)", page).group(1)
     r = home_client.post("/admin/test-key", data={"csrf": csrf, "label": "Dylan's Mac"})
@@ -78,7 +78,7 @@ def test_admin_page_make_and_turn_off_key(hub, people, home_client):
     assert "~/.thomascreek/test-key" in r.text
     ph, r2 = _sim(home_client, key)
     assert r2.status_code == 200
-    page = home_client.get("/admin").text
+    page = home_client.get("/admin/updates").text
     assert key not in page, "the key is shown only once"
     assert "1 simulator" in page and "Thomas Creek QA" in page
     kid = hub.db.one("SELECT id FROM test_keys")["id"]
