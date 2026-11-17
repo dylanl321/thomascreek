@@ -108,7 +108,10 @@ def test_a_call_with_no_answer_is_not_sent_again(hub, people, home_client):
 
 @pytest.mark.parametrize("exc,status,words", [
     (ServiceError("x", 500, "Failed to call service light/turn_on. Zigbee timeout"), 502, "Zigbee timeout"),
-    (ServiceError("x", 400, "Entity light.nope not found"), 502, "didn't accept"),
+    (ServiceError("x", 400, "Entity light.nope not found"), 502, "no longer has"),
+    (ServiceError("x", 400, "Validation error: Entity light.living_room does not support action light.turn_on"), 502,
+     "Living room can't be turned on from the app"),
+    (ServiceError("x", 400, "Invalid value for brightness"), 502, "didn't accept"),
     (Unreachable("cannot reach"), 503, "can't reach Home Assistant"),
     (NoAnswer("no answer"), 504, "may still change"),
 ])
