@@ -15,7 +15,7 @@ import re
 import time
 from typing import Any
 
-from . import tvcec, tvfleet
+from . import tvwho, tvcec, tvfleet
 from .home import iso
 from .tvapp import TvAppError
 from .tvlineup import valid_key
@@ -98,6 +98,8 @@ def summary(h: Any, install_id: str, tv: dict[str, Any], now: float) -> dict[str
         "can_screenshot": _can_screenshot(h, install_id),
         "can_cec": _can_adb(h, tv),
         "settings_rev": int(tv.get("settings_rev") or 0),
+        # Who the hub thinks is watching (see hub/tvwho.py). person_id is None when nobody is named.
+        "watching": tvwho.current(h, install_id, now),
     }
 
 

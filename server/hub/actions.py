@@ -24,6 +24,7 @@ from .home import iso, kind_for
 from .policy import TIERS, Decision, Subject, Target
 from .tvapp import TvAppError
 from .upnext import remember
+from . import tvwho
 
 if TYPE_CHECKING:
     from .state import Hub
@@ -856,11 +857,14 @@ class ActionRunner:
         temp = f" {p['temp']}°" if p.get("temp") else ""
         return f"{label}: {p.get('mode') or 'Bake'}{temp}. You'll get a notice when it's hot."
 
-    def _deliver_tv(self, plan: Plan) -> str:
+    def _deliver_tv(self, plan: Plan, s: Subject | None = None) -> str:
         info = plan.custom
         command = self.hub.tv_app.enqueue_command(info["install_id"], info["command"])
         info["command_id"] = command["id"]
         if command.get("action") == "play":
+            if s is not None and not s.tv:
+                # The phone that sent the show is probably who's watching it (see hub/tvwho.py).
+                tvwho.claim_for_play(self.hub, info["install_id"], s.person_id, s.role)
             tv = self.hub.tv_app.tvs().get(info["install_id"]) or {}
             remember(self.hub.db, "kids" if tv.get("profile") == "kids" else "adult", command, tv=info["install_id"])
         self.hub.bus.publish({"type": "tv_command", "data": command}, device_id=f"tv:{info['install_id']}")
@@ -871,7 +875,7 @@ class ActionRunner:
 
     async def _run_custom(self, s: Subject, plan: Plan) -> str:
         if isinstance(plan.custom, dict) and plan.custom.get("tv_command"):
-            return self._deliver_tv(plan)
+            return self._deliver_tv(plan, s)
         if plan.action.startswith("printer."):
             return await self._run_printer(s, plan)
         if isinstance(plan.custom, dict) and "nas" in plan.custom:
