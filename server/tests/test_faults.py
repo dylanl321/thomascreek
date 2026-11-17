@@ -10,10 +10,10 @@ from hub.faults import describe, note
 
 
 def test_describe_drops_addresses():
-    exc = RuntimeError("GET http://user:pw@provider.example:8080/live.m3u8 via 10.0.0.10:8443 and tv.example.net:9000")
+    exc = RuntimeError("GET http://user:pw@provider.example:8080/live.m3u8 via 10.9.9.9:8443 and tv.example.net:9000")
     text = describe(exc)
     assert text.startswith("RuntimeError: ")
-    for leak in ("provider.example", "user:pw", "10.0.0.10", "8443", "tv.example.net"):
+    for leak in ("provider.example", "user:pw", "10.9.9.9", "8443", "tv.example.net"):
         assert leak not in text
     assert describe(ValueError()) == "ValueError"
 
