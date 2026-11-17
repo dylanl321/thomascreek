@@ -20,7 +20,7 @@ from ..adapters.base import AdapterError
 from ..policy import Target
 from ..state import Hub
 from ..tvapp import TvAppError
-from .. import tvcontrol, tvexplore, tvhandoff, tvnames, tvsport
+from .. import tvcontrol, tvexplore, tvhandoff, tvnames, tvpicks, tvsport
 from ..tvapp import _household as household
 from ..upnext import shelf, who_key
 from .deps import Caller, caller, error, hub, need
@@ -107,12 +107,23 @@ async def handoff(body: HandoffIn, c: Caller = Depends(caller), h: Hub = Depends
 
 
 @router.get("/explore")
-async def explore(profile: str | None = None, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
-    """New, popular and acclaimed titles this house can play or ask for."""
+async def explore(profile: str | None = None, person: str | None = None, c: Caller = Depends(caller),
+                  h: Hub = Depends(hub)) -> dict[str, Any]:
+    """New, popular and acclaimed titles this house can play or ask for, plus rows and a hero for whoever is
+    watching (tvpicks): the same person rule as /upnext. A named child, a child's phone or a kids' TV gets the
+    kids' feed; naming a grown-up never widens a kids' TV."""
     kids = _media(h, c)
-    if profile == "kids" or (profile == "adult" and kids):
+    if profile == "kids" or tvexplore._profile(h, c.subject) == "kids":
         kids = True
-    return tvexplore.feed(h, "kids" if kids else "adult")
+    subject = c.subject
+    if getattr(subject, "tv", False):
+        found = next((p for p in household(h.db) if p["id"] == person), None) if person else None
+        if found is not None and found.get("role") == "child":
+            kids = True
+        who = who_key(person=(found or {}).get("id") or subject.person_id, tv=subject.tv_id)
+    else:
+        who = who_key(person=subject.person_id)
+    return tvpicks.personal_feed(h, "kids" if kids else "adult", who)
 
 
 @router.post("/explore/request")

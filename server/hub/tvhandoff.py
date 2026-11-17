@@ -15,6 +15,7 @@ from .policy import Subject, Target
 from .state import Hub
 from .tvapp import TvAppError
 from .tvcontrol import with_artwork
+from . import tvwho
 
 KV_RANK = "tv.handoff.rank"
 ONLINE_S = 120
@@ -41,6 +42,8 @@ def devices(h: Hub, subject: Subject, now: float | None = None) -> list[dict[str
         }
         if tv.get("media_entity"):
             row["media_entity"] = tv["media_entity"]
+        # Who the hub thinks is watching (hub/tvwho.py), for the phone's Now playing card.
+        row["watching"] = tvwho.current(h, install_id, now)
         rows.append(row)
     return _order(h, subject.person_id, rows)
 

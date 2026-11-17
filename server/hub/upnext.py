@@ -173,7 +173,7 @@ def _continue(h: Any, history: dict[str, Any], kids: bool) -> list[dict[str, Any
             h, kind="movie", title=movie.get("name") or row.get("title") or "Movie",
             subtitle=_left(position), reason="continue", movie_id=movie["id"],
             poster=movie.get("poster_url"), backdrop=movie.get("backdrop_url"),
-            progress=_progress(position, duration), rank=float(row.get("last") or 0),
+            progress=_progress(position, duration), rank=float(row.get("last") or 0), position_s=int(position),
         ))
     for key, row in (history.get("series") or {}).items():
         episode_id = row.get("episode_id")
@@ -188,6 +188,7 @@ def _continue(h: Any, history: dict[str, Any], kids: bool) -> list[dict[str, Any
             subtitle=episode.get("series_name"), reason="continue",
             episode_id=episode["id"], series_id=episode.get("series_id") or key,
             progress=_progress(position, row.get("duration_s")), rank=float(row.get("last") or 0),
+            position_s=int(position),
         ))
     items.sort(key=lambda item: float(item.get("_rank") or 0), reverse=True)
     for item in items:
@@ -368,7 +369,8 @@ def _trending(h: Any, history: dict[str, Any], kids: bool, now: float) -> list[d
 def _item(h: Any, *, kind: str, title: str, subtitle: str | None, reason: str, rank: float,
           channel_key: str | None = None, movie_id: str | None = None, series_id: str | None = None,
           episode_id: str | None = None, recording_id: str | None = None,
-          poster: str | None = None, backdrop: str | None = None, progress: float | None = None) -> dict[str, Any]:
+          poster: str | None = None, backdrop: str | None = None, progress: float | None = None,
+          position_s: int | None = None) -> dict[str, Any]:
     shown = _clean_name(title) if kind in ("movie", "episode") else title
     item: dict[str, Any] = {
         "kind": kind, "title": shown, "reason": REASONS[reason], "_rank": rank,
@@ -395,7 +397,35 @@ def _item(h: Any, *, kind: str, title: str, subtitle: str | None, reason: str, r
         item["backdrop_url"] = backdrop_url
     if progress is not None:
         item["progress"] = progress
+    if position_s is not None:
+        # Where to start: any screen resumes here (the phone, or a TV that only has its own position).
+        item["position_s"] = position_s
     return item
+
+
+def resume_at(h: Any, who: str | None, *, movie_id: str | None = None, episode_id: str | None = None) -> dict[str, Any]:
+    """Where `who` (a person's or a TV's bucket) stopped in one film or episode: {position_s, duration_s, at}.
+
+    position_s is None when there is nothing to resume: never watched, under 30 seconds, or within a
+    minute of the end."""
+    empty: dict[str, Any] = {"position_s": None, "duration_s": None, "at": None}
+    history = _history(h, who) if who else {}
+    row: dict[str, Any] | None = None
+    if movie_id:
+        row = (history.get("movies") or {}).get(movie_id)
+    elif episode_id:
+        row = next((r for r in (history.get("series") or {}).values()
+                    if isinstance(r, dict) and r.get("episode_id") == episode_id), None)
+    if not isinstance(row, dict):
+        return empty
+    position = row.get("position_s")
+    duration = row.get("duration_s")
+    if not isinstance(position, (int, float)) or position < 30:
+        return empty
+    if isinstance(duration, (int, float)) and duration > 0 and position >= duration - 60:
+        return empty
+    return {"position_s": int(position), "duration_s": int(duration) if isinstance(duration, (int, float)) else None,
+            "at": row.get("last")}
 
 
 def _art(h: Any, kind: str, key: str | None) -> str | None:

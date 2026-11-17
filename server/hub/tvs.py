@@ -16,7 +16,7 @@ import re
 import time
 from typing import Any
 
-from . import tvcec, tvfleet
+from . import tvwho, tvcec, tvfleet
 from .home import iso
 from .tvapp import TvAppError
 from .tvlineup import valid_key
@@ -101,6 +101,8 @@ def summary(h: Any, install_id: str, tv: dict[str, Any], now: float) -> dict[str
         "settings_rev": int(tv.get("settings_rev") or 0),
         "settings_by": tv.get("settings_by"),
         "settings_at": iso(float(tv["settings_at"])) if tv.get("settings_at") else None,
+        # Who the hub thinks is watching (see hub/tvwho.py). person_id is None when nobody is named.
+        "watching": tvwho.current(h, install_id, now),
     }
 
 

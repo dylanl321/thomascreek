@@ -442,12 +442,50 @@ struct TVMoveCard: View {
                     .frame(width: 54, height: 54).background(Theme.card2, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 VStack(alignment: .leading, spacing: 3) {
                     Text(tv.playing?.title ?? tv.playing?.name ?? "Playing").font(.headline).lineLimit(1)
-                    Text(tv.name).font(.caption).foregroundStyle(Theme.dim).lineLimit(1)
+                    Text([tv.name, tv.watching?.name].compactMap { $0 }.joined(separator: " · "))
+                        .font(.caption).foregroundStyle(Theme.dim).lineLimit(1)
                 }
             }
-            MoveToButton(from: tv.id, title: tv.playing?.title ?? tv.playing?.name ?? "It")
+            HStack(spacing: 8) {
+                MoveToButton(from: tv.id, title: tv.playing?.title ?? tv.playing?.name ?? "It")
+                ImWatchingChip(tv: tv)
+            }
         }
         .card()
+    }
+}
+
+/// "I'm watching": history and Continue watching on that TV follow this person (`POST /v1/tvs/{id}/watching`).
+/// Hidden when the hub already names them, and for a child on a grown-up TV.
+struct ImWatchingChip: View {
+    @Environment(HomeStore.self) private var store
+    var tv: TVPlayer
+    @State private var busy = false
+
+    private var shown: Bool {
+        guard let me = store.me?.person.id, tv.watching?.personId != me else { return false }
+        return store.me?.role == .child ? tv.profile == "kids" : tv.profile != "kids"
+    }
+
+    var body: some View {
+        if shown {
+            ChipButton(title: busy ? "Saving…" : "I'm watching", symbol: "person.crop.circle.badge.checkmark") {
+                Task { await claim() }
+            }
+            .disabled(busy)
+        }
+    }
+
+    private func claim() async {
+        busy = true
+        defer { busy = false }
+        do {
+            let who: TVWatching = try await HubClient.shared.post("/v1/tvs/\(tv.id)/watching", [:])
+            if let i = store.houseTVs.firstIndex(where: { $0.id == tv.id }) { store.houseTVs[i].watching = who }
+            store.show(who.line ?? "Saved", "Continue watching on \(tv.name) follows you now.")
+        } catch {
+            store.show("Couldn't say it's you", error.localizedDescription, isError: true)
+        }
     }
 }
 

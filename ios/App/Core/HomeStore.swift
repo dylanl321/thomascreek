@@ -640,6 +640,7 @@ final class HomeStore {
         if let i = houseTVs.firstIndex(where: { $0.id == watch.id }) {
             houseTVs[i].playing = watch.playing
             houseTVs[i].online = true
+            if let who = watch.watching { houseTVs[i].watching = who }
             if let name = watch.name { houseTVs[i].name = name }
         } else if watch.playing != nil {
             houseTVs.append(TVPlayer(id: watch.id, name: watch.name ?? "TV", room: watch.room,

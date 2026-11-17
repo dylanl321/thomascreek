@@ -180,6 +180,9 @@ class Hub:
         from .brain import Brain
 
         self.brain = Brain(self)
+        from .tvpicks import Curator
+
+        self.explore_curator = Curator(self)
         from .keycheck import KeyChecks
 
         self.keychecks = KeyChecks(self)

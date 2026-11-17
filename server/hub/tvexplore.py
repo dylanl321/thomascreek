@@ -109,8 +109,14 @@ def _tmdb_card(row: dict[str, Any]) -> dict[str, Any]:
         "tmdb_id": row.get("id"), "kind": kind, "title": title,
         "year": (row.get("release_date") or row.get("first_air_date") or "")[:4],
         "overview": row.get("overview"), "rating": None,
-        "genres": [], "poster_path": row.get("poster_path"), "backdrop_path": row.get("backdrop_path"),
+        "genres": _tmdb_genres(row.get("genre_ids")), "poster_path": row.get("poster_path"), "backdrop_path": row.get("backdrop_path"),
     }
+
+
+def _tmdb_genres(ids: object) -> list[str]:
+    from .tvpicks import TMDB_GENRES
+    names = [TMDB_GENRES[i] for i in ids if isinstance(i, int) and i in TMDB_GENRES] if isinstance(ids, list) else []
+    return list(dict.fromkeys(names))
 
 
 def poster_path(h: Any, subject: Any, media: str, tmdb_id: object, tmdb_path: object) -> str | None:
@@ -176,6 +182,29 @@ def feed(h: Any, profile: str) -> dict[str, Any]:
     built = library_feed(h, profile)
     _store_profile(h, profile, built)
     return built
+
+
+def pool(h: Any, profile: str) -> list[dict[str, Any]]:
+    """The titles personal rows draw from (tvpicks), kept with the feed. Built from the library once if missing."""
+    raw = _cache(h)
+    pools = raw.get("pool") if isinstance(raw.get("pool"), dict) else {}
+    cached = pools.get(profile)
+    if isinstance(cached, list):
+        return cached
+    built = _build_pool(h, _library(h, profile == "kids"))
+    raw = _cache(h)
+    raw["pool"] = {**(raw.get("pool") if isinstance(raw.get("pool"), dict) else {}), profile: built}
+    h.db.kv_set(KV, raw)
+    return built
+
+
+def _build_pool(h: Any, library: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    from .tvpicks import build_pool
+    try:
+        return build_pool(library, today=h.policy.now().date())
+    except Exception as exc:  # noqa: BLE001 - personal rows are extra; the feed must still publish
+        log.warning("explore pool: %s", type(exc).__name__)
+        return []
 
 
 def _rewatch_names(h: Any) -> list[str]:
@@ -256,14 +285,16 @@ def publish(h: Any, lists: dict[str, list[dict[str, Any]]] | None, *, can_reques
     """Build both profiles and keep them. `lists` is None when there is no TMDB key."""
     allowed = _allowed(h)
     names = _rewatch_names(h)
-    adult, links_a = build_feed(_library(h, False), lists, can_request=can_request, kids=False, allowed=allowed,
+    adult_library, kids_library = _library(h, False), _library(h, True)
+    adult, links_a = build_feed(adult_library, lists, can_request=can_request, kids=False, allowed=allowed,
                                 rewatch=names)
-    kids, links_k = build_feed(_library(h, True), lists, can_request=can_request, kids=True, allowed=allowed,
+    kids, links_k = build_feed(kids_library, lists, can_request=can_request, kids=True, allowed=allowed,
                                rewatch=names)
     raw = _cache(h)
     raw["adult"] = adult
     raw["kids"] = kids
     raw["links"] = {**links_k, **links_a}
+    raw["pool"] = {"adult": _build_pool(h, adult_library), "kids": _build_pool(h, kids_library)}
     h.db.kv_set(KV, raw)
     return {"adult": adult, "kids": kids}
 
