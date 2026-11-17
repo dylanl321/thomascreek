@@ -136,6 +136,12 @@ async def inbox_act(item_id: str, body: InboxAct, request: Request, c: Caller = 
     elif ref.startswith("thomascreek://requests/"):
         req_id = ref.rsplit("/", 1)[-1]
         await media_routes.decide_request(req_id, body.action, request, c, h)
+    elif ref.startswith("thomascreek://family/approvals/"):
+        from . import family as family_routes
+
+        kind, approval_id = ref.split("/")[-2:]
+        await family_routes.family_approval_answer(
+            kind, approval_id, family_routes.ApprovalAnswer(approve=body.action == "approve"), c, h)
     _resolve_group(h, row)
     return {"ok": True}
 

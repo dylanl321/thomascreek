@@ -434,3 +434,52 @@ def _practice(h: Hub, c: Caller, action: str, target: str | None) -> dict[str, A
 
 def _via(request: Request) -> str:
     return request.headers.get("x-tc-via") if request.headers.get("x-tc-via") in ("ask", "mcp") else "app"
+
+
+# -- parent approvals (#212) ----------------------------------------------------------------------------------------
+NEEDS_KEY = ("Save the family board's parent PIN on the hub's admin page (Family board) "
+             "so approvals can be answered from the app.")
+
+
+def _approver(h: Hub, c: Caller) -> None:
+    """Adults and admins only. A child (or a child's phone viewed as) is refused even with a grant."""
+    if c.subject.is_child_like:
+        raise error(403, "forbidden", "Only a grown-up can answer approvals", ask_parent=True)
+    need(h, c, "chores.manage")
+
+
+class ApprovalAnswer(BaseModel):
+    approve: bool
+
+
+@router.get("/family/approvals")
+async def family_approvals(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """Chores reported done and rewards redeemed that wait for a parent on the family board."""
+    from .. import familyapprovals
+
+    _approver(h, c)
+    try:
+        return {"items": await _board_write(familyapprovals.pending(h))}
+    except familyapprovals.NeedsKey:
+        raise error(409, "board_key_missing", NEEDS_KEY) from None
+
+
+@router.post("/family/approvals/{kind}/{item_id}")
+async def family_approval_answer(kind: str, item_id: str, body: ApprovalAnswer, c: Caller = Depends(caller),
+                                 h: Hub = Depends(hub)) -> dict[str, Any]:
+    from .. import familyapprovals
+
+    _approver(h, c)
+    if kind not in familyapprovals.KINDS:
+        raise error(404, "not_found", "Unknown approval")
+    if not h.actions.is_live("chores.approve"):
+        h.db.log("chores.approve", "dry_run", person_id=c.subject.person_id, device_id=c.device["id"],
+                 target=f"{kind}:{item_id}", params={"approve": body.approve})
+        return {"ok": True, "dry_run": True, "message": "Practice mode: not sent to the family board"}
+    try:
+        await _board_write(familyapprovals.answer(h, kind, item_id, body.approve))
+    except familyapprovals.NeedsKey:
+        raise error(409, "board_key_missing", NEEDS_KEY) from None
+    h.db.log("chores.approve", "ok", person_id=c.subject.person_id, device_id=c.device["id"],
+             target=f"{kind}:{item_id}", params={"approve": body.approve})
+    return {"ok": True}
