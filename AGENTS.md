@@ -65,8 +65,12 @@ here behind an endpoint.
 - A provider stream address is handed out only through `/v1/tv/stream/<session>`, to the TV that holds the
   session. TVs resolve that redirect themselves so the hub bearer never reaches the provider.
 - Pairing approval is an explicit admin action; a push or phone answer that is not "Approve" never approves.
-- Alert media (doorbell, cameras) must follow the person's role: children must not get camera media. Today
-  the doorbell media is sent to anyone at home; fix that before adding more alert types.
+- Alert media (doorbell, cameras) follows the person's role. Phone pushes with a picture, the doorbell Live
+  Activity and camera history go to admins and adults only (`ALERT_ROLES`); a Home Assistant alert sent to
+  the kids reaches them as words, without the picture or the camera link. TV door alerts and their picture,
+  stream and segments (`/v1/tv/alerts/...`) reach a child-like caller (a kids' TV, a child's phone) only
+  when an adult switched door alerts on for kids. The Cameras screens are grown-up only. A new alert type
+  carrying camera media must keep this, with a child-caller test like `server/tests/test_camera_roles.py`.
 
 ## Checks
 

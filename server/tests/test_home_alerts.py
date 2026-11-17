@@ -176,6 +176,9 @@ def test_a_phone_away_from_home_does_not_get_the_picture(hub, home_client, away_
         return b"\xff\xd8picture"
 
     hub.ha.camera_proxy = proxy
+    avery = people["phones"]["Avery"]
+    assert away_client.get(alert["snapshot_url"], headers=avery.h).status_code == 200  # adults may view cameras
     theo = people["phones"]["Theo"]
     assert away_client.get(alert["snapshot_url"], headers=theo.h).status_code == 403
-    assert home_client.get(alert["snapshot_url"], headers=theo.h).status_code == 200
+    # A child at home gets no door picture until an adult switches door alerts on for kids (#211).
+    assert home_client.get(alert["snapshot_url"], headers=theo.h).status_code == 403

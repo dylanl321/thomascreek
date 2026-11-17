@@ -46,7 +46,10 @@ def shape_event(h: Hub, s: Subject, ev: dict[str, Any]) -> dict[str, Any] | None
     if ev.get("type") in ("tv_command", "tv_remote", "tv_tune", "tv_manage", "config_changed", "tv_watching"):
         return None
     if ev.get("type") == "home_alert":
+        # Door camera alerts are grown-up media; a child's phone gets one only when kids are switched on.
         if s.role in ("pending", "guest"):
+            return None
+        if s.is_child_like and not h.home_alerts.shows_on(True):
             return None
         return ev
     if ev.get("type") == "explore":
