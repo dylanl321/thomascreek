@@ -134,6 +134,12 @@ async def history(kind: str | None = None, before: float | None = None, limit: i
     if not kinds:
         return {"items": [], "kinds": [{"id": k, "title": HISTORY_TITLES[k]} for k in allowed]}
     items = h.alerts.history(pid, ",".join(kinds), before, limit)
+    if c.subject.role not in ALERT_ROLES:
+        # Camera pictures and camera links are grown-up media, whatever an older line kept.
+        for it in items:
+            it["image"] = None
+            if str(it.get("ref") or "").startswith("thomascreek://camera"):
+                it["ref"] = None
     return {"items": items, "kinds": [{"id": k, "title": HISTORY_TITLES[k]} for k in allowed],
             "keep_days": h.alerts.KEEP_DAYS}
 

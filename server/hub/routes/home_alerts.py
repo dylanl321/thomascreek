@@ -16,12 +16,22 @@ router = APIRouter(prefix="/v1/tv/alerts", tags=["tv"])
 
 
 def _see(h: Hub, c: Caller) -> None:
-    """A TV at home, anyone at home, or a phone that may already view cameras."""
-    if c.subject.tv or (c.ip and h.is_home(c.ip)) or h.policy.has(c.subject, "cameras"):
-        if c.subject.role == "pending":
-            raise error(403, "forbidden", "Not available")
-        return
-    raise error(403, "forbidden", "Not available")
+    """A TV at home, anyone at home, or a phone that may already view cameras; then the person's role decides.
+
+    Camera pictures are grown-up media (`_see_media`): a child-like caller (a kids' TV, a child's or guest's
+    phone) gets them only when an adult switched door alerts on for kids. A pending device never does.
+    """
+    s = c.subject
+    if s.role == "pending":
+        raise error(403, "forbidden", "Not available")
+    if not (s.tv or (c.ip and h.is_home(c.ip)) or h.policy.has(s, "cameras")):
+        raise error(403, "forbidden", "Not available")
+
+
+def _see_media(h: Hub, c: Caller) -> None:
+    _see(h, c)
+    if c.subject.is_child_like and not h.home_alerts.shows_on(True):
+        raise error(403, "forbidden", "Door pictures are off for kids")
 
 
 def _alert(h: Hub, alert_id: str) -> dict[str, Any]:
@@ -46,7 +56,7 @@ async def put_settings(body: dict[str, Any], c: Caller = Depends(caller), h: Hub
 
 @router.get("/{alert_id}/snapshot.jpg")
 async def snapshot(alert_id: str, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> Response:
-    _see(h, c)
+    _see_media(h, c)
     row = _alert(h, alert_id)
     camera = row.get("camera")
     if not camera:
@@ -64,7 +74,7 @@ async def snapshot(alert_id: str, c: Caller = Depends(caller), h: Hub = Depends(
 @router.get("/{alert_id}/stream")
 async def stream(alert_id: str, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> Response:
     """HLS when go2rtc is set, otherwise Home Assistant's MJPEG. Either way the TV uses its bearer."""
-    _see(h, c)
+    _see_media(h, c)
     row = _alert(h, alert_id)
     camera = row.get("camera")
     if not camera:
@@ -86,7 +96,7 @@ async def stream(alert_id: str, c: Caller = Depends(caller), h: Hub = Depends(hu
 @router.get("/{alert_id}/media")
 async def media(alert_id: str, src: str, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> Response:
     """One HLS segment. `src` is a path on go2rtc, never a full URL."""
-    _see(h, c)
+    _see_media(h, c)
     _alert(h, alert_id)
     upstream = await h.frigate.open_go2rtc(src)
     if upstream is None:

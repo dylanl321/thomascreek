@@ -537,11 +537,22 @@ class Alerts:
         chosen = {pid: p for pid, p in chosen.items() if self.hub.notify.wants(p, cat, named=named)}
         who = [(p, pr) for p in chosen.values() if (pr := self.prefs(p["id"]))["on"] and pr["automations"]]
         image = f"/v1/cameras/{camera}/snapshot.jpg" if camera else None
-        self.record("house", title, message, list(chosen.values()),
-                    ref=f"thomascreek://camera/{camera}" if camera else None, image=image)
-        return await self._deliver(who, title=title, body=message, cat=cat, urgent=urgent,
-                                   ref=f"thomascreek://camera/{camera}" if camera else None, image=image,
+        ref = f"thomascreek://camera/{camera}" if camera else None
+        # The words may go to the kids; the camera picture and the link to the camera never do.
+        grown = [(p, pr) for p, pr in who if p["role"] in ALERT_ROLES]
+        kids = [(p, pr) for p, pr in who if p["role"] not in ALERT_ROLES]
+        chosen_grown = [p for p in chosen.values() if p["role"] in ALERT_ROLES]
+        chosen_kids = [p for p in chosen.values() if p["role"] not in ALERT_ROLES]
+        if camera:
+            self.record("house", title, message, chosen_grown, ref=ref, image=image)
+            self.record("house", title, message, chosen_kids)
+        else:
+            self.record("house", title, message, list(chosen.values()))
+        sent = await self._deliver(grown, title=title, body=message, cat=cat, urgent=urgent, ref=ref, image=image,
                                    group="automation", named=named, sort=False)
+        sent += await self._deliver(kids, title=title, body=message, cat=cat, urgent=urgent,
+                                    group="automation", named=named, sort=False)
+        return sent
 
     # -- "That's not a person" ----------------------------------------------
     def suppressions(self) -> list[dict[str, Any]]:

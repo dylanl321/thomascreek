@@ -22,7 +22,7 @@ from ..state import Hub
 from ..tvapp import TvAppError
 from .. import tvcontrol, tvexplore, tvhandoff, tvnames, tvpicks, tvsport
 from ..tvapp import _household as household
-from ..upnext import shelf, who_key
+from ..upnext import shelf, warm_plex, who_key
 from .deps import Caller, caller, error, hub, need
 from .media import _filter, _watch_cap
 
@@ -168,6 +168,7 @@ async def up_next(profile: str | None = None, person: str | None = None, c: Call
         who = who_key(person=named or subject.person_id, tv=subject.tv_id)
     else:
         who = who_key(person=subject.person_id)
+    await warm_plex(h, who, "kids" if kids else "adult")
     return shelf(h, "kids" if kids else "adult", who=who)
 
 
@@ -247,24 +248,47 @@ async def guide(start: float | None = None, end: float | None = None, channel: s
 
 
 @router.get("/sport")
-async def sport(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+async def sport(day: str | None = None, league: str | None = None, c: Caller = Depends(caller),
+                h: Hub = Depends(hub)) -> dict[str, Any]:
     """Today's games (US leagues first, racing included), each with the house channels that show it:
     the broadcaster on the basic lineup (local CBS/NBC/FOX/ABC, ESPN, FS1...), then guide programmes naming
-    the game, then event channels named after both teams. `watch` is the channel to play."""
+    the game, then event channels named after both teams. `watch` is the channel to play.
+
+    `?day=` (`2026-11-18`, or an offset such as `-1`, `+2`) lists that local day's games instead, and
+    `?league=NFL` keeps one league: alone it is the league page (ESPN's current board: football's week, a race
+    weekend). Those answers add `day`, `league` and `failed` (leagues whose scores didn't load); without
+    either parameter the body is unchanged."""
     kids = _media(h, c)
     await _ready(h)
     now = time.time()
     feed = getattr(h, "_sport", None)
     if feed is None:
         feed = h._sport = tvsport.Sport(h)
-    games = await feed.games(now)
+    names = [name for name, *_rest in tvsport.LEAGUES]
+    if league is not None and league not in names:
+        raise error(404, "not_found", "The hub doesn't follow that league")
+    ymd = None
+    if day is not None:
+        ymd = feed.day_of(day, now)
+        if ymd is None:
+            raise error(400, "bad_request", "Pick a day within two weeks of today")
+    extra: dict[str, Any] = {}
+    if ymd is None and league is None:
+        games = await feed.games(now)
+    else:
+        try:
+            got = await (feed.day(ymd, now, league) if ymd else feed.league_page(league, now))
+        except tvsport.SportError as exc:
+            raise error(503, "unavailable", str(exc)) from None
+        games = got["games"]
+        extra = {"day": f"{ymd[:4]}-{ymd[4:6]}-{ymd[6:]}" if ymd else None, "league": league, "failed": got["failed"]}
     try:
         home = await h.smart.weather._location()
     except Exception:  # noqa: BLE001
         home = None
     basic = h.tv_catalog.basic(home)
     body = tvsport.match(games, h.tv_catalog, basic, kids_only=kids, now=now)
-    return {"games": body, "leagues": [name for name, *_rest in tvsport.LEAGUES], "at": now}
+    return {"games": body, "leagues": names, "at": now, **extra}
 
 
 @router.get("/names")

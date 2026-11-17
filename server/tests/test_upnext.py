@@ -217,3 +217,64 @@ def test_the_tv_state_keeps_a_clean_shuffle(hub):
         == {"order": ["ep:a", "ep:b"], "seasons": [1, 2]}
     assert _play_shuffle({"order": []}) is None
     assert _play_shuffle("yes") is None
+
+
+def test_plex_episodes_continue_and_the_next_one_follows(hub, people, home_client):
+    """A TV reports a Plex episode by its Plex id (#207): Apple TV under the show's key, Android under any key."""
+    import httpx
+    import respx
+
+    from hub.upnext import KV_PLEX, who_key
+
+    plex = "http://plex.test"
+    hub.config.plex.enabled = True
+    hub.config.plex.url = plex
+    hub.vault.set("plex.token", "tok")
+
+    def leaf(key, season, index, title):
+        return {"ratingKey": key, "type": "episode", "title": title, "grandparentTitle": "Bluey",
+                "grandparentRatingKey": "500", "parentIndex": season, "index": index, "duration": 420_000,
+                "contentRating": "TV-Y"}
+
+    show = {"MediaContainer": {"Metadata": [{"ratingKey": "500", "type": "show", "title": "Bluey",
+                                             "contentRating": "TV-Y"}]}}
+    leaves = {"MediaContainer": {"Metadata": [leaf("502", 1, 2, "Hospital"), leaf("501", 1, 1, "Magic Xylophone"),
+                                              leaf("503", 2, 1, "Dance Mode")]}}
+    dylan = people["phones"]["Dylan"]
+    now = datetime.now(timezone.utc).timestamp()
+    # Apple TV: the show's key and the episode's Plex id.
+    remember(hub.db, "adult", {"series_id": "series:plex:500", "episode_id": "502", "title": "Hospital",
+                               "position_s": 200, "duration_s": 420}, now=now, person=people["dylan"]["id"])
+    with respx.mock(assert_all_called=False) as mock:
+        meta = mock.get(f"{plex}/library/metadata/500").respond(json=show)
+        mock.get(f"{plex}/library/metadata/500/allLeaves").respond(json=leaves)
+        mock.get(f"{plex}/library/metadata/502").respond(json={"MediaContainer": {"Metadata": [leaf("502", 1, 2, "Hospital")]}})
+        body = dylan.client.get("/v1/tv/upnext", headers=dylan.h).json()
+        rows = {r["id"]: r["items"] for r in body["rows"]}
+        [cont] = rows["continue"]
+        assert cont["episode_id"] == "502" and cont["series_id"] == "series:plex:500"
+        assert cont["title"] == "S1E2 · Hospital" and cont["subtitle"] == "Bluey"
+        assert cont["position_s"] == 200 and 0.4 < cont["progress"] < 0.5
+        [nxt] = rows["next"]
+        assert nxt["episode_id"] == "503" and nxt["title"] == "S2E1 · Dance Mode"  # season order, not Plex's
+        calls = meta.call_count
+        dylan.client.get("/v1/tv/upnext", headers=dylan.h)
+        assert meta.call_count == calls  # kept for hours, not asked again per screen
+
+        # Android: a folded series key, so the hub asks Plex which show the episode belongs to.
+        hub.db.kv_set(KV_PLEX, None)
+        remember(hub.db, "adult", {"series_id": "series:thomas-creek:77", "episode_id": "502", "title": "Hospital",
+                                   "position_s": 90}, now=now + 1, tv="tv-den")
+        from hub.upnext import shelf as build, warm_plex
+        import asyncio
+        asyncio.run(warm_plex(hub, who_key(tv="tv-den"), "adult"))
+        rows = {r["id"]: r["items"] for r in build(hub, "adult", who=who_key(tv="tv-den"))["rows"]}
+        assert rows["continue"][0]["episode_id"] == "502" and rows["continue"][0]["subtitle"] == "Bluey"
+
+    # Plex not answering: the episode is left out, nothing else breaks.
+    hub.db.kv_set(KV_PLEX, None)
+    with respx.mock(assert_all_called=False) as mock:
+        mock.get(url__startswith=plex).mock(return_value=httpx.Response(500))
+        body = dylan.client.get("/v1/tv/upnext", headers=dylan.h)
+        assert body.status_code == 200
+        assert all(i.get("episode_id") != "502" for r in body.json()["rows"] for i in r["items"])

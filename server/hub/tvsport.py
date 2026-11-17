@@ -35,6 +35,9 @@ WINDOW_BEFORE_S = 12 * 3600
 WINDOW_AFTER_S = 36 * 3600
 EVENT_AHEAD_S = 7 * 86400
 MAX_CHANNELS = 4
+DAY_RANGE = 14
+PAST_TTL_S = 6 * 3600
+MAX_BOARDS = 200
 
 TEAM, RACE, FIGHT, GOLF, TENNIS = "team", "race", "fight", "golf", "tennis"
 
@@ -206,6 +209,8 @@ class Sport:
         self.hub = hub
         self._transport = transport
         self._boards: dict[str, tuple[float, list[dict[str, Any]]]] = {}
+        self._dated: dict[str, tuple[float, list[dict[str, Any]]]] = {}  # "League|20261118" or "League|now"
+        self._failed: set[str] = set()
         self._lock = asyncio.Lock()
 
     def _zone(self) -> ZoneInfo:
@@ -258,6 +263,120 @@ class Sport:
                 if game["state"] == "live" or (game["start"] and now - WINDOW_BEFORE_S <= game["start"] <= now + after):
                     out.append(game)
         return out
+
+
+    # -- other days and league pages (#208) ----------------------------------------------------------------------
+    def day_of(self, value: str | None, now: float) -> str | None:
+        """`2026-11-18`, `20261118` or an offset from today (`-1`, `0`, `+2`) -> `20261118`; None when unreadable
+        or further than DAY_RANGE days away (the hub keeps the house to a fortnight either side)."""
+        if value is None:
+            return None
+        text = str(value).strip()
+        today = datetime.fromtimestamp(now, self._zone()).date()
+        try:
+            if re.fullmatch(r"[+-]?\d{1,2}", text):
+                day = today + timedelta(days=int(text))
+            elif re.fullmatch(r"\d{4}-\d{2}-\d{2}", text):
+                day = datetime.strptime(text, "%Y-%m-%d").date()
+            elif re.fullmatch(r"\d{8}", text):
+                day = datetime.strptime(text, "%Y%m%d").date()
+            else:
+                return None
+        except ValueError:
+            return None
+        if abs((day - today).days) > DAY_RANGE:
+            return None
+        return f"{day:%Y%m%d}"
+
+    def _day_bounds(self, ymd: str) -> tuple[float, float]:
+        start = datetime.strptime(ymd, "%Y%m%d").replace(tzinfo=self._zone())
+        return start.timestamp(), (start + timedelta(days=1)).timestamp()
+
+    def _ttl(self, ymd: str | None, games: list[dict[str, Any]], now: float) -> float:
+        if any(g["state"] == "live" for g in games):
+            return LIVE_TTL_S
+        if ymd is None:
+            return IDLE_TTL_S
+        lo, hi = self._day_bounds(ymd)
+        if hi <= now:
+            return PAST_TTL_S  # a finished day only changes when ESPN corrects a score
+        return IDLE_TTL_S
+
+    async def _board(self, client: httpx.AsyncClient, league: tuple[str, str, str, str, str], ymd: str | None,
+                     now: float) -> list[dict[str, Any]]:
+        key = f"{league[0]}|{ymd or 'now'}"
+        got = self._dated.get(key)
+        if got is not None and now - got[0] < self._ttl(ymd, got[1], now):
+            if key in self._failed:
+                raise SportError(f"{league[0]} scores didn't load")
+            return got[1]
+        url = f"{ESPN}/{league[1]}/scoreboard" + (f"?dates={ymd}" if ymd else "")
+        try:
+            resp = await client.get(url)
+            resp.raise_for_status()
+            games = parse(resp.json(), league)
+        except Exception as exc:  # noqa: BLE001
+            log.info("sport %s %s: %s", league[0], ymd or "now", type(exc).__name__)
+            had = got[1] if got else []
+            # Keep what we had; try again within a minute.
+            self._dated[key] = (now - IDLE_TTL_S + LIVE_TTL_S, had)
+            self._failed.add(key)
+            raise SportError(f"{league[0]} scores didn't load") from None
+        self._dated[key] = (now, games)
+        self._failed.discard(key)
+        if len(self._dated) > MAX_BOARDS:
+            for old in sorted(self._dated, key=lambda k: self._dated[k][0])[: len(self._dated) - MAX_BOARDS]:
+                self._dated.pop(old, None)
+                self._failed.discard(old)
+        return games
+
+    async def day(self, ymd: str, now: float | None = None, league: str | None = None) -> dict[str, Any]:
+        """Every game that starts on one local day (all leagues, or one), plus anything live when it is today.
+
+        Returns {games, failed}: `failed` names the leagues whose board didn't load, so a screen can say so."""
+        now = time.time() if now is None else now
+        leagues = [lg for lg in LEAGUES if league is None or lg[0] == league]
+        lo, hi = self._day_bounds(ymd)
+        today = lo <= now < hi
+        failed: list[str] = []
+
+        async def one(client: httpx.AsyncClient, lg: tuple[str, str, str, str, str]) -> list[dict[str, Any]]:
+            try:
+                return await self._board(client, lg, ymd, now)
+            except SportError:
+                failed.append(lg[0])
+                return []
+
+        async with self._lock:
+            async with httpx.AsyncClient(timeout=8, transport=self._transport,
+                                         headers={"User-Agent": "ThomasCreekHub"}) as client:
+                boards = await asyncio.gather(*(one(client, lg) for lg in leagues))
+        out, seen = [], set()
+        for games in boards:
+            for game in games:
+                if game["id"] in seen:
+                    continue
+                if (game["start"] and lo <= game["start"] < hi) or (today and game["state"] == "live"):
+                    seen.add(game["id"])
+                    out.append(game)
+        return {"games": out, "failed": [name for name, *_r in LEAGUES if name in failed]}
+
+    async def league_page(self, league: str, now: float | None = None) -> dict[str, Any]:
+        """One league's current board as ESPN lists it (football's whole week, a race weekend, today otherwise)."""
+        now = time.time() if now is None else now
+        lg = next((row for row in LEAGUES if row[0] == league), None)
+        if lg is None:
+            raise SportError("The hub doesn't follow that league")
+        ymd = None if lg[4] in ("week", "event") else f"{datetime.fromtimestamp(now, self._zone()):%Y%m%d}"
+        async with self._lock:
+            async with httpx.AsyncClient(timeout=8, transport=self._transport,
+                                         headers={"User-Agent": "ThomasCreekHub"}) as client:
+                games = await self._board(client, lg, ymd, now)
+        return {"games": list(games), "failed": []}
+
+
+class SportError(Exception):
+    """A board that didn't load, or a league the hub doesn't follow. The text is safe to show."""
 
 
 # ── matching ────────────────────────────────────────────────────────────────────────────────────────────────────

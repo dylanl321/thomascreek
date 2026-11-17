@@ -36,6 +36,7 @@ class Plex(Adapter):
             "summary": m.get("summary"),
             "library": m.get("librarySectionTitle"),
             "show": m.get("grandparentTitle"),
+            "show_id": str(m["grandparentRatingKey"]) if m.get("grandparentRatingKey") else None,
             "season": m.get("parentIndex"),
             "episode": m.get("index"),
             "view_offset_s": int(m.get("viewOffset", 0)) // 1000 if m.get("viewOffset") else None,
