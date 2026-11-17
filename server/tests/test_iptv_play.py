@@ -260,3 +260,79 @@ def test_a_fresh_main_list_still_reads_a_provider_added_since(hub):
         await asyncio.sleep(0)
     asyncio.run(go())
     assert calls == [1]
+
+
+def test_a_title_only_a_second_provider_carries_has_its_own_pages(hub, people, home_client):
+    """#207: a film and a series that only another provider lists open a page with the same fields as the main
+    provider's, read with that provider's own login; its episodes play from that provider; kids never see it."""
+    import asyncio
+
+    import httpx
+    import respx
+
+    from hub import iptvplay
+    from hub.tvexplore import _canonical_rows
+
+    hub.config.iptv.providers = []
+    hub.vault.set("iptv.xtream_server", "http://main.test")
+    hub.vault.set("iptv.xtream_username", "house")
+    hub.vault.set("iptv.xtream_password", "secret-main")
+    iptvplay.add_provider(hub, "Other TV", "http://other.test", "spare", "secret-other")
+    hub.tv_catalog.ingest(vod=[], vod_categories=[], live=[], live_categories=[], series=[], series_categories=[],
+                          xmltv=b"<tv></tv>")
+    doc = hub.tv_catalog.load()
+    doc["guide_at"] = doc["fetched_at"]
+    hub.tv_catalog._write(doc)
+    asked = []
+    with respx.mock(assert_all_called=False) as mock:
+        def answer(request):
+            action = request.url.params.get("action")
+            asked.append((request.url.params.get("username"), action))
+            return httpx.Response(200, json={
+                "get_vod_streams": [{"stream_id": 77, "name": "Only Here (2021)", "container_extension": "mkv"}],
+                "get_live_streams": [],
+                "get_series": [{"series_id": 31, "name": "Rare Show"}],
+                "get_vod_info": {"info": {"name": "Only Here", "plot": "A film one provider has.",
+                                          "movie_image": "https://image.tmdb.org/t/p/w500/77.jpg", "duration_secs": 5400}},
+                "get_series_info": {"info": {"name": "Rare Show", "plot": "Only on the second provider."},
+                                    "episodes": {"1": [{"id": "3101", "episode_num": 1, "title": "Start",
+                                                        "container_extension": "mkv"}]}},
+            }[action])
+        mock.get("http://other.test/player_api.php").mock(side_effect=answer)
+        asyncio.run(hub.tv_catalog.refresh_extras())
+
+        dylan = people["phones"]["Dylan"]
+        film = dylan.client.get("/v1/tv/movies/vod:Other-TV:77", headers=dylan.h)
+        assert film.status_code == 200, film.text
+        body = film.json()
+        assert body["id"] == "vod:Other-TV:77" and body["plot"] == "A film one provider has."
+        show = dylan.client.get("/v1/tv/series/series:Other-TV:31", headers=dylan.h)
+        assert show.status_code == 200, show.text
+        episode = show.json()["seasons"][0]["episodes"][0]
+        assert episode["id"] == "ep:Other-TV:3101" and episode["title"] == "Start"
+        for text in (film.text, show.text):
+            assert "secret-other" not in text and "spare" not in text and "other.test" not in text
+        # The other provider's own login opened the pages; the main login wasn't used for them.
+        assert ("spare", "get_vod_info") in asked and ("spare", "get_series_info") in asked
+        assert all(user == "spare" for user, _ in asked)
+
+        # A kid gets neither page.
+        theo = people["phones"]["Theo"]
+        assert theo.client.get("/v1/tv/movies/vod:Other-TV:77", headers=theo.h).status_code in (403, 404)
+
+    # Explore can open the title now: its row points at the other provider's page.
+    rows = {row["title"]: row for row in _canonical_rows(hub)}
+    assert any(row.get("movie_id") == "vod:Other-TV:77" for row in rows.values())
+
+    # The episode plays from the provider that carries it.
+    iptvplay.note_usage(hub, "Other-TV", "1", {"max_connections": "1", "active_cons": "0", "status": "Active"})
+    key = Key()
+    _enroll(home_client, key, TV_ID, "Living room")
+    hub.tv_app.set_tv(TV_ID, status="approved", room="living_room")
+    tv_headers = _auth(_token(home_client, key, Clock())["access_token"])
+    started = dylan.client.post("/v1/tv/tune", headers=dylan.h,
+                                json={"episode_id": "ep:Other-TV:3101", "device": TV_ID}).json()
+    assert started["ok"] is True and started["stream"]["ref"] == "ep:Other-TV:3101"
+    opened = home_client.get(started["stream"]["url"], headers=tv_headers, follow_redirects=False)
+    assert opened.headers["location"].startswith("http://other.test/series/spare/")
+    assert opened.headers["location"].endswith("/3101.mkv")

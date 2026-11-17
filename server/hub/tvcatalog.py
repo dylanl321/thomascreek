@@ -88,9 +88,15 @@ def series_key(series_id: object) -> str | None:
     return f"series:{SOURCE}:{part}" if part else None
 
 
-def episode_key(episode_id: object) -> str | None:
+def episode_key(episode_id: object, provider: str = SOURCE) -> str | None:
     part = _id_part(episode_id)
-    return f"ep:{SOURCE}:{part}" if part else None
+    return f"ep:{provider}:{part}" if part else None
+
+
+def provider_of(ref: str) -> str | None:
+    """The provider in a catalog id (`vod:<provider>:<id>`, `series:...`, `ep:...`)."""
+    parts = str(ref or "").split(":")
+    return parts[1] if len(parts) == 3 and parts[1] and parts[2] else None
 
 
 def _local(tag: str) -> str:
@@ -387,10 +393,30 @@ class TvCatalog:
 
     def extra_movie(self, ref: str) -> dict[str, Any] | None:
         """A film from another provider (`vod:<provider>:<id>`): its name and file type, for playback."""
-        parts = ref.split(":")
-        if len(parts) != 3 or parts[0] != "vod" or parts[1] == SOURCE:
+        return self.extra_row("movies", ref)
+
+    def extra_row(self, bucket: str, ref: str) -> dict[str, Any] | None:
+        """A film or series from another provider's light list. None for the main provider's ids."""
+        prefix = {"movies": "vod", "series": "series"}.get(bucket)
+        parts = str(ref or "").split(":")
+        if prefix is None or len(parts) != 3 or parts[0] != prefix or parts[1] == SOURCE:
             return None
-        return next((row for row in self.extra(parts[1]).get("movies") or [] if row.get("id") == ref), None)
+        return next((row for row in self.extra(parts[1]).get(bucket) or [] if row.get("id") == ref), None)
+
+    def known_row(self, bucket: str, ref: str) -> dict[str, Any] | None:
+        """A film or series row from any provider: the main list first, then the provider the id names."""
+        row = next((item for item in self.load().get(bucket) or [] if item.get("id") == ref), None)
+        return row if row is not None else self.extra_row(bucket, ref)
+
+    def _login_for(self, ref: str) -> tuple[str, str, str]:
+        """The login that can open this id's page: the main one, or the other provider's own."""
+        pid = provider_of(ref)
+        if pid in (None, SOURCE):
+            return self._login()
+        lg = self._extra_logins().get(pid)
+        if lg is None:
+            raise TvAppError(404, "not_found", "That provider isn't set up on the hub any more")
+        return lg["server"], lg["username"], lg["password"]
 
     def ingest_extra(self, pid: str, *, live: list[Any] | None, vod: list[Any] | None, series: list[Any] | None,
                      now: float | None = None) -> dict[str, Any]:
@@ -493,9 +519,9 @@ class TvCatalog:
     def store_series(self, payload: dict[str, Any], series_id: str) -> dict[str, Any]:
         info = payload.get("info") if isinstance(payload.get("info"), dict) else {}
         episodes_in = payload.get("episodes") if isinstance(payload.get("episodes"), dict) else {}
-        doc = self.load()
-        known = next((row for row in doc.get("series") or [] if row.get("id") == series_id), {})
+        known = self.known_row("series", series_id) or {}
         kids = self._is_kids(known.get("category"))
+        provider = provider_of(series_id) or SOURCE
         seasons = []
         details = self._details()
         for season_key, episodes in episodes_in.items():
@@ -509,7 +535,7 @@ class TvCatalog:
             for ep in episodes:
                 if not isinstance(ep, dict):
                     continue
-                eid = episode_key(ep.get("id"))
+                eid = episode_key(ep.get("id"), provider)
                 if eid is None:
                     continue
                 meta = ep.get("info") if isinstance(ep.get("info"), dict) else {}
@@ -543,8 +569,7 @@ class TvCatalog:
 
     def store_movie(self, payload: dict[str, Any], movie_id: str) -> dict[str, Any]:
         info = payload.get("info") if isinstance(payload.get("info"), dict) else {}
-        doc = self.load()
-        known = next((row for row in doc.get("movies") or [] if row.get("id") == movie_id), {})
+        known = self.known_row("movies", movie_id) or {}
         record = {
             "id": movie_id, "name": known.get("name") or _clip(info.get("name"), 120),
             "cover": _art(info.get("movie_image")) or known.get("cover"),
@@ -629,7 +654,7 @@ class TvCatalog:
         cached = self._details()["series"].get(series_id)
         if cached and time.time() - float(cached.get("fetched_at") or 0) < DETAIL_TTL_S:
             return self._present_series(cached)
-        server, user, password = self._login()
+        server, user, password = self._login_for(series_id)
         part = series_id.split(":")[-1]
         async with httpx.AsyncClient(timeout=45, follow_redirects=False, transport=self._transport) as client:
             response = await client.get(f"{server}/player_api.php", params={
@@ -648,7 +673,7 @@ class TvCatalog:
         cached = self._details()["movies"].get(movie_id)
         if cached and time.time() - float(cached.get("fetched_at") or 0) < DETAIL_TTL_S:
             return self._present_movie(cached)
-        server, user, password = self._login()
+        server, user, password = self._login_for(movie_id)
         part = movie_id.split(":")[-1]
         async with httpx.AsyncClient(timeout=45, follow_redirects=False, transport=self._transport) as client:
             response = await client.get(f"{server}/player_api.php", params={
@@ -834,9 +859,9 @@ class TvCatalog:
         return {"categories": sorted(names), label: shown}
 
     def movie(self, movie_id: str) -> dict[str, Any] | None:
-        if not movie_id.startswith(f"vod:{SOURCE}:"):
+        if not movie_id.startswith("vod:"):
             return None
-        row = next((item for item in self.load().get("movies") or [] if item.get("id") == movie_id), None)
+        row = self.known_row("movies", movie_id)
         if row is None:
             return None
         detail = self._details()["movies"].get(movie_id) or {}
@@ -845,12 +870,12 @@ class TvCatalog:
         return merged
 
     def episode(self, episode_id: str) -> dict[str, Any] | None:
-        if not episode_id.startswith(f"ep:{SOURCE}:"):
+        if not episode_id.startswith("ep:"):
             return None
         row = self._details()["episodes"].get(episode_id)
         if not row:
             return None
-        series = next((item for item in self.load().get("series") or [] if item.get("id") == row.get("series_id")), {})
+        series = self.known_row("series", str(row.get("series_id") or "")) or {}
         kids = self._is_kids(series.get("category"))
         return {**row, "kids": kids, "series_name": series.get("name") or row.get("series_name")}
 

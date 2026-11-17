@@ -618,19 +618,18 @@ def _canonical_rows(h: Any) -> list[dict[str, Any]]:
     from .iptvcanon import search
 
     rows = []
-    catalog = getattr(h, "tv_catalog", None)
-    try:
-        extra = set(catalog._extra_logins()) if catalog is not None else set()
-    except Exception:  # noqa: BLE001
-        extra = set()
+    from .tvcatalog import SOURCE
+
     for item in search(h.db)["items"]:
         if item.get("kind") not in ("movie", "series"):
             continue
-        # Copies read from the other providers on the admin page have no page a TV can open; they play through /tune.
-        sources = [s for s in item.get("sources") or [] if s.get("provider") not in extra]
+        # Every provider's copy has a page now (#207). The main provider's copy opens first; a title only
+        # another provider carries opens that provider's page.
+        sources = [s for s in item.get("sources") or [] if s.get("ref")]
         if not sources:
             continue
-        sources.sort(key=lambda source: {"2160p": 0, "1080p": 1, "720p": 2, "sd": 3}.get(str(source.get("quality") or ""), 4))
+        sources.sort(key=lambda source: (source.get("provider") != SOURCE,
+                                         {"2160p": 0, "1080p": 1, "720p": 2, "sd": 3}.get(str(source.get("quality") or ""), 4)))
         chosen = sources[0]
         kind = item["kind"]
         row = {
