@@ -242,7 +242,7 @@ def _redact(value: object) -> str | None:
 
 
 _COMMAND_FIELDS = ("kind", "channel_key", "start", "movie_id", "series_id", "episode_id", "resume",
-                    "name", "number", "title")
+                    "name", "number", "title", "ambience_id")
 
 
 def _public_command(row: dict[str, Any]) -> dict[str, Any]:
