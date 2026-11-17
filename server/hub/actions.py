@@ -961,6 +961,7 @@ class ActionRunner:
         names = ", ".join(dict.fromkeys(missed))
         return replied, f"Done, but {names} didn't change."
 
+    def _oven_message(self, plan: Plan) -> str:
         p = plan.params
         label = self.hub.kitchen.label(plan.target.entity_id or "")
         if p.get("on") is False:
