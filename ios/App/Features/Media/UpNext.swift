@@ -1,27 +1,5 @@
 import SwiftUI
 
-/// What to put on next. The hub ranks it from what this house watches. An empty answer hides the row.
-struct UpNextPage: Decodable { var rows: [UpNextRow] }
-struct UpNextRow: Decodable, Identifiable {
-    var id: String
-    var title: String
-    var items: [UpNextItem]
-}
-struct UpNextItem: Decodable, Identifiable {
-    var kind: String
-    var title: String
-    var subtitle: String?
-    var reason: String?
-    var posterUrl: String?
-    var channelKey: String?
-    var movieId: String?
-    var seriesId: String?
-    var episodeId: String?
-    var recordingId: String?
-    var progress: Double?
-    var id: String { (episodeId ?? movieId ?? recordingId ?? channelKey ?? title) + (reason ?? "") }
-}
-
 struct UpNextStrip: View {
     @Environment(HomeStore.self) private var store
     @State private var rows: [UpNextRow] = []

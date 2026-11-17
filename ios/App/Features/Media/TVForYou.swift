@@ -6,50 +6,6 @@ import TVPhone
 // A tap plays: on this iPhone through the hub (`/v1/tv/phone/play`), or on a house TV (`tv.play`).
 // The provider login stays on the hub; the phone only ever gets hub paths.
 
-struct TVFeed: Decodable {
-    var hero: TVFeedItem?
-    var rows: [TVFeedRow]
-}
-struct TVFeedRow: Decodable, Identifiable {
-    var id: String
-    var title: String
-    var items: [TVFeedItem]
-    /// The hub's one line on why this row is here for this person (hub #201); older hubs send none.
-    var reason: String?
-}
-struct TVFeedItem: Decodable, Identifiable, Hashable {
-    var kind: String?
-    var title: String
-    var subtitle: String?
-    var reason: String?
-    var year: Int?
-    var overview: String?
-    var posterUrl: String?
-    var backdropUrl: String?
-    var availability: String?
-    var kids: Bool?
-    var movieId: String?
-    var seriesId: String?
-    var episodeId: String?
-    var channelKey: String?
-    var plexId: String?
-    var tmdbId: Int?
-    var progress: Double?
-    var id: String { episodeId ?? movieId ?? seriesId ?? channelKey ?? plexId ?? tmdbId.map { "tmdb:\($0)" } ?? title }
-
-    /// Something to play right away. A show with no episode opens its page instead.
-    var playRequest: TVPlayRequest? {
-        if let episodeId {
-            return TVPlayRequest(title: title, kind: "episode", seriesId: seriesId, episodeId: episodeId, kids: kids)
-        }
-        if let movieId, kind != "series" {
-            return TVPlayRequest(title: title, kind: "movie", movieId: movieId, plexId: plexId, kids: kids)
-        }
-        if let channelKey { return TVPlayRequest(title: title, channelKey: channelKey, kids: kids) }
-        return nil
-    }
-}
-
 /// The For you rows: Keep watching first, then new, popular and acclaimed.
 struct TVForYouRows: View {
     @Environment(Router.self) private var router

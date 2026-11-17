@@ -1,0 +1,20 @@
+{
+ "tvs": [
+  {
+   "id": "tv_office_0123456789",
+   "last_command": null,
+   "media_entity": null,
+   "name": "Living room",
+   "online": true,
+   "playing": {
+    "channel_key": "xc:thomas-creek:10",
+    "name": null,
+    "number": null,
+    "title": "Newsroom"
+   },
+   "profile": "adult",
+   "room": "living_room",
+   "room_name": "Living Room"
+  }
+ ]
+}

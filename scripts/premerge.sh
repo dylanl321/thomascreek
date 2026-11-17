@@ -7,7 +7,7 @@
 #
 # What it runs, in a private worktree so your checkout, its Xcode project and any open simulator are not touched:
 #   1. the hub test suite (server/tests, pytest)
-#   2. the TVPhone Swift package tests (ios/TVPhone)
+#   2. the TVPhone Swift package tests (ios/TVPhone) and the hub body decode tests (ios/Bodies)
 #   3. the iPhone app build for the simulator (xcodegen project.yml, generic simulator destination, no signing).
 #      No simulator is booted.
 #
@@ -149,6 +149,11 @@ else
   ( cd "$WT/ios/TVPhone" && step "iPhone: TVPhone tests" swift test --scratch-path "$CACHE/swiftpm" ) \
     || fail "iPhone: TVPhone package tests failed"
   SUMMARY+=("TVPhone tests ok")
+  if [ -f "$WT/ios/Bodies/Package.swift" ]; then
+    ( cd "$WT/ios/Bodies" && step "iPhone: hub body decode tests" swift test --scratch-path "$CACHE/swiftpm-bodies" ) \
+      || fail "iPhone: a hub body no longer decodes (ios/Bodies)"
+    SUMMARY+=("body decode tests ok")
+  fi
   ( cd "$WT/ios" && step "iPhone: xcodegen" xcodegen generate --spec project.yml --quiet ) \
     || fail "iPhone: xcodegen failed"
   ( cd "$WT/ios" && step "iPhone: simulator build" xcodebuild -quiet \

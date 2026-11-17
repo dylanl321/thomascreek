@@ -1,0 +1,87 @@
+{
+ "cards": [
+  {
+   "buttons": [
+    {
+     "action": "steps.run",
+     "done": "All set. Goodnight.",
+     "kind": "action",
+     "params": {
+      "label": "Goodnight",
+      "steps": [
+       {
+        "action": "light.set",
+        "params": {
+         "on": false
+        },
+        "target": "light.kitchen"
+       }
+      ]
+     },
+     "primary": true,
+     "secure": false,
+     "target": null,
+     "title": "Goodnight"
+    }
+   ],
+   "eyebrow": "Night",
+   "id": "lockup:2026-11-17",
+   "items": [
+    {
+     "title": "Lights",
+     "value": "1 on"
+    }
+   ],
+   "priority": 90,
+   "ref": "thomascreek://doors",
+   "rule": "lockup",
+   "symbol": "lock.fill",
+   "tint": "night",
+   "title": "Lights still on",
+   "why": "It's late and doors or lights aren't set for the night"
+  }
+ ],
+ "plan": {
+  "cards_shown": 1,
+  "generated_at": null,
+  "home": "adult",
+  "sections": [
+   {
+    "id": "rightnow",
+    "pinned": true,
+    "show": true
+   },
+   {
+    "id": "whos_home",
+    "show": true
+   },
+   {
+    "id": "weather",
+    "show": true
+   },
+   {
+    "id": "status",
+    "show": true
+   },
+   {
+    "id": "favorites",
+    "show": true
+   },
+   {
+    "id": "modes",
+    "show": true
+   },
+   {
+    "id": "playing",
+    "show": true
+   },
+   {
+    "id": "systems",
+    "show": true
+   }
+  ],
+  "source": "default",
+  "why": null
+ },
+ "weather": null
+}

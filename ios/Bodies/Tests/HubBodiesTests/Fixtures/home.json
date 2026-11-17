@@ -1,0 +1,494 @@
+{
+ "appliances": [],
+ "cameras": [
+  {
+   "id": "driveway",
+   "name": "Driveway",
+   "room_id": "front",
+   "snapshot_url": "/v1/cameras/driveway/snapshot.jpg",
+   "updated_at": "2026-11-12T01:00:00+00:00"
+  }
+ ],
+ "devices": [
+  {
+   "actions": [
+    "light.set"
+   ],
+   "available": true,
+   "id": "light.kitchen",
+   "kind": "light",
+   "name": "Kitchen",
+   "room_id": "kitchen",
+   "state": {
+    "brightness": 50,
+    "on": true
+   },
+   "updated_at": "2026-11-12T01:00:00+00:00"
+  },
+  {
+   "actions": [
+    "light.set"
+   ],
+   "available": true,
+   "id": "light.theo_room",
+   "kind": "light",
+   "name": "Child's lamp",
+   "room_id": "theo_room",
+   "state": {
+    "on": false
+   },
+   "updated_at": "2026-11-12T01:00:00+00:00"
+  },
+  {
+   "actions": [
+    "light.set"
+   ],
+   "available": true,
+   "id": "light.living_room",
+   "kind": "light",
+   "name": "Living room",
+   "room_id": "living_room",
+   "state": {
+    "on": false
+   },
+   "updated_at": "2026-11-12T01:00:00+00:00"
+  },
+  {
+   "actions": [
+    "climate.set"
+   ],
+   "available": true,
+   "id": "climate.theo_room",
+   "kind": "climate",
+   "name": "Child's room",
+   "room_id": "theo_room",
+   "state": {
+    "available": true,
+    "current_temp": 70.0,
+    "humidity": null,
+    "hvac": "heat",
+    "hvac_action": null,
+    "on": true,
+    "target_high": null,
+    "target_low": null,
+    "target_temp": 70.0,
+    "unit": null
+   },
+   "updated_at": "2026-11-12T01:00:00+00:00"
+  },
+  {
+   "actions": [
+    "garage.set"
+   ],
+   "available": true,
+   "id": "cover.large_garage",
+   "kind": "garage",
+   "name": "Large garage door",
+   "room_id": "garage",
+   "state": {
+    "open": false,
+    "position": null
+   },
+   "updated_at": "2026-11-12T01:00:00+00:00"
+  },
+  {
+   "actions": [
+    "lock.set"
+   ],
+   "available": true,
+   "id": "lock.front_door",
+   "kind": "lock",
+   "name": "Front door",
+   "room_id": "front",
+   "state": {
+    "locked": true
+   },
+   "updated_at": "2026-11-12T01:00:00+00:00"
+  },
+  {
+   "actions": [
+    "camera.view"
+   ],
+   "available": true,
+   "id": "camera.driveway",
+   "kind": "camera",
+   "name": "Driveway",
+   "room_id": "front",
+   "state": {},
+   "updated_at": "2026-11-12T01:00:00+00:00"
+  },
+  {
+   "actions": [
+    "media.command",
+    "media.volume",
+    "media.play"
+   ],
+   "available": true,
+   "id": "media_player.theo_tv",
+   "kind": "media",
+   "name": "Child's TV",
+   "room_id": "theo_room",
+   "state": {
+    "commands": [],
+    "muted": null,
+    "on": false,
+    "playing": false,
+    "source": null,
+    "sources": [],
+    "volume": null
+   },
+   "updated_at": "2026-11-12T01:00:00+00:00"
+  }
+ ],
+ "floors": [
+  {
+   "id": "main",
+   "name": "Main Floor",
+   "room_ids": [
+    "kitchen",
+    "living_room",
+    "garage",
+    "front"
+   ]
+  },
+  {
+   "id": "up",
+   "name": "Upstairs",
+   "room_ids": [
+    "theo_room"
+   ]
+  }
+ ],
+ "generated_at": "2026-11-17T05:57:50.204652+00:00",
+ "modes": [],
+ "now_playing": [],
+ "people": [
+  {
+   "avatar": null,
+   "id": "per_20546225f1294629bc93",
+   "name": "Parent",
+   "role": "admin"
+  },
+  {
+   "avatar": null,
+   "id": "per_d8d94646dd504bde8c57",
+   "name": "Grown-up",
+   "role": "adult"
+  },
+  {
+   "avatar": null,
+   "id": "per_e1ba4fc727b64b0d9fb5",
+   "name": "Child",
+   "role": "child"
+  }
+ ],
+ "plan": {
+  "cards_shown": 1,
+  "generated_at": null,
+  "home": "adult",
+  "sections": [
+   {
+    "id": "rightnow",
+    "pinned": true,
+    "show": true
+   },
+   {
+    "id": "whos_home",
+    "show": true
+   },
+   {
+    "id": "weather",
+    "show": true
+   },
+   {
+    "id": "status",
+    "show": true
+   },
+   {
+    "id": "favorites",
+    "show": true
+   },
+   {
+    "id": "modes",
+    "show": true
+   },
+   {
+    "id": "playing",
+    "show": true
+   },
+   {
+    "id": "systems",
+    "show": true
+   }
+  ],
+  "source": "default",
+  "why": null
+ },
+ "printers": [
+  {
+   "color": null,
+   "id": "h2s",
+   "job": null,
+   "model": "H2S",
+   "name": "H2S",
+   "online": false,
+   "set_up": false,
+   "state": "offline"
+  }
+ ],
+ "rooms": [
+  {
+   "device_ids": [
+    "light.kitchen"
+   ],
+   "favorite": false,
+   "floor_id": "main",
+   "id": "kitchen",
+   "name": "Kitchen",
+   "scenes": [],
+   "summary": "1 light on",
+   "symbol": "fork.knife"
+  },
+  {
+   "device_ids": [
+    "light.theo_room",
+    "climate.theo_room",
+    "media_player.theo_tv"
+   ],
+   "favorite": false,
+   "floor_id": "up",
+   "id": "theo_room",
+   "name": "Child's room",
+   "scenes": [],
+   "summary": "70\u00b0",
+   "symbol": "bed.double"
+  },
+  {
+   "device_ids": [
+    "light.living_room"
+   ],
+   "favorite": false,
+   "floor_id": "main",
+   "id": "living_room",
+   "name": "Living Room",
+   "scenes": [
+    {
+     "icon": null,
+     "id": "scene.movie_night",
+     "name": "Movie night"
+    }
+   ],
+   "summary": "All off",
+   "symbol": "sofa"
+  },
+  {
+   "device_ids": [
+    "cover.large_garage"
+   ],
+   "favorite": false,
+   "floor_id": "main",
+   "id": "garage",
+   "name": "Garage",
+   "scenes": [],
+   "summary": "All off",
+   "symbol": "car"
+  },
+  {
+   "device_ids": [
+    "lock.front_door",
+    "camera.driveway"
+   ],
+   "favorite": false,
+   "floor_id": "main",
+   "id": "front",
+   "name": "Front",
+   "scenes": [],
+   "summary": "All off",
+   "symbol": "door"
+  }
+ ],
+ "seasonal": {
+  "holiday_lights": true
+ },
+ "smart": [
+  {
+   "buttons": [
+    {
+     "action": "steps.run",
+     "done": "All set. Goodnight.",
+     "kind": "action",
+     "params": {
+      "label": "Goodnight",
+      "steps": [
+       {
+        "action": "light.set",
+        "params": {
+         "on": false
+        },
+        "target": "light.kitchen"
+       }
+      ]
+     },
+     "primary": true,
+     "secure": false,
+     "target": null,
+     "title": "Goodnight"
+    }
+   ],
+   "eyebrow": "Night",
+   "id": "lockup:2026-11-17",
+   "items": [
+    {
+     "title": "Lights",
+     "value": "1 on"
+    }
+   ],
+   "priority": 90,
+   "ref": "thomascreek://doors",
+   "rule": "lockup",
+   "symbol": "lock.fill",
+   "tint": "night",
+   "title": "Lights still on",
+   "why": "It's late and doors or lights aren't set for the night"
+  }
+ ],
+ "status": {
+  "ha_live": false,
+  "level": "ok",
+  "line": "Everything looks good"
+ },
+ "systems": {
+  "apps": {
+   "crashed": 0,
+   "total": 0,
+   "updates": 0
+  },
+  "internet": {
+   "latency_ms": null,
+   "up": true
+  },
+  "services": [
+   {
+    "enabled": true,
+    "error": null,
+    "id": "home_assistant",
+    "last_ok": 1.0,
+    "ok": true,
+    "title": "Home Assistant"
+   },
+   {
+    "enabled": false,
+    "error": null,
+    "id": "frigate",
+    "last_ok": null,
+    "ok": false,
+    "title": "Cameras"
+   },
+   {
+    "enabled": false,
+    "error": null,
+    "id": "plex",
+    "last_ok": null,
+    "ok": false,
+    "title": "Plex"
+   },
+   {
+    "enabled": false,
+    "error": null,
+    "id": "jellyseerr",
+    "last_ok": null,
+    "ok": false,
+    "title": "Requests"
+   },
+   {
+    "enabled": false,
+    "error": null,
+    "id": "sonarr",
+    "last_ok": null,
+    "ok": false,
+    "title": "Downloads"
+   },
+   {
+    "enabled": false,
+    "error": null,
+    "id": "radarr",
+    "last_ok": null,
+    "ok": false,
+    "title": "Downloads"
+   },
+   {
+    "enabled": false,
+    "error": null,
+    "id": "truenas",
+    "last_ok": null,
+    "ok": false,
+    "title": "NAS"
+   },
+   {
+    "enabled": false,
+    "error": null,
+    "id": "mealie",
+    "last_ok": null,
+    "ok": false,
+    "title": "Meals"
+   },
+   {
+    "enabled": false,
+    "error": null,
+    "id": "homebox",
+    "last_ok": null,
+    "ok": false,
+    "title": "Inventory"
+   },
+   {
+    "enabled": false,
+    "error": null,
+    "id": "family_board",
+    "last_ok": null,
+    "ok": false,
+    "title": "Family board"
+   },
+   {
+    "enabled": false,
+    "error": null,
+    "id": "trek",
+    "last_ok": null,
+    "ok": false,
+    "title": "Trips"
+   },
+   {
+    "enabled": false,
+    "error": null,
+    "id": "show_player",
+    "last_ok": null,
+    "ok": false,
+    "title": "Holiday lights"
+   },
+   {
+    "box": null,
+    "enabled": false,
+    "error": null,
+    "id": "firewalla",
+    "last_ok": null,
+    "ok": false,
+    "title": "Network"
+   },
+   {
+    "enabled": false,
+    "error": "Not connected",
+    "id": "printer_h2s",
+    "last_ok": null,
+    "ok": false,
+    "title": "H2S printer"
+   }
+  ],
+  "storage": []
+ },
+ "today": {
+  "dinner": null,
+  "events": []
+ },
+ "weather": {
+  "pending": true
+ }
+}

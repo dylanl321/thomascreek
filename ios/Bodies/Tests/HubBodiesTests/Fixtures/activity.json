@@ -1,0 +1,114 @@
+{
+ "items": [
+  {
+   "action": "tvapp.state",
+   "at": "2026-11-17T05:57:50.195291+00:00",
+   "detail": null,
+   "device_id": "tv:tv_office_0123456789",
+   "id": "6",
+   "outcome": "ok",
+   "params": {
+    "command": null,
+    "foreground": true,
+    "playing": "xc:thomas-creek:10"
+   },
+   "person_id": null,
+   "source": "tv",
+   "t": 1794895070.1952913,
+   "target": "tv_office_0123456789",
+   "who": null
+  },
+  {
+   "action": "tvapp.token",
+   "at": "2026-11-17T05:57:50.189299+00:00",
+   "detail": null,
+   "device_id": "tv:tv_office_0123456789",
+   "id": "5",
+   "outcome": "ok",
+   "params": {
+    "role": "tablet",
+    "room": [
+     "living_room"
+    ]
+   },
+   "person_id": null,
+   "source": "tv",
+   "t": 1794895070.189299,
+   "target": "tv_office_0123456789",
+   "who": null
+  },
+  {
+   "action": "tvapp.enroll",
+   "at": "2026-11-17T05:57:50.182891+00:00",
+   "detail": null,
+   "device_id": null,
+   "id": "4",
+   "outcome": "ok",
+   "params": {
+    "ip": "192.168.1.50",
+    "name": "Living room",
+    "status": "pending"
+   },
+   "person_id": null,
+   "source": "tv",
+   "t": 1794895070.1828907,
+   "target": "tv_office_0123456789",
+   "who": null
+  },
+  {
+   "action": "device.enroll",
+   "at": "2026-11-17T05:57:50.003529+00:00",
+   "detail": "Joined with a new device",
+   "device_id": "dev_ab751166f3da4acd8565",
+   "id": "3",
+   "outcome": "ok",
+   "params": {
+    "model": "iPhone",
+    "name": "Child's iPhone"
+   },
+   "person_id": null,
+   "ref": "thomascreek://people",
+   "source": "app",
+   "t": 1794895070.003529,
+   "target": "dev_ab751166f3da4acd8565",
+   "who": null
+  },
+  {
+   "action": "device.enroll",
+   "at": "2026-11-17T05:57:49.990449+00:00",
+   "detail": "Joined with a new device",
+   "device_id": "dev_ceb47b8497634f46a2fe",
+   "id": "2",
+   "outcome": "ok",
+   "params": {
+    "model": "iPhone",
+    "name": "Grown-up's iPhone"
+   },
+   "person_id": null,
+   "ref": "thomascreek://people",
+   "source": "app",
+   "t": 1794895069.9904487,
+   "target": "dev_ceb47b8497634f46a2fe",
+   "who": null
+  },
+  {
+   "action": "device.enroll",
+   "at": "2026-11-17T05:57:49.974142+00:00",
+   "detail": "Joined with a new device",
+   "device_id": "dev_f009279025814b3c8b20",
+   "id": "1",
+   "outcome": "ok",
+   "params": {
+    "model": "iPhone",
+    "name": "Parent's iPhone"
+   },
+   "person_id": null,
+   "ref": "thomascreek://people",
+   "source": "app",
+   "t": 1794895069.9741416,
+   "target": "dev_f009279025814b3c8b20",
+   "who": null
+  }
+ ],
+ "next_before": null
+}
