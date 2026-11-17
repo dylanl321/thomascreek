@@ -24,7 +24,6 @@ from .tvlineup import valid_key
 log = logging.getLogger("hub.channelhealth")
 
 KV = "tv.source_health"
-WATCH = "tv.watch"
 RECENT_S = 30 * 86400
 TOP = 200
 WINDOW = 12
@@ -118,7 +117,7 @@ class SourceHealth:
         """Favorites, the last 30 days, and the top plays. Never the whole catalog."""
         now = time.time() if now is None else now
         ranked: dict[str, tuple[int, float]] = {}
-        watched = self.hub.db.kv_get(WATCH) or {}
+        watched = self.hub.db.watch_buckets()
         if isinstance(watched, dict):
             for bucket in watched.values():
                 if not isinstance(bucket, dict):
