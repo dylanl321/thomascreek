@@ -135,6 +135,19 @@ def _off_button(eids: list[str], label: str = "Turn off") -> dict[str, Any] | No
             "params": {"steps": steps, "label": label}, "done": "Off"}
 
 
+def _is_speaker(st: dict[str, Any]) -> bool:
+    return (st.get("attributes") or {}).get("device_class") == "speaker"
+
+
+def _left_playing(st: dict[str, Any]) -> bool:
+    """A TV is left on when it is on, playing or paused. A speaker only counts while it plays: a paused Sonos
+    stays "paused" for days and makes no sound."""
+    state = st.get("state")
+    if _is_speaker(st):
+        return state == "playing"
+    return state in ("playing", "on", "paused")
+
+
 def _running(st: dict[str, Any] | None) -> bool:
     if not st:
         return False
@@ -287,14 +300,22 @@ async def left_detect(b: "Brain", trig: Trigger) -> Finding | None:
         b.drop_cards("left_on")
         return None
     media = [e for e, st in sorted(states.items()) if e.startswith("media_player.") and e in area_of
-             and st.get("state") in ("playing", "on", "paused") and not b.human_touched(e, job.human_window_s, now)]
+             and _left_playing(st) and not b.human_touched(e, job.human_window_s, now)]
     if media:
+        speakers = [e for e in media if _is_speaker(states[e])]
+        noun = "speakers" if len(speakers) == len(media) else "TVs" if not speakers else "TVs and speakers"
+        one = "is still playing" if speakers else "is still on"
+        # Only what the hub can really switch off goes on the button; a player it can't reach is still named.
+        routes = {e: b.hub.actions.power_route(e, False) for e in media}
+        can = [e for e in media if routes[e] in ("ha", "tv", "stop", "pause")]
+        title = "Turn off" if any(routes[e] in ("ha", "tv") for e in can) else "Stop"
         items.append({"key": "away_media:" + ",".join(media), "kind": "away_media",
-                      "players": [_name(b, e) for e in media],
-                      "say": (f"{_name(b, media[0])} is still on" if len(media) == 1 else f"{len(media)} TVs still on"),
-                      "detail": "Everyone's out.", "why": "a TV or speaker is on while everyone's out",
+                      "players": [{"name": _name(b, e), "type": "speaker" if e in speakers else "TV"} for e in media],
+                      "say": (f"{_name(b, media[0])} {one}" if len(media) == 1 else f"{len(media)} {noun} still on"),
+                      "detail": "Everyone's out.", "why": f"{noun} on while everyone's out",
                       "priority": 66, "covers": media,
-                      "buttons": [_off_button(media), {"kind": "done", "title": "Leave it", "primary": False}]})
+                      "buttons": [_off_button(can, title) if can else None,
+                                  {"kind": "done", "title": "Leave it" if can else "Got it", "primary": not can}]})
     windows = [e for e, st in sorted(states.items()) if e.startswith("binary_sensor.") and st.get("state") == "on"
                and (st.get("attributes") or {}).get("device_class") == "window"]
     if windows:

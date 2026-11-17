@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Any
 
 from .adapters.base import AdapterError, NoAnswer, NotConfigured, ServiceError, Unreachable
 from .iptvplay import release_tv
-from .home import iso, kind_for
+from .home import MP_PAUSE, MP_STOP, MP_TURN_OFF, MP_TURN_ON, iso, kind_for
 from .policy import TIERS, Decision, Subject, Target
 from .tvapp import TvAppError
 from .upnext import remember
@@ -50,6 +50,9 @@ MEDIA_COMMANDS = {
 # Actions that fail fast, with a plain message, when Home Assistant already shows the device as unavailable.
 OFFLINE_CHECKED = frozenset({"light.set", "switch.set", "fan.set"})
 ASLEEP_STATES = ("off", "standby", "unavailable", "unknown")
+# A call the hub runs itself instead of sending to Home Assistant: power for a Thomas Creek TV box over
+# network debugging and HDMI-CEC (hub/tvcec.py), for a player whose Home Assistant entity can't turn off.
+HUB_DOMAIN = "thomascreek"
 REMOTE_COMMANDS = {"up": "up", "down": "down", "left": "left", "right": "right", "select": "select",
                    "back": "back", "home": "home"}
 
@@ -262,6 +265,9 @@ class ActionRunner:
         checked: set[str] = set()
         replied = False
         for dom, svc, data in plan.calls:
+            if dom == HUB_DOMAIN:
+                await self._call(dom, svc, data)
+                continue
             x = str(data.get("entity_id") or plan.target.entity_id or "")
             remote = remote_of(x)
             if remote and remote not in checked:
@@ -298,11 +304,25 @@ class ActionRunner:
 
         Returns whether Home Assistant listed the changes (False when the reply had none to give).
         """
+        if dom == HUB_DOMAIN:
+            await self._hub_call(svc, data)
+            return False
         reply = await self.hub.ha.call_service(dom, svc, data)
         if not isinstance(reply, list):
             return False
         self.hub.home.publish_soon(self.hub.home.merge_states(reply))
         return True
+
+    async def _hub_call(self, svc: str, data: dict[str, Any]) -> None:
+        from . import tvs
+
+        if svc != "tv_power":
+            raise ActionError(400, "unknown_action", "The hub can't do that itself")
+        try:
+            await tvs.act(self.hub, str(data.get("install_id") or ""),
+                          {"action": "tv_power", "power": data.get("power")}, None)
+        except tvs.TvsError as exc:
+            raise ActionError(exc.status, exc.code, exc.message) from None
 
     async def _fresh_state(self, eid: str) -> str | None:
         try:
@@ -339,8 +359,69 @@ class ActionRunner:
                 wake = [] if self.hub.home.states.get(box, {}).get("state") not in ASLEEP else \
                     [("media_player", "turn_on", b)]
                 return wake + hk.prepare(box)
-            return [("media_player", "turn_off", b), ("media_player", "turn_off", {"entity_id": tv})]
+            off = self._soft_power(box) + (self._soft_power(tv) if tv in self.hub.home.states else [])
+            return off or self.power_calls(box, False)
         return hk.prepare(box) + calls
+
+    def tv_box(self, eid: str) -> str | None:
+        """The approved Thomas Creek TV box behind this player that the hub can reach over network debugging."""
+        if not self.hub.tv_app.adb.available:
+            return None
+        return next((iid for iid, tv in self.hub.tv_app.tvs().items()
+                     if tv.get("media_entity") == eid and tv.get("status") == "approved" and tv.get("ip")), None)
+
+    def power_route(self, eid: str, on: bool) -> str | None:
+        """How the hub can switch this player on or off, judged from what its Home Assistant entity supports.
+
+        "ha": its own turn_on / turn_off. "tv": a Thomas Creek TV box, over network debugging and HDMI-CEC.
+        "stop" / "pause": a speaker that can't power off (a Sonos) is stopped instead. "idle": nothing to do,
+        it is already quiet. None: the hub has no way, so the phone shouldn't offer the button.
+        An entity that doesn't publish its features is trusted to turn on and off, as before.
+        """
+        st = self.hub.home.states.get(eid) or {}
+        raw = (st.get("attributes") or {}).get("supported_features")
+        if raw is None:
+            return "ha"
+        try:
+            f = int(raw)
+        except (TypeError, ValueError):
+            return "ha"
+        if f & (MP_TURN_ON if on else MP_TURN_OFF):
+            return "ha"
+        if self.tv_box(eid):
+            return "tv"
+        if on:
+            return None
+        state = st.get("state")
+        if state in ASLEEP_STATES or state in ("idle", "paused"):
+            return "idle"
+        if state == "playing":
+            return "stop" if f & MP_STOP else "pause" if f & MP_PAUSE else None
+        return None
+
+    def power_calls(self, eid: str, on: bool) -> list[tuple[str, str, dict[str, Any]]]:
+        """The calls that switch a player on or off by the best route it has (see power_route)."""
+        t = {"entity_id": eid}
+        route = self.power_route(eid, on)
+        if route == "ha":
+            return [("media_player", "turn_on" if on else "turn_off", t)]
+        if route == "tv":
+            return [(HUB_DOMAIN, "tv_power", {"install_id": self.tv_box(eid), "power": "on" if on else "off"})]
+        if route == "stop":
+            return [("media_player", "media_stop", t)]
+        if route == "pause":
+            return [("media_player", "media_pause", t)]
+        if route == "idle":
+            return []
+        name = ((self.hub.home.states.get(eid) or {}).get("attributes") or {}).get("friendly_name") or "That player"
+        raise ActionError(400, "cant_power", f"{name} can't be turned {'on' if on else 'off'} from the app. "
+                                             "Use its own remote or app.")
+
+    def _soft_power(self, eid: str) -> list[tuple[str, str, dict[str, Any]]]:
+        try:
+            return self.power_calls(eid, False)
+        except ActionError:
+            return []
 
     def _app_call(self, eid: str, plat: str | None, app: str) -> list[tuple[str, str, dict[str, Any]]]:
         """Open an app the same way on any TV: "youtube" becomes a package launch on a Google TV and the
@@ -423,7 +504,7 @@ class ActionRunner:
                 on = p.get("on")
                 if not isinstance(on, bool):
                     on = self.hub.home.states.get(eid, {}).get("state") in ASLEEP_STATES
-                return [("media_player", "turn_on" if on else "turn_off", t)]
+                return self.power_calls(eid, on)
             if cmd in MEDIA_COMMANDS:
                 dom, svc, extra = MEDIA_COMMANDS[cmd]
                 return [(dom, svc, {**t, **extra})]
@@ -766,8 +847,12 @@ class ActionRunner:
         """One plan for several devices: calls that differ only in their entity go to Home Assistant once,
         with every entity in the list (one radio round for a whole room of lights)."""
         merged: dict[tuple[str, str, str], tuple[str, str, dict[str, Any], list[str]]] = {}
+        own: list[tuple[str, str, dict[str, Any]]] = []
         for plan in plans:
             for dom, svc, data in plan.calls:
+                if dom == HUB_DOMAIN:
+                    own.append((dom, svc, data))
+                    continue
                 rest = {k: v for k, v in data.items() if k != "entity_id"}
                 key = (dom, svc, json.dumps(rest, sort_keys=True, default=str))
                 ids = data.get("entity_id")
@@ -776,7 +861,7 @@ class ActionRunner:
                     merged[key] = (dom, svc, rest, [])
                 merged[key][3].extend(i for i in ids if i and i not in merged[key][3])
         calls = [(dom, svc, {**rest, "entity_id": ids[0] if len(ids) == 1 else ids})
-                 for dom, svc, rest, ids in merged.values()]
+                 for dom, svc, rest, ids in merged.values()] + own
         first = plans[0]
         if len(plans) == 1:
             return Plan(first.action, first.target, first.params, first.decision, calls, label=first.label)
@@ -803,10 +888,13 @@ class ActionRunner:
             else:
                 if plan.action in ("media.command", "media.play", "media.volume"):
                     replied = await self._run_tv_calls(plan)
+                elif plan.action == "steps.run":
+                    replied, msg = await self._run_steps(plan)
                 else:
                     for dom, svc, data in plan.calls:
                         replied = await self._call(dom, svc, data) and replied
-                msg = "Done"
+                if plan.action != "steps.run":
+                    msg = "Done"
                 outcome = "ok"
                 if plan.action == "oven.set":
                     await self.hub.kitchen.after_run(s, plan.target.entity_id, plan.params)  # type: ignore[arg-type]
@@ -834,7 +922,7 @@ class ActionRunner:
         except Exception as exc:  # noqa: BLE001
             db.log(plan.action, "error", person_id=s.person_id, device_id=s.device_id,
                    target=plan.target.entity_id, params=_safe(plan.params), detail=str(exc)[:300], source=source)
-            status, code, message = friendly_failure(plan, exc)
+            status, code, message = friendly_failure(plan, exc, self._name)
             raise ActionError(status, code, message) from exc
         db.log(plan.action, outcome, person_id=s.person_id, device_id=s.device_id,
                target=plan.target.entity_id, params=_safe(plan.params), detail=detail, source=source)
@@ -848,6 +936,30 @@ class ActionRunner:
         if isinstance(plan.custom, dict) and plan.custom.get("command_id"):
             out["command_id"] = plan.custom["command_id"]
         return out
+
+    def _name(self, eid: str) -> str | None:
+        return ((self.hub.home.states.get(eid) or {}).get("attributes") or {}).get("friendly_name")
+
+    async def _run_steps(self, plan: Plan) -> tuple[bool, str]:
+        """Every step gets its go: one device that fails doesn't stop the rest ("Turn off" on two TVs)."""
+        replied, done, first = True, 0, None
+        missed: list[str] = []
+        for dom, svc, data in plan.calls:
+            try:
+                replied = await self._call(dom, svc, data) and replied
+                done += 1
+            except Exception as exc:  # noqa: BLE001
+                log.info("step %s.%s failed: %s", dom, svc, exc)
+                first = first or exc
+                ids = data.get("entity_id")
+                for eid in ids if isinstance(ids, list) else [ids]:
+                    missed.append(self._name(str(eid)) or "one device" if eid else "one device")
+        if first is None:
+            return replied, "Done"
+        if not done:
+            raise first
+        names = ", ".join(dict.fromkeys(missed))
+        return replied, f"Done, but {names} didn't change."
 
     def _oven_message(self, plan: Plan) -> str:
         p = plan.params
@@ -982,7 +1094,28 @@ def _channel_for(hub: "Hub", key: str) -> dict[str, Any]:
     return found
 
 
-def friendly_failure(plan: Plan, exc: BaseException) -> tuple[int, str, str]:
+_ENTITY = re.compile(r"\b([a-z_]+\.[a-z0-9_]+)\b")
+_SERVICE_WORDS = {"turn_off": "turned off", "turn_on": "turned on", "media_stop": "stopped",
+                  "media_pause": "paused", "media_play": "played"}
+
+
+def _rejected(label: str, why: str | None, name_of: Any) -> str:
+    """Home Assistant's 400 in words a person can act on. Its own text (entity ids, "Validation error") is
+    kept for the log, never shown."""
+    why = why or ""
+    eid = next((m for m in _ENTITY.findall(why) if not m.startswith("media_player.turn")), None)
+    who = (name_of(eid) if eid and name_of else None) or label
+    if "not support" in why:
+        verb = next((w for k, w in _SERVICE_WORDS.items() if k in why), None)
+        if verb:
+            return f"{who} can't be {verb} from the app. Use its own remote or app."
+        return f"{who} can't do that from the app. Use its own remote or app."
+    if "not found" in why or "unknown" in why.lower():
+        return f"Home Assistant no longer has {who}. It may have been renamed or removed."
+    return f"Home Assistant didn't accept that for {who}. Try again, or use the device itself."
+
+
+def friendly_failure(plan: Plan, exc: BaseException, name_of: Any = None) -> tuple[int, str, str]:
     """Status, error code and a plain sentence for a call that failed on the way to the house."""
     label = plan.label or ("The TV" if plan.action.startswith("media.") else "That device")
     if isinstance(exc, NoAnswer):
@@ -996,7 +1129,7 @@ def friendly_failure(plan: Plan, exc: BaseException) -> tuple[int, str, str]:
         if exc.status in (401, 403):
             return 502, "ha_auth", "Home Assistant refused the hub's sign-in. Its access token needs renewing."
         if exc.status in (400, 404):
-            return 502, "ha_rejected", f"Home Assistant didn't accept that for {label}" + (f": {why}" if why else ".")
+            return 502, "ha_rejected", _rejected(label, why, name_of)
         return 502, "device_failed", f"{label} didn't respond" + (f" ({why})" if why else "") + \
             ". Check it has power, then try again."
     if plan.action.startswith("media."):
