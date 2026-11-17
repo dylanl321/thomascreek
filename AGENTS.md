@@ -38,7 +38,7 @@ magical, not just work: nothing blank, no dead taps, the right thing already on 
    slices exist) rather than a second Swift copy of the same rules.
 7. **Done means seen for real.** Hub changes are checked against the live hub from the home network after
    deploy; app changes in the simulator or on a device, with what was seen written in the pull request. A red
-   CI check is never merged.
+   CI check or a `PREMERGE FAIL` is never merged.
 8. **Every failure says what happens next.** No silent errors: a failed call returns a short reason the apps
    can show, and the hub logs enough to find the cause.
 9. **Kids first.** Child profiles never get an adult title from any endpoint. Filtering happens here.
@@ -70,11 +70,25 @@ here behind an endpoint.
 
 ## Checks
 
+GitHub Actions is out of budget, so the check runs on the Mac. One command, from the repository root on the Mac:
+
+```
+scripts/premerge.sh          # this checkout's HEAD commit
+scripts/premerge.sh 212      # pull request #212
+```
+
+It checks the commit merged with `origin/main`, in its own worktree (your checkout and simulators are untouched):
+the hub suite, the `ios/TVPhone` package tests and the iPhone app build for a generic simulator (no signing, no
+simulator booted). Only one pre-merge check runs on the Mac at a time, for this and the TV repository; a second one
+waits. No keys or addresses are needed. It ends with one `PREMERGE PASS` or `PREMERGE FAIL` line.
+
+**A pull request is merged only with a `PREMERGE PASS` line for its current head commit pasted in it.** A new push
+needs a new run. `PREMERGE_SKIP_IOS=1` (hub-only changes, when the Mac is busy) says `iPhone SKIPPED` in the line and
+does not count for a change under `ios/`. Without the Mac, the hub suite alone is:
+
 ```
 cd server && python3.12 -m venv .venv && .venv/bin/pip install -e ".[test]" && .venv/bin/python -m pytest -q
 ```
-
-The full suite must pass. iPhone changes build in Xcode for a device and the simulator.
 
 ## Working with other agents
 
@@ -87,5 +101,6 @@ The full suite must pass. iPhone changes build in Xcode for a device and the sim
 - [ ] Decisions about what to show live on the hub, with tests.
 - [ ] New fields are optional; existing clients keep working.
 - [ ] The TV repository's `HubContract.kt` and the iPhone app are updated, or the gap is written down.
+- [ ] `scripts/premerge.sh` PASS line for the head commit pasted in the pull request.
 - [ ] Checked against the live hub after deploy.
 - [ ] No secrets, addresses or hostnames, in code or in log lines.
