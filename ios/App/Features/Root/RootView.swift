@@ -111,6 +111,7 @@ struct MainTabs: View {
                 .task { if store.houseTVs.isEmpty { await store.loadHouseTVs() } }
                 .personalStyle()
         }
+        .sheet(item: $router.playRequest) { PlayOnTVSheet(request: $0).personalStyle() }
         .sheet(isPresented: $router.showSearch) { SearchView().personalStyle() }
         .sheet(isPresented: $router.showProfile) { ProfileView().personalStyle() }
         .sheet(isPresented: $router.showVPN) { NavigationStack { VPNView() }.personalStyle() }

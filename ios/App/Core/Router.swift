@@ -47,6 +47,8 @@ final class Router {
     var showInbox = false
     /// "Move to" from the Now playing Live Activity: the TV to move from (thomascreek://tvs/<id>/move).
     var moveFrom: MoveRequest?
+    /// "Play" on a Home card (thomascreek://play?...): "Play on" with this iPhone and the TVs.
+    var playRequest: TVPlayRequest?
     /// A WireGuard .conf handed to the app (Files or the Firewalla share sheet); admins add it to the hub's pool.
     var vpnImport: URL?
     var showProfile = false
@@ -261,6 +263,18 @@ final class Router {
             } else if role == .admin || role == .adult {
                 if parts.count > 1 { tab = .media; paths[.media] = [.tvSetup, .tvDetail(parts[1])] } else { show(.media, .tvSetup) }
             } else { show(.home) }
+        case "play":
+            // thomascreek://play?kind=episode&episode_id=…&series_id=…&title=… (the hub's "New for you" card).
+            let q = Dictionary((URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []).map { ($0.name, $0.value ?? "") },
+                               uniquingKeysWith: { a, _ in a })
+            let title = q["title"].flatMap { $0.isEmpty ? nil : $0 } ?? "Play"
+            if let episode = q["episode_id"], !episode.isEmpty {
+                playRequest = TVPlayRequest(title: title, kind: "episode", seriesId: q["series_id"], episodeId: episode)
+            } else if let movie = q["movie_id"], !movie.isEmpty {
+                playRequest = TVPlayRequest(title: title, kind: "movie", movieId: movie)
+            } else if let series = q["series_id"], !series.isEmpty {
+                show(kid ? .watch : .media, .tvSeries(series))
+            }
         case "tv":
             // thomascreek://tv/{code}: the QR on a TV that is waiting to be approved.
             let code = parts.count > 1 ? parts[1] : ""
