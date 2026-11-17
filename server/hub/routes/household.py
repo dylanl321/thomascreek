@@ -18,6 +18,7 @@ from ..home import iso, kind_for
 from ..household import INTERCOM_PHRASES, default_pass_window
 from ..state import Hub
 from .deps import Caller, caller, caller_ip, error, hub, need, require_confirm
+from ..faults import note
 
 router = APIRouter(prefix="/v1", tags=["household"])
 pages = APIRouter(tags=["household"])
@@ -65,8 +66,8 @@ async def today(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str,
             if nxt:
                 out["trip"] = {k: nxt.get(k) for k in ("id", "title", "start_date", "end_date", "status", "days_until")
                                if nxt.get(k) is not None}
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as exc:  # noqa: BLE001  the household card shows without the trip
+            note("household: next trip", exc)
     return out
 
 
@@ -107,7 +108,8 @@ async def get_welcome(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dic
     if c.subject.role in ("admin", "adult", "child"):
         try:
             loc = await h.smart.weather._location()  # the house, for the phone's arrive/leave circle
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001  the welcome works without the house's circle
+            note("welcome: house location", exc)
             loc = None
         if loc:
             out["location"] = {"lat": loc[0], "lon": loc[1]}

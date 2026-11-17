@@ -9,6 +9,7 @@ from fastapi.responses import Response
 
 from ..state import Hub
 from .deps import Caller, caller, error, hub
+from ..faults import note
 
 router = APIRouter(prefix="/v1/weather", tags=["weather"])
 
@@ -51,7 +52,8 @@ async def radar_tile(provider: str, frame: str, z: int, x: int, y: int,
         raise error(404, "not_found")
     try:
         data = await h.forecasts.tile(provider, frame, z, x, y)
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001  answered below as a missing tile
+        note(f"radar tile ({provider})", exc)
         data = None
     if data is None:
         return Response(status_code=204)

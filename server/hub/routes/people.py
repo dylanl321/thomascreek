@@ -18,6 +18,7 @@ from ..state import Hub
 from ..vpn import VpnError, valid_wg_key
 from ..vpn_pia import PiaError
 from .deps import Caller, caller, error, hub, need, require_confirm
+from ..faults import note
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1", tags=["people"])
@@ -386,8 +387,8 @@ async def _logbook_newest_first(h: Hub, entities: list[str], since: float, until
             break
         try:
             rows += await asyncio.wait_for(h.ha.logbook(iso(start), iso(end), entities=entities), min(4, left))
-        except Exception as exc:  # noqa: BLE001
-            log.info("logbook %s..%s failed: %r", iso(start), iso(end), exc)
+        except Exception as exc:  # noqa: BLE001  the history shows what came before the failure
+            note(f"logbook {iso(start)}..{iso(end)}", exc, log)
             break
         end = start
     # A line exactly on a day boundary can come back from both days.

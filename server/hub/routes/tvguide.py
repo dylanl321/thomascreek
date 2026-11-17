@@ -25,6 +25,7 @@ from ..tvapp import _household as household
 from ..upnext import shelf, warm_plex, who_key
 from .deps import Caller, caller, error, hub, need
 from .media import _filter, _watch_cap
+from ..faults import note
 
 router = APIRouter(prefix="/v1/tv", tags=["tv"])
 
@@ -284,7 +285,8 @@ async def sport(day: str | None = None, league: str | None = None, c: Caller = D
         extra = {"day": f"{ymd[:4]}-{ymd[4:6]}-{ymd[6:]}" if ymd else None, "league": league, "failed": got["failed"]}
     try:
         home = await h.smart.weather._location()
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001  sport channels fall back to no home market
+        note("sport: house location", exc)
         home = None
     basic = h.tv_catalog.basic(home)
     body = tvsport.match(games, h.tv_catalog, basic, kids_only=kids, now=now)
@@ -498,7 +500,8 @@ async def tv_plex_file(pass_token: str, request: Request, h: Hub = Depends(hub))
     try:
         client = h.plex.client()
         upstream = await client.send(client.build_request("GET", part, headers=headers), stream=True)
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001  the TV is told the movie server didn't answer
+        note("plex stream", exc)
         raise error(502, "unavailable", "The movie server didn't answer") from None
     if upstream.status_code >= 400:
         await upstream.aclose()

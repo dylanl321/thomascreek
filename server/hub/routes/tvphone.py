@@ -33,6 +33,7 @@ from ..tvapp import TvAppError
 from .deps import Caller, caller, error, hub
 from ..upnext import remember, resume_at, who_key
 from .tvguide import _media, _ready
+from ..faults import note
 
 router = APIRouter(prefix="/v1/tv/phone", tags=["tv"])
 
@@ -319,7 +320,8 @@ async def phone_live(token: str, h: Hub = Depends(hub)) -> Response:
         # After the first answer, reload the provider's own (redirected) playlist, not the login address
         try:
             text, final = await _playlist(h, row["media"])
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001  falls back to the login address below
+            note("phone stream: provider playlist", exc)
             text = None
     if text is None:
         text, final = await _playlist(h, _provider(h, claims, "m3u8"))
