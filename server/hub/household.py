@@ -215,11 +215,21 @@ class Household:
             self._task = None
 
     async def _loop(self) -> None:
+        from . import familyapprovals
+
+        last_board = 0.0
         while True:
             try:
                 await self.tick()
             except Exception as exc:  # noqa: BLE001
                 log.warning("presence tick failed: %s", exc)
+            # Parent approvals waiting on the family board (#212): a push to the adults for each new one.
+            if time.time() - last_board >= familyapprovals.CHECK_EVERY_S:
+                last_board = time.time()
+                try:
+                    await familyapprovals.check(self.hub)
+                except Exception as exc:  # noqa: BLE001
+                    log.warning("family approvals check failed: %s", type(exc).__name__)
             await asyncio.sleep(30)
 
     async def tick(self) -> list[str]:

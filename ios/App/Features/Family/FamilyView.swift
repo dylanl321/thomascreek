@@ -10,6 +10,7 @@ struct FamilyView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 TodaySection().padding(.top, 6)
+                if isParent { ApprovalsSection() }
                 LazyVGrid(columns: grid, spacing: 10) {
                     SectionTile(symbol: "calendar", title: "Calendar", detail: "This week") { router.go(.calendar) }
                     SectionTile(symbol: "star.fill", title: "Chores", detail: chores.map { b in "\(b.reduce(0) { $0 + $1.doneCount })/\(b.reduce(0) { $0 + $1.items.count }) done today" } ?? "Points and rewards") { router.go(.chores) }

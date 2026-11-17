@@ -389,7 +389,8 @@ class FamilyBoard(Adapter):
     X-Forwarded-Proto, so the hub on the NAS needs no credential. If the hub
     ever reaches it through a proxy, store the parent PIN as
     family_board.admin_token and the hub sends it as X-Admin-Token.
-    The board itself handles parent approval of chores and redemptions.
+    Parent approvals (a reported chore, a redeemed reward) need that key: the hub lists and answers
+    them for adults (hub/familyapprovals.py), so a parent can approve from the iPhone.
     """
 
     name = "family_board"
@@ -478,6 +479,21 @@ class FamilyBoard(Adapter):
             raise AdapterError(self.last_error)
         self.last_ok = time.time()
         return resp.json() if resp.content else {}
+
+    def can_approve(self) -> bool:
+        """Answering approvals needs the board's admin key (family_board.admin_token) saved on the hub."""
+        return bool(self.secret(self.cfg.token_secret))
+
+    async def admin_snapshot(self) -> dict[str, Any]:
+        return await self._write("GET", "/api/admin", None)  # type: ignore[arg-type]
+
+    async def review(self, kind: str, item_id: str, approve: bool) -> dict[str, Any]:
+        """A parent's answer: a reported chore (`chore`) or a reward someone redeemed (`reward`)."""
+        if kind == "chore":
+            return await self._write("POST", f"/api/completions/{item_id}/{'approve' if approve else 'reject'}", {})
+        if approve:
+            return await self._write("POST", f"/api/redemptions/{item_id}/approve", {})
+        return await self._write("POST", f"/api/redemptions/{item_id}/review", {"approved": False})
 
     async def create_item(self, body: dict[str, Any]) -> dict[str, Any]:
         return await self._write("POST", "/api/items", body)
