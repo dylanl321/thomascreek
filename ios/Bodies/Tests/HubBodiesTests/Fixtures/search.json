@@ -1,0 +1,130 @@
+{
+ "ask": false,
+ "command": null,
+ "failed": [],
+ "groups": [
+  {
+   "items": [
+    {
+     "action": {
+      "action": "batch",
+      "label": "All off",
+      "params": {},
+      "steps": [
+       {
+        "action": "light.set",
+        "params": {
+         "on": false
+        },
+        "target": "light.kitchen",
+        "tier": "everyday"
+       }
+      ],
+      "target": "kitchen",
+      "tier": "everyday"
+     },
+     "deep_link": "thomascreek://room/kitchen",
+     "id": "room:kitchen",
+     "image_url": null,
+     "ref": "kitchen",
+     "score": 10.5,
+     "source": "home_assistant",
+     "subtitle": "1 of 1 lights on",
+     "symbol": "fork.knife",
+     "title": "Kitchen",
+     "type": "room",
+     "verb": "All off"
+    }
+   ],
+   "title": "Rooms",
+   "total": 1,
+   "type": "room"
+  },
+  {
+   "items": [
+    {
+     "action": {
+      "action": "light.set",
+      "label": "Turn off",
+      "on": true,
+      "params": {
+       "on": false
+      },
+      "target": "light.kitchen",
+      "tier": "everyday",
+      "toggle": true
+     },
+     "deep_link": "thomascreek://room/kitchen",
+     "id": "light:light.kitchen",
+     "image_url": null,
+     "kind": "light",
+     "ref": "light.kitchen",
+     "room_id": "kitchen",
+     "score": 9.5,
+     "source": "home_assistant",
+     "subtitle": "Kitchen \u00b7 on, 50%",
+     "symbol": "lightbulb.fill",
+     "title": "Kitchen",
+     "type": "light",
+     "verb": "Turn off"
+    }
+   ],
+   "title": "Lights and switches",
+   "total": 1,
+   "type": "light"
+  },
+  {
+   "items": [
+    {
+     "action": null,
+     "deep_link": "thomascreek://kitchen",
+     "id": "screen:kitchen",
+     "image_url": null,
+     "ref": null,
+     "score": 8.5,
+     "source": "app",
+     "subtitle": "Ovens and timers",
+     "symbol": "gearshape",
+     "title": "Kitchen",
+     "type": "screen",
+     "verb": "Open"
+    }
+   ],
+   "title": "Settings and screens",
+   "total": 1,
+   "type": "screen"
+  }
+ ],
+ "pending": [],
+ "query": "kitchen",
+ "top": {
+  "action": {
+   "action": "batch",
+   "label": "All off",
+   "params": {},
+   "steps": [
+    {
+     "action": "light.set",
+     "params": {
+      "on": false
+     },
+     "target": "light.kitchen",
+     "tier": "everyday"
+    }
+   ],
+   "target": "kitchen",
+   "tier": "everyday"
+  },
+  "deep_link": "thomascreek://room/kitchen",
+  "id": "room:kitchen",
+  "image_url": null,
+  "ref": "kitchen",
+  "score": 10.5,
+  "source": "home_assistant",
+  "subtitle": "1 of 1 lights on",
+  "symbol": "fork.knife",
+  "title": "Kitchen",
+  "type": "room",
+  "verb": "All off"
+ }
+}

@@ -29,6 +29,7 @@ targets:
     sources:
       - App
       - Shared
+      - Bodies/Sources/HubBodies  # the hub bodies, also tested on their own (Bodies/Package.swift)
       # Dollhouse models, devices.json and the editable hub mapping. A folder reference keeps the paths.
       - path: Rooms
         type: folder
@@ -106,6 +107,7 @@ targets:
     sources:
       - Widgets
       - Shared
+      - Bodies/Sources/HubBodies  # the hub bodies, also tested on their own (Bodies/Package.swift)
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(BUNDLE_ID).widgets
@@ -134,6 +136,7 @@ targets:
     sources:
       - NotificationService
       - Shared
+      - Bodies/Sources/HubBodies  # the hub bodies, also tested on their own (Bodies/Package.swift)
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(BUNDLE_ID).notifications

@@ -1,0 +1,52 @@
+{
+ "at_home": true,
+ "capabilities": [
+  "activity",
+  "appliances",
+  "cameras",
+  "chores.do",
+  "chores.manage",
+  "climate.all",
+  "climate.own_room",
+  "doors",
+  "family.edit",
+  "family.view",
+  "guests",
+  "holiday.full",
+  "holiday.looks",
+  "holiday.pick",
+  "home.layout",
+  "inventory.edit",
+  "inventory.search",
+  "lights.all",
+  "lights.own_room",
+  "media.all",
+  "media.approve",
+  "media.own_tv",
+  "media.request",
+  "network.ask",
+  "network.manage",
+  "people",
+  "pipeline",
+  "remotes.setup",
+  "shopping.add",
+  "systems",
+  "trips.plan",
+  "trips.view"
+ ],
+ "device": {
+  "id": "dev_f009279025814b3c8b20",
+  "name": "Parent's iPhone",
+  "status": "active"
+ },
+ "dry_run": true,
+ "person": {
+  "avatar": null,
+  "id": "per_20546225f1294629bc93",
+  "name": "Parent",
+  "role": "admin",
+  "ui_style": "standard"
+ },
+ "role": "admin",
+ "settings_version": 0
+}

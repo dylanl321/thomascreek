@@ -1,0 +1,88 @@
+{
+ "curated_by": "rules",
+ "hero": {
+  "availability": "play",
+  "backdrop_url": "/v1/art/backdrop/series:thomas-creek:50",
+  "badges": [
+   "New"
+  ],
+  "genres": [],
+  "kind": "series",
+  "logo_url": null,
+  "overview": null,
+  "poster_url": "/v1/art/poster/series:thomas-creek:50",
+  "rating": null,
+  "reason": "In your library",
+  "series_id": "series:thomas-creek:50",
+  "tagline": null,
+  "title": "Cartoon Show",
+  "title_card_url": null,
+  "year": null
+ },
+ "rows": [
+  {
+   "id": "library",
+   "items": [
+    {
+     "availability": "play",
+     "backdrop_url": "/v1/art/backdrop/series:thomas-creek:50",
+     "badges": [
+      "New"
+     ],
+     "genres": [],
+     "kind": "series",
+     "logo_url": null,
+     "overview": null,
+     "poster_url": "/v1/art/poster/series:thomas-creek:50",
+     "rating": null,
+     "reason": "In your library",
+     "series_id": "series:thomas-creek:50",
+     "tagline": null,
+     "title": "Cartoon Show",
+     "title_card_url": null,
+     "year": null
+    },
+    {
+     "availability": "play",
+     "backdrop_url": "/v1/art/backdrop/vod:thomas-creek:100",
+     "badges": [
+      "New"
+     ],
+     "genres": [],
+     "kind": "movie",
+     "logo_url": null,
+     "movie_id": "vod:thomas-creek:100",
+     "overview": null,
+     "poster_url": "/v1/art/poster/vod:thomas-creek:100",
+     "rating": null,
+     "reason": "In your library",
+     "tagline": null,
+     "title": "Drama Movie",
+     "title_card_url": null,
+     "year": null
+    },
+    {
+     "availability": "play",
+     "backdrop_url": "/v1/art/backdrop/vod:thomas-creek:101",
+     "badges": [
+      "New"
+     ],
+     "genres": [],
+     "kind": "movie",
+     "logo_url": null,
+     "movie_id": "vod:thomas-creek:101",
+     "overview": null,
+     "poster_url": "/v1/art/poster/vod:thomas-creek:101",
+     "rating": null,
+     "reason": "In your library",
+     "tagline": null,
+     "title": "Kids Movie",
+     "title_card_url": null,
+     "year": null
+    }
+   ],
+   "reason": "Newest in the house's library",
+   "title": "Recently added"
+  }
+ ]
+}

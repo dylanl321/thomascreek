@@ -1,0 +1,80 @@
+{
+ "channels": [
+  {
+   "catchup_days": null,
+   "group": "News",
+   "key": "xc:thomas-creek:10",
+   "kids": false,
+   "logo": null,
+   "logo_url": "/v1/art/logo/xc:thomas-creek:10",
+   "name": "CNN",
+   "next": null,
+   "now": {
+    "backdrop_url": "/v1/art/backdrop/prog:0b49a5b26ac1e2d3739f",
+    "catchup": false,
+    "catchup_until": null,
+    "desc": null,
+    "end": "2026-11-17T06:37:50+00:00",
+    "icon": null,
+    "poster_url": "/v1/art/poster/prog:0b49a5b26ac1e2d3739f",
+    "start": "2026-11-17T05:55:50+00:00",
+    "subtitle": null,
+    "title": "Newsroom"
+   },
+   "number": null,
+   "programmes": [
+    {
+     "backdrop_url": "/v1/art/backdrop/prog:0b49a5b26ac1e2d3739f",
+     "catchup": false,
+     "catchup_until": null,
+     "desc": null,
+     "end": "2026-11-17T06:37:50+00:00",
+     "icon": null,
+     "poster_url": "/v1/art/poster/prog:0b49a5b26ac1e2d3739f",
+     "start": "2026-11-17T05:55:50+00:00",
+     "subtitle": null,
+     "title": "Newsroom"
+    }
+   ]
+  },
+  {
+   "catchup_days": null,
+   "group": "Kids",
+   "key": "xc:thomas-creek:11",
+   "kids": true,
+   "logo": null,
+   "logo_url": "/v1/art/logo/xc:thomas-creek:11",
+   "name": "Cartoon",
+   "next": null,
+   "now": {
+    "backdrop_url": "/v1/art/backdrop/prog:2a704ab367c2ba5e0e76",
+    "catchup": false,
+    "catchup_until": null,
+    "desc": null,
+    "end": "2026-11-17T06:17:50+00:00",
+    "icon": null,
+    "poster_url": "/v1/art/poster/prog:2a704ab367c2ba5e0e76",
+    "start": "2026-11-17T05:55:50+00:00",
+    "subtitle": null,
+    "title": "Blue"
+   },
+   "number": null,
+   "programmes": [
+    {
+     "backdrop_url": "/v1/art/backdrop/prog:2a704ab367c2ba5e0e76",
+     "catchup": false,
+     "catchup_until": null,
+     "desc": null,
+     "end": "2026-11-17T06:17:50+00:00",
+     "icon": null,
+     "poster_url": "/v1/art/poster/prog:2a704ab367c2ba5e0e76",
+     "start": "2026-11-17T05:55:50+00:00",
+     "subtitle": null,
+     "title": "Blue"
+    }
+   ]
+  }
+ ],
+ "from": "2026-11-17T04:57:50.385581+00:00",
+ "to": "2026-11-17T11:57:50.385581+00:00"
+}

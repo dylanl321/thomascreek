@@ -1,0 +1,37 @@
+{
+ "rows": [
+  {
+   "id": "continue",
+   "items": [
+    {
+     "backdrop_url": "/v1/art/backdrop/series:thomas-creek:50",
+     "episode_id": "ep:thomas-creek:900",
+     "kind": "episode",
+     "position_s": 80,
+     "poster_url": "/v1/art/poster/series:thomas-creek:50",
+     "reason": "continue watching",
+     "series_id": "series:thomas-creek:50",
+     "subtitle": "Cartoon Show",
+     "title": "Pilot"
+    }
+   ],
+   "title": "Continue watching"
+  },
+  {
+   "id": "next",
+   "items": [
+    {
+     "backdrop_url": "/v1/art/backdrop/series:thomas-creek:50",
+     "episode_id": "ep:thomas-creek:901",
+     "kind": "episode",
+     "poster_url": "/v1/art/poster/series:thomas-creek:50",
+     "reason": "new episode of a series you watch or record",
+     "series_id": "series:thomas-creek:50",
+     "subtitle": "Cartoon Show",
+     "title": "Next"
+    }
+   ],
+   "title": "New episodes"
+  }
+ ]
+}

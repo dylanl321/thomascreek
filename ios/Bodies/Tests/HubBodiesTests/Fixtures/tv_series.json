@@ -1,0 +1,19 @@
+{
+ "categories": [
+  "Kids"
+ ],
+ "series": [
+  {
+   "backdrop_url": "/v1/art/backdrop/series:thomas-creek:50",
+   "category": "Kids",
+   "cover": null,
+   "genre": null,
+   "id": "series:thomas-creek:50",
+   "kids": true,
+   "name": "Cartoon Show",
+   "poster_url": "/v1/art/poster/series:thomas-creek:50",
+   "rating": null,
+   "year": null
+  }
+ ]
+}

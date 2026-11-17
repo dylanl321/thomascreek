@@ -94,6 +94,12 @@ does not count for a change under `ios/`. Without the Mac, the hub suite alone i
 cd server && python3.12 -m venv .venv && .venv/bin/pip install -e ".[test]" && .venv/bin/python -m pytest -q
 ```
 
+The iPhone's hub models live in `ios/Bodies/Sources/HubBodies` (Foundation only; the app compiles them directly).
+`server/tests/test_ios_bodies.py` captures each body the phone reads from the hub's own routes into
+`ios/Bodies/Tests/HubBodiesTests/Fixtures` and fails when a route's shape drifts from its fixture; `swift test` in
+`ios/Bodies` (part of premerge) decodes every fixture with the app's model. A new phone body gets a fixture and a
+line in `BodyTests.decoders`; refresh them with `IOS_FIXTURES=update` on that hub test.
+
 The hub suite includes `tests/test_lint.py`: ruff and mypy (settings in `server/pyproject.toml`) may not find
 anything new. Old findings are counted in `server/lint-baseline.json`; after fixing some, lower it with
 `.venv/bin/python tools/lint.py --update` (from `server/`). Never raise it to get a check through.

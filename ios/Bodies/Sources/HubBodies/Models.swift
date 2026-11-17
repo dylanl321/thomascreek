@@ -430,8 +430,34 @@ struct InboxItem: Codable, Hashable, Identifiable {
     var acked: Bool?
 
     struct InboxAction: Codable, Hashable, Identifiable { var id: String; var title: String; var destructive: Bool? }
+    enum CodingKeys: String, CodingKey { case id, t, level, cat, title, body, actions, ref, acked }
     var date: Date { Date(timeIntervalSince1970: t) }
     var bucket: InboxLevel { InboxLevel(rawValue: level ?? "fyi") ?? .fyi }
+}
+
+extension InboxItem {
+    /// The hub sends `t` as an ISO time ("2026-11-17T05:57:50.003882+00:00") and `body` may be null; a copy the
+    /// app saved itself has `t` in seconds. Both decode (#206 found the ISO form failing the whole inbox).
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        if let seconds = try? c.decode(Double.self, forKey: .t) {
+            t = seconds
+        } else {
+            let text = try c.decode(String.self, forKey: .t)
+            guard let when = ISO.parse(ISO.millis(text)) else {
+                throw DecodingError.dataCorruptedError(forKey: .t, in: c, debugDescription: "not a time: \(text)")
+            }
+            t = when.timeIntervalSince1970
+        }
+        level = try c.decodeIfPresent(String.self, forKey: .level)
+        cat = try c.decodeIfPresent(String.self, forKey: .cat) ?? "other"
+        title = try c.decode(String.self, forKey: .title)
+        body = try c.decodeIfPresent(String.self, forKey: .body) ?? ""
+        actions = try c.decodeIfPresent([InboxAction].self, forKey: .actions)
+        ref = try c.decodeIfPresent(String.self, forKey: .ref)
+        acked = try c.decodeIfPresent(Bool.self, forKey: .acked)
+    }
 }
 enum InboxLevel: String, CaseIterable {
     case actNow = "act_now", decision, maintenance, fyi
@@ -797,6 +823,15 @@ enum ISO {
         f.formatOptions = [.withFullDate]
         f.timeZone = .current
         return f.date(from: s)
+    }
+    /// Python's microseconds ("…:50.003882+00:00") cut to milliseconds, which ISO8601DateFormatter reads.
+    static func millis(_ s: String) -> String {
+        guard let dot = s.firstIndex(of: ".") else { return s }
+        let start = s.index(after: dot)
+        let end = s[start...].firstIndex { !$0.isNumber } ?? s.endIndex
+        let digits = s[start..<end]
+        guard digits.count > 3 else { return s }
+        return String(s[..<s.index(after: dot)]) + digits.prefix(3) + s[end...]
     }
     /// "2026-11-14" in local time.
     static func day(_ d: Date) -> String {

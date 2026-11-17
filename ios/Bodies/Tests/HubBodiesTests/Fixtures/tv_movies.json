@@ -1,0 +1,32 @@
+{
+ "categories": [
+  "Drama",
+  "Kids"
+ ],
+ "movies": [
+  {
+   "backdrop_url": "/v1/art/backdrop/vod:thomas-creek:100",
+   "category": "Drama",
+   "cover": null,
+   "genre": null,
+   "id": "vod:thomas-creek:100",
+   "kids": false,
+   "name": "Drama Movie",
+   "poster_url": "/v1/art/poster/vod:thomas-creek:100",
+   "rating": null,
+   "year": null
+  },
+  {
+   "backdrop_url": "/v1/art/backdrop/vod:thomas-creek:101",
+   "category": "Kids",
+   "cover": null,
+   "genre": null,
+   "id": "vod:thomas-creek:101",
+   "kids": true,
+   "name": "Kids Movie",
+   "poster_url": "/v1/art/poster/vod:thomas-creek:101",
+   "rating": null,
+   "year": null
+  }
+ ]
+}

@@ -1,0 +1,73 @@
+{
+ "items": [
+  {
+   "actions": [
+    {
+     "id": "assign",
+     "title": "Choose person"
+    },
+    {
+     "destructive": true,
+     "id": "revoke",
+     "title": "Remove"
+    }
+   ],
+   "body": "\u201cChild's iPhone\u201d is on home Wi-Fi. Whose is it?",
+   "cat": "devices",
+   "id": "inb_a75292935fde4a8f8b14",
+   "level": "decision",
+   "ref": "thomascreek://people/devices/dev_ab751166f3da4acd8565",
+   "t": "2026-11-17T05:57:50.003882+00:00",
+   "title": "New iPhone joined"
+  },
+  {
+   "actions": [
+    {
+     "id": "assign",
+     "title": "Choose person"
+    },
+    {
+     "destructive": true,
+     "id": "revoke",
+     "title": "Remove"
+    }
+   ],
+   "body": "\u201cGrown-up's iPhone\u201d is on home Wi-Fi. Whose is it?",
+   "cat": "devices",
+   "id": "inb_ae38cb50870444ef8e5a",
+   "level": "decision",
+   "ref": "thomascreek://people/devices/dev_ceb47b8497634f46a2fe",
+   "t": "2026-11-17T05:57:49.990764+00:00",
+   "title": "New iPhone joined"
+  },
+  {
+   "actions": [
+    {
+     "id": "assign",
+     "title": "Choose person"
+    },
+    {
+     "destructive": true,
+     "id": "revoke",
+     "title": "Remove"
+    }
+   ],
+   "body": "\u201cParent's iPhone\u201d is on home Wi-Fi. Whose is it?",
+   "cat": "devices",
+   "id": "inb_f793fff1606541e890e2",
+   "level": "decision",
+   "ref": "thomascreek://people/devices/dev_f009279025814b3c8b20",
+   "t": "2026-11-17T05:57:49.974867+00:00",
+   "title": "New iPhone joined"
+  },
+  {
+   "body": "Living room is showing code LBEVF7. Approve it in the app.",
+   "cat": "systems",
+   "id": "inb_50119ab24d9643279dc6",
+   "level": "maintenance",
+   "ref": "thomascreek://tvs",
+   "t": "2026-11-17T05:57:50.183253+00:00",
+   "title": "A TV wants the TV app source"
+  }
+ ]
+}
