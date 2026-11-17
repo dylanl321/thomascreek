@@ -404,8 +404,8 @@ def _limit(limit: int) -> int:
 
 
 def _known(h: Hub, kind: str, item_id: str, kids_only: bool) -> None:
-    rows = h.tv_catalog.load().get(kind) or []
-    row = next((item for item in rows if item.get("id") == item_id), None)
+    # Any provider's film or series: the main list, or the light list of the provider the id names.
+    row = h.tv_catalog.known_row(kind, item_id)
     if row is None or (kids_only and not h.tv_catalog._is_kids(row.get("category"))):
         raise error(404, "not_found", "That isn't in the library")
 
