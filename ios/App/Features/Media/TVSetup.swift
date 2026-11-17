@@ -780,6 +780,7 @@ struct TVDetailView: View {
     @State private var shotWanted: String?   // screenshot `at` before the request; cleared when it changes
     @State private var loadFailed = false    // `problem` came from loading, so a good refresh clears it
     @State private var cecChecked = false    // one CEC check per visit, so the note is current
+    @State private var others: [HubTvRow] = []  // the house's other approved TVs, to copy settings from
 
     var body: some View {
         ScrollView {
@@ -796,6 +797,9 @@ struct TVDetailView: View {
                         Label(note, systemImage: "info.circle.fill").font(.subheadline).foregroundStyle(Theme.fg).card()
                     }
                     screen(d.tv)
+                    if d.tv.status == "approved" {
+                        TVSettingsSection(tvID: tvID, others: others)
+                    }
                     facts(d)
                 } else if problem == nil {
                     LoadingCard()
@@ -980,7 +984,10 @@ struct TVDetailView: View {
         } catch {
             if detail == nil { problem = error.localizedDescription; loadFailed = true }
         }
-        if latest == nil, let page: HubTvsPage = try? await HubClient.shared.get("/v1/tvs") { latest = page.latestVersion }
+        if latest == nil, let page: HubTvsPage = try? await HubClient.shared.get("/v1/tvs") {
+            latest = page.latestVersion
+            others = page.tvs.filter { $0.id != tvID && $0.status == "approved" }
+        }
     }
 
     private func run(_ action: String, _ extra: [String: String] = [:], key: String? = nil) async {
