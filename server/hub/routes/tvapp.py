@@ -37,13 +37,14 @@ POST   /v1/tv/commands/ack               bearer, {ids}
 
 from __future__ import annotations
 
+import gzip
 import hashlib
 import json
 import time
 from typing import Any
 
 from fastapi import APIRouter, Body, Depends, Request
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 
 from ..home import iso
@@ -702,9 +703,17 @@ def _etag(body: dict[str, Any]) -> str:
     return '"' + hashlib.sha256(raw).hexdigest()[:20] + '"'
 
 
+_GZIP_FROM = 32 * 1024
+
+
 def _cached(request: Request, body: dict[str, Any]) -> Response:
+    """A body the TVs keep: an ETag (304 while unchanged) and gzip for a large one (the full lineup is ~4 MB)."""
     tag = _etag(body)
-    headers = {"ETag": tag, "Cache-Control": "private, no-cache"}
+    headers = {"ETag": tag, "Cache-Control": "private, no-cache", "Vary": "Accept-Encoding"}
     if request.headers.get("if-none-match") == tag:
         return Response(status_code=304, headers=headers)
-    return JSONResponse(body, headers=headers)
+    raw = json.dumps(body, ensure_ascii=False, allow_nan=False, separators=(",", ":")).encode()
+    if len(raw) >= _GZIP_FROM and "gzip" in request.headers.get("accept-encoding", "").lower():
+        return Response(gzip.compress(raw, compresslevel=5), media_type="application/json",
+                        headers={**headers, "Content-Encoding": "gzip"})
+    return Response(raw, media_type="application/json", headers=headers)
