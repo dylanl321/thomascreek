@@ -211,12 +211,19 @@ async def extend_bedtime(person_id: str, body: Extend, c: Caller = Depends(calle
 # -- Live Activity tokens ------------------------------------------------------
 class LiveToken(BaseModel):
     push_to_start_token: str | None = Field(default=None, max_length=400)
+    # One ring's own update token, so the hub can end that Live Activity (it used to stay for hours).
+    doorbell_activity_token: str | None = Field(default=None, max_length=400, pattern="^[0-9a-fA-F]+$")
+    activity_id: str | None = Field(default=None, max_length=100)
     env: Literal["production", "sandbox"] = "production"
 
 
 @router.post("/devices/live-activity")
 async def live_token(body: LiveToken, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
-    """The phone's ActivityKit push-to-start token, so the doorbell can open a Live Activity."""
+    """The phone's ActivityKit push-to-start token, so the doorbell can open a Live Activity; or one ring's
+    update token, so the hub can end it."""
+    if body.doorbell_activity_token:
+        h.household.add_doorbell_activity(c.device["id"], body.activity_id or "", body.doorbell_activity_token, body.env)
+        return {"ok": True}
     h.household.set_live_token(c.device["id"], body.push_to_start_token, body.env)
     return {"ok": True}
 
