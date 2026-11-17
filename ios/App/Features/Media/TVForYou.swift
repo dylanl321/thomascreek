@@ -14,6 +14,8 @@ struct TVFeedRow: Decodable, Identifiable {
     var id: String
     var title: String
     var items: [TVFeedItem]
+    /// The hub's one line on why this row is here for this person (hub #201); older hubs send none.
+    var reason: String?
 }
 struct TVFeedItem: Decodable, Identifiable, Hashable {
     var kind: String?
@@ -68,6 +70,9 @@ struct TVForYouRows: View {
                 ForEach((next?.rows ?? []) + feed.rows) { row in
                     if !row.items.isEmpty {
                         SectionHeader(row.title)
+                        if let reason = row.reason, !reason.isEmpty {
+                            Text(reason).font(.footnote).foregroundStyle(.secondary).lineLimit(1).padding(.top, -10)
+                        }
                         ScrollView(.horizontal, showsIndicators: false) {
                             LazyHStack(alignment: .top, spacing: 12) {
                                 ForEach(row.items) { item in

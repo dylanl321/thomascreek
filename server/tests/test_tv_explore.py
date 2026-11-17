@@ -6,6 +6,7 @@ from hub.routes.home import shape_event
 import asyncio
 
 from hub.tvexplore import advance, publish, remember_plex
+from hub.tvpicks import BASE_REASONS
 
 LISTS = {
     "new": [{
@@ -92,7 +93,9 @@ def test_the_feed_is_the_contract(hub, people):
     publish(hub, LISTS, can_request=True)
     dylan = people["phones"]["Dylan"]
     theo = people["phones"]["Theo"]
-    assert dylan.client.get("/v1/tv/explore", headers=dylan.h).json() == ADULT
+    want = {**ADULT, "curated_by": "rules",
+            "rows": [{**row, "reason": BASE_REASONS[row["id"]]} for row in ADULT["rows"]]}
+    assert dylan.client.get("/v1/tv/explore", headers=dylan.h).json() == want
     kids = theo.client.get("/v1/tv/explore?profile=adult", headers=theo.h).json()
     titles = [item["title"] for row in kids["rows"] for item in row["items"]]
     assert "The Matrix" not in titles and "Bluey" in titles and "Spirited Away" in titles
@@ -161,10 +164,13 @@ def test_no_tmdb_key_uses_the_library(hub, people):
         "logo_url": None, "title_card_url": None, "rating": "G", "genres": ["Kids"], "reason": "In your library", "badges": ["New"],
         "availability": "play", "movie_id": "vod:thomas-creek:101",
     }
-    assert body == {"hero": card, "rows": [{"id": "library", "title": "Recently added", "items": [card]}]}
+    assert body == {"hero": card, "curated_by": "rules",
+                    "rows": [{"id": "library", "title": "Recently added", "reason": BASE_REASONS["library"],
+                              "items": [card]}]}
     hub.db.kv_set("tv.explore", {})
     hub.tv_catalog.ingest()
-    assert dylan.client.get("/v1/tv/explore", headers=dylan.h).json() == {"hero": None, "rows": []}
+    assert dylan.client.get("/v1/tv/explore", headers=dylan.h).json() == {"hero": None, "rows": [],
+                                                                          "curated_by": "rules"}
 
 
 def test_one_tap_asks_and_a_ready_title_reaches_up_next(hub, people):
@@ -253,7 +259,7 @@ def test_plex_index_rows_never_fill_the_library_row(hub, people):
     hub.db.kv_set("tv.plex.index", [{"kind": "movie", "id": "9", "title": "Hidden", "year": 2000, "tmdb": 5}])
     publish(hub, None, can_request=False)
     dylan = people["phones"]["Dylan"]
-    assert dylan.client.get("/v1/tv/explore", headers=dylan.h).json() == {"hero": None, "rows": []}
+    assert dylan.client.get("/v1/tv/explore", headers=dylan.h).json() == {"hero": None, "rows": [], "curated_by": "rules"}
 
 
 def test_top10_leads_with_popular_titles_the_house_can_play(hub, people):

@@ -250,6 +250,9 @@ class BrainConfig(BaseModel):
     layout_enabled: bool = True        # arrange each person's Home (brain/layout.py); off = everyone's own order
     layout_cooldown_min: float = 3     # at most one layout model call per person in this long
     layout_tier: str = "cheap"         # cheap (Haiku) or smart (Sonnet). Dylan: Haiku first, Sonnet if it's not good enough
+    explore_enabled: bool = True       # word and pick each person's TV Explore rows (tvpicks.py); off = plain rows
+    explore_tier: str = "cheap"        # cheap (Haiku) or smart (Sonnet)
+    explore_cooldown_min: float = 60   # at most one Explore model call per person or TV in this long
     jobs: dict[str, BrainJobConfig] = Field(default_factory=dict)
 
 
