@@ -416,6 +416,9 @@ def _from_library(h: Any, row: dict[str, Any], kind: str, kids: bool) -> dict[st
         "tagline": None, "poster_url": poster, "backdrop_url": backdrop, "logo_url": None,
         "rating": _text(row.get("rating")), "genres": [genre] if genre else [], "availability": "play",
         "kids": kids, "tmdb_id": row.get("tmdb_id") if isinstance(row.get("tmdb_id"), int) else None,
+        # Not sent: whether a picture is known for this title, and the provider's category (for the language).
+        "art_known": bool(row.get("cover") or row.get("backdrop") or row.get("tmdb") or row.get("tmdb_id")),
+        "category": row.get("category"),
     }
     if kind == "movie":
         item["movie_id"] = ident
@@ -631,7 +634,47 @@ def _recordings(h: Any) -> list[dict[str, Any]]:
 
 def _recent(library: list[dict[str, Any]]) -> list[dict[str, Any]]:
     library = [row for row in library if not row.get("match_only")]
-    return sorted(library, key=lambda row: (-(row.get("year") or 0), str(row.get("title") or "").casefold()))[:ROW_LIMIT]
+    return sorted(library, key=lambda row: (*_lead_rank(row), -(row.get("year") or 0),
+                                            str(row.get("title") or "").casefold()))[:ROW_LIMIT]
+
+
+HOUSE_LANGUAGES = {"en"}
+# A leading provider tag ("AR - ", "[FR] ", "TR| "). Tags that aren't a language (a service, a quality, a
+# country that speaks English) don't count.
+_LANG_TAG = re.compile(r"^\s*[\[(]?([A-Za-z]{2,3})[\])]?\s*[-|:]\s*\S")
+_HOUSE_TAGS = {"en", "eng", "us", "usa", "uk", "gb", "ca", "au", "nz", "ie", "4k", "hd", "fhd", "uhd", "sd", "nf",
+               "amz", "dsn", "hbo", "atv", "max", "vod", "new", "top", "kid", "kids", "ppv", "tv", "24", "3d", "multi",
+               "sub", "all", "mix", "ott", "pro", "vip", "plus", "dc", "mcu"}
+_LANG_WORD = re.compile(
+    r"\b(arabic|arab|french|francais|german|deutsch|spanish|espanol|latino|turkish|turk|persian|farsi|hindi|"
+    r"bollywood|urdu|punjabi|tamil|telugu|malayalam|kurdish|russian|polish|italian|portuguese|brasil|brazil|"
+    r"dutch|greek|albanian|romanian|bulgarian|serbian|croatian|bosnian|ex-yu|chinese|korean|japanese|thai|"
+    r"vietnamese|filipino|indonesian|swedish|norwegian|danish|finnish|hungarian|czech|africa|somali|amharic)\b",
+    re.I)
+
+
+def _foreign(row: dict[str, Any]) -> bool:
+    """A title in another language: tagged so in its name or category ("AR - ", "FR | Films"), or written
+    mostly in another script. Untagged titles count as the house's language."""
+    title = str(row.get("title") or "")
+    for text in (title, str(row.get("category") or "")):
+        tag = _LANG_TAG.match(text)
+        if tag and tag.group(1).lower() not in _HOUSE_TAGS:
+            return True
+        if _LANG_WORD.search(text):
+            return True
+    letters = [ch for ch in title if ch.isalpha()]
+    return bool(letters) and sum(1 for ch in letters if ord(ch) > 0x24F) > len(letters) / 2
+
+
+def _has_art(row: dict[str, Any]) -> bool:
+    return bool(row["art_known"]) if "art_known" in row else bool(row.get("poster_url"))
+
+
+def _lead_rank(row: dict[str, Any]) -> tuple[bool, bool]:
+    """Sorts titles in the house's language with a picture first, so a row never opens on a foreign title
+    with a blank card when the house has better ones."""
+    return _foreign(row), not _has_art(row)
 
 
 def _library_card(row: dict[str, Any]) -> dict[str, Any]:
@@ -642,7 +685,7 @@ def _library_card(row: dict[str, Any]) -> dict[str, Any]:
 def _index(library: list[dict[str, Any]]) -> dict[tuple, dict[str, Any]]:
     """Library rows by TMDB id and by name. A row the feed shows wins over one that is only for matching."""
     found: dict[tuple, dict[str, Any]] = {}
-    ordered = [row for row in library if not row.get("match_only")] + [row for row in library if row.get("match_only")]
+    ordered = sorted(library, key=lambda row: (bool(row.get("match_only")), *_lead_rank(row)))
     for row in ordered:
         raw = str(row.get("title") or "")
         tail = _YEAR_TAIL.search(raw)
