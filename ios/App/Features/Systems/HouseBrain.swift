@@ -64,7 +64,7 @@ struct HouseBrainView: View {
         var q = ["limit": "40"]
         if filter != "all" { q["job"] = filter }
         if let before { q["before"] = String(before) }
-        guard let l: BrainRunList = try? await HubClient.shared.get("/v1/brain/runs", q) else { done = true; return }
+        guard let l: BrainRunList = await hubQuiet("brain runs", { try await HubClient.shared.get("/v1/brain/runs", q) }) else { done = true; return }
         runs += l.items
         before = l.before
         done = l.before == nil || l.items.isEmpty

@@ -133,7 +133,7 @@ final class NASActions {
     private func follow(_ job: Int, _ store: HomeStore) async {
         for _ in 0..<180 {
             try? await Task.sleep(for: .seconds(2))
-            guard let j = try? await HubClient.shared.get("/v1/nas/jobs/\(job)", as: NASJob.self) else { return }
+            guard let j = await hubQuiet("nas job", { try await HubClient.shared.get("/v1/nas/jobs/\(job)", as: NASJob.self) }) else { return }
             progress = j.pct.map { $0 / 100 }
             switch j.state {
             case "SUCCESS": return
@@ -746,6 +746,7 @@ struct NASLogsView: View {
 
 struct NASUpdatesView: View {
     @Environment(HomeStore.self) private var store
+    @State private var loadFailure: String?
     @State private var apps: [NASApp]?
     @State private var confirmAll = false
     @State private var acts = NASActions()
@@ -784,6 +785,7 @@ struct NASUpdatesView: View {
         }
         .scrollContentBackground(.hidden).background(Backdrop())
         .navigationTitle("Updates")
+        .loadFailure(loadFailure) { await load() }
         .task { await load() }
         .refreshable { await load() }
         .confirmationDialog("Update all apps?", isPresented: $confirmAll, titleVisibility: .visible) {
@@ -800,13 +802,18 @@ struct NASUpdatesView: View {
         }
     }
 
-    private func load() async { apps = (try? await HubClient.shared.get("/v1/nas/apps", as: NASAppList.self, timeout: NASTimeout.slow))?.apps }
+    private func load() async {
+        let got = await hubLoad { try await HubClient.shared.get("/v1/nas/apps", as: NASAppList.self, timeout: NASTimeout.slow) }
+        if let v = got.value { apps = v.apps }
+        loadFailure = got.failure
+    }
 }
 
 // MARK: - Settings
 
 struct NASSettingsView: View {
     @Environment(HomeStore.self) private var store
+    @State private var loadFailure: String?
     @State private var o: NASOverview?
     @State private var dataset = "SSDs/Applications"
     @State private var acts = NASActions()
@@ -862,12 +869,17 @@ struct NASSettingsView: View {
         }
         .scrollContentBackground(.hidden).background(Backdrop())
         .navigationTitle("NAS settings")
+        .loadFailure(loadFailure) { await load() }
         .task { await load() }
         .refreshable { await load() }
         .nasAwayAsk(acts, store)
     }
 
-    private func load() async { o = try? await HubClient.shared.get("/v1/nas", as: NASOverview.self, timeout: NASTimeout.slow) }
+    private func load() async {
+        let got = await hubLoad { try await HubClient.shared.get("/v1/nas", as: NASOverview.self, timeout: NASTimeout.slow) }
+        if let v = got.value { o = v }
+        loadFailure = got.failure
+    }
 }
 
 // MARK: - Away warning

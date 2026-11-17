@@ -106,7 +106,7 @@ struct ActivityView: View {
         var q = ["limit": "50"]
         if filter != "all" { q["category"] = filter }
         if let before { q["before"] = before }
-        guard let l: ActivityList = try? await HubClient.shared.get("/v1/activity", q) else { failed = true; done = true; return }
+        guard let l: ActivityList = await hubQuiet("activity", { try await HubClient.shared.get("/v1/activity", q) }) else { failed = true; done = true; return }
         failed = false
         items += l.items
         before = l.before
@@ -117,6 +117,7 @@ struct ActivityView: View {
 /// People, their devices, new-device approvals and revoking a lost phone.
 struct PeopleView: View {
     @Environment(HomeStore.self) private var store
+    @State private var loadFailure: String?
     @State private var data: PeopleList?
 
     var body: some View {
@@ -171,11 +172,16 @@ struct PeopleView: View {
         }
         .scrollContentBackground(.hidden).background(Backdrop())
         .navigationTitle("People")
+        .loadFailure(loadFailure) { await load() }
         .task { await load() }
         .refreshable { await load() }
     }
 
-    private func load() async { data = try? await HubClient.shared.get("/v1/people") }
+    private func load() async {
+        let got = await hubLoad { try await HubClient.shared.get("/v1/people", as: PeopleList.self) }
+        if let v = got.value { data = v }
+        loadFailure = got.failure
+    }
 
     private func assign(_ d: EnrolledDevice, to p: Person) {
         Task {
@@ -202,6 +208,7 @@ struct PeopleView: View {
 /// Dylan also links each child's devices here; the hub makes one paused "block internet" rule per device.
 struct KidNetView: View {
     @Environment(HomeStore.self) private var store
+    @State private var loadFailure: String?
     @State private var kids: [Kid] = []
     @State private var linking: Kid?
     struct Kid: Decodable, Identifiable, Hashable {
@@ -241,12 +248,17 @@ struct KidNetView: View {
         }
         .scrollContentBackground(.hidden).background(Backdrop())
         .navigationTitle("Device time")
+        .loadFailure(loadFailure) { await load() }
         .task { await load() }
         .refreshable { await load() }
         .sheet(item: $linking) { k in LinkDevicesSheet(kid: k) { await load() } }
     }
 
-    private func load() async { kids = (try? await HubClient.shared.get("/v1/network/kids", as: Reply.self))?.kids ?? [] }
+    private func load() async {
+        let got = await hubLoad { try await HubClient.shared.get("/v1/network/kids", as: Reply.self) }
+        if let v = got.value { kids = v.kids }
+        loadFailure = got.failure
+    }
 
     private func act(_ action: String, _ k: Kid, minutes: Int? = nil) {
         var p: [String: Any] = [:]
@@ -274,9 +286,16 @@ struct LinkDevicesSheet: View {
     @Environment(\.dismiss) private var dismiss
     let kid: KidNetView.Kid
     let done: () async -> Void
+    @State private var loadFailure: String?
     @State private var devices: [NetDevice]?
     @State private var picked: Set<String> = []
     @State private var search = ""
+    private func loadDevices() async {
+        let got = await hubLoad { try await HubClient.shared.get("/v1/network/devices", as: Reply.self) }
+        if let v = got.value { devices = v.devices }
+        loadFailure = got.failure
+    }
+
     struct NetDevice: Decodable, Identifiable, Hashable {
         var mac: String; var name: String?; var ip: String?; var online: Bool?; var linkedTo: String?
         var id: String { mac }
@@ -310,7 +329,8 @@ struct LinkDevicesSheet: View {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) { Button("Add") { save() }.disabled(picked.isEmpty) }
             }
-            .task { devices = (try? await HubClient.shared.get("/v1/network/devices", as: Reply.self))?.devices ?? [] }
+            .task { await loadDevices() }
+            .loadFailure(loadFailure) { await loadDevices() }
         }
     }
 

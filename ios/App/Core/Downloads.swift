@@ -204,7 +204,7 @@ final class Downloads {
         guard let p = t.posterPath else { return }
         Task {
             if let d = OfflineCache.loadImage(path: p) { OfflineCache.write(d, to: posterURL(t)); return }
-            guard let req = try? await HubClient.shared.authorizedRequest(p),
+            guard let req = await hubQuiet("poster request", { try await HubClient.shared.authorizedRequest(p) }),
                   let reply = try? await HubClient.session.data(for: req) else { return }
             OfflineCache.write(reply.0, to: posterURL(t))
         }
@@ -271,7 +271,7 @@ final class Downloads {
                     switch t.state {
                     case .preparing: self.poll(t.id)
                     case .downloading where !running.contains(t.id):
-                        if let job = t.jobId, let j: Job = try? await HubClient.shared.get("/v1/media/downloads/\(job)") {
+                        if let job = t.jobId, let j: Job = await hubQuiet("download job", { try await HubClient.shared.get("/v1/media/downloads/\(job)") }) {
                             var n = t; n.state = .preparing; self.upsert(n); self.apply(j, to: t.id)
                         } else if let item = self.item(t) { try? await self.restart(t, item) }
                     default: break

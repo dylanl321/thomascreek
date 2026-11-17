@@ -60,7 +60,7 @@ struct AmbientSettings: View {
     }
 
     private func load() async {
-        guard let page: AmbientLibrary = try? await HubClient.shared.get("/v1/ambient/library") else {
+        guard let page: AmbientLibrary = await hubQuiet("ambient/library", { try await HubClient.shared.get("/v1/ambient/library") }) else {
             note = "The TV will keep today's scene."
             loaded = true
             return

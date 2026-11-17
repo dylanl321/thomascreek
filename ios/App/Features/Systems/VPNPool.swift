@@ -6,6 +6,7 @@ struct IdentifiedURL: Identifiable { let url: URL; var id: String { url.absolute
 /// The WireGuard clients Dylan made on the Firewalla. The hub hands one to each approved phone.
 struct VPNPoolView: View {
     @Environment(HomeStore.self) private var store
+    @State private var loadFailure: String?
     @State private var pool: Pool?
     @State private var picking = false
     @State private var picked: URL?
@@ -38,6 +39,7 @@ struct VPNPoolView: View {
         }
         .scrollContentBackground(.hidden).background(Backdrop())
         .navigationTitle("Away-from-home VPN")
+        .loadFailure(loadFailure) { await load() }
         .task { await load() }
         .refreshable { await load() }
         .fileImporter(isPresented: $picking, allowedContentTypes: [UTType(filenameExtension: "conf") ?? .plainText, .plainText]) { r in
@@ -48,7 +50,11 @@ struct VPNPoolView: View {
         }
     }
 
-    private func load() async { pool = try? await HubClient.shared.get("/v1/vpn/pool") }
+    private func load() async {
+        let got = await hubLoad { try await HubClient.shared.get("/v1/vpn/pool", as: Pool.self) }
+        if let v = got.value { pool = v }
+        loadFailure = got.failure
+    }
 }
 
 /// Reads a .conf and adds it to the hub's pool (admin, Face ID). The file's text never leaves this phone except to the hub.

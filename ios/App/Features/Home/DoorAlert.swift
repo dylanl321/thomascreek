@@ -114,7 +114,7 @@ struct DoorAlertSettings: View {
     }
 
     private func load() async {
-        guard let page: DoorSettings = try? await HubClient.shared.get("/v1/tv/alerts/settings") else {
+        guard let page: DoorSettings = await hubQuiet("tv/alerts/settings", { try await HubClient.shared.get("/v1/tv/alerts/settings") }) else {
             note = "The TVs will keep using the door cameras we found."
             loaded = true
             return

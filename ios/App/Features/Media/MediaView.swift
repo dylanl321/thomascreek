@@ -84,7 +84,7 @@ struct MediaView: View {
     }
 
     private func loadRequests() async {
-        if let l: TitleRequestList = try? await HubClient.shared.get("/v1/media/requests", ["scope": "mine"]) { requests = l.items }
+        if let l: TitleRequestList = await hubQuiet("media/requests", { try await HubClient.shared.get("/v1/media/requests", ["scope": "mine"]) }) { requests = l.items }
     }
 }
 
@@ -212,17 +212,17 @@ struct WatchView: View {
         .background(Backdrop())
         .navigationTitle("Watch")
         .searchable(text: $query, prompt: "Movies and shows")
-        .task { if continueItems.isEmpty, let l: MediaList = try? await HubClient.shared.get("/v1/media/continue") { continueItems = l.items } }
+        .task { if continueItems.isEmpty, let l: MediaList = await hubQuiet("media/continue", { try await HubClient.shared.get("/v1/media/continue") }) { continueItems = l.items } }
         .task(id: kind) {
             library = nil
             let q = kind == "all" ? [:] : ["kind": kind]
-            library = (try? await HubClient.shared.get("/v1/media/library", q, as: MediaList.self))?.items ?? []
+            library = (await hubQuiet("media/library", { try await HubClient.shared.get("/v1/media/library", q, as: MediaList.self) }))?.items ?? []
         }
         .task(id: query) {
             guard !query.isEmpty else { searched = false; return }
             try? await Task.sleep(for: .milliseconds(350))
             guard !Task.isCancelled else { return }
-            if let l: WatchSearch = try? await HubClient.shared.get("/v1/media/search", ["q": query]) {
+            if let l: WatchSearch = await hubQuiet("media/search", { try await HubClient.shared.get("/v1/media/search", ["q": query]) }) {
                 results = l.items; requestable = l.requestable ?? []
             }
             searched = true

@@ -424,7 +424,7 @@ struct WatchAnywhereSheet: View {
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
             }
             .task {
-                if let r: WatchApps = try? await HubClient.shared.get("/v1/media/watch") { apps = r.apps }
+                if let r: WatchApps = await hubQuiet("media/watch", { try await HubClient.shared.get("/v1/media/watch") }) { apps = r.apps }
                 loading = false
             }
         }
@@ -501,7 +501,7 @@ struct HookupSheet: View {
             }
             .onChange(of: tv) { _, new in if let i = input, !(tvs.first { $0.entityId == new }?.inputs.contains(i) ?? false) { input = nil } }
             .task {
-                if let r: HookupScreens = try? await HubClient.shared.get("/v1/media/hookups") {
+                if let r: HookupScreens = await hubQuiet("media/hookups", { try await HubClient.shared.get("/v1/media/hookups") }) {
                     screens = r.screens
                     let mine = r.screens.first { $0.entityId == boxID }?.pluggedInto
                     tv = mine?.entityId; input = mine?.input

@@ -407,9 +407,9 @@ private struct InstallTvSheet: View {
         .card()
         .task(id: started) {
             while started && !Task.isCancelled {
-                if let s: TvSetupStatus = try? await HubClient.shared.call("GET", "/v1/tvapp/setup/\(row.ip)") { status = s }
+                if let s: TvSetupStatus = await hubQuiet("tv setup status", { try await HubClient.shared.call("GET", "/v1/tvapp/setup/\(row.ip)") }) { status = s }
                 if status?.phase == "ready" {
-                    if let page: TvFleetPage = try? await HubClient.shared.call("GET", "/v1/tvapp/fleet") {
+                    if let page: TvFleetPage = await hubQuiet("tvapp/fleet", { try await HubClient.shared.call("GET", "/v1/tvapp/fleet") }) {
                         tvId = page.tvs.first { $0.ip == row.ip }?.tvId
                     }
                     if tvId != nil { UINotificationFeedbackGenerator().notificationOccurred(.success); return }

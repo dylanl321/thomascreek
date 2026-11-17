@@ -65,9 +65,15 @@ struct NightScreen: View {
                 }
                 nightButton(asked ? "✅" : "🙋", asked ? "Asked!" : "Ask a grown-up") {
                     Task {
-                        _ = try? await HubClient.shared.post("/v1/ask-parent", ["text": "Can you come to my room?", "emoji": "🌙"], as: Empty.self)
-                        asked = true
-                        if little { Speaker.say("I asked a grown-up for you.") }
+                        do {
+                            _ = try await HubClient.shared.post("/v1/ask-parent", ["text": "Can you come to my room?", "emoji": "🌙"], as: Empty.self)
+                            asked = true
+                            if little { Speaker.say("I asked a grown-up for you.") }
+                        } catch {
+                            // Never "Asked!" when nobody was told: the child goes to find a grown-up instead.
+                            store.failed("Couldn't reach a grown-up. Go and find one.", error)
+                            if little { Speaker.say("That didn't work. Go and find a grown-up.") }
+                        }
                     }
                 }
                 .disabled(asked)

@@ -224,7 +224,7 @@ struct KidHomeView: View {
     }
 
     private func loadChores() async {
-        if let b: ChoreBoard = try? await HubClient.shared.get("/v1/chores") { board = b; AppSettings.cachedChores = b }
+        if let b: ChoreBoard = await hubQuiet("chores", { try await HubClient.shared.get("/v1/chores") }) { board = b; AppSettings.cachedChores = b }
     }
 
     private func markDoneOffline(_ c: ChoreBoard.Chore) {
@@ -398,8 +398,8 @@ struct KidWatchView: View {
         .background(Backdrop())
         .navigationTitle(little ? "Shows" : "Watch")
         .task {
-            if let l: MediaList = try? await HubClient.shared.get("/v1/media/library", ["rated": "1"]) { items = l.items }
-            if let r: TitleRequestList = try? await HubClient.shared.get("/v1/media/requests", ["scope": "mine"]) { requests = r.items }
+            if let l: MediaList = await hubQuiet("media/library", { try await HubClient.shared.get("/v1/media/library", ["rated": "1"]) }) { items = l.items }
+            if let r: TitleRequestList = await hubQuiet("media/requests", { try await HubClient.shared.get("/v1/media/requests", ["scope": "mine"]) }) { requests = r.items }
         }
         .sheet(item: $picked) { KidPlaySheet(item: $0) }
     }
@@ -493,7 +493,7 @@ struct KidChoresView: View {
     }
 
     private func load() async {
-        if let b: ChoreBoard = try? await HubClient.shared.get("/v1/chores") { board = b; AppSettings.cachedChores = b }
+        if let b: ChoreBoard = await hubQuiet("chores", { try await HubClient.shared.get("/v1/chores") }) { board = b; AppSettings.cachedChores = b }
     }
 
     private func markDoneOffline(_ c: ChoreBoard.Chore) {

@@ -90,7 +90,7 @@ final class SettingsStore {
             SettingKey.liveActivityAuto: AppSettings.autoLiveActivity,
         ]
         guard let body = try? JSONSerialization.data(withJSONObject: ["local": local]),
-              let data = try? await HubClient.shared.raw("POST", "/v1/me/settings/migrate", body: body),
+              let data = await hubQuiet("settings migration", { try await HubClient.shared.raw("POST", "/v1/me/settings/migrate", body: body) }),
               let s = try? PersonSettings.decoder.decode(PersonSettings.self, from: data) else { return }
         AppSettings.defaults.set(true, forKey: "settingsMigrated")
         apply(s)

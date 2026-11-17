@@ -57,7 +57,7 @@ final class SendsSync {
         running = true
         defer { running = false }
         // Not the cached GET: an old saved copy must never decide what gets deleted.
-        guard let l: Lineup = try? await HubClient.shared.call("GET", "/v1/sends/mine") else { return false }
+        guard let l: Lineup = await hubQuiet("sends sync", { try await HubClient.shared.call("GET", "/v1/sends/mine") }) else { return false }
         lineup = l.items
         lastSync = .now
         let downloads = Downloads.shared
@@ -120,7 +120,7 @@ final class SendsSync {
             forKeys: [.volumeAvailableCapacityForImportantUsageKey, .volumeTotalCapacityKey])
         if let free = attrs?.volumeAvailableCapacityForImportantUsage { body["free_bytes"] = free }
         if let total = attrs?.volumeTotalCapacity { body["total_bytes"] = total }
-        try? await HubClient.shared.send("/v1/sends/inventory", body)
+        await hubQuiet("sends inventory") { try await HubClient.shared.send("/v1/sends/inventory", body) }
     }
 
     // MARK: waking up in the background

@@ -416,7 +416,7 @@ struct TVGuideView: View {
         guard query.count >= 2 else { found = nil; return }
         try? await Task.sleep(for: .milliseconds(300))
         guard !Task.isCancelled else { return }
-        found = try? await HubClient.shared.get("/v1/tv/library/search", ["q": query])
+        found = await hubQuiet("tv/library/search", { try await HubClient.shared.get("/v1/tv/library/search", ["q": query]) })
     }
 }
 

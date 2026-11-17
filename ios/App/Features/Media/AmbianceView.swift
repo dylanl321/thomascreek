@@ -143,7 +143,7 @@ struct AmbianceView: View {
             failed = page == nil
             note = (error as? LocalizedError)?.errorDescription ?? "The hub didn't answer."
         }
-        if let fresh: HubTvsPage = try? await HubClient.shared.get("/v1/tvs") {
+        if let fresh: HubTvsPage = await hubQuiet("tvs", { try await HubClient.shared.get("/v1/tvs") }) {
             tvs = fresh.tvs.filter { $0.status == "approved" }
             if tvID == nil || !tvs.contains(where: { $0.id == tvID }) {
                 tvID = (tvs.first { $0.online } ?? tvs.first)?.id
@@ -222,7 +222,7 @@ private struct IdleSection: View {
         guard ready else { return }
         Task {
             let body: [String: Any] = ["enabled": enabled, "after_min": after, "sound": sound, "choice": choice]
-            _ = try? await HubClient.shared.call("PUT", "/v1/ambient/idle", body: body, as: AmbianceIdle.self)
+            _ = await hubAct("Couldn't save the idle scene", { try await HubClient.shared.call("PUT", "/v1/ambient/idle", body: body, as: AmbianceIdle.self) })
         }
     }
 }
@@ -272,7 +272,7 @@ private struct AddAmbianceScene: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } } }
         .task {
-            if let list: AmbianceCategories = try? await HubClient.shared.call("GET", "/v1/ambient/categories") {
+            if let list: AmbianceCategories = await hubQuiet("ambient/categories", { try await HubClient.shared.call("GET", "/v1/ambient/categories") }) {
                 categories = list.categories
                 if !categories.contains(where: { $0.id == category }), let first = categories.first { category = first.id }
             }

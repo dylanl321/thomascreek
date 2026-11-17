@@ -383,8 +383,8 @@ struct TvAppSetupCard: View {
     }
 
     private func look() async {
-        if let page: TvDiscover = try? await HubClient.shared.get("/v1/tvapp/discover") { found = page.devices }
-        if let page: HubTvPage = try? await HubClient.shared.get("/v1/tvapp") { hubTvs = page.tvs }
+        if let page: TvDiscover = await hubQuiet("tvapp/discover", { try await HubClient.shared.get("/v1/tvapp/discover") }) { found = page.devices }
+        if let page: HubTvPage = await hubQuiet("tvapp", { try await HubClient.shared.get("/v1/tvapp") }) { hubTvs = page.tvs }
     }
 
     private func allow(_ code: String) async {
@@ -599,7 +599,7 @@ private struct PairSheet: View {
 
     private func close() {
         if step?.state == "form", let id = step?.flowId {
-            Task { let _: Empty? = try? await HubClient.shared.call("DELETE", "/v1/remotes/pair/\(id)") }
+            Task { let _: Empty? = await hubAct("Couldn't cancel pairing", { try await HubClient.shared.call("DELETE", "/v1/remotes/pair/\(id)") }) }
         }
         if step?.state == "done" { finished(nil) } else { dismiss() }
     }
@@ -739,7 +739,7 @@ private struct HubTvsCard: View {
         .task {
             // Refresh while the screen is open, so now playing and online stay current.
             while !Task.isCancelled {
-                if let fresh: HubTvsPage = try? await HubClient.shared.get("/v1/tvs") { page = fresh }
+                if let fresh: HubTvsPage = await hubQuiet("tvs", { try await HubClient.shared.get("/v1/tvs") }) { page = fresh }
                 try? await Task.sleep(for: .seconds(5))
             }
         }
@@ -892,7 +892,7 @@ struct TVDetailView: View {
         .task(id: tvID) {
             guard !cecChecked else { return }
             cecChecked = true
-            _ = try? await HubClient.shared.post("/v1/tvs/\(tvID)/actions", ["action": "cec_check"], as: TvActionReply.self)
+            _ = await hubAct("Couldn't check HDMI control", { try await HubClient.shared.post("/v1/tvs/\(tvID)/actions", ["action": "cec_check"], as: TvActionReply.self) })
             await load()
         }
     }
@@ -984,7 +984,7 @@ struct TVDetailView: View {
         } catch {
             if detail == nil { problem = error.localizedDescription; loadFailed = true }
         }
-        if latest == nil, let page: HubTvsPage = try? await HubClient.shared.get("/v1/tvs") {
+        if latest == nil, let page: HubTvsPage = await hubQuiet("tvs", { try await HubClient.shared.get("/v1/tvs") }) {
             latest = page.latestVersion
             others = page.tvs.filter { $0.id != tvID && $0.status == "approved" }
         }

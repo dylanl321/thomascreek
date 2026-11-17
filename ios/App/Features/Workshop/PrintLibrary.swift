@@ -278,7 +278,7 @@ struct SendToPrinterSheet: View {
     }
 
     private func load() async {
-        if let r: PrinterList = try? await HubClient.shared.get("/v1/printers") { printers = r.printers }
+        if let r: PrinterList = await hubQuiet("printers", { try await HubClient.shared.get("/v1/printers") }) { printers = r.printers }
         autoMap()
     }
 

@@ -42,7 +42,7 @@ final class FamilyStore {
     }
 
     func loadPresence() async {
-        if let p: FamilyPresence = try? await HubClient.shared.get("/v1/family/presence") { people = p.people }
+        if let p: FamilyPresence = await hubQuiet("family presence", { try await HubClient.shared.get("/v1/family/presence") }) { people = p.people }
     }
 
     /// A child's bedtime from the last Today, with the clock checked locally so the screen dims on time

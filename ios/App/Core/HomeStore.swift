@@ -178,7 +178,7 @@ final class HomeStore {
     }
 
     func loadInbox() async {
-        if let l: InboxList = try? await HubClient.shared.get("/v1/inbox") { inbox = l.items.sorted { $0.t > $1.t } }
+        if let l: InboxList = await hubQuiet("inbox", { try await HubClient.shared.get("/v1/inbox") }) { inbox = l.items.sorted { $0.t > $1.t } }
     }
 
     private func markReachable() {
@@ -329,7 +329,13 @@ final class HomeStore {
     /// would change the house; their favorites and Home layout can be set up.
     func startPreview(_ person: Person) async {
         guard me?.role == .admin, previewing == nil else { return }
-        try? await HubClient.shared.send("/v1/me/view-as", ["person_id": person.id])
+        do {
+            try await HubClient.shared.send("/v1/me/view-as", ["person_id": person.id])
+        } catch {
+            // Without the hub's OK the app would show Dylan's own house under someone else's name.
+            failed("Couldn't view as \(person.name)", error)
+            return
+        }
         stream?.stop(); stream = nil
         HubClient.viewAs = person.id
         previewing = person
@@ -347,7 +353,7 @@ final class HomeStore {
         me = AppSettings.cachedMe; home = AppSettings.cachedHome
         SettingsStore.shared.reset()
         Router.shared.reset()
-        try? await HubClient.shared.send("/v1/me/view-as", ["person_id": NSNull()])
+        await hubQuiet("end view as") { try await HubClient.shared.send("/v1/me/view-as", ["person_id": NSNull()]) }
         _ = who
         await refreshAll()
         openStream()
@@ -364,7 +370,7 @@ final class HomeStore {
         smartTask = Task { [weak self] in
             if delay > 0 { try? await Task.sleep(for: .seconds(delay)) }
             guard !Task.isCancelled else { return }
-            guard let list: SmartList = try? await HubClient.shared.get("/v1/smart", ["plan": "open"]) else { return }
+            guard let list: SmartList = await hubQuiet("right now cards", { try await HubClient.shared.get("/v1/smart", ["plan": "open"]) }) else { return }
             guard let self, var h = self.home else { return }
             h.smart = list.cards
             if let w = list.weather { h.weather = w }
@@ -379,7 +385,7 @@ final class HomeStore {
         if var h = home { h.smart?.removeAll { $0.id == card.id }; home = h }
         Task {
             struct Reply: Decodable { var muted: Bool?; var ruleTitle: String? }
-            if let r: Reply = try? await HubClient.shared.post("/v1/smart/dismiss", ["id": card.id, "rule": card.rule, "handled": handled]),
+            if let r: Reply = await hubQuiet("dismiss card", { try await HubClient.shared.post("/v1/smart/dismiss", ["id": card.id, "rule": card.rule, "handled": handled]) }),
                r.muted == true {
                 show("Won't suggest \(r.ruleTitle ?? "that") again", "Turn it back on in Profile → Suggestions")
             }
@@ -630,7 +636,7 @@ final class HomeStore {
     }
 
     func loadHouseTVs() async {
-        guard let list: TVDeviceList = try? await HubClient.shared.get("/v1/tv/devices") else { return }
+        guard let list: TVDeviceList = await hubQuiet("house TVs", { try await HubClient.shared.get("/v1/tv/devices") }) else { return }
         houseTVs = list.devices
         tvsLoadedAt = .now
         NowPlayingActivity.sync(list.devices)

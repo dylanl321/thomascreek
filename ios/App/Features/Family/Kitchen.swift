@@ -324,7 +324,7 @@ struct OvenFromRecipeSheet: View {
                 ToolbarItem(placement: .confirmationAction) { Button("Start") { start() }.disabled(selected == nil) }
             }
             .task {
-                let k: KitchenSummary? = try? await HubClient.shared.get("/v1/kitchen")
+                let k: KitchenSummary? = await hubQuiet("kitchen", { try await HubClient.shared.get("/v1/kitchen") })
                 ovens = k?.ovens ?? []
                 ovenID = ovens.first { !$0.on }?.id ?? ovens.first?.id
             }
@@ -510,9 +510,9 @@ struct RecipePicker: View {
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
             .task(id: search) {
                 try? await Task.sleep(for: .milliseconds(250))
-                items = ((try? await HubClient.shared.get("/v1/meals/recipes", search.isEmpty ? [:] : ["search": search])) as RecipeList?)?.items ?? []
+                items = ((await hubQuiet("meals/recipes", { try await HubClient.shared.get("/v1/meals/recipes", search.isEmpty ? [:] : ["search": search]) })) as RecipeList?)?.items ?? []
             }
-            .task { suggested = ((try? await HubClient.shared.get("/v1/meals/suggest", ["n": "5"])) as RecipeList?)?.items ?? [] }
+            .task { suggested = ((await hubQuiet("meals/suggest", { try await HubClient.shared.get("/v1/meals/suggest", ["n": "5"]) })) as RecipeList?)?.items ?? [] }
         }
     }
 
@@ -611,10 +611,10 @@ struct RecipesView: View {
             var q: [String: String] = [:]
             if !search.isEmpty { q["search"] = search }
             if let tag { q["tag"] = tag }
-            if let r: RecipeList = try? await HubClient.shared.get("/v1/meals/recipes", q) { items = r.items; if q.isEmpty { total = r.total ?? r.items.count } }
+            if let r: RecipeList = await hubQuiet("meals/recipes", { try await HubClient.shared.get("/v1/meals/recipes", q) }) { items = r.items; if q.isEmpty { total = r.total ?? r.items.count } }
             else if items == nil { items = [] }
         }
-        .task { tags = ((try? await HubClient.shared.get("/v1/meals/tags")) as TagList?)?.tags ?? [] }
+        .task { tags = ((await hubQuiet("meals/tags", { try await HubClient.shared.get("/v1/meals/tags") })) as TagList?)?.tags ?? [] }
         .sheet(isPresented: $adding) { AddRecipeSheet { slug in router.go(.recipe(slug)) } }
     }
 }
@@ -625,6 +625,7 @@ struct RecipeView: View {
     @Environment(HomeStore.self) private var store
     @Environment(Router.self) private var router
     let recipeID: String
+    @State private var loadFailure: String?
     @State private var recipe: Recipe?
     @State private var cooking = false
     @State private var step = 0
@@ -706,6 +707,7 @@ struct RecipeView: View {
                 }
             }
         }
+        .loadFailure(loadFailure) { await load() }
         .task { await load() }
         .sheet(isPresented: $sectioning) {
             if let r = recipe { SectionsSheet(slug: r.slug ?? recipeID, current: r.sections ?? []) { recipe?.sections = $0 } }
@@ -743,7 +745,7 @@ struct RecipeView: View {
                         Button {
                             if step < r.steps.count - 1 { step += 1 } else {
                                 cooking = false
-                                Task { try? await HubClient.shared.send("/v1/meals/recipes/\(r.slug ?? recipeID)/made") }
+                                Task { await hubAct("Couldn't mark it made", { try await HubClient.shared.send("/v1/meals/recipes/\(r.slug ?? recipeID)/made") }) }
                             }
                         } label: {
                             Image(systemName: step < r.steps.count - 1 ? "chevron.right" : "checkmark").font(.title).frame(maxWidth: .infinity, minHeight: 64)
@@ -758,7 +760,11 @@ struct RecipeView: View {
         }
     }
 
-    private func load() async { recipe = try? await HubClient.shared.get("/v1/meals/recipes/\(recipeID)") }
+    private func load() async {
+        let got = await hubLoad { try await HubClient.shared.get("/v1/meals/recipes/\(recipeID)", as: Recipe.self) }
+        if let v = got.value { recipe = v }
+        loadFailure = got.failure
+    }
 
     private func favorite(_ r: Recipe) {
         let on = !(r.favorite ?? false)
@@ -1067,7 +1073,7 @@ struct RecipeEditor: View {
                 if r.dryRun == true { store.show("Practice mode"); dismiss(); return }
                 let saved = r.slug ?? slug
                 if let saved, let img = newPhoto ?? (usePhoto ? photo?.jpegData(compressionQuality: 0.8) : nil) {
-                    _ = try? await HubClient.shared.raw("PUT", "/v1/meals/recipes/\(saved)/image", body: img)
+                    _ = await hubAct("Couldn't save the photo", { try await HubClient.shared.raw("PUT", "/v1/meals/recipes/\(saved)/image", body: img) })
                 }
                 store.show(slug == nil ? "Recipe added" : "Saved")
                 dismiss()

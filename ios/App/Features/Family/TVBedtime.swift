@@ -85,7 +85,7 @@ struct TVBedtimeSettings: View {
     }
 
     private func load() async {
-        guard let rules: TVBedtimeRules = try? await HubClient.shared.get("/v1/tv/bedtime", ["profile": "kids"]) else {
+        guard let rules: TVBedtimeRules = await hubQuiet("tv/bedtime", { try await HubClient.shared.get("/v1/tv/bedtime", ["profile": "kids"]) }) else {
             note = "The kids' TV will keep the usual bedtime."
             loaded = true
             return

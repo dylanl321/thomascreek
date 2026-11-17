@@ -282,7 +282,7 @@ struct SectionsSheet: View {
                 ToolbarItem(placement: .confirmationAction) { Button("Save") { save() }.disabled(saving) }
             }
             .task {
-                if let d: RecipeSections = try? await HubClient.shared.get("/v1/meals/sections") {
+                if let d: RecipeSections = await hubQuiet("meals/sections", { try await HubClient.shared.get("/v1/meals/sections") }) {
                     for n in d.names where !names.contains(n) { names.append(n) }
                 }
             }
@@ -349,7 +349,7 @@ struct AddToFeastSheet: View {
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
             .task {
                 let today = ISO.day(Date())
-                plans = ((try? await HubClient.shared.get("/v1/meals/feasts")) as FeastsReply?)?.plans.filter { $0.endDate >= today } ?? []
+                plans = ((await hubQuiet("meals/feasts", { try await HubClient.shared.get("/v1/meals/feasts") })) as FeastsReply?)?.plans.filter { $0.endDate >= today } ?? []
             }
         }
     }
@@ -613,7 +613,7 @@ struct FeastView: View {
             plan = r.plan
             error = nil
         } catch { self.error = error.localizedDescription }
-        if courseTitles.isEmpty, let all: FeastsReply = try? await HubClient.shared.get("/v1/meals/feasts") { courseTitles = all.courses }
+        if courseTitles.isEmpty, let all: FeastsReply = await hubQuiet("meals/feasts", { try await HubClient.shared.get("/v1/meals/feasts") }) { courseTitles = all.courses }
     }
 
     private func apply(_ r: FeastReply) { if let p = r.plan { plan = p } else if r.dryRun == true { store.show("Practice mode") } }
@@ -820,7 +820,7 @@ struct DishPicker: View {
             .searchable(text: $search, prompt: "Search recipes")
             .navigationTitle("Add to \(course.title.lowercased())").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
-            .task { data = try? await HubClient.shared.get("/v1/meals/sections") }
+            .task { data = await hubQuiet("meals/sections", { try await HubClient.shared.get("/v1/meals/sections") }) }
         }
     }
 
@@ -947,7 +947,7 @@ struct ShopBuilderView: View {
             started = true
             picked = Set(preset)
             let today = ISO.day(Date())
-            if let r: FeastsReply = try? await HubClient.shared.get("/v1/meals/feasts") {
+            if let r: FeastsReply = await hubQuiet("meals/feasts", { try await HubClient.shared.get("/v1/meals/feasts") }) {
                 plans = r.plans.filter { $0.endDate >= today || preset.contains($0.id) }.sorted { $0.startDate < $1.startDate }
             }
             if preset.isEmpty && plans.isEmpty { weeks = 1 }

@@ -216,7 +216,7 @@ struct RequestsView: View {
             let l: TitleRequestList = try await HubClient.shared.get("/v1/media/requests", ["scope": grownUp ? scope : "mine"])
             items = l.items; failed = nil
         } catch { if items == nil { failed = error.localizedDescription } }
-        if store.me?.can(.mediaApprove) == true, let l: RequestList = try? await HubClient.shared.get("/v1/requests") {
+        if store.me?.can(.mediaApprove) == true, let l: RequestList = await hubQuiet("requests", { try await HubClient.shared.get("/v1/requests") }) {
             asks = l.items.filter { $0.kind != "media" }
         }
     }
