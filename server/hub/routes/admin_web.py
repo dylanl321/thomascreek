@@ -29,7 +29,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from pydantic import BaseModel, Field
 
-from .. import __version__, bambu_cloud, testkeys
+from .. import __version__, aikeys, bambu_cloud, testkeys
 from ..iptvcanon import fold_stats as catalog_fold_stats
 from ..iptvplay import accounts as iptv_accounts
 from ..iptvplay import add_login
@@ -37,6 +37,7 @@ from ..iptvplay import logins as iptv_logins
 from .. import iptvplay
 from ..bambu_cloud import token_expiry
 from ..crypto import CryptoError
+from ..mcp_oauth import OAuthError
 from ..onepassword import NAME_RE
 from ..state import Hub
 from . import admin_health
@@ -204,10 +205,24 @@ class CodeBody(BaseModel):
 
 @api.post("/web-approve")
 async def web_approve(body: CodeBody, request: Request, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
-    """Dylan typed the code the web page shows; Face ID confirms."""
+    """Dylan typed the code the web page shows; Face ID confirms.
+
+    The same box takes the code an AI app's sign-in page shows (hub/mcp_oauth.py): that connects
+    the AI app as the person approving, any grown-up, not only Dylan."""
+    code = re.sub(r"[^A-Z0-9]", "", body.code.upper())
+    if h.mcp_oauth.is_pending(code):
+        await require_confirm(request, h, c, "secure")
+        person = h.db.person(c.subject.person_id) if c.subject.person_id else None
+        if person is None:
+            raise error(403, "forbidden", "This phone isn't assigned to anyone yet")
+        try:
+            name = h.mcp_oauth.approve(code, person, c.device["id"])
+        except OAuthError as exc:
+            raise error(exc.status, exc.error, exc.description) from None
+        h.db.log("mcp.connect_approve", "ok", person_id=person["id"], device_id=c.device["id"], params={"app": name})
+        return {"ok": True, "connected": name}
     need(h, c, "people")
     await require_confirm(request, h, c, "admin")
-    code = re.sub(r"[^A-Z0-9]", "", body.code.upper())
     p = _pending.get(code)
     if not p or p["exp"] < time.time() or p["approved"]:
         raise error(404, "not_found", "That code is not valid any more. Reload the web page for a new one.")
@@ -778,7 +793,45 @@ Turning a key off removes every simulator it let in.</div>{shown}
 </div></details></div>"""
 
 
-def _status_page(h: Hub, claims: dict[str, Any], flash: str | None, new_key: str | None = None) -> str:
+def _ai_keys_html(h: Hub, csrf: str, new_ai_key: str | None = None) -> str:
+    """AI connections: keys that let an AI app (Claude and other MCP clients) control the house as one person."""
+    e = html.escape
+    names = {p["id"]: p for p in h.db.people()}
+    rows = []
+    for k in aikeys.keys(h):
+        person = names.get(k["person_id"]) or {"name": "?"}
+        how = "signed in from the app" if k.get("created_by") == k["person_id"] else "made here"
+        rows.append(f"""<div class=row><div><b>{e(k['label'])}</b> <span class=dim>acts as {e(person['name'])} · {how}
+{_ago(k['created_at'])} · last used {_ago(k.get('last_used_at'))}</span></div>
+<form method=post action=/admin/ai-key-revoke><input type=hidden name=csrf value={csrf}><input type=hidden name=id value={e(k['id'])}>
+<button class=ghost>Turn off</button></form></div>""")
+    base = (h.config.hub.remote_url or "https://<hub address>").rstrip("/")
+    shown = ""
+    if new_ai_key:
+        cmd = f'claude mcp add --transport http thomas-creek {base}/mcp --header "Authorization: Bearer {new_ai_key}"'
+        shown = f"""<div class=flash style="margin:10px 0"><b>New AI key.</b> It is shown only this once. For Claude Code, paste this
+into Terminal. Other AI apps take the address <code>{e(base)}/mcp</code> and the key as a Bearer token.
+<pre id=akcmd style="white-space:pre-wrap;word-break:break-all;user-select:all">{e(cmd)}</pre>
+<button type=button onclick="navigator.clipboard.writeText(document.getElementById('akcmd').textContent).then(()=>this.textContent='Copied')">Copy</button></div>"""
+    opts = "".join(f"<option value={e(p['id'])}>{e(p['name'])} ({e(p['role'])})</option>"
+                   for p in names.values() if p["role"] != "pending")
+    state = "on" if h.config.mcp.enabled else "off"
+    where = "from anywhere" if h.config.mcp.away else "home and VPN only"
+    pill = f"<span class=pill-ok>{len(rows)} connected</span>" if rows else f"<span class=dim>{state}</span>"
+    return f"""<div class=card style="margin-top:10px"><details class=key{' open' if new_ai_key else ''}><summary><span>AI connections (MCP)</span>{pill}</summary>
+<div class=kbody><div class=dim>AI apps such as Claude control the house through <code>{e(base)}/mcp</code> ({state}, {where}), with the same
+tools and the same limits as Ask Thomas Creek for the person they act as. On claude.ai, add a custom connector with that address and
+sign in: the page shows a code to type in the app (Systems, Hub web page). Locks, the garage and deletes always wait for Face ID
+on that person's iPhone. Turning a connection off stops it straight away.</div>{shown}
+{''.join(rows)}
+<form method=post action=/admin/ai-key class=fform style="margin:10px 0"><input type=hidden name=csrf value={csrf}>
+<input name=label placeholder="Name, e.g. Claude Code on the Mac" maxlength=60 value="Claude Code">
+<select name=person>{opts}</select><button>Make an AI key</button></form>
+</div></details></div>"""
+
+
+def _status_page(h: Hub, claims: dict[str, Any], flash: str | None, new_key: str | None = None,
+                 new_ai_key: str | None = None) -> str:
     e = html.escape
     csrf = _csrf(claims)
     sections_html = _sections_html(h, csrf)
@@ -813,6 +866,7 @@ def _status_page(h: Hub, claims: dict[str, Any], flash: str | None, new_key: str
 {_catalog_html(h, csrf)}
 {_app_update_html(h, csrf)}
 {_test_keys_html(h, csrf, new_key)}
+{_ai_keys_html(h, csrf, new_ai_key)}
 <h2 id=keys>Keys and files</h2><p class=dim>Values are never shown again; saving replaces the old one right away and tests it.</p>
 {admin_health.keys_overview(h, csrf)}
 <div class=card style="margin-top:10px"><details class=key><summary><span>Upload several files at once</span><span class=dim>VPN, push key, house model…</span></summary>
@@ -1354,6 +1408,25 @@ async def make_test_key(request: Request, h: Hub = Depends(hub)) -> Response:
     _, key = testkeys.create(h, claims["per"], label, created_by=claims.get("per"))
     # Rendered straight into the reply (not a redirect) so the key never sits in a URL or the history.
     return HTMLResponse(_status_page(h, claims, "Made a test key.", new_key=key), headers=_headers())
+
+
+@pages.post("/admin/ai-key")
+async def make_ai_key(request: Request, h: Hub = Depends(hub)) -> Response:
+    claims, form = await _form_session(request, h)
+    person = h.db.person(str(form.get("person") or ""))
+    if person is None or person["role"] == "pending":
+        return _back("Choose who the AI app acts as.")
+    _, key = aikeys.create(h, person["id"], str(form.get("label") or ""), created_by=claims.get("per"))
+    # Rendered straight into the reply (not a redirect) so the key never sits in a URL or the history.
+    return HTMLResponse(_status_page(h, claims, f"Made an AI key for {person['name']}.", new_ai_key=key),
+                        headers=_headers())
+
+
+@pages.post("/admin/ai-key-revoke")
+async def revoke_ai_key(request: Request, h: Hub = Depends(hub)) -> Response:
+    claims, form = await _form_session(request, h)
+    ok = aikeys.revoke(h, str(form.get("id") or ""), by=claims.get("per"))
+    return _back("Turned the AI connection off." if ok else "That AI connection was already off.")
 
 
 @pages.post("/admin/test-key-revoke")

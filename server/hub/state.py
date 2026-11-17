@@ -176,6 +176,11 @@ class Hub:
         self.wx_watch = AlertWatch(self.forecasts)
         self.settings = PersonSettings(self)
         self.assistant = Assistant(self)
+        from .mcp import McpServer
+        from .mcp_oauth import OAuth
+
+        self.mcp = McpServer(self)
+        self.mcp_oauth = OAuth(self)
         self.household = Household(self)
         from .brain import Brain
 

@@ -224,6 +224,17 @@ class AssistantConfig(BaseModel):
     house_name: str = "Thomas Creek"
 
 
+class McpConfig(BaseModel):
+    """The hub's MCP server for outside AI apps (hub/mcp.py). Keys are made on /admin (AI connections)."""
+
+    enabled: bool = True
+    # True: callers away from home are let in too, through the hub's published address (Dylan chose
+    # this, 2026-11-17). False: only the home network and the home WireGuard VPN.
+    away: bool = True
+    calls_per_minute: int = 120
+    approval_minutes: int = 10  # how long a Face ID approval on the iPhone stays open
+
+
 class BrainJobConfig(BaseModel):
     """One house-brain job (see hub/brain/jobs.py). Unset fields keep the job's own default."""
 
@@ -491,6 +502,7 @@ class Config(BaseModel):
     artwork: ArtworkConfig = Field(default_factory=ArtworkConfig)
     dvr: DvrConfig = Field(default_factory=DvrConfig)
     assistant: AssistantConfig = Field(default_factory=AssistantConfig)
+    mcp: McpConfig = Field(default_factory=McpConfig)
     iptv_match: IptvMatchConfig = Field(default_factory=IptvMatchConfig)
     iptv: IptvConfig = Field(default_factory=IptvConfig)
     brain: BrainConfig = Field(default_factory=BrainConfig)

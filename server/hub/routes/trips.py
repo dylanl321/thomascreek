@@ -165,7 +165,7 @@ async def _run_tool(h: Hub, c: Caller, request: Request, name: str, args: dict[s
     if write:
         h.db.log(f"trips.{name}", "ok", person_id=c.subject.person_id, device_id=c.subject.device_id,
                  detail=str(args.get("title") or args.get("name") or args.get("trip_id") or "")[:120],
-                 source="ask" if request.headers.get("x-tc-via") == "ask" else "app")
+                 source=request.headers.get("x-tc-via") if request.headers.get("x-tc-via") in ("ask", "mcp") else "app")
     return {"ok": True, "result": out}
 
 

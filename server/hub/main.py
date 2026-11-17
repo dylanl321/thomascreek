@@ -15,6 +15,7 @@ from fastapi.responses import JSONResponse
 from . import __version__
 from .config import Config, data_dir, load_config, master_key_path
 from .db import DB
+from .routes import mcp as mcp_routes
 from .routes import admin_web, alerts, ambient, people_web, appupdate, art, assistant, auth, brain, cameras, catalog, climate, downloads, dvr, family, feasts, fleet_web, home, home_alerts, household, iptvplay, kitchen, layout, lights, me, media, media_requests, nas, network, people, printers, recipes, remotes, search, smart, titles, trips, tvapp, tvfleet, tvguide, tvcameras, tvpair, tvphone, tvs, weather, youtube
 from .routes.deps import http_error_handler
 from .state import Hub
@@ -79,7 +80,7 @@ def build_app(hub: Hub | None = None, *, start_background: bool = True) -> FastA
 
     # Unauthenticated sign-in steps, rate-limited for callers away from home (the hub is
     # published through a reverse proxy). Home callers are never limited.
-    limited = ("/v1/enroll", "/v1/auth/challenge", "/v1/auth/token", "/v1/hello", "/v1/ping", "/admin")
+    limited = ("/v1/enroll", "/v1/auth/challenge", "/v1/auth/token", "/v1/hello", "/v1/ping", "/admin", "/oauth/")
     hits: dict[str, list[float]] = {}
 
     @app.middleware("http")
@@ -118,6 +119,7 @@ def build_app(hub: Hub | None = None, *, start_background: bool = True) -> FastA
         resp.headers.setdefault("Cache-Control", "no-store")
         return resp
 
+    app.include_router(mcp_routes.router)  # MCP for outside AI apps, and its OAuth sign-in
     app.include_router(sends_routes.router)  # films and shows sent to the kids' iPads
     for r in (auth.router, alerts.router, home.router, people.router, media_requests.router, media.router, family.router, feasts.router, trips.router, network.router,
               cameras.router, kitchen.router, nas.router, printers.router, remotes.router, tvapp.router, tvapp.tv_router, tvguide.router, tvphone.router, catalog.router, iptvplay.router, tvfleet.router, tvpair.router, tvs.router, tvs.tv_router, home_alerts.router, tvcameras.router, ambient.router, art.router, dvr.router, titles.router, layout.router, recipes.router, search.router, lights.router, appupdate.router, lights.pages, admin_web.api, admin_web.pages, people_web.pages, fleet_web.pages, downloads.router,

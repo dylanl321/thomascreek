@@ -217,10 +217,16 @@ async def perform(request: Request, c: Caller, h: Hub, action: str, target: str 
     if not quick_ok:
         await require_confirm(request, h, c, d.tier)
     try:
-        via = "ask" if request.headers.get("x-tc-via") == "ask" else "quick" if quick_ok else "app"
+        via = _via(request) or ("quick" if quick_ok else "app")
         return await run_once(request, h, c, action, lambda: h.actions.run(c.subject, plan, source=via))
     except ActionError as exc:
         raise error(exc.status, exc.error, exc.message) from None
+
+
+def _via(request: Request) -> str | None:
+    """"ask" (Ask Thomas Creek) or "mcp" (an outside AI app), for the activity log."""
+    v = request.headers.get("x-tc-via")
+    return v if v in ("ask", "mcp") else None
 
 
 # Simple device changes that may be answered "accepted" when Home Assistant is slow (the phone opts in).

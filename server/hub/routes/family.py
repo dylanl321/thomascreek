@@ -433,4 +433,4 @@ def _practice(h: Hub, c: Caller, action: str, target: str | None) -> dict[str, A
 
 
 def _via(request: Request) -> str:
-    return "ask" if request.headers.get("x-tc-via") == "ask" else "app"
+    return request.headers.get("x-tc-via") if request.headers.get("x-tc-via") in ("ask", "mcp") else "app"

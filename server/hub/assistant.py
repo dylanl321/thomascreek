@@ -497,7 +497,7 @@ class Assistant:
         path = f"/v1/cameras/events/{ref}/snapshot.jpg" if event_id else f"/v1/cameras/{ref}/snapshot.jpg"
         transport = httpx.ASGITransport(app=ctx["app"], client=(ctx["ip"] or "127.0.0.1", 50000))
         async with httpx.AsyncClient(transport=transport, base_url="https://hub.internal", timeout=20) as cl:
-            r = await cl.get(path, headers={"authorization": ctx["auth"], "x-tc-via": "ask"})
+            r = await cl.get(path, headers={"authorization": ctx["auth"], "x-tc-via": ctx.get("via", "ask")})
         if r.status_code == 403:
             return {"error": "not allowed for this person. " + NO_PICTURE}
         if r.status_code >= 400 or not r.content:
@@ -566,19 +566,24 @@ class Assistant:
         conv: Conversation = ctx["conv"]
         turn: Turn = ctx["turn"]
         label = summary or f"{method} {path}"
+        on_confirm = ctx.get("on_confirm")  # the MCP server asks on the person's iPhone instead of a card
         if method == "DELETE" or (method in ("POST", "PATCH", "PUT") and ASK_FIRST.search(path)):
+            if on_confirm is not None:
+                return await on_confirm("tap", method, path, query, body, label)
             return self._confirm(conv, turn, "tap", method, path, query, body, label)
 
         transport = httpx.ASGITransport(app=ctx["app"], client=(ctx["ip"] or "127.0.0.1", 50000))
         async with httpx.AsyncClient(transport=transport, base_url="https://hub.internal", timeout=30) as cl:
             r = await cl.request(method, path, params=query or None,
                                  json=body if method != "GET" else None,
-                                 headers={"authorization": ctx["auth"], "x-tc-via": "ask"})
+                                 headers={"authorization": ctx["auth"], "x-tc-via": ctx.get("via", "ask")})
         try:
             data: Any = r.json()
         except ValueError:
             data = {"text": r.text[:500]}
         if r.status_code == 428:
+            if on_confirm is not None:
+                return await on_confirm("faceid", method, path, query, body, label)
             return self._confirm(conv, turn, "faceid", method, path, query, body, label)
         if r.status_code == 403:
             ask = bool(isinstance(data, dict) and data.get("ask_parent"))

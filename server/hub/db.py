@@ -181,6 +181,19 @@ SCHEMA = [
         payload TEXT NOT NULL DEFAULT '{}'
     )""",
     "CREATE INDEX IF NOT EXISTS alert_log_ts ON alert_log(ts)",
+    # AI connection keys for the hub's MCP server (hub/aikeys.py).
+    """
+    CREATE TABLE IF NOT EXISTS ai_keys (
+        id TEXT PRIMARY KEY,
+        key_hash TEXT NOT NULL UNIQUE,
+        label TEXT NOT NULL,
+        person_id TEXT NOT NULL,
+        device_id TEXT NOT NULL,
+        created_by TEXT,
+        created_at REAL NOT NULL,
+        revoked_at REAL,
+        last_used_at REAL
+    )""",
     """
     CREATE TABLE IF NOT EXISTS test_keys (
         id TEXT PRIMARY KEY,
