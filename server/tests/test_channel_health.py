@@ -44,7 +44,7 @@ def test_plays_score_sources_and_a_dead_one_is_not_the_default(hub, people):
 def test_candidates_stay_small_and_probing_waits_for_night(hub, people):
     now = datetime.now(ZoneInfo("America/New_York")).timestamp()
     channels = {f"xc:thomas-creek:{n}": {"n": 300 - n, "last": now} for n in range(250)}
-    hub.db.kv_set("tv.watch", {"adult": {"channels": channels, "series": {}, "movies": {}}})
+    hub.db.watch_save("adult", {}, {"channels": channels, "series": {}, "movies": {}})
     hub.db.execute(
         "INSERT INTO person_settings (person_id, key, value, updated_at, device_id) VALUES (?,?,?,?,?)",
         [people["dylan"]["id"], "fav.media", json.dumps([{"id": "iptv-org:CNN.us"}]), now, None],

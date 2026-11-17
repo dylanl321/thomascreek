@@ -17,7 +17,7 @@ from .tvexplore import _clean_name, ready_items
 
 log = logging.getLogger("hub.upnext")
 
-KV = "tv.watch"
+KV = "tv.watch"   # the old one-document history; DB() moves it into the watch_history table
 KV_RECORDINGS = "dvr.recordings"
 KV_PLEX = "tv.plex.episodes"   # {"shows": {show_id: {"at","title","rating","episodes":[…]}}, "of": {episode_id: show_id}}
 PLEX_TTL_S = 6 * 3600
@@ -54,20 +54,13 @@ def remember(db: Any, profile: str, playing: dict[str, Any] | None, now: float |
     if profile not in ("adult", "kids") or not isinstance(playing, dict):
         return
     now = time.time() if now is None else now
-    doc = db.kv_get(KV) or {}
-    if not isinstance(doc, dict):
-        doc = {}
-    changed = False
     for key in (profile, who_key(person=person), who_key(tv=tv)):
         if not key:
             continue
-        bucket = doc.get(key) if isinstance(doc.get(key), dict) else {}
+        bucket = db.watch_bucket(key)
         updated = _add(bucket, playing, now)
         if updated is not None:
-            doc[key] = updated
-            changed = True
-    if changed:
-        db.kv_set(KV, doc)
+            db.watch_save(key, bucket, updated)
 
 
 def who_key(*, person: str | None = None, tv: str | None = None) -> str | None:
@@ -576,9 +569,8 @@ def _art(h: Any, kind: str, key: str | None) -> str | None:
 
 
 def _history(h: Any, profile: str) -> dict[str, Any]:
-    doc = h.db.kv_get(KV) or {}
-    bucket = doc.get(profile) if isinstance(doc, dict) else None
-    return bucket if isinstance(bucket, dict) else {}
+    """One bucket (a profile, a person or a TV); {} when it has no plays."""
+    return h.db.watch_bucket(profile)
 
 
 def _touch(row: dict[str, Any] | None, now: float, **extra: Any) -> dict[str, Any]:

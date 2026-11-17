@@ -338,6 +338,22 @@ SCHEMA += [
     )""",
 ]
 
+# Watch history, one row per person, TV or profile ("bucket") and title (#210). It was one hub_kv document,
+# "tv.watch", rewritten on every heartbeat; DB() carries that document over once (_move_watch_history).
+SCHEMA += [
+    """
+    CREATE TABLE IF NOT EXISTS watch_history (
+        bucket TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        key TEXT NOT NULL,
+        data TEXT NOT NULL,
+        last REAL NOT NULL DEFAULT 0,
+        PRIMARY KEY (bucket, kind, key)
+    )""",
+]
+WATCH_KINDS = ("channels", "series", "movies")
+WATCH_UPSERT = "INSERT OR REPLACE INTO watch_history (bucket, kind, key, data, last) VALUES (?,?,?,?,?)"
+
 ADDED_COLUMNS = [
     ("devices", "kind", "TEXT NOT NULL DEFAULT 'phone'"),   # phone | test (a simulator joined with a test key)
     ("devices", "test_key_id", "TEXT"),
@@ -382,6 +398,67 @@ class DB:
                 have = {r[1] for r in self._conn.execute(f"PRAGMA table_info({table})")}
                 if col not in have:
                     self._conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}")
+            self._move_watch_history()
+
+    def _move_watch_history(self) -> None:
+        """Carry the old "tv.watch" document into watch_history once, then drop it. Runs inside __init__'s lock."""
+        row = self._conn.execute("SELECT value FROM hub_kv WHERE key='tv.watch'").fetchone()
+        if row is None:
+            return
+        try:
+            doc = json.loads(row["value"])
+        except json.JSONDecodeError:
+            doc = {}
+        self._conn.execute("BEGIN")
+        try:
+            for bucket, kinds in (doc.items() if isinstance(doc, dict) else []):
+                if not isinstance(kinds, dict):
+                    continue
+                for kind in WATCH_KINDS:
+                    for key, item in (kinds.get(kind) or {}).items():
+                        if isinstance(item, dict):
+                            self._conn.execute(
+                                WATCH_UPSERT,
+                                [str(bucket), kind, str(key), json.dumps(item), float(item.get("last") or 0)])
+            self._conn.execute("DELETE FROM hub_kv WHERE key='tv.watch'")
+            self._conn.execute("COMMIT")
+        except Exception:
+            self._conn.execute("ROLLBACK")
+            raise
+
+    # -- watch history (hub/upnext.py) -----------------------------------
+    def watch_bucket(self, bucket: str) -> dict[str, dict[str, Any]]:
+        """One bucket in the shape the history readers use: {"channels": {key: row}, "series": …, "movies": …}."""
+        out: dict[str, dict[str, Any]] = {}
+        for r in self.all("SELECT kind, key, data FROM watch_history WHERE bucket=?", [bucket]):
+            out.setdefault(r["kind"], {})[r["key"]] = json.loads(r["data"])
+        return out
+
+    def watch_buckets(self) -> dict[str, dict[str, dict[str, Any]]]:
+        out: dict[str, dict[str, dict[str, Any]]] = {}
+        for r in self.all("SELECT bucket, kind, key, data FROM watch_history"):
+            out.setdefault(r["bucket"], {}).setdefault(r["kind"], {})[r["key"]] = json.loads(r["data"])
+        return out
+
+    def watch_save(self, bucket: str, before: dict[str, Any], after: dict[str, Any]) -> None:
+        """Write only the rows that changed, and drop the ones `after` no longer keeps (trimmed)."""
+        with self._lock:
+            self._conn.execute("BEGIN")
+            try:
+                for kind in WATCH_KINDS:
+                    old, new = before.get(kind) or {}, after.get(kind) or {}
+                    for key, item in new.items():
+                        if old.get(key) != item:
+                            self._conn.execute(
+                                WATCH_UPSERT,
+                                [bucket, kind, str(key), json.dumps(item), float(item.get("last") or 0)])
+                    for key in old.keys() - new.keys():
+                        self._conn.execute("DELETE FROM watch_history WHERE bucket=? AND kind=? AND key=?",
+                                           [bucket, kind, str(key)])
+                self._conn.execute("COMMIT")
+            except Exception:
+                self._conn.execute("ROLLBACK")
+                raise
 
     # -- low level -------------------------------------------------------
     def execute(self, sql: str, args: Iterable[Any] = ()) -> sqlite3.Cursor:

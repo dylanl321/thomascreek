@@ -44,7 +44,7 @@ def test_nobody_is_guessed_without_a_reason_and_the_tv_keeps_its_own_history(hub
     home_client.post("/v1/tv/state", headers=headers, json={
         "playing": {"movie_id": "vod:thomas-creek:100", "title": "Drama Movie", "kind": "movie", "position_s": 600}})
     assert [i["movie_id"] for i in _continue(hub, who_key(tv=TV_ID))] == ["vod:thomas-creek:100"]
-    assert not (hub.db.kv_get("tv.watch") or {}).get(who_key(person=people["dylan"]["id"]))
+    assert not hub.db.watch_buckets().get(who_key(person=people["dylan"]["id"]))
 
 
 def test_the_only_grown_up_home_is_the_guess(hub, home_client, people):
@@ -66,7 +66,7 @@ def test_a_guess_from_who_is_home_never_writes_anyones_history(hub, home_client,
     _home(hub, people["dylan"])
     home_client.post("/v1/tv/state", headers=headers, json={
         "playing": {"movie_id": "vod:thomas-creek:100", "title": "Drama Movie", "kind": "movie", "position_s": 600}})
-    assert not (hub.db.kv_get("tv.watch") or {}).get(who_key(person=people["dylan"]["id"]))
+    assert not hub.db.watch_buckets().get(who_key(person=people["dylan"]["id"]))
 
 
 def test_im_watching_on_the_phone_names_the_person_and_tells_the_tv(hub, home_client, people):
@@ -143,7 +143,7 @@ def test_a_kids_tv_is_only_ever_a_childs(hub, home_client, people):
     home_client.post("/v1/tv/state", headers=headers, json={
         "person_id": people["dylan"]["id"],
         "playing": {"movie_id": "vod:thomas-creek:101", "title": "Kids Movie", "kind": "movie", "position_s": 300}})
-    assert not (hub.db.kv_get("tv.watch") or {}).get(who_key(person=people["dylan"]["id"]))
+    assert not hub.db.watch_buckets().get(who_key(person=people["dylan"]["id"]))
     assert tvwho.current(hub, TV_ID)["person_id"] == people["theo"]["id"]
 
 

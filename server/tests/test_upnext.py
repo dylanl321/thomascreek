@@ -278,3 +278,23 @@ def test_plex_episodes_continue_and_the_next_one_follows(hub, people, home_clien
         body = dylan.client.get("/v1/tv/upnext", headers=dylan.h)
         assert body.status_code == 200
         assert all(i.get("episode_id") != "502" for r in body.json()["rows"] for i in r["items"])
+
+
+def test_old_history_moves_into_its_own_table_once(tmp_path):
+    """The one-document history (hub_kv "tv.watch") is carried into watch_history when the hub starts."""
+    from hub.db import DB
+
+    path = tmp_path / "hub.db"
+    db = DB(path)
+    db.kv_set("tv.watch", {
+        "adult": {"channels": {"xc:a:1": {"n": 3, "last": 100.0, "title": "News"}}, "series": {}, "movies": {}},
+        "person:p1": {"movies": {"vod:a:9": {"n": 1, "last": 200.0, "position_s": 600}}},
+    })
+    db = DB(path)
+    assert db.kv_get("tv.watch") is None
+    assert db.watch_bucket("adult")["channels"]["xc:a:1"]["n"] == 3
+    assert db.watch_bucket("person:p1") == {"movies": {"vod:a:9": {"n": 1, "last": 200.0, "position_s": 600}}}
+    remember(db, "adult", {"movie_id": "vod:a:9", "title": "Film", "position_s": 700}, now=300.0, person="p1")
+    again = DB(path)
+    assert again.watch_bucket("person:p1")["movies"]["vod:a:9"]["position_s"] == 700
+    assert again.watch_bucket("adult")["movies"]["vod:a:9"]["position_s"] == 700
