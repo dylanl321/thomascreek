@@ -282,3 +282,27 @@ def test_no_top10_row_with_fewer_than_three_playable(hub, people):
     dylan = people["phones"]["Dylan"]
     body = dylan.client.get("/v1/tv/explore", headers=dylan.h).json()
     assert all(row["id"] != "top10" for row in body["rows"])
+
+
+def test_recently_added_leads_with_house_language_titles_that_have_pictures(hub, people):
+    """With tens of thousands of provider films, the newest ones are often another language with no art;
+    those go to the back of the row, behind titles the house can read and see."""
+    hub.tv_catalog.ingest(vod=[
+        {"stream_id": 1, "name": "AR - فيلم جديد", "year": "2026", "category_id": "9"},
+        {"stream_id": 2, "name": "فيلم آخر", "year": "2026", "category_id": "9"},
+        {"stream_id": 3, "name": "Le Grand Film", "year": "2026", "category_id": "8", "stream_icon": "http://art.test/a.jpg"},
+        {"stream_id": 4, "name": "Blank Card", "year": "2026", "category_id": "1"},
+        {"stream_id": 5, "name": "Good Film", "year": "2024", "category_id": "1", "stream_icon": "http://art.test/b.jpg"},
+        {"stream_id": 6, "name": "Older Good Film", "year": "2020", "category_id": "1", "tmdb": "603"},
+    ], vod_categories=[{"category_id": "9", "category_name": "ARABIC MOVIES"},
+                       {"category_id": "8", "category_name": "FR | Films"},
+                       {"category_id": "1", "category_name": "Movies"}])
+    publish(hub, None, can_request=False)
+    dylan = people["phones"]["Dylan"]
+    body = dylan.client.get("/v1/tv/explore", headers=dylan.h).json()
+    titles = [card["title"] for card in body["rows"][0]["items"]]
+    assert titles[:2] == ["Good Film", "Older Good Film"]
+    assert body["hero"]["title"] == "Good Film"
+    assert titles.index("Blank Card") < titles.index("Le Grand Film")
+    assert set(titles[-3:]) == {"Le Grand Film", "AR - فيلم جديد", "فيلم آخر"}
+    assert "art_known" not in body["hero"] and "category" not in body["hero"]
