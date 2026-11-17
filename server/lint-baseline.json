@@ -214,7 +214,7 @@
   "hub/titles.py": {
    "assignment": 1
   },
-  "hub/tvapp.py": {
+  "hub/tvapp_builds.py": {
    "arg-type": 1
   },
   "hub/tvbasic.py": {
@@ -276,7 +276,7 @@
    "var-annotated": 1
   },
   "hub/upnext.py": {
-   "arg-type": 3
+   "arg-type": 2
   },
   "hub/vpn.py": {
    "arg-type": 1,
@@ -590,8 +590,21 @@
    "E501": 4
   },
   "hub/tvapp.py": {
-   "ASYNC109": 4,
-   "E501": 15
+   "ASYNC109": 1,
+   "E501": 3
+  },
+  "hub/tvapp_builds.py": {
+   "E501": 5
+  },
+  "hub/tvapp_common.py": {
+   "ASYNC109": 3,
+   "E501": 2
+  },
+  "hub/tvapp_config.py": {
+   "E501": 1
+  },
+  "hub/tvapp_enrol.py": {
+   "E501": 4
   },
   "hub/tvbasic.py": {
    "E501": 34
