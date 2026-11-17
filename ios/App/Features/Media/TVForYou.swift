@@ -196,14 +196,32 @@ private struct PosterCard: View {
 
 // MARK: - Playing on this iPhone
 
-struct PhonePlayReply: Decodable { var url: String; var kind: String?; var title: String? }
+struct PhonePlayReply: Decodable {
+    var url: String; var kind: String?; var title: String?
+    /// Where this person stopped on any screen (or the second asked for with start_s). Nil: from the start.
+    var resumeS: Double?
+    var seriesId: String?
+}
 private struct PlexStreamReply: Decodable { var hlsUrl: String }
 
+/// One play on this iPhone: the address, where to start, and what to report back to the hub.
+struct PhoneSession: Identifiable {
+    var id: String { url.absoluteString }
+    var url: URL
+    var request: TVPlayRequest
+    var resumeS: Double?
+    /// Library films and episodes report progress so Continue watching follows the person. Plex and live don't.
+    var reports: Bool { request.plexId == nil && (request.kind == "movie" || request.kind == "episode") }
+}
+
 enum PhonePlayback {
-    /// A hub path for the phone's own player, or a sentence saying why not.
-    static func start(_ request: TVPlayRequest) async -> Result<URL, PhoneError> {
+    /// A hub path for the phone's own player, or a sentence saying why not. `startS` starts from that second
+    /// ("Continue on iPhone" from a TV); otherwise the hub answers with the person's own place.
+    static func start(_ request: TVPlayRequest, startS: Double? = nil) async -> Result<PhoneSession, PhoneError> {
         do {
             let path: String
+            var resume: Double? = nil
+            var request = request
             if let plex = request.plexId, request.movieId?.hasPrefix("vod:thomas-creek:") != true {
                 let reply: PlexStreamReply = try await HubClient.shared.get("/v1/media/\(plex)/stream")
                 path = reply.hlsUrl
@@ -215,14 +233,28 @@ enum PhonePlayback {
                 case "live": body["channel_key"] = request.channelKey ?? ""
                 default: return .failure(PhoneError(message: "Start over only plays on a TV"))
                 }
+                if let startS, startS > 0 { body["start_s"] = Int(startS) }
                 let reply: PhonePlayReply = try await HubClient.shared.post("/v1/tv/phone/play", body)
                 path = reply.url
+                resume = reply.resumeS
+                if request.seriesId == nil { request.seriesId = reply.seriesId }
             }
             guard let url = await playable(path) else { return .failure(PhoneError(message: "Can't reach the house right now.")) }
-            return .success(url)
+            request.plexId = request.movieId?.hasPrefix("vod:thomas-creek:") == true ? nil : request.plexId
+            return .success(PhoneSession(url: url, request: request, resumeS: resume))
         } catch {
             return .failure(PhoneError(message: error.localizedDescription))
         }
+    }
+
+    /// The same record a TV's heartbeat makes, kept for this person (`POST /v1/tv/phone/progress`).
+    static func report(_ request: TVPlayRequest, position: Double, duration: Double?) async {
+        guard position >= 1 else { return }
+        var body: [String: Any] = ["position_s": Int(position)]
+        if request.kind == "episode" { body["episode_id"] = request.episodeId ?? "" } else { body["movie_id"] = request.movieId ?? "" }
+        if let duration, duration.isFinite, duration >= 60 { body["duration_s"] = Int(duration) }
+        do { try await HubClient.shared.send("/v1/tv/phone/progress", body) }
+        catch { print("phone progress not saved: \(error.localizedDescription)") }
     }
 
     /// The phone's player can't use the hub's pinned home certificate, so it goes through the published
@@ -239,31 +271,85 @@ enum PhonePlayback {
 
 struct PhoneError: Error { var message: String }
 
-/// Full screen, with the system controls (AirPlay and picture in picture included).
+/// Full screen, with the system controls (AirPlay and picture in picture included). Starts where the person
+/// stopped, reports every minute and on close, and can hand the show to a house TV from the same second.
 struct PhonePlayerView: View {
-    var url: URL
-    var title: String
+    var session: PhoneSession
     @Environment(\.dismiss) private var dismiss
+    @Environment(HomeStore.self) private var store
     @State private var player: AVPlayer?
+    @State private var ticker: Any?
+    @State private var choosingTV = false
+
+    private var title: String { session.request.title }
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
+        ZStack(alignment: .top) {
             Color.black.ignoresSafeArea()
             if let player { VideoPlayer(player: player).ignoresSafeArea() } else { ProgressView().tint(.white) }
-            Button { dismiss() } label: {
-                Image(systemName: "xmark").font(.headline).foregroundStyle(.white).padding(12)
-                    .background(.ultraThinMaterial, in: Circle())
+            HStack {
+                Button { dismiss() } label: {
+                    Image(systemName: "xmark").font(.headline).foregroundStyle(.white).padding(12)
+                        .background(.ultraThinMaterial, in: Circle())
+                }
+                .accessibilityLabel("Close \(title)")
+                Spacer()
+                if session.request.kind != "catchup", session.request.plexId == nil {
+                    Button { choosingTV = true } label: {
+                        Label("Play on a TV", systemImage: "tv").font(.subheadline.weight(.semibold)).foregroundStyle(.white)
+                            .padding(.horizontal, 14).frame(minHeight: 44).background(.ultraThinMaterial, in: Capsule())
+                    }
+                }
             }
             .padding(16)
-            .accessibilityLabel("Close \(title)")
         }
-        .onAppear {
-            try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
-            let p = AVPlayer(url: url)
-            player = p
-            p.play()
+        .onAppear(perform: start)
+        .onDisappear(perform: stop)
+        .confirmationDialog("Play on a TV", isPresented: $choosingTV, titleVisibility: .visible) {
+            ForEach(store.houseTVs.filter { !($0.profile == "kids" && session.request.kids == false) }) { tv in
+                Button(tv.name) { moveTo(tv) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { Text("\(title) starts there from this second.") }
+        .task { if store.houseTVs.isEmpty { await store.loadHouseTVs() } }
+    }
+
+    private func start() {
+        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
+        let p = AVPlayer(url: session.url)
+        player = p
+        if let resume = session.resumeS, resume > 0 {
+            p.seek(to: CMTime(seconds: resume, preferredTimescale: 1), toleranceBefore: .zero, toleranceAfter: .positiveInfinity)
         }
-        .onDisappear { player?.pause(); player = nil }
+        p.play()
+        guard session.reports else { return }
+        ticker = p.addPeriodicTimeObserver(forInterval: CMTime(seconds: 60, preferredTimescale: 1), queue: .main) { _ in
+            report(p)
+        }
+    }
+
+    private func stop() {
+        guard let p = player else { return }
+        if session.reports { report(p) }
+        if let ticker { p.removeTimeObserver(ticker) }
+        ticker = nil
+        p.pause()
+        player = nil
+    }
+
+    private func report(_ p: AVPlayer) {
+        let position = p.currentTime().seconds
+        let duration = p.currentItem?.duration.seconds
+        guard position.isFinite else { return }
+        let request = session.request
+        Task { await PhonePlayback.report(request, position: position, duration: duration) }
+    }
+
+    private func moveTo(_ tv: TVPlayer) {
+        var request = session.request
+        if session.reports, let seconds = player?.currentTime().seconds, seconds.isFinite, seconds > 0 { request.resumeS = seconds }
+        store.perform("tv.play", target: tv.id, params: request.tvParams, done: "Playing on \(tv.name)")
+        dismiss()
     }
 }
 
@@ -279,6 +365,8 @@ struct TVHomeView: View {
     @State private var paused = false
     @State private var moving = false
     @State private var channels: [TVGuideChannel]?
+    @State private var startingHere = false
+    @State private var phoneSession: PhoneSession?
     @State private var query = ""
     @FocusState private var typing: Bool
 
@@ -318,6 +406,7 @@ struct TVHomeView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task { if store.houseTVs.isEmpty { await store.loadHouseTVs() } }
         .sheet(isPresented: $moving) { MoveToSheet(from: deviceID, title: tv?.playing?.title ?? tv?.playing?.name ?? "It") }
+        .fullScreenCover(item: $phoneSession) { PhonePlayerView(session: $0) }
     }
 
     // MARK: what's on
@@ -340,8 +429,20 @@ struct TVHomeView: View {
                         Text([playing?.number.map { "\($0)" }, name].compactMap { $0 }.joined(separator: " · "))
                             .font(.caption).foregroundStyle(Theme.dim).lineLimit(1)
                     }
+                    if let line = tv?.watching?.line, tv?.online != false {
+                        Label(line, systemImage: "person.fill").font(.caption).foregroundStyle(Theme.dim).lineLimit(1)
+                    }
                 }
                 Spacer(minLength: 0)
+            }
+            if let tv, tv.online != false { ImWatchingChip(tv: tv) }
+            if let resume = continueHere {
+                Button { Task { await continueOnPhone(resume) } } label: {
+                    Label(startingHere ? "Starting…" : "Continue on iPhone", systemImage: "iphone")
+                        .font(.subheadline.weight(.semibold)).padding(.horizontal, 14).frame(minHeight: 44)
+                        .background(Theme.card2, in: Capsule())
+                }
+                .buttonStyle(.plain).disabled(startingHere)
             }
             if playing != nil {
                 HStack(spacing: 12) {
@@ -360,6 +461,26 @@ struct TVHomeView: View {
             }
         }
         .card()
+    }
+
+    /// A film or episode playing on this TV, as a request the phone can open at the TV's second.
+    private var continueHere: TVPlayRequest? {
+        guard tv?.online != false, let p = tv?.playing else { return nil }
+        let title = p.title ?? p.name ?? "It"
+        if let movie = p.movieId { return TVPlayRequest(title: title, kind: "movie", movieId: movie) }
+        if let episode = p.episodeId {
+            return TVPlayRequest(title: title, kind: "episode", seriesId: p.seriesId, episodeId: episode)
+        }
+        return nil
+    }
+
+    private func continueOnPhone(_ request: TVPlayRequest) async {
+        startingHere = true
+        defer { startingHere = false }
+        switch await PhonePlayback.start(request, startS: tv?.playing?.positionS) {
+        case .success(let session): phoneSession = session
+        case .failure(let why): store.show(why.message, request.title, isError: true)
+        }
     }
 
     // MARK: Watch
@@ -504,6 +625,7 @@ extension TVPlayRequest {
         default:
             params["channel_key"] = channelKey ?? ""
         }
+        if let resumeS, resumeS > 0, kind == "movie" || kind == "episode" { params["resume"] = Int(resumeS) }
         return params
     }
 }

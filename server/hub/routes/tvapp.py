@@ -49,7 +49,7 @@ from pydantic import BaseModel, Field
 from ..home import iso
 from ..state import Hub
 from ..tvapp import TvAppError, clean_ip
-from .. import tvfleet, tvlauncher, tvupdate
+from .. import tvfleet, tvlauncher, tvupdate, tvwho
 from ..iptvplay import touch
 from ..tvremote import allowed_packages
 from .deps import Caller, caller, caller_ip, error, hub, need
@@ -618,7 +618,9 @@ async def tv_state(body: StateIn, c: Caller = Depends(caller), h: Hub = Depends(
     """Now playing and a health heartbeat. Phones see a `tv` event."""
     install_id = _own_tv(c)
     try:
+        tvwho.refresh(h, install_id, body.person_id)
         data = h.tv_app.record_state(install_id, body.model_dump())
+        data["watching"] = tvwho.current(h, install_id)
         touch(h, install_id)
     except TvAppError as exc:
         raise _err(exc) from None

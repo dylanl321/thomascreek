@@ -1200,9 +1200,41 @@ The shelf is ranked from plays this profile has made. A profile that has not wat
 
 An item carries only the ids it has. `progress` is 0 to 1 and only present when the hub knows how long the title is. `reason` is one of `continue watching`, `new episode of a series you watch or record`, `recording ready`, `ready to watch`, `starting now on a channel you watch`, `trending in your history`. On now is a programme that started within the last 20 minutes on a channel this profile watched in the last 30 days. A finished recording is one the DVR marked `done`. A title asked for from Explore, once it can be played, is added to Ready to watch with `reason` `ready to watch` and `movie_id` or `series_id`. Rows with nothing in them are left out. The order is continue, new episodes, recordings, on now, for you.
 
+Continue watching items also carry `position_s` (optional), the second to start from. It is the person's place on any screen, the phone included, so a TV starts there when its own copy is older or missing.
+
+A TV names who is watching with `person=<person id>` (see "Who's watching" below). With nobody named it gets its own history.
+
+### Who's watching (`hub/tvwho.py`)
+
+The hub keeps one answer per TV, so history and Continue watching follow a person from screen to screen. In order:
+
+1. A launcher TV pinned to one person (`reason: "pinned"`).
+2. A claim: the TV's picker, "I'm watching" on a phone (`claimed`), or a phone that sent a show to the TV (`phone`). A claim lasts while the TV keeps reporting and fades after 4 hours of quiet.
+3. The only grown-up home on a grown-up TV, or the only child home on a kids' TV (`home`). Presence comes from Home Assistant or the phone's own report.
+4. Nobody: the TV keeps its own history.
+
+A kids' TV is only ever a child's. A child's phone names only the child, and can't claim a grown-up TV while a grown-up's show is playing (409 `busy`). A guess from presence is only the picker's first choice; it never writes anyone's history. A claim made on purpose does, even when an older TV build sends no `person_id` in its heartbeat.
+
+TV, with its bearer:
+
+- `GET /v1/tv/watching` → `{"watching":{"person_id","name","role","reason","line","since"},"choices":[{"id","name","role","avatar","home"}],"claim_s":14400}`. `person_id` is null when the hub can't tell. `choices` is who the "Who's watching?" picker offers (children only on a kids' TV), people at home first.
+- `POST /v1/tv/watching` `{"person_id": "<id>"|null}`: the picker's answer, then ask for a token as that person (`POST /v1/tv/token` with `person_id`). null is "nobody".
+- `POST /v1/tv/state` with `person_id` keeps the claim fresh; naming someone else moves it.
+- SSE `tv_watching` `{install_id, person_id, name, role, reason, line, by}` when someone else (a phone) changes it. The TV switches its person (a new token) and its picker.
+
+Phone:
+
+- `POST /v1/tvs/{id}/watching` with `{}` ("I'm watching": the caller), `{"person_id": "<id>"}` (a grown-up names anyone in the household; a kids' TV only a child) or `{"person_id": null}` (nobody). Answers the new `watching`.
+- `GET /v1/tvs` and `/v1/tvs/{id}` carry `watching` on every TV, and the SSE `tv` event carries it too.
+
 ### Watching on the phone (`hub/routes/tvphone.py`)
 
 `POST /v1/tv/phone/play` with one of `{"movie_id"}`, `{"episode_id"}` or `{"channel_key"}`. Same bearer and kids rule as the guide (a child or guest only gets kids' titles; anything else is 404). The answer is `{"url","kind","title","expires_at"}`, where `url` is a hub path with a 6-hour pass in it. The provider login never leaves the hub, and the pass only names the title.
+
+Films and episodes also answer `resume_s` (where this person stopped on any screen, or null), `duration_s` when the catalog knows it, and `series_id` for an episode. Send `start_s` to start from a given second instead ("Continue on iPhone" from a TV's Now playing); it comes back as `resume_s`.
+
+- `POST /v1/tv/phone/progress` `{"movie_id"|"episode_id", "position_s", "duration_s"?}` every minute and when the player closes. Kept for the caller's person exactly like a TV heartbeat, so it shows in their Continue watching on every TV. Same kids rule as `/play` (404), 400 without `position_s`.
+- `GET /v1/tv/phone/resume?movie_id=|episode_id=` → `{"position_s","duration_s","at"}`. A phone gets its person's place. A TV may call it too, with `person=` like `/v1/tv/upnext`. `position_s` is null when there is nothing to resume (under 30 seconds in, or within a minute of the end).
 
 - Films and episodes: `GET /v1/tv/phone/file/{pass}`, a byte-range proxy of the provider file. Only mp4, m4v and mov play on the phone; anything else answers 409 `tv_only` ("This one only plays on a TV"). Episodes need the series opened once (`GET /v1/tv/series/{id}`), as on the TV.
 - Channels: `GET /v1/tv/phone/live/{pass}/index.m3u8`. The hub reads the provider's HLS and points every line at `/v1/tv/phone/live/{pass}/p/{n}.m3u8` or `/s/{n}`. The provider's own addresses stay in the hub's memory. Reloads use the redirected playlist, not the login address.

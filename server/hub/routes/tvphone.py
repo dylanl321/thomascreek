@@ -8,6 +8,10 @@ title, not the address) and the hub fetches the stream for it:
   the hub. The provider's own segment addresses stay in this process (`_Live`), never in the playlist.
 
 Kids, guests and kids' devices only get kids' titles, the same rule as the guide.
+
+The phone is part of Continue watching like a TV: `/play` answers with `resume_s` (where this person stopped,
+on any screen) and takes `start_s` (start from the second a TV was at), and the player reports with
+`/progress` every minute and on close. Plays are kept under the caller's person (hub/upnext.py).
 """
 
 from __future__ import annotations
@@ -27,6 +31,7 @@ from ..crypto import CryptoError
 from ..state import Hub
 from ..tvapp import TvAppError
 from .deps import Caller, caller, error, hub
+from ..upnext import remember, resume_at, who_key
 from .tvguide import _media, _ready
 
 router = APIRouter(prefix="/v1/tv/phone", tags=["tv"])
@@ -72,7 +77,78 @@ async def phone_play(body: dict[str, Any], c: Caller = Depends(caller), h: Hub =
     h.db.log("tv.phone.play", "ok", person_id=c.subject.person_id, device_id=c.device["id"], target=key,
              params={"title": title})
     path = f"/v1/tv/phone/live/{token}/index.m3u8" if mode == "live" else f"/v1/tv/phone/file/{token}"
-    return {"url": path, "kind": mode, "title": title, "expires_at": exp}
+    out: dict[str, Any] = {"url": path, "kind": mode, "title": title, "expires_at": exp}
+    if mode != "live":
+        start = _seconds(body.get("start_s"))
+        if start is None:
+            ids = {"movie_id": key} if mode == "movie" else {"episode_id": key}
+            start = resume_at(h, who_key(person=c.subject.person_id), **ids)["position_s"]
+        out["resume_s"] = start
+        out["duration_s"] = row.get("duration_s") if isinstance(row.get("duration_s"), (int, float)) else None
+        if mode == "episode":
+            out["series_id"] = row.get("series_id")
+    return out
+
+
+def _seconds(value: object) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    seconds = int(value)
+    return seconds if 0 < seconds <= 24 * 3600 else None
+
+
+@router.post("/progress")
+async def phone_progress(body: dict[str, Any], c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """{movie_id|episode_id, position_s, duration_s?} from the phone's player, every minute and on close.
+
+    The same record a TV's heartbeat makes, kept for the caller's person, so Continue watching follows them to
+    every TV. A title the caller may not see is refused like /play."""
+    kids_only = _media(h, c)
+    await _ready(h)
+    cat = h.tv_catalog
+    if body.get("movie_id"):
+        key = str(body["movie_id"])
+        row = cat.movie(key)
+        playing: dict[str, Any] = {"kind": "movie", "movie_id": key}
+    elif body.get("episode_id"):
+        key = str(body["episode_id"])
+        row = cat.episode(key)
+        playing = {"kind": "episode", "episode_id": key}
+        if row is not None and row.get("series_id"):
+            playing["series_id"] = row["series_id"]
+    else:
+        raise error(400, "bad_params", "Say which film or episode: movie_id or episode_id")
+    if row is None or (kids_only and not row.get("kids")):
+        raise error(404, "not_found", "That isn't in the library")
+    position = _seconds(body.get("position_s"))
+    if position is None:
+        raise error(400, "bad_params", "position_s is the second the player is at")
+    playing["position_s"] = position
+    duration = _seconds(body.get("duration_s"))
+    if duration is not None:
+        playing["duration_s"] = duration
+    playing["title"] = row.get("name") or row.get("title")
+    remember(h.db, "kids" if kids_only else "adult", playing, person=c.subject.person_id)
+    return {"ok": True, "position_s": position}
+
+
+@router.get("/resume")
+async def phone_resume(movie_id: str | None = None, episode_id: str | None = None, person: str | None = None,
+                       c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """Where to start a film or episode. A phone gets its own person's place; a TV names who is watching with
+    `person` (the same rule as /v1/tv/upnext) and otherwise gets its own."""
+    _media(h, c)
+    if not movie_id and not episode_id:
+        raise error(400, "bad_params", "Say which film or episode: movie_id or episode_id")
+    s = c.subject
+    if getattr(s, "tv", False):
+        from ..tvapp import _household
+
+        named = person if person and any(p["id"] == person for p in _household(h.db)) else None
+        who = who_key(person=named or s.person_id, tv=s.tv_id)
+    else:
+        who = who_key(person=s.person_id)
+    return resume_at(h, who, movie_id=movie_id, episode_id=episode_id)
 
 
 def _claims(h: Hub, token: str, mode: set[str]) -> dict[str, Any]:

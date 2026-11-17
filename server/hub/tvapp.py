@@ -97,6 +97,7 @@ CONFIG_SKEW_S = 300
 # an admin narrowed onto a TV does not bring doors, cameras or the whole house.
 TV_KEEP = frozenset({"lights.own_room", "climate.own_room", "media.own_tv", "family.view"})
 _UNSET = object()
+WATCHING_CLAIM_S = 4 * 3600  # hub/tvwho.CLAIM_S
 _PERSON_ID = re.compile(r"^[A-Za-z0-9_-]{1,40}$")
 _ROOM = re.compile(r"^[a-z0-9_]{1,40}$")
 _MEDIA = re.compile(r"^media_player\.[a-z0-9_]+$")
@@ -1380,7 +1381,7 @@ class TvApp:
                             "command": None if command is None else command.get("id")}, source="tv")
         if playing:
             remember(self.db, "kids" if tv.get("profile") == "kids" else "adult", playing, now,
-                     person=self._watcher(body.get("person_id")), tv=install_id)
+                     person=self._watcher(body.get("person_id"), tv), tv=install_id)
         event = self.watch_event(install_id)
         if command is not None:
             event["command"] = command
@@ -1399,11 +1400,24 @@ class TvApp:
             "at": iso(tv.get("state_at")),
         }
 
-    def _watcher(self, raw: object) -> str | None:
-        """A household person the TV says is watching. Anything else is ignored, never an error."""
+    def _watcher(self, raw: object, tv: dict[str, Any] | None = None) -> str | None:
+        """A household person the TV says is watching. Anything else is ignored, never an error.
+
+        With no person in the heartbeat, a claim made on purpose (the TV's picker, "I'm watching" on a phone, or
+        a phone that sent the show) still counts, so older TV builds follow the person too. A guess from who is
+        home does not. A kids' TV only ever records a child."""
+        kids = (tv or {}).get("profile") == "kids"
         if not isinstance(raw, str) or not _PERSON_ID.fullmatch(raw):
+            claim = (tv or {}).get("watching")
+            if not isinstance(claim, dict) or not claim.get("person_id") or claim.get("by") not in ("tv", "phone", "play"):
+                return None
+            if time.time() - float(claim.get("at") or 0) > WATCHING_CLAIM_S:
+                return None
+            raw = str(claim["person_id"])
+        person = next((p for p in _household(self.db) if p["id"] == raw), None)
+        if person is None or (kids and person["role"] != "child"):
             return None
-        return raw if any(p["id"] == raw for p in _household(self.db)) else None
+        return raw
 
     def _playing(self, raw: object) -> dict[str, Any] | None:
         if raw is None:

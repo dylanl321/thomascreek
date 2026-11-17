@@ -16,6 +16,17 @@ struct TVPlayer: Decodable, Identifiable {
     var playing: TVPlaying? = nil
     /// The room this person moved a show to last. The hub lists that one first.
     var usual: Bool? = nil
+    /// Who the hub thinks is watching (hub/tvwho.py). Older hubs leave it out.
+    var watching: TVWatching? = nil
+}
+/// `watching` on a TV: person_id is nil when the hub can't tell (the TV keeps its own history then).
+struct TVWatching: Decodable, Hashable {
+    var personId: String? = nil
+    var name: String? = nil
+    var role: String? = nil
+    /// pinned, claimed, phone (a phone sent the show) or home (the only one home).
+    var reason: String? = nil
+    var line: String? = nil
 }
 struct TVDeviceList: Decodable { var devices: [TVPlayer] }
 struct TVHandoffReply: Decodable { var ok: Bool?; var moved: Bool?; var message: String? }
@@ -38,6 +49,7 @@ struct TVWatch: Decodable {
     var room: String?
     var mediaEntity: String?
     var playing: TVPlaying?
+    var watching: TVWatching? = nil
 }
 
 struct TVGuidePage: Decodable { var channels: [TVGuideChannel] }
@@ -116,6 +128,8 @@ struct TVPlayRequest: Identifiable {
     var plexId: String? = nil
     /// False: an adult title, which a kids' TV refuses. Nil when not known (the hub still checks).
     var kids: Bool? = nil
+    /// Start a TV here (seconds), e.g. "Play on a TV" from the phone's player.
+    var resumeS: Double? = nil
 }
 
 struct DvrPage: Decodable { var recordings: [DvrItem] }
@@ -497,7 +511,7 @@ struct PlayOnTVSheet: View {
     @State private var tvs: [TVPlayer]?
     @State private var failed = false
     @State private var starting = false
-    @State private var phone: URL?
+    @State private var phone: PhoneSession?
 
     var body: some View {
         NavigationStack {
@@ -551,7 +565,7 @@ struct PlayOnTVSheet: View {
         }
         .task { await load() }
         .fullScreenCover(isPresented: Binding(get: { phone != nil }, set: { if !$0 { phone = nil; dismiss() } })) {
-            if let phone { PhonePlayerView(url: phone, title: request.title) }
+            if let phone { PhonePlayerView(session: phone) }
         }
     }
 
@@ -559,7 +573,7 @@ struct PlayOnTVSheet: View {
         starting = true
         defer { starting = false }
         switch await PhonePlayback.start(request) {
-        case .success(let url): phone = url
+        case .success(let session): phone = session
         case .failure(let why): store.show(why.message, request.title, isError: true)
         }
     }
