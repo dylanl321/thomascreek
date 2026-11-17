@@ -113,6 +113,8 @@ async def test_the_box_gets_home_and_guard_and_gives_them_back(hub, people, home
     async def home_after_set(args, timeout):
         adb.calls.append(args)
         joined = " ".join(args)
+        if "query-activities" in joined:
+            return tvlauncher_result(f"com.google.android.tvlauncher/.MainActivity\n{ALIAS}")
         if "resolve-activity" in joined:
             seen = any("set-home-activity" in " ".join(c) for c in adb.calls)
             return tvlauncher_result(ALIAS if seen else "com.google.android.tvlauncher/.MainActivity")
@@ -128,7 +130,6 @@ async def test_the_box_gets_home_and_guard_and_gives_them_back(hub, people, home
     assert state["home"] is True and state["guard"] is True, state
     assert state["previous"] == "com.google.android.tvlauncher/.MainActivity"
     lines = [" ".join(c[2:]) for c in adb.calls if c[0] == "-s"]
-    assert f"shell pm enable {ALIAS}" in lines
     assert f"shell cmd package set-home-activity {ALIAS}" in lines
     assert "shell appops set me.dlewis.thomascreek.tv GET_USAGE_STATS allow" in lines
     assert f"shell settings put secure enabled_accessibility_services com.other/.Reader:{GUARD}" in lines
@@ -139,8 +140,44 @@ async def test_the_box_gets_home_and_guard_and_gives_them_back(hub, people, home
     assert back["home"] is False and back["note"] == "The previous home screen is back."
     lines = [" ".join(c[2:]) for c in adb.calls if c[0] == "-s"]
     assert "shell cmd package set-home-activity com.google.android.tvlauncher/.MainActivity" in lines
-    assert f"shell pm disable {ALIAS}" in lines
+    assert not any("pm disable" in line or "pm enable" in line for line in lines)
     assert "shell settings put secure enabled_accessibility_services com.other/.Reader" in lines
+
+
+async def test_a_tv_that_never_enables_its_alias_keeps_the_guard(hub, people, home_client, monkeypatch):
+    """Android 10+ refuses `pm enable` from the shell; without the app's own alias the hub only sets the guard."""
+    _tv(hub, home_client)
+    monkeypatch.setattr(tvlauncher, "ALIAS_WAIT_S", 0.0)
+    adb = ScriptAdb(_replies(**{"shell settings get": ""}))
+    hub.tv_app.adb = adb
+    boxes = hub.tv_app.boxes()
+    boxes["10.0.0.86"] = {"name": "Office TV", "auto": True}
+    hub.tv_app._save_boxes(boxes)
+    tvs = hub.tv_app.tvs()
+    tvs[TV_ID]["ip"] = "10.0.0.86"
+    hub.tv_app._save_tvs(tvs)
+    tvlauncher.set_launcher(hub, TV_ID, {"on": True}, apply=False)
+    services = [""]
+
+    async def no_alias(args, limit):
+        adb.calls.append(args)
+        joined = " ".join(args)
+        if "query-activities" in joined:
+            return tvlauncher_result("com.google.android.apps.tv.launcherx/.home.HomeActivity")
+        if "resolve-activity" in joined:
+            return tvlauncher_result("com.google.android.apps.tv.launcherx/.home.HomeActivity")
+        if "settings get secure enabled_accessibility_services" in joined:
+            return tvlauncher_result(services[0])
+        if "settings put secure enabled_accessibility_services" in joined:
+            services[0] = args[-1]
+        return await ScriptAdb._fake(adb, args, limit)
+
+    adb._run = no_alias
+    state = await tvlauncher.apply_box(hub, TV_ID)
+    assert state["home"] is False and state["guard"] is True, state
+    assert "keeps its own Home button" in state["note"]
+    lines = [" ".join(c[2:]) for c in adb.calls if c[0] == "-s"]
+    assert not any("set-home-activity" in line for line in lines)
 
 
 def tvlauncher_result(text: str):

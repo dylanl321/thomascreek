@@ -8,9 +8,12 @@ Per TV, stored on the TV record under `launcher`:
 apps that TV may open: anything else that comes to the front sends the TV home. The guard needs a list.
 
 What the hub does over network debugging when a box at the TV's address is on its list:
-  on:  enable the HOME alias, make it the home screen (remembering the previous one), allow Usage
-       access and turn on the app's accessibility guard (window changes only, no screen content).
-  off: put the previous home screen back, disable the alias, and turn the guard off.
+  on:  wait for the app to enable its own HOME alias (Android 10+ refuses `pm enable` of one component
+       from the shell, so only the app can, once it has the new config), make it the home screen
+       (remembering the previous one), allow Usage access and turn on the app's accessibility guard
+       (window changes only, no screen content). The guard sends the TV's own launcher back to Thomas
+       Creek TV on TVs whose Home button ignores the default, and with `guard` it allows only `apps`.
+  off: put the previous home screen back and turn the guard off. The app disables its alias itself.
 Without network debugging the TV asks once on screen to become the home app, and the guard falls
 back to Usage access when someone allowed it.
 
@@ -33,6 +36,9 @@ MAX_APPS = 40
 MAX_INSTALLED = 200
 _PKG = re.compile(r"[a-zA-Z][\w]*(\.[\w]+)+")
 _jobs: set[asyncio.Task[Any]] = set()
+# How long the hub waits for the TV to pick up the new config and enable its HOME alias.
+ALIAS_WAIT_S = 60.0
+ALIAS_POLL_S = 3.0
 
 
 class LauncherError(Exception):
@@ -196,31 +202,47 @@ async def _apply_box(h: Any, install_id: str) -> dict[str, Any]:
     guard = f"{package}/{GUARD}"
     previous_state = status(tv)
     if block["on"]:
-        await adb.run(["-s", serial, "shell", "pm", "enable", alias], 15)
         current = await adb.current_home(serial)
         previous = previous_state.get("previous")
         if current and current != alias and not current.startswith(package + "/"):
             previous = current
-        result = await adb.set_home(serial, alias)
-        home_now = await adb.current_home(serial)
-        home_ok = home_now == alias or (result.code == 0 and "error" not in result.out.lower() and home_now is None)
+        # The guard first: it is what brings the TV home on TVs that keep their own Home button.
         await adb.run(["-s", serial, "shell", "appops", "set", package, "GET_USAGE_STATS", "allow"], 15)
-        guard_ok = False
-        if block["guard"]:
-            guard_ok = await _guard(adb, serial, guard, True)
-        else:
-            await _guard(adb, serial, guard, False)
-        note = "Home screen and guard are set." if home_ok and (guard_ok or not block["guard"]) else (
+        guard_ok = await _guard(adb, serial, guard, True)
+        home_ok = current == alias
+        if not home_ok and await _alias_ready(adb, serial, alias):
+            result = await adb.set_home(serial, alias)
+            home_now = await adb.current_home(serial)
+            home_ok = home_now == alias or (result.code == 0 and "error" not in result.out.lower() and home_now is None)
+            if not home_ok:
+                await adb.run(["-s", serial, "shell", "cmd", "role", "add-role-holder", "--user", "0",
+                               "android.app.role.HOME", package], 15)
+                home_ok = await adb.current_home(serial) == alias
+        note = "Home screen and guard are set." if home_ok and guard_ok else (
             "The guard is on. This TV keeps its own Home button, so the guard brings it back." if guard_ok
+            else "Home screen is set; the guard didn't turn on." if home_ok
             else "The TV didn't take the home screen. The app asks on screen instead.")
         return _note(h, install_id, ok=home_ok or guard_ok, adb=True, home=home_ok, guard=guard_ok, previous=previous, note=note)
     previous = previous_state.get("previous")
     if previous:
         await adb.set_home(serial, previous)
-    await adb.run(["-s", serial, "shell", "pm", "disable", alias], 15)
     await _guard(adb, serial, guard, False)
     return _note(h, install_id, ok=True, adb=True, home=False, guard=False, previous=previous,
                  note="The previous home screen is back.")
+
+
+async def _alias_ready(adb: Any, serial: str, alias: str) -> bool:
+    """Wait until the TV lists the alias as a HOME activity (the app enables it when its config says on)."""
+    waited = 0.0
+    while True:
+        got = await adb.run(["-s", serial, "shell", "cmd", "package", "query-activities", "--brief",
+                             "-a", "android.intent.action.MAIN", "-c", "android.intent.category.HOME"], 15)
+        if alias in got.out:
+            return True
+        if waited >= ALIAS_WAIT_S:
+            return False
+        await asyncio.sleep(ALIAS_POLL_S)
+        waited += ALIAS_POLL_S
 
 
 async def _guard(adb: Any, serial: str, component: str, on: bool) -> bool:

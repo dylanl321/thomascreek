@@ -26,6 +26,9 @@ KV_ROLLOUT = "tv.fleet.rollout"
 KV_AUDIT = "tv.fleet.audit"
 
 ONLINE_S = 120
+# A TV whose app is closed still sends its device report every 15 minutes from the background, so a report
+# this recent also counts as online (a heartbeat comes every minute only while the app runs).
+REPORT_ONLINE_S = 20 * 60
 SAMPLE_S = 60
 COMMAND_TTL_S = 120
 OUTPUT_MAX = 16 * 1024
@@ -454,8 +457,9 @@ def shot_path(h: Any, install_id: str) -> Path:
 def sweep(h: Any, now: float | None = None) -> None:
     """Say once when a TV has been quiet longer than the window."""
     now = time.time() if now is None else now
+    tvs = h.tv_app.tvs() or {}
     for install_id, row in _devices(h).items():
-        quiet = now - float(row.get("seen") or 0) >= _cfg(h).offline_after_min * 60
+        quiet = now - _seen(row, tvs.get(install_id) or {}) >= _cfg(h).offline_after_min * 60
         _notice(h, install_id, "offline", quiet, now)
 
 
@@ -522,13 +526,14 @@ def _crossed(before: Any, after: Any, line: float, below: bool = False) -> bool:
 
 def _public(h: Any, install_id: str, row: dict[str, Any], now: float) -> dict[str, Any]:
     tv = (h.tv_app.tvs() or {}).get(install_id) or {}
-    seen = float(row.get("seen") or tv.get("state_at") or tv.get("last_seen_at") or 0)
+    seen = _seen(row, tv)
+    reported = float(row.get("seen") or 0)
     ram, storage = row.get("ram") or {}, row.get("storage") or {}
     return {
         "id": install_id,
         "name": tv.get("name") or "TV",
         "room": tv.get("room"),
-        "online": bool(seen and now - seen < ONLINE_S),
+        "online": bool(seen and now - seen < ONLINE_S) or bool(reported and now - reported < REPORT_ONLINE_S),
         "capability": row.get("capability") or "basic",
         "model": row.get("model"),
         "android": row.get("android"),
@@ -546,6 +551,11 @@ def _public(h: Any, install_id: str, row: dict[str, Any], now: float) -> dict[st
         "uptime_s": row.get("uptime_s"),
         "remote_battery_pct": row.get("remote_battery_pct"),
     }
+
+
+def _seen(row: dict[str, Any], tv: dict[str, Any]) -> float:
+    """The latest word from the TV: its device report, its app heartbeat or its token refresh."""
+    return max(float(row.get("seen") or 0), float(tv.get("state_at") or 0), float(tv.get("last_seen_at") or 0))
 
 
 def _health(h: Any, row: dict[str, Any], seen: float, now: float) -> str:
