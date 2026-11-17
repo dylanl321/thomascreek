@@ -11,6 +11,7 @@ or from the TV. Every change sends `config_changed` to the TV, which pulls its c
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 import time
 from typing import Any
@@ -98,6 +99,8 @@ def summary(h: Any, install_id: str, tv: dict[str, Any], now: float) -> dict[str
         "can_screenshot": _can_screenshot(h, install_id),
         "can_cec": _can_adb(h, tv),
         "settings_rev": int(tv.get("settings_rev") or 0),
+        "settings_by": tv.get("settings_by"),
+        "settings_at": iso(float(tv["settings_at"])) if tv.get("settings_at") else None,
         # Who the hub thinks is watching (see hub/tvwho.py). person_id is None when nobody is named.
         "watching": tvwho.current(h, install_id, now),
     }
@@ -153,6 +156,19 @@ def change(h: Any, install_id: str, body: dict[str, Any], *, by: str, now: float
                  params={"settings": sorted(clean), "record": sorted(record)})
     tv = h.tv_app.tvs()[install_id]
     return {"ok": True, "settings": settings_of(tv), "settings_rev": int(tv.get("settings_rev") or 0)}
+
+
+def copy(h: Any, install_id: str, source_id: str, *, by: str = "phone", now: float | None = None) -> dict[str, Any]:
+    """Give one TV another TV's settings, the device set included, so a new TV starts like the old one."""
+    if source_id == install_id:
+        raise TvsError(400, "bad_request", "Pick another TV to copy from.")
+    source = settings_of(_tv(h, source_id))
+    target = settings_of(_tv(h, install_id))
+    if not source:
+        raise TvsError(409, "nothing_to_copy", "That TV hasn't saved any settings on the hub yet.")
+    changes: dict[str, Any] = {key: None for key in target if key not in source}
+    changes.update(source)
+    return change(h, install_id, {"settings": changes}, by=by, now=now)
 
 
 def announce(h: Any, install_id: str | None, version: int | None = None) -> None:
@@ -481,6 +497,101 @@ def _player(value: Any) -> dict[str, Any]:
     return out
 
 
+START_PAGES = ("home", "movies", "series", "live", "search")
+# Side menu entries, the same ids on both TVs (tc-shared RailOrder). Home and Settings can't be hidden.
+MENU_ITEMS = ("home", "live", "movies", "series", "sport", "guide", "favorites", "mylist", "history", "search", "settings")
+_MENU_KEEP = ("home", "settings")
+_DEVICE_PLATFORMS = ("android", "appletv")
+_DEVICE_KEY = re.compile(r"[A-Za-z0-9_.:/-]{1,120}")
+DEVICE_MAX_KEYS = 800
+DEVICE_MAX_BYTES = 256_000
+
+
+def _start_page(value: Any) -> str:
+    if value not in START_PAGES:
+        raise TvsError(400, "bad_setting", "start_page is one of " + ", ".join(START_PAGES) + ".")
+    return value
+
+
+def _flags(name: str, value: Any, flags: tuple[str, ...]) -> dict[str, bool]:
+    if not isinstance(value, dict):
+        raise TvsError(400, "bad_setting", f"{name} is an object.")
+    unknown = set(value) - set(flags)
+    if unknown:
+        raise TvsError(400, "bad_setting", f"{name} takes " + ", ".join(flags) + ".")
+    for flag, v in value.items():
+        if not isinstance(v, bool):
+            raise TvsError(400, "bad_setting", f"{name}.{flag} is true or false.")
+    return dict(value)
+
+
+def _menu(value: Any) -> dict[str, list[str]]:
+    if not isinstance(value, dict) or set(value) - {"order", "hidden"}:
+        raise TvsError(400, "bad_setting", "menu takes order and hidden.")
+    out: dict[str, list[str]] = {}
+    for part in ("order", "hidden"):
+        if part in value:
+            items = _strings(value[part], limit=len(MENU_ITEMS), length=20, what=f"menu.{part}")
+            if any(i not in MENU_ITEMS for i in items):
+                raise TvsError(400, "bad_setting", f"menu.{part} uses " + ", ".join(MENU_ITEMS) + ".")
+            out[part] = items
+    if any(i in _MENU_KEEP for i in out.get("hidden", [])):
+        raise TvsError(400, "bad_setting", "Home and Settings always stay in the menu.")
+    return out
+
+
+def _look(value: Any) -> dict[str, bool]:
+    return _flags("look", value, ("sidebar_labels", "motion"))
+
+
+def _startup(value: Any) -> dict[str, bool]:
+    return _flags("startup", value, ("autostart", "resume_live", "resume_vod", "confirm_exit"))
+
+
+def _phone_page(value: Any) -> bool:
+    if not isinstance(value, bool):
+        raise TvsError(400, "bad_setting", "phone_page is true or false.")
+    return value
+
+
+def _device_value(value: Any, depth: int = 0) -> Any:
+    """A plain value, or a list of them two levels deep at most (Android sends ["t", ["a", "b"]] for a string set)."""
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    if isinstance(value, str):
+        if len(value) > 4000:
+            raise TvsError(400, "bad_setting", "A device setting is at most 4000 characters.")
+        return value
+    if isinstance(value, list) and len(value) <= 600 and depth < 2:
+        return [_device_value(v, depth + 1) for v in value]
+    raise TvsError(400, "bad_setting", "A device setting is a plain value or a list of them.")
+
+
+def _device(value: Any) -> dict[str, dict[str, Any]]:
+    """Everything else a TV app keeps for itself, per platform, so it lives on the hub too.
+
+    The TV sends the whole set for its platform; the hub keeps it as given (no meaning attached) and hands it
+    back, for example to a reinstalled TV or when the admin copies one TV's setup to another.
+    """
+    if not isinstance(value, dict) or set(value) - set(_DEVICE_PLATFORMS):
+        raise TvsError(400, "bad_setting", "device has android and appletv.")
+    out: dict[str, dict[str, Any]] = {}
+    for platform, prefs in value.items():
+        if prefs is None:
+            continue
+        if not isinstance(prefs, dict) or len(prefs) > DEVICE_MAX_KEYS:
+            raise TvsError(400, "bad_setting", f"device.{platform} is an object of at most {DEVICE_MAX_KEYS} settings.")
+        clean: dict[str, Any] = {}
+        for key, v in prefs.items():
+            if not isinstance(key, str) or not _DEVICE_KEY.fullmatch(key):
+                raise TvsError(400, "bad_setting", f"device.{platform} has a name the hub can't use.")
+            clean[key] = _device_value(v)
+        out[platform] = clean
+    if len(json.dumps(out)) > DEVICE_MAX_BYTES:
+        raise TvsError(400, "bad_setting", "device is too large.")
+    return out
+
+
 _VALIDATORS = {
     "home_rows": _home_rows,
     "favorites": _favorites,
@@ -488,5 +599,64 @@ _VALIDATORS = {
     "language": _language,
     "parental": _parental,
     "player": _player,
+    "start_page": _start_page,
+    "menu": _menu,
+    "look": _look,
+    "startup": _startup,
+    "phone_page": _phone_page,
+    "device": _device,
 }
 SETTING_KEYS = tuple(_VALIDATORS)
+# Settings a person can carry from TV to TV ("tv.<key>" in their person settings). They sit on top of the TV's own
+# when that person is watching. Device-wide things (parental lock, phone page, startup, the device set) stay per TV.
+PERSONAL_KEYS = ("start_page", "home_rows", "menu", "look", "player", "language", "hidden_categories")
+
+
+def personal(key: str, value: Any) -> Any:
+    """Validate one person-level TV setting (the part after `tv.`)."""
+    if key not in PERSONAL_KEYS:
+        raise TvsError(400, "bad_setting", f"{key} isn't a TV setting a person carries.")
+    return None if value is None else _VALIDATORS[key](value)
+
+
+def person_layers(db: Any) -> dict[str, dict[str, Any]]:
+    """Every person's TV settings, keyed by person id, for the TV config. A TV applies the one who is watching."""
+    try:
+        rows = db.all("SELECT person_id, key, value FROM person_settings WHERE key LIKE 'tv.%'")
+    except Exception:  # noqa: BLE001 - a TV config must not fail on the settings table
+        return {}
+    out: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        key = str(row["key"])[3:]
+        if key not in PERSONAL_KEYS:
+            continue
+        try:
+            out.setdefault(str(row["person_id"]), {})[key] = json.loads(row["value"])
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+# What the iPhone and the admin page draw for each setting. The hub owns the labels and choices, so every editor
+# shows the same thing. `scope` is "tv" (this TV only) or "person" (a person can carry it).
+SCHEMA: list[dict[str, Any]] = [
+    {"key": "start_page", "label": "Opens on", "type": "choice", "choices": list(START_PAGES), "scope": "person"},
+    {"key": "menu.hidden", "label": "Hidden from the menu", "type": "multi", "choices": [m for m in MENU_ITEMS if m not in _MENU_KEEP],
+     "scope": "person"},
+    {"key": "look.sidebar_labels", "label": "Menu labels always shown", "type": "bool", "scope": "person"},
+    {"key": "look.motion", "label": "Animations", "type": "bool", "scope": "person"},
+    {"key": "player.autoplay_next", "label": "Play the next episode", "type": "bool", "scope": "person"},
+    {"key": "player.resume", "label": "Resume where you left off", "type": "bool", "scope": "person"},
+    {"key": "player.subtitles", "label": "Subtitles", "type": "choice", "choices": ["off", "auto"], "scope": "person"},
+    {"key": "startup.autostart", "label": "Open when the TV turns on (Android)", "type": "bool", "scope": "tv"},
+    {"key": "startup.resume_live", "label": "Play the last channel at start", "type": "bool", "scope": "tv"},
+    {"key": "startup.resume_vod", "label": "Continue the last film at start", "type": "bool", "scope": "tv"},
+    {"key": "startup.confirm_exit", "label": "Press Back twice to leave", "type": "bool", "scope": "tv"},
+    {"key": "parental.locked", "label": "Parental lock", "type": "bool", "scope": "tv"},
+    {"key": "phone_page", "label": "Phone page on this TV (local web remote)", "type": "bool", "scope": "tv"},
+]
+
+
+def schema() -> dict[str, Any]:
+    return {"settings": SCHEMA, "menu_items": list(MENU_ITEMS), "start_pages": list(START_PAGES),
+            "personal_keys": list(PERSONAL_KEYS)}

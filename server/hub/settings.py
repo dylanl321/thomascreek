@@ -132,7 +132,7 @@ class PersonSettings:
         pid = s.person_id
         rows = self._rows(pid) if pid else {}
         settings = {k: rows.get(k, default) for k, (default, _) in SETTINGS.items()}
-        settings.update({k: v for k, v in rows.items() if _APP_KEY.match(k)})
+        settings.update({k: v for k, v in rows.items() if _APP_KEY.match(k) or k.startswith("tv.")})
         favorites = {kind: self._visible(s, kind, rows.get(f"fav.{kind}", self._default_favorites(s, kind)))
                      for kind in FAVORITE_KINDS}
         return {"version": self.version(pid), "settings": settings, "favorites": favorites}
@@ -190,6 +190,12 @@ class PersonSettings:
                     clean[key] = default if value is None else check(value)
                 except ValueError as exc:
                     raise SettingsError("bad_setting", f"{key}: {exc}") from None
+            elif key.startswith("tv."):
+                from .tvs import TvsError, personal  # tvs pulls in the TV app; keep this module light
+                try:
+                    clean[key] = personal(key[3:], value)
+                except TvsError as exc:
+                    raise SettingsError("bad_setting", f"{key}: {exc.message}") from None
             elif _APP_KEY.match(key):
                 if value is not None and len(json.dumps(value)) > 2000:
                     raise SettingsError("bad_setting", f"{key}: too large")
@@ -203,6 +209,12 @@ class PersonSettings:
                 self._put(pid, key, value, device_id)
         if clean:
             self._bump(pid, device_id)
+        if any(key.startswith("tv.") for key in clean):
+            # The TVs carry every person's TV settings in their config; tell them to pull it.
+            try:
+                self.hub.tv_app.bump_config()
+            except Exception:  # noqa: BLE001 - a person's change must not fail on the TV app
+                pass
         return self.get(s)
 
     def star(self, s: Subject, kind: str, item_id: str, on: bool, label: dict[str, Any] | None,

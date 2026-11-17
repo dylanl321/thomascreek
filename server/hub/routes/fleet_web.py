@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
 from ..state import Hub
-from .. import tvlauncher
+from .. import tvlauncher, tvs as tvsettings
 from ..tvbuilds import builds
 from ..tvfleet import SHELL_TEMPLATES, FleetError, command, devices, history, kill_list, policy, rollout, set_kill_list, set_policy, shell, start_rollout
 from .admin_web import _csrf, _form_session, _headers, _home_only, _login_page, _nav, _page, _session
@@ -147,6 +147,102 @@ async def devices_launcher(install_id: str, request: Request, h: Hub = Depends(h
     return _go(f"/admin/devices/{install_id}", "Saved. The TV switches in a few seconds.")
 
 
+@pages.post("/admin/devices/{install_id}/settings")
+async def devices_settings(install_id: str, request: Request, h: Hub = Depends(hub)) -> Response:
+    """The settings card: every field in the hub's settings schema. Unticked boxes save as off."""
+    _claims, form = await _form_session(request, h)
+    path = f"/admin/devices/{install_id}"
+    source = str(form.get("copy_from") or "")
+    try:
+        if source:
+            tvsettings.copy(h, install_id, source, by="admin")
+            return _go(path, "Copied. The TV takes the settings in a few seconds.")
+        tv = h.tv_app.tvs().get(install_id) or {}
+        current = tvsettings.settings_of(tv)
+        changes: dict[str, Any] = {}
+        for field in tvsettings.SCHEMA:
+            key = field["key"]
+            top, _, sub = key.partition(".")
+            held = current.get(top)
+            held = held.get(sub) if sub and isinstance(held, dict) else (None if sub else held)
+            if field["type"] == "bool":
+                value: Any = bool(form.get(key))
+                if not value and held is None:
+                    continue  # unticked and never set: the TV keeps its own default
+            elif field["type"] == "multi":
+                value = [v for v in (form.getlist(key) if hasattr(form, "getlist") else []) if v in field["choices"]]
+                if not value and held is None:
+                    continue
+            else:
+                value = str(form.get(key) or "") or None
+                if value is None and held is None:
+                    continue
+            if sub:
+                block = dict(changes.get(top) or current.get(top) or {})
+                if value is None:
+                    block.pop(sub, None)
+                else:
+                    block[sub] = value
+                changes[top] = block
+            else:
+                changes[top] = value
+        changes = {k: v for k, v in changes.items() if v != current.get(k) and not (v is None and k not in current)}
+        if changes:
+            tvsettings.change(h, install_id, {"settings": changes}, by="admin")
+    except tvsettings.TvsError as exc:
+        return _go(path, exc.message)
+    return _go(path, "Saved. The TV takes it in a few seconds." if changes else "Nothing changed.")
+
+
+def _settings_card(h: Hub, csrf: str, install_id: str) -> str:
+    """The TV's settings as the hub keeps them: one form from the shared schema, plus copy from another TV."""
+    tv = h.tv_app.tvs().get(install_id) or {}
+    current = tvsettings.settings_of(tv)
+
+    def value(key: str) -> Any:
+        top, _, sub = key.partition(".")
+        v = current.get(top)
+        return v.get(sub) if sub and isinstance(v, dict) else (None if sub else v)
+
+    rows = []
+    for field in tvsettings.SCHEMA:
+        key, label, kind = field["key"], html.escape(field["label"]), field["type"]
+        v = value(key)
+        name = html.escape(key)
+        if kind == "bool":
+            rows.append(f"<label><input type=checkbox name={name} value=1 {'checked' if v else ''}> {label}"
+                        f"{'' if v is not None else ' <span class=dim>(TV default)</span>'}</label>")
+        elif kind == "choice":
+            opts = "<option value=''>TV default</option>" + "".join(
+                f"<option {'selected' if v == c else ''}>{html.escape(c)}</option>" for c in field["choices"])
+            rows.append(f"<label>{label} <select name={name}>{opts}</select></label>")
+        else:
+            boxes = " ".join(
+                f"<label style='display:inline-flex;gap:4px'><input type=checkbox name={name} value='{html.escape(c)}' "
+                f"{'checked' if isinstance(v, list) and c in v else ''}> {html.escape(c)}</label>" for c in field["choices"])
+            rows.append(f"<div>{label}: {boxes}</div>")
+    device = current.get("device") if isinstance(current.get("device"), dict) else {}
+    kept = ", ".join(f"{html.escape(p)} {len(v)}" for p, v in device.items() if isinstance(v, dict))
+    others = [(i, t.get("name") or i) for i, t in h.tv_app.tvs().items()
+              if i != install_id and t.get("status") == "approved" and tvsettings.settings_of(t)]
+    copy = ""
+    if others:
+        options = "".join(f"<option value='{html.escape(i)}'>{html.escape(str(n))}</option>" for i, n in others)
+        copy = (f"<form method=post action='/admin/devices/{html.escape(install_id)}/settings' class=fform>"
+                f"<input type=hidden name=csrf value={csrf}><select name=copy_from>{options}</select>"
+                f"<button class=ghost>Copy every setting from that TV</button></form>")
+    rev = int(tv.get("settings_rev") or 0)
+    return f"""<h2>Settings</h2>
+<div class=card><form method=post action='/admin/devices/{html.escape(install_id)}/settings' class=edit>
+<input type=hidden name=csrf value={csrf}>
+<p class=dim>Kept on the hub; the TV only caches them. A person's own choices (on their phone) sit on top while they watch.
+Change {rev}{f', last by {html.escape(str(tv.get("settings_by")))}' if tv.get('settings_by') else ''}.
+{f'Other app settings kept: {kept}.' if kept else ''}</p>
+{''.join(rows)}
+<button>Save settings</button></form>{copy}</div>
+"""
+
+
 @pages.post("/admin/devices/{install_id}/shell")
 async def devices_shell(install_id: str, request: Request, h: Hub = Depends(hub)) -> Response:
     claims, form = await _form_session(request, h)
@@ -265,7 +361,7 @@ def _device_html(h: Hub, claims: dict[str, Any], install_id: str, msg: str | Non
                     f"<input type=hidden name=csrf value={csrf}><input name=command placeholder='One command'>"
                     f"<button class=ghost>Run</button></form>")
         shell_html = f"<h2>Shell</h2><div class=card><div class=factions>{shells}</div>{free}</div>"
-    launcher_html = _launcher_card(h, csrf, install_id)
+    launcher_html = _settings_card(h, csrf, install_id) + _launcher_card(h, csrf, install_id)
     return _page(match["name"], f"""
 {_nav("/admin/devices")}
 <h1>{html.escape(match['name'])}</h1>

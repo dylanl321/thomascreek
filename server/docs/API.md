@@ -1715,10 +1715,22 @@ Admins and adults (`remotes.setup`). One shape for the iPhone app and the assist
 | `parental` | `{locked: bool, max_rating: "PG" \| "TV-Y7" \| … \| null}`. A PIN stays on the TV. |
 | `language` | `en`, `en-US`, … |
 | `player` | `{autoplay_next: bool, resume: bool, subtitles: "off" \| "auto" \| lang, audio_language: lang \| null}` |
+| `start_page` | `home`, `movies`, `series`, `live` or `search` |
+| `menu` | `{order: [id], hidden: [id]}` with ids `home`, `live`, `movies`, `series`, `sport`, `guide`, `favorites`, `mylist`, `history`, `search`, `settings` (Home and Settings can't be hidden) |
+| `look` | `{sidebar_labels: bool, motion: bool}` |
+| `startup` | `{autostart: bool, resume_live: bool, resume_vod: bool, confirm_exit: bool}` |
+| `phone_page` | bool: the TV's own phone page (local web remote) on or off |
+| `device` | `{android: {name: value}, appletv: {name: value}}`: every other app setting of that platform, kept as the TV sent it (at most 800 names, 256 KB). Android sends `"<prefs file>/<key>": [type, value]`. |
 
 `picture`, `audio`, `display` and `sound` are refused with `400` "Picture and audio stay on each TV." An unknown key is `400` "`<key>` isn't a TV setting the hub keeps."
 
-Every change bumps the config version once and sends `config_changed` to that TV. The TV then makes its signed `POST /v1/tv/config`, whose body now has `settings` and `settings_rev`. A change made on the TV comes back with `POST /v1/tv/settings` `{settings, base_rev?}` (TV bearer); the last write wins, from either side, and the answer is what the hub holds.
+`GET /v1/tvs/settings/schema` → `{settings:[{key, label, type: bool|choice|multi, choices?, scope: tv|person}], menu_items, start_pages, personal_keys}`: the editor the iPhone and the admin page draw (admin page, Devices, a TV, "Settings").
+
+`POST /v1/tvs/{id}/settings/copy` `{from: <install id>}`: this TV takes every setting of the other one, the device set included (`409 nothing_to_copy` when the other TV has none). The TV writes the device set back and restarts when nothing plays.
+
+A person carries their own TV settings as `tv.<key>` in `PATCH /v1/me/settings` (or `/v1/people/{id}/settings`), for `start_page`, `home_rows`, `menu`, `look`, `player`, `language` and `hidden_categories`. Every TV config carries them as `person_settings: {person_id: {key: value}}`, and a change makes every TV pull; the TV lays the watching person's over its own.
+
+Every change bumps the config version once and sends `config_changed` to that TV. The TV then makes its signed `POST /v1/tv/config`, whose body now has `settings`, `settings_rev`, `settings_by` (`tv`, `phone` or `admin`: a TV only takes a device set someone else changed) and `person_settings`. A change made on the TV comes back with `POST /v1/tv/settings` `{settings, base_rev?}` (TV bearer); the last write wins, from either side, and the answer is what the hub holds.
 
 `config_changed` (TV event stream only, never to phones): `{"install_id":"tv_…" | null, "version": 42, "settings_rev": 3}`. `install_id` null means a house-wide change (kids categories, lineup, sources); every TV pulls, and an unchanged config answers `304`.
 
