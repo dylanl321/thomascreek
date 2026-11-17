@@ -24,7 +24,9 @@
 set -uo pipefail
 
 REPO=thomascreek
-ROOT=$(cd "$(dirname "$0")/.." && pwd)
+# The repository this script is in; a copy run from elsewhere (e.g. before it is merged) uses the current directory.
+ROOT=$(git -C "$(dirname "$0")" rev-parse --show-toplevel 2>/dev/null || git rev-parse --show-toplevel 2>/dev/null) \
+  || { echo "PREMERGE FAIL: run it inside a $REPO checkout"; exit 1; }
 CACHE="$HOME/Library/Caches/thomascreek-premerge/$REPO"
 WT="$CACHE/worktree"
 LOG="$CACHE/last.log"
