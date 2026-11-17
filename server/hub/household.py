@@ -223,6 +223,13 @@ class Household:
                 await self.tick()
             except Exception as exc:  # noqa: BLE001
                 log.warning("presence tick failed: %s", exc)
+            # A TV that stopped reporting ends its Now playing Live Activity here (#204).
+            try:
+                from . import nowplaying_live
+
+                await nowplaying_live.sync(self.hub)
+            except Exception as exc:  # noqa: BLE001
+                log.warning("now playing sync failed: %s", type(exc).__name__)
             # Parent approvals waiting on the family board (#212): a push to the adults for each new one.
             if time.time() - last_board >= familyapprovals.CHECK_EVERY_S:
                 last_board = time.time()

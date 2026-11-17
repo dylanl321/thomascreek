@@ -625,6 +625,9 @@ async def tv_state(body: StateIn, c: Caller = Depends(caller), h: Hub = Depends(
     except TvAppError as exc:
         raise _err(exc) from None
     h.bus.publish({"type": "tv", "data": data})
+    from .. import nowplaying_live
+
+    nowplaying_live.kick(h)  # the Now playing Live Activity on the phones (#204)
     crashes = body.health.home_crashes if body.health else None
     if crashes is not None and crashes >= 2:
         from ..tvsetup import Setup

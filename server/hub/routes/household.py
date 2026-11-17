@@ -214,6 +214,9 @@ class LiveToken(BaseModel):
     # One ring's own update token, so the hub can end that Live Activity (it used to stay for hours).
     doorbell_activity_token: str | None = Field(default=None, max_length=400, pattern="^[0-9a-fA-F]+$")
     activity_id: str | None = Field(default=None, max_length=100)
+    # The Now playing activity (#204): its push-to-start token, and one running activity's update token.
+    now_playing_start_token: str | None = Field(default=None, max_length=400, pattern="^[0-9a-fA-F]+$")
+    now_playing_activity_token: str | None = Field(default=None, max_length=400, pattern="^[0-9a-fA-F]+$")
     env: Literal["production", "sandbox"] = "production"
 
 
@@ -221,6 +224,16 @@ class LiveToken(BaseModel):
 async def live_token(body: LiveToken, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
     """The phone's ActivityKit push-to-start token, so the doorbell can open a Live Activity; or one ring's
     update token, so the hub can end it."""
+    if body.now_playing_start_token or body.now_playing_activity_token:
+        from .. import nowplaying_live
+
+        if body.now_playing_start_token:
+            nowplaying_live.set_start_token(h, c.device["id"], body.now_playing_start_token, body.env)
+        if body.now_playing_activity_token:
+            nowplaying_live.add_activity(h, c.device["id"], body.activity_id or "", body.now_playing_activity_token,
+                                         body.env)
+        nowplaying_live.kick(h)
+        return {"ok": True}
     if body.doorbell_activity_token:
         h.household.add_doorbell_activity(c.device["id"], body.activity_id or "", body.doorbell_activity_token, body.env)
         return {"ok": True}

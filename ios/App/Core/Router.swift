@@ -45,6 +45,8 @@ final class Router {
     var tab: AppTab = .home
     var paths: [AppTab: [Destination]] = [:]
     var showInbox = false
+    /// "Move to" from the Now playing Live Activity: the TV to move from (thomascreek://tvs/<id>/move).
+    var moveFrom: MoveRequest?
     /// A WireGuard .conf handed to the app (Files or the Firewalla share sheet); admins add it to the hub's pool.
     var vpnImport: URL?
     var showProfile = false
@@ -250,8 +252,11 @@ final class Router {
         case "view-as": if role == .admin { showProfile = true }
         case "search": startSearch(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "q" }?.value)
         case "tvs":
-            // thomascreek://tvs, /tvs/fleet (install and update on every TV, admins), /tvs/<install_id> (one TV's detail)
-            if role == .admin, parts.count > 1, parts[1] == "fleet" {
+            // thomascreek://tvs, /tvs/fleet (install and update on every TV, admins), /tvs/<install_id> (one TV's detail),
+            // /tvs/<install_id>/move (Move to, from the Now playing Live Activity; anyone the hub let see that TV)
+            if parts.count > 2, parts[2] == "move" {
+                moveFrom = MoveRequest(id: parts[1])
+            } else if role == .admin, parts.count > 1, parts[1] == "fleet" {
                 tab = .media; paths[.media] = [.tvSetup, .tvFleet]
             } else if role == .admin || role == .adult {
                 if parts.count > 1 { tab = .media; paths[.media] = [.tvSetup, .tvDetail(parts[1])] } else { show(.media, .tvSetup) }
@@ -313,3 +318,5 @@ final class Router {
         }
     }
 }
+
+struct MoveRequest: Identifiable, Hashable { var id: String }

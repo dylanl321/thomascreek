@@ -26,6 +26,8 @@ struct AlertsReply: Codable {
         var awayDoors: Bool?
         var entities: [String: Bool]?
         var automations: Bool?
+        /// The Now playing Live Activity on the Lock Screen (the hub starts it when a TV you can use plays).
+        var nowPlaying: Bool?
         var quiet: Quiet
         var network: [String: Bool]?
         var kids: [String: Bool]?
@@ -34,6 +36,7 @@ struct AlertsReply: Codable {
         enum CodingKeys: String, CodingKey {
             case on, doorbell, package, cameras, garage, hazards, entities, automations, quiet, network, kids, weather
             case skipKnown = "skip_known", onlyAway = "only_away", gapS = "gap_s", awayDoors = "away_doors"
+            case nowPlaying = "now_playing"
         }
     }
     struct Category: Codable, Identifiable {
@@ -278,6 +281,7 @@ struct AlertsView: View {
                     }
                 }
                 Toggle(isOn: bind("automations", \.automations, default: true)) { row("From automations", "Alerts your Home Assistant automations send", "gearshape.2") }
+                Toggle(isOn: bind("now_playing", \.nowPlaying, default: true)) { row("Now playing", "What's on the TVs, on the Lock Screen", "play.tv") }
             }
             if r.grownUp, let kids = r.found.kids, !kids.isEmpty, r.found.network == true {
                 Section {

@@ -106,6 +106,11 @@ struct MainTabs: View {
         .onReceive(NotificationCenter.default.publisher(for: .openAssistant)) { _ in openAskIfFlagged() }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in openAskIfFlagged() }
         .sheet(isPresented: $router.showInbox) { InboxView().personalStyle() }
+        .sheet(item: $router.moveFrom) { req in
+            MoveToSheet(from: req.id, title: store.houseTVs.first { $0.id == req.id }?.playing?.title ?? "What's on")
+                .task { if store.houseTVs.isEmpty { await store.loadHouseTVs() } }
+                .personalStyle()
+        }
         .sheet(isPresented: $router.showSearch) { SearchView().personalStyle() }
         .sheet(isPresented: $router.showProfile) { ProfileView().personalStyle() }
         .sheet(isPresented: $router.showVPN) { NavigationStack { VPNView() }.personalStyle() }

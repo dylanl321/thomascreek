@@ -18,7 +18,7 @@ from .deps import Caller, caller, caller_ip, error, hub, require_confirm
 router = APIRouter(prefix="/v1/alerts", tags=["alerts"])
 
 # Person-level keys a child may change (cameras, doors and garage are grown-up alerts).
-CHILD_KEYS = {"on", "quiet", "entities", "automations", "hazards"}
+CHILD_KEYS = {"on", "quiet", "entities", "automations", "hazards", "now_playing"}
 # Device categories now covered by the per-person alert choices.
 REPLACED = {"cameras", "doors", "house"}
 
