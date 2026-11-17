@@ -87,7 +87,7 @@ struct TVSettingsSection: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text(f.label).font(.subheadline).foregroundStyle(Theme.dim)
                 let picked = value(f.key) as? [String] ?? []
-                FlowChips(choices: f.choices ?? [], picked: picked) { item in
+                SettingChips(choices: f.choices ?? [], picked: picked) { item in
                     var next = picked
                     if let i = next.firstIndex(of: item) { next.remove(at: i) } else { next.append(item) }
                     Task { await save(f.key, next) }
@@ -171,7 +171,7 @@ struct TVSettingsSection: View {
 }
 
 /// Small toggle chips that wrap, for a multi choice (menu entries to hide).
-private struct FlowChips: View {
+private struct SettingChips: View {
     let choices: [String]
     let picked: [String]
     let toggle: (String) -> Void
