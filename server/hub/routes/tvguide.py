@@ -22,7 +22,7 @@ from ..state import Hub
 from ..tvapp import TvAppError
 from .. import tvcontrol, tvexplore, tvhandoff, tvnames, tvpicks, tvsport
 from ..tvapp import _household as household
-from ..upnext import shelf, who_key
+from ..upnext import shelf, warm_plex, who_key
 from .deps import Caller, caller, error, hub, need
 from .media import _filter, _watch_cap
 
@@ -168,6 +168,7 @@ async def up_next(profile: str | None = None, person: str | None = None, c: Call
         who = who_key(person=named or subject.person_id, tv=subject.tv_id)
     else:
         who = who_key(person=subject.person_id)
+    await warm_plex(h, who, "kids" if kids else "adult")
     return shelf(h, "kids" if kids else "adult", who=who)
 
 

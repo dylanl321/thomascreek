@@ -8,14 +8,20 @@ gets an empty shelf, not a guess.
 
 from __future__ import annotations
 
+import logging
 import time
 from typing import Any
 
 from .artwork import programme_key
 from .tvexplore import _clean_name, ready_items
 
+log = logging.getLogger("hub.upnext")
+
 KV = "tv.watch"
 KV_RECORDINGS = "dvr.recordings"
+KV_PLEX = "tv.plex.episodes"   # {"shows": {show_id: {"at","title","rating","episodes":[…]}}, "of": {episode_id: show_id}}
+PLEX_TTL_S = 6 * 3600
+PLEX_WARM_MAX = 6
 RECENT_S = 30 * 86400
 COUNT_GAP_S = 1800
 STARTING_S = 20 * 60
@@ -178,6 +184,8 @@ def _continue(h: Any, history: dict[str, Any], kids: bool) -> list[dict[str, Any
     for key, row in (history.get("series") or {}).items():
         episode_id = row.get("episode_id")
         episode = h.tv_catalog.episode(str(episode_id)) if episode_id and h.tv_catalog else None
+        if episode is None:
+            episode = _plex_episode(h, str(episode_id or ""), str(key))
         if episode is None or (kids and not episode.get("kids")):
             continue
         position = row.get("position_s")
@@ -187,8 +195,8 @@ def _continue(h: Any, history: dict[str, Any], kids: bool) -> list[dict[str, Any
             h, kind="episode", title=episode.get("title") or row.get("title") or "Episode",
             subtitle=episode.get("series_name"), reason="continue",
             episode_id=episode["id"], series_id=episode.get("series_id") or key,
-            progress=_progress(position, row.get("duration_s")), rank=float(row.get("last") or 0),
-            position_s=int(position),
+            progress=_progress(position, row.get("duration_s") or episode.get("duration_s")),
+            rank=float(row.get("last") or 0), position_s=int(position),
         ))
     items.sort(key=lambda item: float(item.get("_rank") or 0), reverse=True)
     for item in items:
@@ -221,14 +229,14 @@ def _plex_movie(h: Any, movie_id: str) -> dict[str, Any] | None:
 
 
 def _next_episodes(h: Any, history: dict[str, Any], kids: bool) -> list[dict[str, Any]]:
+    items = _plex_next(h, history, kids)
     if not h.tv_catalog:
-        return []
+        return _ranked(items)
     details = h.tv_catalog._details().get("episodes") or {}
     by_series: dict[str, list[dict[str, Any]]] = {}
     for episode in details.values():
         if isinstance(episode, dict) and episode.get("series_id"):
             by_series.setdefault(str(episode["series_id"]), []).append(episode)
-    items = []
     for series_id, row in (history.get("series") or {}).items():
         episodes = by_series.get(str(series_id)) or []
         if not episodes:
@@ -266,10 +274,142 @@ def _next_episodes(h: Any, history: dict[str, Any], kids: bool) -> list[dict[str
             episode_id=nxt.get("id"), series_id=series_id,
             rank=float(row.get("n") or 0) * 1000 + float(row.get("last") or 0),
         ))
+    return _ranked(items)
+
+
+def _ranked(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     items.sort(key=lambda item: float(item.get("_rank") or 0), reverse=True)
     for item in items:
         item.pop("_rank", None)
     return items
+
+
+# -- Plex episodes ---------------------------------------------------------------------------------------------------
+# The TVs report a Plex episode by its Plex id (`episode_id` "12345") under its show's key. The shelf is built
+# without waiting on Plex, so the route warms what it needs first (warm_plex) and the shelf reads the copy kept here.
+
+
+def _plex_doc(h: Any) -> dict[str, Any]:
+    doc = h.db.kv_get(KV_PLEX) or {}
+    if not isinstance(doc, dict):
+        doc = {}
+    doc.setdefault("shows", {})
+    doc.setdefault("of", {})
+    return doc
+
+
+def _plex_show_of(doc: dict[str, Any], episode_id: str, series_key: str) -> str | None:
+    if series_key.startswith("series:plex:"):
+        return series_key.removeprefix("series:plex:")
+    return doc["of"].get(episode_id)
+
+
+def _plex_episode(h: Any, episode_id: str, series_key: str) -> dict[str, Any] | None:
+    """A Plex episode the hub has seen (warm_plex), in the shape of a provider episode. None when unknown."""
+    if not episode_id.isdigit():
+        return None
+    doc = _plex_doc(h)
+    show_id = _plex_show_of(doc, episode_id, series_key)
+    show = doc["shows"].get(show_id or "")
+    if not isinstance(show, dict):
+        return None
+    ep = next((e for e in show.get("episodes") or [] if e.get("id") == episode_id), None)
+    if ep is None:
+        return None
+    return _plex_shape(show_id, show, ep)
+
+
+def _plex_shape(show_id: str, show: dict[str, Any], ep: dict[str, Any]) -> dict[str, Any]:
+    season, number = ep.get("season"), ep.get("episode")
+    label = f"S{season}E{number}" if season is not None and number is not None else ""
+    name = str(ep.get("title") or "")
+    return {
+        "id": ep["id"], "series_id": f"series:plex:{show_id}", "series_name": show.get("title"),
+        "title": " · ".join(part for part in (label, name) if part) or "Episode",
+        "season": season, "number": number, "duration_s": ep.get("duration_s"),
+        "kids": show.get("rating") in _KID_RATINGS,
+    }
+
+
+def _plex_next(h: Any, history: dict[str, Any], kids: bool) -> list[dict[str, Any]]:
+    """The next Plex episode after the last one played, in season and episode order."""
+    doc = _plex_doc(h)
+    items = []
+    for key, row in (history.get("series") or {}).items():
+        current = str(row.get("episode_id") or "")
+        if not current.isdigit():
+            continue
+        show_id = _plex_show_of(doc, current, str(key))
+        show = doc["shows"].get(show_id or "")
+        if not isinstance(show, dict):
+            continue
+        episodes = sorted((e for e in show.get("episodes") or [] if e.get("season") is not None),
+                          key=lambda e: (int(e.get("season") or 0), int(e.get("episode") or 0)))
+        ids = [e["id"] for e in episodes]
+        if current not in ids or ids.index(current) + 1 >= len(ids):
+            continue
+        nxt = _plex_shape(show_id, show, episodes[ids.index(current) + 1])
+        if kids and not nxt["kids"]:
+            continue
+        items.append(_item(
+            h, kind="episode", title=nxt["title"], subtitle=nxt["series_name"], reason="next",
+            episode_id=nxt["id"], series_id=nxt["series_id"],
+            rank=float(row.get("n") or 0) * 1000 + float(row.get("last") or 0),
+        ))
+    return items
+
+
+async def warm_plex(h: Any, who: str | None, profile: str, now: float | None = None) -> None:
+    """Look up the Plex episodes in this history that the hub hasn't seen lately. Quiet on any failure:
+    a Plex that doesn't answer leaves those episodes out of the shelf, nothing else."""
+    plex = getattr(h, "plex", None)
+    if plex is None or not getattr(plex, "enabled", False):
+        return
+    now = time.time() if now is None else now
+    history = (_history(h, who) if who else {}) or _history(h, profile)
+    doc = _plex_doc(h)
+    wanted: list[tuple[str, str]] = []
+    for key, row in (history.get("series") or {}).items():
+        episode_id = str(row.get("episode_id") or "")
+        if not episode_id.isdigit():
+            continue
+        if h.tv_catalog and h.tv_catalog.episode(episode_id):
+            continue
+        show_id = _plex_show_of(doc, episode_id, str(key))
+        show = doc["shows"].get(show_id or "")
+        fresh = isinstance(show, dict) and now - float(show.get("at") or 0) < PLEX_TTL_S
+        if fresh and any(e.get("id") == episode_id for e in show.get("episodes") or []):
+            continue
+        wanted.append((episode_id, show_id or ""))
+    changed = False
+    for episode_id, show_id in wanted[:PLEX_WARM_MAX]:
+        try:
+            if not show_id:
+                meta = await plex.metadata(episode_id)
+                if not meta or meta.get("kind") != "episode" or not meta.get("show_id"):
+                    continue
+                show_id = str(meta["show_id"])
+                doc["of"][episode_id] = show_id
+            show = await plex.metadata(show_id)
+            rows = await plex.episodes(show_id)
+        except Exception as exc:  # noqa: BLE001
+            log.info("plex episodes for Continue watching: %s", type(exc).__name__)
+            continue
+        if not show:
+            continue
+        doc["shows"][show_id] = {
+            "at": now, "title": show.get("title"), "rating": show.get("rating"),
+            "episodes": [{"id": r["id"], "season": r.get("season"), "episode": r.get("episode"),
+                          "title": str(r.get("title") or "").split(": ", 1)[-1], "duration_s": r.get("duration_s")}
+                         for r in rows if r.get("kind") == "episode"],
+        }
+        changed = True
+    if changed:
+        if len(doc["shows"]) > 60:
+            for old in sorted(doc["shows"], key=lambda k: float(doc["shows"][k].get("at") or 0))[:-60]:
+                doc["shows"].pop(old, None)
+            doc["of"] = {e: s for e, s in doc["of"].items() if s in doc["shows"]}
+        h.db.kv_set(KV_PLEX, doc)
 
 
 def _shuffle_next(row: dict[str, Any], episodes: list[dict[str, Any]]) -> tuple[dict[str, Any], dict[str, Any]] | None:
