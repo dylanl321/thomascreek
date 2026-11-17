@@ -47,7 +47,7 @@ RULE_TITLES = {
     "today": "Today's plans", "rain": "Rain coming", "freeze": "Freezing tonight", "heat": "Hot day",
     "kids_chores": "Kids' chores left", "dinner": "Dinner and the oven", "habit": "Usually about now",
     "show": "Holiday show", "bedtime": "Kids' bedtime", "trash": "Trash night", "lockup": "Lock up for the night",
-    "media_ready": "Your request is ready", "wx_alert": "Weather warnings", "trip": "Trip coming up", "my_chores": "My chores",
+    "media_ready": "Your request is ready", "new_for_you": "New for you", "wx_alert": "Weather warnings", "trip": "Trip coming up", "my_chores": "My chores",
     "my_bedtime": "My bedtime", "my_dinner": "What's for dinner", "my_weather": "Morning weather",
     # House brain jobs (hub/brain/house.py): their cards carry rule "brain_<job>".
     "brain_plain_cards": "House brain notes", "brain_left_on": "Left on, left open", "brain_briefing": "Morning briefing",
@@ -923,9 +923,50 @@ def r_lockup(sm: Smart, c: Ctx):
                 why="It's late and doors or lights aren't set for the night")
 
 
+def _new_for_you(sm: Smart, c: Ctx) -> list[dict[str, Any]]:
+    from .newforyou import items
+
+    if "new_for_you" in set(sm.hub.config.smart.off_rules) | set(sm.hidden(c.s.person_id)["muted"]):
+        return []
+    return items(sm.hub, c.s.person_id, bool(getattr(c.s, "is_child_like", False)) or c.s.role == "child",
+                 c.now.timestamp())
+
+
+def play_link(item: dict[str, Any]) -> str:
+    """thomascreek://play opens "Play on" on the phone (this iPhone or a TV); a series alone opens its page."""
+    from urllib.parse import urlencode
+
+    q = {"title": item.get("subtitle") if item.get("news") == "episode" and item.get("subtitle") else item.get("title")}
+    if item.get("episode_id"):
+        q.update(kind="episode", episode_id=item["episode_id"], series_id=item.get("series_id"))
+    elif item.get("movie_id"):
+        q.update(kind="movie", movie_id=item["movie_id"])
+    elif item.get("series_id"):
+        q.update(kind="series", series_id=item["series_id"])
+    return "thomascreek://play?" + urlencode({k: v for k, v in q.items() if v})
+
+
+def r_new_for_you(sm: Smart, c: Ctx):
+    """A title asked for that has arrived, or a new episode of a series this person watches (hub/newforyou.py)."""
+    out = []
+    kid = c.s.role == "child"
+    for it in _new_for_you(sm, c)[:2]:
+        episode = it["news"] == "episode"
+        title = (it.get("subtitle") or it["title"]) if episode else it["title"]
+        detail = (f"{it['title']} is out." if episode and it.get("subtitle") else
+                  "A new episode is out." if episode else "It's here and ready to watch.")
+        out.append(card(f"new:{it['key']}", 64 if kid else 50, "kid" if kid else "accent",
+                        "sparkles.tv.fill" if episode else "play.tv.fill", "New episode" if episode else "New for you",
+                        title, detail=detail, image=it.get("poster_url"),
+                        buttons=[sm.link("Play", play_link(it), primary=True)], why=it["why"], emoji="🍿"))
+    return out
+
+
 def r_media_ready(sm: Smart, c: Ctx):
     if not c.s.person_id:
         return None
+    # A request that "New for you" already offers to play isn't shown twice.
+    playable = {str(i.get("title") or "").strip().lower() for i in _new_for_you(sm, c) if i.get("news") == "arrived"}
     rows = sm.hub.db.all("SELECT * FROM requests WHERE kind='media' AND status='ready' AND requester_id=? "
                          "ORDER BY created_at DESC LIMIT 5", [c.s.person_id])
     seen = sm.hub.db.kv_get("smart.media_ready") or {}
@@ -933,6 +974,8 @@ def r_media_ready(sm: Smart, c: Ctx):
     changed = False
     out = []
     for r in rows:
+        if str(r.get("title") or "").strip().lower() in playable:
+            continue
         first = seen.get(r["id"])
         if first is None:
             seen[r["id"]] = first = now
@@ -1065,6 +1108,6 @@ def r_brain(sm: Smart, c: Ctx):
 
 
 ADULT_RULES = [r_brain, r_wx_alert, r_oven_on, r_away_unlocked, r_away_lights, r_garage_open, r_package, r_weather_am, r_today, r_rain,
-               r_freeze, r_heat, r_kids_chores, r_dinner, r_habit, r_show, r_bedtime, r_trash, r_lockup, r_media_ready,
-               r_trip]
-KID_RULES = [r_my_weather, r_my_chores, r_my_dinner, r_my_bedtime, r_media_ready, r_trip]
+               r_freeze, r_heat, r_kids_chores, r_dinner, r_habit, r_show, r_bedtime, r_trash, r_lockup, r_new_for_you,
+               r_media_ready, r_trip]
+KID_RULES = [r_my_weather, r_my_chores, r_my_dinner, r_my_bedtime, r_new_for_you, r_media_ready, r_trip]
