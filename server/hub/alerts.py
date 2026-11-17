@@ -61,6 +61,7 @@ DEFAULT_PREFS: dict[str, Any] = {
     "away_doors": False,    # an outside door opens while nobody is home
     "entities": {},         # extra Home Assistant entities -> bool
     "automations": True,    # alerts sent by Home Assistant automations
+    "now_playing": True,    # the Now playing Live Activity on the Lock Screen (hub/nowplaying_live.py)
     # Firewalla alarms about the house network (Dylan only). No push unless switched on; History keeps them.
     "network": {"new_device": False, "security": False, "internet": False, "vpn": False, "offline": False},
     # Firewalla alarms about the kids' devices (parents). Off by default too.
@@ -134,7 +135,7 @@ class Alerts:
         cur = self.prefs(person_id)
         for k, v in changes.items():
             if k in ("on", "doorbell", "package", "skip_known", "only_away", "garage", "hazards", "away_doors",
-                     "automations") and isinstance(v, bool):
+                     "automations", "now_playing") and isinstance(v, bool):
                 cur[k] = v
             elif k == "gap_s" and isinstance(v, int) and v in GAPS:
                 cur[k] = v

@@ -9,6 +9,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         Task { @MainActor in LiveActivities.shared.observe() }   // also runs when iOS wakes the app for Live Activity tokens
         Task { @MainActor in
             DoorbellLive.shared.sync()
+            NowPlayingLive.shared.sync()
             PresenceMonitor.shared.start()   // arrive/leave events relaunch the app in the background
             WatchBridge.shared.activate()
         }
