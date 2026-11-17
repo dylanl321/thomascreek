@@ -2,7 +2,9 @@
 
 GET    /v1/tvs                        every TV: name, room, profile, online, now playing, version, last error
 GET    /v1/tvs/{id}                   one TV: the same plus device health, settings and the last command
+GET    /v1/tvs/settings/schema        labels, choices and scope of every TV setting (one editor on iPhone and admin page)
 PATCH  /v1/tvs/{id}/settings          {name?, room?, profile?, settings?: {key: value|null}} -> config_changed
+POST   /v1/tvs/{id}/settings/copy     {from: <install id>} this TV takes another TV's settings, device set included
 POST   /v1/tvs/{id}/actions           {action: restart_app|update|open_app|screenshot|play|tv_power|tv_input|tv_volume|cec_check, ...}
 GET    /v1/tvs/{id}/screenshot        the last screen picture (PNG)
 
@@ -38,6 +40,13 @@ async def list_tvs(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[s
     return tvs.listing(h)
 
 
+@router.get("/settings/schema")
+async def settings_schema(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """Labels, choices and scope of every TV setting, so the iPhone and the admin page draw the same editor."""
+    need(h, c, CAP)
+    return tvs.schema()
+
+
 @router.get("/{install_id}")
 async def one_tv(install_id: str, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
     need(h, c, CAP)
@@ -53,6 +62,17 @@ async def change_settings(install_id: str, body: dict[str, Any] = Body(...), c: 
     need(h, c, CAP)
     try:
         return tvs.change(h, install_id, body, by="phone")
+    except tvs.TvsError as exc:
+        raise _err(exc) from None
+
+
+@router.post("/{install_id}/settings/copy")
+async def copy_settings(install_id: str, body: dict[str, Any] = Body(...), c: Caller = Depends(caller),
+                        h: Hub = Depends(hub)) -> dict[str, Any]:
+    """{from: <install id>}: this TV takes every setting of the other one, its device set included."""
+    need(h, c, CAP)
+    try:
+        return tvs.copy(h, install_id, str((body or {}).get("from") or ""), by="phone")
     except tvs.TvsError as exc:
         raise _err(exc) from None
 

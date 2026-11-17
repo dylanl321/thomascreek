@@ -120,6 +120,11 @@ def _household(db: Any) -> list[dict[str, str]]:
     return out
 
 
+def _person_layers(db: Any) -> dict[str, dict[str, Any]]:
+    from .tvs import person_layers  # tvs imports this module
+    return person_layers(db)
+
+
 def _favorite_channels(db: Any) -> list[str]:
     """Channel keys someone has starred. Pairing includes them so a new TV opens on the familiar ones."""
     found: list[str] = []
@@ -1080,6 +1085,11 @@ class TvApp:
             # What follows the hub on every screen (see hub/tvs.py). Picture and audio stay on the TV.
             "settings": dict(tv.get("settings") or {}),
             "settings_rev": int(tv.get("settings_rev") or 0),
+            # Who made the last change: "tv" (this TV pushed it), "phone" or "admin". A TV only takes the
+            # device set back when someone else changed it.
+            "settings_by": tv.get("settings_by"),
+            # Each person's own TV settings; the TV lays the one who is watching over its own.
+            "person_settings": _person_layers(self.db),
         }
         # Every TV gets the kids categories and the household, so it can keep a kids profile per child.
         out["kids_categories"] = self.kids_categories()
@@ -1110,6 +1120,11 @@ class TvApp:
             "favorites": _favorite_channels(self.db),
             "settings": dict(tv.get("settings") or {}),
             "settings_rev": int(tv.get("settings_rev") or 0),
+            # Who made the last change: "tv" (this TV pushed it), "phone" or "admin". A TV only takes the
+            # device set back when someone else changed it.
+            "settings_by": tv.get("settings_by"),
+            # Each person's own TV settings; the TV lays the one who is watching over its own.
+            "person_settings": _person_layers(self.db),
         }
         # Every TV gets the kids categories and the household, so it can keep a kids profile per child.
         out["kids_categories"] = self.kids_categories()
