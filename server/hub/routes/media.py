@@ -388,7 +388,9 @@ async def list_requests(mine: bool = False, c: Caller = Depends(caller), h: Hub 
         return {"items": []}
     approver = not mine and any(h.policy.has(s, cap) for cap in ("media.approve", "chores.manage", "network.manage"))
     if approver:
-        rows = h.db.all("SELECT * FROM requests ORDER BY created_at DESC LIMIT 100")
+        # An AI app's approvals are only ever the person's own.
+        rows = h.db.all("SELECT * FROM requests WHERE kind!='ai' OR requester_id=? ORDER BY created_at DESC LIMIT 100",
+                        [s.person_id])
     else:
         rows = h.db.all("SELECT * FROM requests WHERE requester_id=? ORDER BY created_at DESC LIMIT 50", [s.person_id])
     await _refresh_media_status(h, rows)
@@ -459,6 +461,11 @@ async def decide_request(req_id: str, decision: str, request: Request, c: Caller
     r = h.db.one("SELECT * FROM requests WHERE id=?", [req_id])
     if r is None:
         raise error(404, "not_found", "No such request")
+    if r["kind"] == "ai":  # an AI app's step waiting for this person's Face ID (hub/mcp.py)
+        await h.mcp.decide(request, c, r, decision)
+        h.db.execute("UPDATE inbox SET acked_at=? WHERE group_key=? AND acked_at IS NULL", [time.time(), f"request:{req_id}"])
+        names = {p["id"]: p["name"] for p in h.db.people()}
+        return _req_out(h.db.one("SELECT * FROM requests WHERE id=?", [req_id]), names)  # type: ignore[arg-type]
     cap = {"media": "media.approve", "internet": "network.manage", "reward": "chores.manage"}.get(r["kind"], "media.approve")
     need(h, c, cap)
     if r["status"] != "waiting":
