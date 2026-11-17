@@ -58,11 +58,20 @@ def scrub(body: Any) -> Any:
     return json.loads(text)
 
 
-def _bodies(people, hub, home_client) -> dict[str, Any]:
+# Home and Right now depend on the time of day (the "Lock up for the night" card is a pinned safety card after
+# 21:30), so the bodies are captured at one fixed evening moment, whenever the suite runs.
+FIXED_NOW = (2026, 11, 17, 22, 0)
+
+
+def _bodies(people, hub, home_client, monkeypatch) -> dict[str, Any]:
+    from datetime import datetime
+
     from hub.upnext import remember
 
     from tests.test_tvs import _tv
 
+    at = datetime(*FIXED_NOW, tzinfo=hub.policy.tz)
+    monkeypatch.setattr(hub.policy, "now", lambda: at)
     _catalog(hub)
     _, tv = _tv(hub, home_client)
     home_client.post("/v1/tv/state", headers=tv, json={"foreground": True, "playing": {
@@ -78,8 +87,8 @@ def _bodies(people, hub, home_client) -> dict[str, Any]:
     return out
 
 
-def test_the_phone_fixtures_match_what_the_hub_sends(hub, people, home_client):
-    bodies = _bodies(people, hub, home_client)
+def test_the_phone_fixtures_match_what_the_hub_sends(hub, people, home_client, monkeypatch):
+    bodies = _bodies(people, hub, home_client, monkeypatch)
     if os.environ.get("IOS_FIXTURES") == "update":
         FIXTURES.mkdir(parents=True, exist_ok=True)
         for name, body in bodies.items():
