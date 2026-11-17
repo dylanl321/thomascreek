@@ -102,19 +102,20 @@ def test_admin_page_app_updates(hub, people, home_client, tmp_path):
     home_client.get("/v1/app/update", params={"build": 15, "version": "2.0"}, headers=dylan.h)
     url = dylan.secure_post("/v1/admin/web-link", {}).json()["url"]
     home_client.get(url, follow_redirects=False)
-    page = home_client.get("/admin").text
+    page = home_client.get("/admin/updates").text
     # Dylan's phone is the first one seen, so its build is the latest known until told otherwise.
     assert "App updates · latest 2.0 (15) seen on a phone" in page and "App Store Connect key" in page
     import re as _re
     csrf = _re.search(r"name=csrf value=(\w+)", page).group(1)
-    r = home_client.post("/admin/app-update", data={"csrf": csrf, "min_build": "16", "latest_build": "17"})
+    r = home_client.post("/admin/app-update", data={"csrf": csrf, "min_build": "16", "latest_build": "17"},
+                         headers={"referer": "https://hub.test/admin/updates"})
     assert "Saved" in r.text
     assert "latest build 17 set by hand" in r.text
     assert "2.0 (15) · <b>behind</b>" in r.text and "1 behind" in r.text
     assert home_client.get("/v1/app/update", params={"build": 15}).json()["update_required"] is True
     # A second AuthKey (push already has one) is taken as the App Store Connect key.
     hub.vault.set("apns.key_id", "PUSH000001")
-    r = home_client.post("/admin/upload", data={"csrf": csrf},
+    r = home_client.post("/admin/upload", data={"csrf": csrf}, headers={"referer": "https://hub.test/admin/updates"},
                          files=[("files", ("AuthKey_ASC0000001.p8", _p8().encode()))])
     assert "App Store Connect key" in r.text and str(hub.vault.get("appstore.key_id")) == "ASC0000001"
     assert str(hub.vault.get("apns.key_id")) == "PUSH000001"

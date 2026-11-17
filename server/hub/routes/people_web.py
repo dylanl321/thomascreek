@@ -157,7 +157,7 @@ def _page_html(h: Hub, claims: dict[str, Any], flash: str | None) -> str:
     role_new = "".join(f"<option value={r}{' selected' if r == 'adult' else ''}>{ROLE_LABELS[r]}</option>" for r in PICKABLE)
     flash_html = f"<div class=flash>{e(flash)}</div>" if flash else ""
     return _page("People · Thomas Creek Hub", f"""
-{_nav("/admin/people")}
+{_nav("/admin/people", h)}
 <h1>People and devices</h1>
 <div class=dim>{len(people)} people · {sum(len(v) for v in by_person.values())} devices in use</div>
 {flash_html}

@@ -699,9 +699,9 @@ def test_admin_web_page_code_sign_in_and_secrets(hub, people, home_client, away_
     assert dylan.secure_post("/v1/admin/web-approve", {"code": code.lower()}).status_code == 200
     r = home_client.get(f"/admin/login/poll?id={pid}")
     assert r.json() == {"ok": True} and "tc_admin" in r.cookies
-    status = home_client.get("/admin")
+    status = home_client.get("/admin/connections")
     assert "Upload several files" in status.text and "Long-lived access token" in status.text
-    assert "Apple push key" in status.text and "Missing" in status.text
+    assert "Apple push key" in home_client.get("/admin/security").text and "Missing" in status.text
     csrf = _re.search(r"name=csrf value=([0-9a-f]+)", status.text).group(1)
     # Without the form token nothing is saved.
     assert home_client.post("/admin/secrets", data={"name": "plex.token", "value": "x"}).status_code == 403
@@ -735,7 +735,7 @@ def test_admin_web_page_code_sign_in_and_secrets(hub, people, home_client, away_
     assert {"vpn.pool.3", "vpn.pool.avery", "vpn.pool.1", "trek.api_key", "apns.auth_key_p8"} <= names
     assert str(hub.vault.get("apns.key_id")) == "ZYXWV98765" and str(hub.vault.get("trek.api_key")) == "trek-secret"
     assert (tmp_path / "assets" / "house-model-web.json").read_text() == '{"rooms": []}'
-    page = home_client.get("/admin").text
+    page = home_client.get("/admin/security").text
     assert "Firewalla VPN clients" in page and "3 saved" in page and "trek-secret" not in page
     # The VPN box alone, and a bad file.
     r = home_client.post("/admin/vpn", data={"csrf": csrf},
@@ -855,7 +855,7 @@ def test_admin_web_session_survives_restart_renews_and_signs_out(hub, people, ho
     hub2 = Hub(config, hub.vault, DB(tmp_path / "hub.db"))
     with TestClient(build_app(hub2, start_background=False), client=HOME_IP, base_url="https://hub.test") as c2:
         c2.cookies.set("tc_admin", token, path="/admin")
-        page = c2.get("/admin")
+        page = c2.get("/admin/connections")
         assert "Upload several files" in page.text and "set-cookie" not in page.headers  # fresh: no renewal yet
 
         # Two hours later a visit renews the cookie, keeping the session id (so open forms still work).

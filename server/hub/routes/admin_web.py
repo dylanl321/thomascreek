@@ -15,6 +15,7 @@ Values are write-only: the page lists which keys exist, never what they are.
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import hashlib
 import html
 import json
@@ -23,6 +24,7 @@ import os
 import re
 import secrets
 import time
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, Request
@@ -58,6 +60,7 @@ SESSION_RENEW_S = 3600       # a visit renews the cookie at most once an hour
 REVOKED_KV = "admin.web_revoked"  # session id -> expiry, for signed-out cookies
 CODE_TTL_S = 300
 CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+_RETURN: contextvars.ContextVar[str] = contextvars.ContextVar("admin_return", default="/admin")
 
 # Pending sign-in codes: code -> {"id", "exp", "approved": claims | None}
 _pending: dict[str, dict[str, Any]] = {}
@@ -326,16 +329,93 @@ border-radius:12px 12px 0 0;background:var(--card);border:1px solid var(--line);
 .savebar span{flex:1}.savebar:not(.dirty) #savebtn{opacity:.55}.savebar.dirty{border-color:var(--acc)}
 """
 
+# The admin suite: a left menu of areas and one working column. Summary first; detail folds away. Every state has a
+# shape as well as a colour (round = fine, diamond = look soon, square = broken, grey = off).
+SUITE_CSS = (Path(__file__).parent / "admin_suite.css").read_text()
 
-def _nav(here: str) -> str:
-    links = (("/admin", "Hub"), ("/admin/people", "People"), ("/admin/devices", "TVs"), ("/admin/downloads", "Downloads"))
-    return "<nav class=nav>" + "".join(
-        f"<a href={href}{' class=on' if href == here else ''}>{html.escape(label)}</a>" for href, label in links) + "</nav>"
+ICONS = {
+    "/admin": '<path d="M4 13h6V4H4zm10 7h6v-9h-6zM4 20h6v-4H4zm10-11h6V4h-6z"/>',
+    "/admin/devices": '<rect x="3" y="5" width="18" height="12" rx="2"/><path d="M8 21h8"/>',
+    "/admin/people": ('<circle cx="9" cy="8" r="3.5"/>'
+                      '<path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.5a3.5 3.5 0 0 1 0 7M18 14a6 6 0 0 1 3.5 6"/>'),
+    "/admin/watching": '<path d="M6 4l13 8-13 8z"/>',
+    "/admin/connections": '<path d="M9 7H6a5 5 0 0 0 0 10h3m6-10h3a5 5 0 0 1 0 10h-3M8 12h8"/>',
+    "/admin/ai": ('<path d="M12 3v3m0 12v3M3 12h3m12 0h3M6 6l2 2m8 8 2 2M6 18l2-2m8-8 2-2"/>'
+                  '<circle cx="12" cy="12" r="3"/>'),
+    "/admin/updates": '<path d="M12 3v12m0 0-4-4m4 4 4-4M4 19h16"/>',
+    "/admin/security": '<path d="M12 3 4 6v6c0 4.5 3.4 8.2 8 9 4.6-.8 8-4.5 8-9V6z"/>',
+}
+AREAS = (("/admin", "Overview"), ("/admin/devices", "TVs"), ("/admin/people", "People"),
+         ("/admin/watching", "Watching"),
+         ("/admin/connections", "Connections"), ("/admin/ai", "AI"), ("/admin/updates", "App updates"),
+         ("/admin/security", "Hub and security"))
+AREA_PATHS = {path for path, _ in AREAS}
+CSS = CSS + SUITE_CSS
+# Pages that sit under an area in the menu.
+UNDER = {"/admin/downloads": "/admin/watching"}
+
+
+def _counts(h: Hub) -> dict[str, tuple[int, str]]:
+    """Badges for the menu: how many things in each area need someone. Never raises."""
+    out: dict[str, tuple[int, str]] = {}
+    try:
+        from .. import tvstate
+
+        tvs = [r for r in tvstate.rows(h) if r["state"] in ("bad", "warn")]
+        if tvs:
+            out["/admin/devices"] = (len(tvs), "bad" if any(r["state"] == "bad" for r in tvs) else "warn")
+    except Exception:  # noqa: BLE001 - a badge never breaks a page
+        pass
+    try:
+        waiting = h.db.one("SELECT COUNT(*) AS n FROM devices WHERE status='pending'")["n"]  # type: ignore[index]
+        if waiting:
+            out["/admin/people"] = (int(waiting), "warn")
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        keys = [r for r in h.keychecks.summary() if r["ready"] and r["state"] in ("bad", "warn")]
+        down = [s for s in admin_health.service_rows(h) if s.get("error")]
+        n = len(keys) + len(down)
+        if n:
+            out["/admin/connections"] = (n, "bad" if down or any(r["state"] == "bad" for r in keys) else "warn")
+    except Exception:  # noqa: BLE001
+        pass
+    return out
+
+
+def _nav(here: str, h: Hub | None = None) -> str:
+    """The left menu. `here` is the page's path; pages under an area light that area."""
+    here = UNDER.get(here, here)
+    if here not in AREA_PATHS:
+        longest = sorted((p for p, _ in AREAS if p != "/admin"), key=len, reverse=True)
+        here = next((p for p in longest if here.startswith(p)), here)
+    counts = _counts(h) if h is not None else {}
+    links = []
+    for href, label in AREAS:
+        n, level = counts.get(href, (0, ""))
+        badge = f"<span class='n {level}'>{n}</span>" if n else ""
+        icon = (f"<svg viewBox='0 0 24 24' fill=none stroke=currentColor stroke-width=1.8 stroke-linecap=round "
+                f"stroke-linejoin=round aria-hidden=true>{ICONS[href]}</svg>")
+        links.append(f"<a href={href}{' class=on' if href == here else ''}>{icon}{html.escape(label)}{badge}</a>")
+    build = (os.environ.get("HUB_BUILD") or "")[:7]
+    foot = f"<div class=railfoot>v{html.escape(__version__)}{' · ' + html.escape(build) if build else ''}"
+    if h is not None:
+        foot += " · " + ("practice mode" if h.config.hub.dry_run else "live")
+    foot += "</div>"
+    return ("<aside class=rail><a class=brand href=/admin><i>&#8962;</i>"
+            "<span><b>Thomas Creek</b><small>Hub admin</small></span></a>"
+            f"<nav class=areas>{''.join(links)}</nav>{foot}</aside>")
 
 
 def _page(title: str, body: str) -> str:
-    return (f"<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>"
-            f"<title>{html.escape(title)}</title><style>{CSS}</style></head><body><main>{body}</main></body></html>")
+    head = ("<!doctype html><html lang=en><head><meta charset=utf-8>"
+            "<meta name=viewport content='width=device-width,initial-scale=1'>"
+            f"<title>{html.escape(title)}</title><style>{CSS}</style></head><body>")
+    text = body.lstrip()
+    if text.startswith("<aside class=rail>"):
+        cut = text.index("</aside>") + len("</aside>")
+        return f"{head}<div class=app>{text[:cut]}<main>{text[cut:]}</main></div></body></html>"
+    return f"{head}<main>{body}</main></body></html>"
 
 
 def _headers() -> dict[str, str]:
@@ -642,11 +722,23 @@ connection limit, and moves a TV to the next login when a stream fails.</div>
     return "".join(out)
 
 
-def _sections_html(h: Hub, csrf: str) -> str:
+# Which area of the admin suite each key section lives in; anything not listed is under Connections.
+SECTION_AREA = {
+    "Push notifications": "security", "Private VPN (PIA)": "security", "1Password": "security",
+    "App updates (TestFlight)": "updates", "TV app (Thomas Creek TV)": "updates",
+    "AI assistant (Claude API key)": "ai",
+    "YouTube (optional key)": "watching", "Media": "watching", "IPTV providers": "watching",
+    "Metadata sources (artwork, ratings, subtitles)": "watching",
+}
+
+
+def _sections_html(h: Hub, csrf: str, area: str | None = None) -> str:
     e = html.escape
     out = []
     for sec in SECTIONS:
         if not _section_on(h, sec):
+            continue
+        if area is not None and SECTION_AREA.get(sec["title"], "connections") != area:
             continue
         fields = "".join(_field_html(h, csrf, *f) for f in sec["fields"])
         if sec.get("service") == "printers":
@@ -656,7 +748,7 @@ def _sections_html(h: Hub, csrf: str) -> str:
         opt = " <span class=dim>(optional)</span>" if sec.get("optional") else ""
         out.append(f"<h3>{e(sec['title'])}{opt}</h3><div class=card>{fields}</div>")
     # VPN: the Firewalla client files.
-    if h.config.vpn.provider == "pool":
+    if h.config.vpn.provider == "pool" and area in (None, "security"):
         rows = []
         for c in h.vpn.pool_status():
             who = e(c["device_name"]) if c["device_name"] else "free"
@@ -673,6 +765,8 @@ A file named after someone in the hub (LAUREN.conf) is kept for that person; the
 <div class=factions><form method=post action=/admin/vpn enctype=multipart/form-data class=fform>
 <input type=hidden name=csrf value={csrf}><input type=file name=files multiple accept=".conf,text/plain" required><button>Add</button></form></div></div></details>
 {''.join(rows)}</div>""")
+    if area not in (None, "connections"):
+        return "".join(out)
     # House model
     from ..config import data_dir
 
@@ -832,55 +926,216 @@ on that person's iPhone. Turning a connection off stops it straight away.</div>{
 </div></details></div>"""
 
 
-def _status_page(h: Hub, claims: dict[str, Any], flash: str | None, new_key: str | None = None,
-                 new_ai_key: str | None = None) -> str:
+def _chip(level: str, text: str) -> str:
+    return f"<span class='chip {html.escape(level)}'>{html.escape(text)}</span>"
+
+
+def _needs_you(h: Hub) -> list[dict[str, str]]:
+    """Everything that needs someone, worst first: TVs, then keys, services and phones waiting."""
+    from .. import tvstate
+
+    items: list[dict[str, str]] = []
+    try:
+        items.extend(tvstate.attention(h))
+    except Exception as exc:  # noqa: BLE001 - the overview still opens
+        log.warning("admin: TV states failed: %s", type(exc).__name__)
+    links = {"#keys": "/admin/connections#keys", "#services": "/admin/connections#services"}
+    for level, text, link in admin_health.attention(h):
+        title, _, why = text.partition(": ")
+        target = links.get(link, link)
+        action = "Approve" if target == "/admin/people" else "Open"
+        items.append({"level": level, "title": title, "why": why, "link": target, "action": action})
+    items.sort(key=lambda i: 0 if i["level"] == "bad" else 1)
+    return items
+
+
+def _tiles(h: Hub) -> str:
+    """One tile per area, each with a line and its state chips."""
+    from .. import tvstate
+
+    def tile(href: str, title: str, line: str, chips: list[str]) -> str:
+        return (f"<a class=tile href={href}><b>{html.escape(title)}</b><span class=s>{html.escape(line)}</span>"
+                f"<span class=chips>{''.join(chips)}</span></a>")
+
+    out = []
+    try:
+        rows = tvstate.rows(h)
+        n = {k: sum(1 for r in rows if r["state"] == k) for k in ("ok", "warn", "bad", "off")}
+        playing = next((r for r in rows if r["playing"]), None)
+        line = f"{len(rows)} TVs · {len(rows) - n['off']} on now"
+        if playing:
+            line += f" · {playing['name']}: {playing['playing']}"
+        words = (("ok", "working"), ("bad", "broken"), ("warn", "need a look"), ("off", "off"))
+        chips = [_chip(k, f"{n[k]} {w}") for k, w in words if n[k]]
+        out.append(tile("/admin/devices", "TVs", line, chips or [_chip("off", "No TVs yet")]))
+    except Exception:  # noqa: BLE001
+        out.append(tile("/admin/devices", "TVs", "Couldn't read the TVs", []))
+    people = len(h.db.people())
+    devs = {r["status"]: r["n"] for r in h.db.all("SELECT status, COUNT(*) AS n FROM devices GROUP BY status")}
+    chips = [_chip("ok", f"{devs.get('active', 0)} phones and iPads")]
+    if devs.get("pending"):
+        chips.insert(0, _chip("warn", f"{devs['pending']} waiting"))
+    out.append(tile("/admin/people", "People", f"{people} people", chips))
+    provs = iptvplay.providers(h)
+    try:
+        fold = catalog_fold_stats(h.db)
+        cat = f" · AI merged {fold['merged']} copies"
+    except Exception:  # noqa: BLE001
+        cat = ""
+    out.append(tile("/admin/watching", "Watching", f"{len(provs)} IPTV provider{'s' if len(provs) != 1 else ''}{cat}",
+                    [_chip("ok" if provs else "warn",
+                           "Main provider set" if any(p["main"] for p in provs) else "No provider yet")]))
+    keys = [r for r in h.keychecks.summary() if r["ready"]]
+    svcs = admin_health.service_rows(h)
+    down = sum(1 for s in svcs if s.get("error"))
+    kbad = sum(1 for r in keys if r["state"] == "bad")
+    kwarn = sum(1 for r in keys if r["state"] in ("warn", "down"))
+    chips = [_chip("ok", f"{len(svcs) - down} working")]
+    if down or kbad:
+        chips.append(_chip("bad", f"{down + kbad} broken"))
+    if kwarn:
+        chips.append(_chip("warn", f"{kwarn} to check"))
+    out.append(tile("/admin/connections", "Connections", f"{len(svcs)} services · {len(keys)} keys tested", chips))
+    try:
+        b = h.brain.summary()
+        line = f"House brain {b['status']} · ${b['total_usd']:.2f} this month"
+        chips = [_chip("ok" if b["status"] == "on" else "bad" if b["status"] in ("capped", "needs_key") else "warn",
+                       {"on": "On", "off": "Off", "paused": "Paused", "needs_key": "Needs the Claude key",
+                        "capped": "Monthly cap reached"}.get(b["status"], b["status"]))]
+    except Exception:  # noqa: BLE001
+        line, chips = "House brain", []
+    out.append(tile("/admin/ai", "AI", line, chips))
+    info = h.app_update.info()
+    latest_tv = (h.tv_app.latest() or {}).get("versionName")
+    line = f"iPhone build {info['latest_build'] or '?'}" + (f" · TV {latest_tv}" if latest_tv else "")
+    out.append(tile("/admin/updates", "App updates", line, []))
+    out.append(tile("/admin/security", "Hub and security", "VPN, push, sign-ins, warnings",
+                    [_chip("ok" if h.apns.enabled else "warn", "Push on" if h.apns.enabled else "Push off")]))
+    return "".join(out)
+
+
+def _overview_html(h: Hub, claims: dict[str, Any], flash: str | None) -> str:
     e = html.escape
     csrf = _csrf(claims)
-    sections_html = _sections_html(h, csrf)
-    # Push, VPN, hub
-    push = "on" if h.apns.enabled else "off (add the Apple push key and its key ID below)"
-    pool = h.vpn.pool_status() if h.config.vpn.provider == "pool" else []
-    vpn = (f"{len(pool)} Firewalla clients, {sum(1 for p in pool if p['device_id'])} in use"
-           if h.config.vpn.provider == "pool" else h.config.vpn.provider)
-    devices = h.db.all("SELECT status, COUNT(*) AS n FROM devices GROUP BY status")
-    dev = ", ".join(f"{r['n']} {r['status']}" for r in devices) or "none"
-    people_n = len(h.db.people())
     up = int(time.time() - h.started_at)
-    pin = getattr(h, "_tls_pin", None)
+    items = _needs_you(h)
+    bad = sum(1 for i in items if i["level"] == "bad")
+    warn = len(items) - bad
+    if not items:
+        sentence, level = "Everything is working.", "ok"
+    else:
+        parts = []
+        if bad:
+            parts.append(f"{bad} thing{'s are' if bad != 1 else ' is'} broken")
+        if warn:
+            parts.append(f"{warn} need{'s' if warn == 1 else ''} a look")
+        sentence, level = " and ".join(parts).capitalize() + ".", "bad" if bad else "warn"
+    rows = "".join(
+        f"<div class=item><span class='sev {e(i['level'])}'></span><div class=grow><div class=t>{e(i['title'])}</div>"
+        f"<div class=s>{e(i['why'])}</div></div>"
+        f"<a class='btn light small' href='{e(i['link'])}'>{e(i['action'])}</a></div>"
+        for i in items)
+    needs = (f"<h2>Needs you</h2><div class='card list'>{rows}</div>" if items else "")
     flash_html = f"<div class=flash>{e(flash)}</div>" if flash else ""
+    word = "All good" if level == "ok" else "Needs you" if bad else "Check soon"
     return _page("Thomas Creek Hub", f"""
-{_nav("/admin")}
-<div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px">
-<div><h1>Thomas Creek Hub</h1><div class=dim>v{e(__version__)} · up {up // 3600} h {up % 3600 // 60} min · {'practice mode' if h.config.hub.dry_run else 'live'}</div></div>
-<form method=post action=/admin/logout><input type=hidden name=csrf value={csrf}><button class=ghost>Sign out</button></form></div>
+{_nav("/admin", h)}
+<div class=head><div><h1>Thomas Creek Hub</h1><div class=dim>v{e(__version__)} · up {admin_health.span(up)} ·
+{'practice mode' if h.config.hub.dry_run else 'live'}</div></div>
+<form method=post action=/admin/logout><input type=hidden name=csrf value={csrf}>
+<button class=light>Sign out</button></form></div>
 {flash_html}
-{admin_health.attention_html(h)}
-<div id=services>{admin_health.services_html(h, csrf)}</div>
-<h2>Hub</h2><div class=card>
-{admin_health.hub_rows(h)}
-<div class=row><div>Push notifications</div><div class=dim>{e(push)}</div></div>
-<div class=row><div>VPN</div><div class=dim>{e(vpn)}</div></div>
-<div class=row><div>Private VPN (PIA)</div><div class=dim>{e(h.pia.status())} · {e(', '.join(h.config.vpn.pia.roles))}</div></div>
-<div class=row><div>People and devices</div><div class=dim>{people_n} people · {e(dev)} · <a href=/admin/people>Manage</a></div></div>
-<div class=row><div>TLS pin</div><div class=dim><code>{e(pin or '')}</code></div></div></div>
-{admin_health.ai_html(h)}
-{admin_health.warnings_html(h)}
-{_catalog_html(h, csrf)}
-{_app_update_html(h, csrf)}
-{_test_keys_html(h, csrf, new_key)}
-{_ai_keys_html(h, csrf, new_ai_key)}
-<h2 id=keys>Keys and files</h2><p class=dim>Values are never shown again; saving replaces the old one right away and tests it.</p>
+<div class='card health' style='margin-top:16px'>{_chip(level, word)}
+<div style='flex:1;min-width:220px'><b>{e(sentence)}</b><span class=dim>Anything that needs you is listed first;
+every area below opens on its own.</span></div>
+<form method=post action=/admin/services/check><input type=hidden name=csrf value={csrf}>
+<button class=light>Check every service now</button></form></div>
+{needs}
+<h2>Areas</h2><div class=tiles>{_tiles(h)}</div>
+""")
+
+
+AREA_TEXT = {
+    "connections": ("Connections", "Every service the hub talks to, whether it answers, and the keys it uses. "
+                    "Values are never shown again; saving replaces the old one right away and tests it."),
+    "watching": ("Watching", "Where channels, films and artwork come from. "
+                 "The hub reads every provider and spreads the TVs over the logins."),
+    "ai": ("AI", "The house brain judges fit, writes the reasons on rows and sorts alerts. "
+           "Every AI step has a plain fallback, so the home still fills without it."),
+    "updates": ("App updates", "The iPhone app comes from TestFlight; the TV app is sent by the hub."),
+    "security": ("Hub and security", "The hub itself, how phones reach it from away, push, and what it logged."),
+}
+
+
+def _area_html(h: Hub, claims: dict[str, Any], area: str, flash: str | None, new_key: str | None = None,
+               new_ai_key: str | None = None) -> str:
+    e = html.escape
+    csrf = _csrf(claims)
+    title, lede = AREA_TEXT[area]
+    sections = _sections_html(h, csrf, area)
+    body = ""
+    if area == "connections":
+        body = f"""<div id=services>{admin_health.services_html(h, csrf)}</div>
+<h2 id=keys>Keys and files</h2>
 {admin_health.keys_overview(h, csrf)}
 <div class=card style="margin-top:10px"><details class=key><summary><span>Upload several files at once</span><span class=dim>VPN, push key, house model…</span></summary>
 <div class=kbody><div class=dim>Choose any mix: the Firewalla VPN .conf files, the AuthKey_….p8 push key, house-model-web.json,
 or text files named after a key (for example trek.api_key.txt). Each goes to the right place.</div>
 <div class=factions><form method=post action=/admin/upload enctype=multipart/form-data class=fform>
 <input type=hidden name=csrf value={csrf}><input type=file name=files multiple required><button>Upload</button></form></div></div></details></div>
-{sections_html}
-<form id=saveall method=post action=/admin/secrets/bulk class=savebar><input type=hidden name=csrf value={csrf}>
+{sections}"""
+    elif area == "watching":
+        body = f"""{_catalog_html(h, csrf)}
+{sections}
+<h3>Downloads</h3><div class=card><div class=row><div>Kids' YouTube and saved films
+<div class=dim>Queue, failures and space used</div></div>
+<a class='btn light small' href=/admin/downloads>Open</a></div></div>"""
+    elif area == "ai":
+        body = f"""{admin_health.ai_html(h)}
+{_ai_keys_html(h, csrf, new_ai_key)}
+{sections}"""
+    elif area == "updates":
+        body = f"""{_app_update_html(h, csrf)}
+<div class=card style="margin-top:10px"><div class=row><div>TV app<div class=dim>Newest build on the hub:
+{e(str((h.tv_app.latest() or {}).get('versionName') or 'none yet'))}. Roll it out from the TVs page.</div></div>
+<a class='btn light small' href=/admin/devices#rollout>Roll out</a></div></div>
+{_test_keys_html(h, csrf, new_key)}
+{sections}"""
+    elif area == "security":
+        push = "on" if h.apns.enabled else "off (add the Apple push key and its key ID below)"
+        pool = h.vpn.pool_status() if h.config.vpn.provider == "pool" else []
+        vpn = (f"{len(pool)} Firewalla clients, {sum(1 for p in pool if p['device_id'])} in use"
+               if h.config.vpn.provider == "pool" else h.config.vpn.provider)
+        devices = h.db.all("SELECT status, COUNT(*) AS n FROM devices GROUP BY status")
+        dev = ", ".join(f"{r['n']} {r['status']}" for r in devices) or "none"
+        pin = getattr(h, "_tls_pin", None)
+        body = f"""<h2>Hub</h2><div class=card>
+{admin_health.hub_rows(h)}
+<div class=row><div>Push notifications</div><div class=dim>{e(push)}</div></div>
+<div class=row><div>VPN</div><div class=dim>{e(vpn)}</div></div>
+<div class=row><div>Private VPN (PIA)</div>
+<div class=dim>{e(h.pia.status())} · {e(', '.join(h.config.vpn.pia.roles))}</div></div>
+<div class=row><div>People and devices</div>
+<div class=dim>{len(h.db.people())} people · {e(dev)} · <a href=/admin/people>Manage</a></div></div>
+<div class=row><div>TLS pin</div><div class=dim><code>{e(pin or '')}</code></div></div>
+<div class=row><div>This sign-in</div><form method=post action=/admin/logout>
+<input type=hidden name=csrf value={csrf}><button class=ghost>Sign out</button></form></div></div>
+{admin_health.warnings_html(h)}
+{sections}"""
+    savebar = ""
+    if "class=kin" in body:
+        savebar = f"""<form id=saveall method=post action=/admin/secrets/bulk class=savebar>
+<input type=hidden name=csrf value={csrf}>
 <span id=savecount class=dim>Paste new values above, then save them together.</span>
 <button type=button class=ghost id=discard hidden>Discard</button><button id=savebtn>Save all</button></form>
-<script>{SAVE_JS}</script>
+<script>{SAVE_JS}</script>"""
+    flash_html = f"<div class=flash>{e(flash)}</div>" if flash else ""
+    return _page(f"{title} · Thomas Creek Hub", f"""
+{_nav('/admin/' + area, h)}
+<h1>{e(title)}</h1><p class=lede>{e(lede)}</p>
+{flash_html}
+{body}
+{savebar}
 """)
 
 
@@ -943,7 +1198,40 @@ async def admin_home(request: Request, h: Hub = Depends(hub)) -> Response:
             h._tls_pin = spki_fingerprint(cert)  # type: ignore[attr-defined]
         except OSError:
             pass
-    return HTMLResponse(_status_page(h, claims, request.query_params.get("m")), headers=_headers())
+    return HTMLResponse(_overview_html(h, claims, request.query_params.get("m")), headers=_headers())
+
+
+async def _area(request: Request, h: Hub, area: str) -> Response:
+    _home_only(request, h)
+    claims = _session(request, h)
+    if not claims:
+        return HTMLResponse(_login_page(), headers=_headers())
+    return HTMLResponse(_area_html(h, claims, area, request.query_params.get("m")), headers=_headers())
+
+
+@pages.get("/admin/connections")
+async def admin_connections(request: Request, h: Hub = Depends(hub)) -> Response:
+    return await _area(request, h, "connections")
+
+
+@pages.get("/admin/watching")
+async def admin_watching(request: Request, h: Hub = Depends(hub)) -> Response:
+    return await _area(request, h, "watching")
+
+
+@pages.get("/admin/ai")
+async def admin_ai(request: Request, h: Hub = Depends(hub)) -> Response:
+    return await _area(request, h, "ai")
+
+
+@pages.get("/admin/updates")
+async def admin_updates(request: Request, h: Hub = Depends(hub)) -> Response:
+    return await _area(request, h, "updates")
+
+
+@pages.get("/admin/security")
+async def admin_security(request: Request, h: Hub = Depends(hub)) -> Response:
+    return await _area(request, h, "security")
 
 
 async def _form_session(request: Request, h: Hub) -> tuple[dict[str, Any], Any]:
@@ -952,6 +1240,11 @@ async def _form_session(request: Request, h: Hub) -> tuple[dict[str, Any], Any]:
     if not claims:
         raise error(401, "unauthorized", "Sign in again")
     form = await request.form()
+    # A form goes back to the area page it came from (same task, so _back sees it).
+    from urllib.parse import urlparse
+
+    ref = urlparse(request.headers.get("referer") or "").path
+    _RETURN.set(ref if ref in AREA_PATHS else "/admin")
     if not secrets.compare_digest(str(form.get("csrf", "")), _csrf(claims)):
         raise error(403, "forbidden", "Reload the page and try again")
     return claims, form
@@ -960,7 +1253,7 @@ async def _form_session(request: Request, h: Hub) -> tuple[dict[str, Any], Any]:
 def _back(msg: str) -> RedirectResponse:
     from urllib.parse import quote
 
-    return RedirectResponse(f"/admin?m={quote(msg)}", status_code=303)
+    return RedirectResponse(f"{_RETURN.get()}?m={quote(msg)}", status_code=303)
 
 
 @pages.post("/admin/iptv/login")
@@ -1409,7 +1702,7 @@ async def make_test_key(request: Request, h: Hub = Depends(hub)) -> Response:
     label = str(form.get("label") or "").strip() or "Test simulators"
     _, key = testkeys.create(h, claims["per"], label, created_by=claims.get("per"))
     # Rendered straight into the reply (not a redirect) so the key never sits in a URL or the history.
-    return HTMLResponse(_status_page(h, claims, "Made a test key.", new_key=key), headers=_headers())
+    return HTMLResponse(_area_html(h, claims, "updates", "Made a test key.", new_key=key), headers=_headers())
 
 
 @pages.post("/admin/ai-key")
@@ -1420,7 +1713,7 @@ async def make_ai_key(request: Request, h: Hub = Depends(hub)) -> Response:
         return _back("Choose who the AI app acts as.")
     _, key = aikeys.create(h, person["id"], str(form.get("label") or ""), created_by=claims.get("per"))
     # Rendered straight into the reply (not a redirect) so the key never sits in a URL or the history.
-    return HTMLResponse(_status_page(h, claims, f"Made an AI key for {person['name']}.", new_ai_key=key),
+    return HTMLResponse(_area_html(h, claims, "ai", f"Made an AI key for {person['name']}.", new_ai_key=key),
                         headers=_headers())
 
 
