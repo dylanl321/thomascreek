@@ -277,7 +277,8 @@ class Setup:
             self._phase(ip, "home", "Setting the home screen. The stock launcher stays installed.", None)
             previous = await self.tv.adb.current_home(serial)
             component = self.tv.cfg.home_activity
-            await self.tv.adb.run(["-s", serial, "shell", "pm", "enable", component], 15)
+            # Android 10+ refuses `pm enable` of one component from the shell; the app enables its own
+            # HOME alias when the hub turns its launcher on, so this only takes on a TV that already did.
             result = await self.tv.adb.set_home(serial, component)
             home_state = {"wanted": True, "set": result.code == 0 and "error" not in result.out.lower(),
                           "component": component, "previous": previous if previous != component else (self.tv.boxes()[ip].get("home") or {}).get("previous")}
