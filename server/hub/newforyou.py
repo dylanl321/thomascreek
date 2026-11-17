@@ -27,7 +27,8 @@ def observe(h: Any, now: float | None = None) -> dict[str, dict[str, float]]:
     """Note every episode id the hub knows (provider series pages and Plex shows) with when it first appeared."""
     now = time.time() if now is None else now
     raw = h.db.kv_get(KV_EPISODES) or {}
-    known: dict[str, dict[str, float]] = raw.get("series") if isinstance(raw, dict) and isinstance(raw.get("series"), dict) else {}
+    stored = raw.get("series") if isinstance(raw, dict) else None
+    known: dict[str, dict[str, float]] = stored if isinstance(stored, dict) else {}
     changed = False
     for series_id, ids in _episodes(h).items():
         old = known.get(series_id)

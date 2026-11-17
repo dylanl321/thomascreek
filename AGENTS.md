@@ -94,6 +94,10 @@ does not count for a change under `ios/`. Without the Mac, the hub suite alone i
 cd server && python3.12 -m venv .venv && .venv/bin/pip install -e ".[test]" && .venv/bin/python -m pytest -q
 ```
 
+The hub suite includes `tests/test_lint.py`: ruff and mypy (settings in `server/pyproject.toml`) may not find
+anything new. Old findings are counted in `server/lint-baseline.json`; after fixing some, lower it with
+`.venv/bin/python tools/lint.py --update` (from `server/`). Never raise it to get a check through.
+
 ## Working with other agents
 
 - Several agents work on this product at once. One writer per set of files; coordinate in the project thread.

@@ -23,7 +23,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-test = ["pytest>=8", "pytest-asyncio>=0.24", "respx>=0.21"]
+test = ["pytest>=8", "pytest-asyncio>=0.24", "respx>=0.21", "ruff==0.17.5", "mypy==2.4.1"]
 
 [project.scripts]
 hub = "hub.cli:main"
@@ -39,3 +39,18 @@ include = ["hub*"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
+
+# Lint and type check. New findings fail tests/test_lint.py; old ones are counted in lint-baseline.json
+# (see tools/lint.py). BLE001 is on so a new catch-all `except Exception` says why with a noqa comment.
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "B", "ASYNC", "BLE"]
+ignore = ["B008"]  # FastAPI's Depends(...) and Body(...) in defaults are intended
+
+[tool.mypy]
+python_version = "3.12"
+files = ["hub"]
+ignore_missing_imports = true

@@ -1,0 +1,877 @@
+{
+ "mypy": {
+  "hub/actions.py": {
+   "arg-type": 1,
+   "assignment": 2,
+   "call-overload": 1,
+   "dict-item": 1,
+   "return-value": 1,
+   "union-attr": 1,
+   "var-annotated": 1
+  },
+  "hub/adapters/cameras.py": {
+   "assignment": 1
+  },
+  "hub/adapters/family.py": {
+   "assignment": 4,
+   "union-attr": 1,
+   "var-annotated": 1
+  },
+  "hub/adapters/media.py": {
+   "arg-type": 2
+  },
+  "hub/adapters/trips.py": {
+   "attr-defined": 5
+  },
+  "hub/alerts.py": {
+   "arg-type": 1,
+   "assignment": 1,
+   "index": 1
+  },
+  "hub/artwork.py": {
+   "assignment": 2,
+   "dict-item": 3,
+   "var-annotated": 1
+  },
+  "hub/assistant.py": {
+   "no-redef": 1
+  },
+  "hub/bambu.py": {
+   "arg-type": 1
+  },
+  "hub/bambu_cloud.py": {
+   "assignment": 1,
+   "misc": 1,
+   "union-attr": 1
+  },
+  "hub/brain/__init__.py": {
+   "arg-type": 8
+  },
+  "hub/brain/house.py": {
+   "arg-type": 1,
+   "misc": 1
+  },
+  "hub/brain/layout.py": {
+   "arg-type": 1,
+   "index": 1,
+   "type-var": 1
+  },
+  "hub/channelhealth.py": {
+   "arg-type": 1,
+   "operator": 1,
+   "var-annotated": 1
+  },
+  "hub/cli.py": {
+   "assignment": 1,
+   "attr-defined": 1,
+   "list-item": 1,
+   "return-value": 1
+  },
+  "hub/climate.py": {
+   "var-annotated": 1
+  },
+  "hub/dedupe.py": {
+   "assignment": 1
+  },
+  "hub/downloads.py": {
+   "no-redef": 1
+  },
+  "hub/feasts.py": {
+   "assignment": 1,
+   "no-redef": 1,
+   "var-annotated": 1
+  },
+  "hub/forecast.py": {
+   "arg-type": 2,
+   "operator": 1,
+   "union-attr": 2,
+   "var-annotated": 1
+  },
+  "hub/home.py": {
+   "union-attr": 1
+  },
+  "hub/household.py": {
+   "assignment": 1
+  },
+  "hub/iptvcanon.py": {
+   "arg-type": 5,
+   "assignment": 2,
+   "attr-defined": 2,
+   "index": 7,
+   "union-attr": 5
+  },
+  "hub/iptvnorm.py": {
+   "var-annotated": 1
+  },
+  "hub/iptvplay.py": {
+   "call-overload": 1
+  },
+  "hub/keycheck.py": {
+   "arg-type": 2,
+   "attr-defined": 4,
+   "misc": 2
+  },
+  "hub/kitchen.py": {
+   "arg-type": 1,
+   "operator": 1
+  },
+  "hub/mcp.py": {
+   "arg-type": 1,
+   "list-item": 1,
+   "union-attr": 1
+  },
+  "hub/notify.py": {
+   "call-overload": 1,
+   "index": 1,
+   "misc": 1
+  },
+  "hub/nowplaying_live.py": {
+   "arg-type": 1
+  },
+  "hub/policy.py": {
+   "arg-type": 1,
+   "union-attr": 1
+  },
+  "hub/routes/admin_health.py": {
+   "arg-type": 1,
+   "var-annotated": 1
+  },
+  "hub/routes/admin_web.py": {
+   "assignment": 1
+  },
+  "hub/routes/alerts.py": {
+   "arg-type": 1,
+   "union-attr": 1
+  },
+  "hub/routes/family.py": {
+   "return-value": 1,
+   "var-annotated": 1
+  },
+  "hub/routes/feasts.py": {
+   "arg-type": 4
+  },
+  "hub/routes/fleet_web.py": {
+   "return-value": 3,
+   "union-attr": 1
+  },
+  "hub/routes/home.py": {
+   "return-value": 1
+  },
+  "hub/routes/household.py": {
+   "index": 1
+  },
+  "hub/routes/layout.py": {
+   "arg-type": 1
+  },
+  "hub/routes/media.py": {
+   "arg-type": 2,
+   "assignment": 1
+  },
+  "hub/routes/media_requests.py": {
+   "arg-type": 3,
+   "operator": 1,
+   "type-var": 1
+  },
+  "hub/routes/network.py": {
+   "misc": 1
+  },
+  "hub/routes/people.py": {
+   "arg-type": 1,
+   "assignment": 1,
+   "index": 1
+  },
+  "hub/routes/people_web.py": {
+   "arg-type": 7,
+   "call-overload": 2,
+   "misc": 1
+  },
+  "hub/routes/sends.py": {
+   "index": 2
+  },
+  "hub/routes/trips.py": {
+   "arg-type": 1
+  },
+  "hub/routes/tvapp.py": {
+   "list-item": 1
+  },
+  "hub/routes/tvfleet.py": {
+   "return": 11
+  },
+  "hub/routes/tvguide.py": {
+   "arg-type": 1,
+   "attr-defined": 1
+  },
+  "hub/search.py": {
+   "misc": 1
+  },
+  "hub/smart.py": {
+   "assignment": 1
+  },
+  "hub/state.py": {
+   "attr-defined": 3,
+   "union-attr": 1
+  },
+  "hub/titles.py": {
+   "assignment": 1
+  },
+  "hub/tvapp.py": {
+   "arg-type": 1
+  },
+  "hub/tvbasic.py": {
+   "arg-type": 1,
+   "operator": 1
+  },
+  "hub/tvbedtime.py": {
+   "call-overload": 1
+  },
+  "hub/tvbuilds.py": {
+   "dict-item": 1,
+   "union-attr": 4
+  },
+  "hub/tvcatalog.py": {
+   "arg-type": 1,
+   "assignment": 1,
+   "call-overload": 1,
+   "return-value": 1,
+   "type-var": 1,
+   "union-attr": 14,
+   "var-annotated": 3
+  },
+  "hub/tvcec.py": {
+   "arg-type": 1
+  },
+  "hub/tvcontrol.py": {
+   "assignment": 1
+  },
+  "hub/tvexplore.py": {
+   "assignment": 1,
+   "dict-item": 1,
+   "union-attr": 1,
+   "var-annotated": 2
+  },
+  "hub/tvfleet.py": {
+   "arg-type": 1,
+   "operator": 1,
+   "union-attr": 7
+  },
+  "hub/tvhandoff.py": {
+   "union-attr": 1
+  },
+  "hub/tvnames.py": {
+   "union-attr": 2
+  },
+  "hub/tvpicks.py": {
+   "arg-type": 1,
+   "return-value": 1,
+   "union-attr": 1
+  },
+  "hub/tvremote.py": {
+   "index": 1
+  },
+  "hub/tvsetup.py": {
+   "dict-item": 1
+  },
+  "hub/tvwho.py": {
+   "index": 1,
+   "var-annotated": 1
+  },
+  "hub/upnext.py": {
+   "arg-type": 3
+  },
+  "hub/vpn.py": {
+   "arg-type": 1,
+   "assignment": 1
+  },
+  "hub/vpn_pia.py": {
+   "attr-defined": 1
+  },
+  "hub/weather.py": {
+   "arg-type": 1
+  },
+  "hub/youtube.py": {
+   "assignment": 1,
+   "attr-defined": 2
+  },
+  "hub/yt_find.py": {
+   "arg-type": 1,
+   "has-type": 11,
+   "index": 1
+  }
+ },
+ "ruff": {
+  "hub/actions.py": {
+   "E501": 7
+  },
+  "hub/adapters/cameras.py": {
+   "E501": 1
+  },
+  "hub/adapters/family.py": {
+   "E501": 6
+  },
+  "hub/adapters/firewalla.py": {
+   "E501": 1
+  },
+  "hub/adapters/homeassistant.py": {
+   "BLE001": 1
+  },
+  "hub/adapters/media.py": {
+   "E501": 9
+  },
+  "hub/adapters/truenas.py": {
+   "E501": 5
+  },
+  "hub/alerts.py": {
+   "E501": 11
+  },
+  "hub/ambient.py": {
+   "B007": 1,
+   "E501": 5
+  },
+  "hub/ambient_scenes.py": {
+   "E501": 3
+  },
+  "hub/appupdate.py": {
+   "E501": 2
+  },
+  "hub/artwork.py": {
+   "E501": 4
+  },
+  "hub/assistant.py": {
+   "BLE001": 1,
+   "E501": 25
+  },
+  "hub/bambu.py": {
+   "E501": 9
+  },
+  "hub/bambu_cloud.py": {
+   "E501": 1
+  },
+  "hub/bonjour.py": {
+   "ASYNC240": 1
+  },
+  "hub/brain/__init__.py": {
+   "B007": 1,
+   "E501": 1,
+   "F401": 1
+  },
+  "hub/brain/house.py": {
+   "B905": 1,
+   "E501": 8
+  },
+  "hub/brain/layout.py": {
+   "E501": 9
+  },
+  "hub/brain/layout_examples.py": {
+   "E501": 1
+  },
+  "hub/brain/models.py": {
+   "BLE001": 1
+  },
+  "hub/catalog.py": {
+   "E501": 3
+  },
+  "hub/channelhealth.py": {
+   "E501": 3
+  },
+  "hub/cli.py": {
+   "E501": 1
+  },
+  "hub/climate.py": {
+   "B905": 2
+  },
+  "hub/config.py": {
+   "E501": 6
+  },
+  "hub/db.py": {
+   "E501": 1
+  },
+  "hub/downloads.py": {
+   "E501": 5
+  },
+  "hub/dvr.py": {
+   "E501": 3,
+   "F401": 2
+  },
+  "hub/familyapprovals.py": {
+   "E501": 2
+  },
+  "hub/feasts.py": {
+   "E501": 5
+  },
+  "hub/forecast.py": {
+   "B905": 1,
+   "E501": 9
+  },
+  "hub/ha_ws.py": {
+   "ASYNC109": 1,
+   "E501": 1
+  },
+  "hub/home.py": {
+   "E501": 5
+  },
+  "hub/home_alerts.py": {
+   "E501": 3
+  },
+  "hub/household.py": {
+   "E501": 8
+  },
+  "hub/iptvcanon.py": {
+   "B023": 5,
+   "E501": 12,
+   "F401": 1
+  },
+  "hub/iptvplay.py": {
+   "E501": 8
+  },
+  "hub/keycheck.py": {
+   "B905": 1,
+   "E501": 8,
+   "F401": 1
+  },
+  "hub/kitchen.py": {
+   "E501": 6
+  },
+  "hub/main.py": {
+   "E501": 4
+  },
+  "hub/mcp.py": {
+   "E501": 4
+  },
+  "hub/mcp_oauth.py": {
+   "E501": 3
+  },
+  "hub/notify.py": {
+   "E501": 2
+  },
+  "hub/onepassword.py": {
+   "E501": 1
+  },
+  "hub/push.py": {
+   "E501": 2
+  },
+  "hub/remotes.py": {
+   "B905": 1,
+   "E501": 2
+  },
+  "hub/rewatch.py": {
+   "E501": 1
+  },
+  "hub/routes/admin_health.py": {
+   "E501": 20
+  },
+  "hub/routes/admin_web.py": {
+   "ASYNC221": 1,
+   "E501": 113
+  },
+  "hub/routes/alerts.py": {
+   "E501": 1
+  },
+  "hub/routes/ambient.py": {
+   "E501": 4
+  },
+  "hub/routes/appupdate.py": {
+   "E501": 1
+  },
+  "hub/routes/auth.py": {
+   "E501": 5
+  },
+  "hub/routes/cameras.py": {
+   "E501": 3
+  },
+  "hub/routes/deps.py": {
+   "E501": 1
+  },
+  "hub/routes/downloads.py": {
+   "E501": 4
+  },
+  "hub/routes/family.py": {
+   "E501": 5
+  },
+  "hub/routes/feasts.py": {
+   "E501": 3,
+   "F401": 1
+  },
+  "hub/routes/fleet_web.py": {
+   "E501": 21
+  },
+  "hub/routes/home.py": {
+   "E501": 2
+  },
+  "hub/routes/home_alerts.py": {
+   "F401": 1
+  },
+  "hub/routes/household.py": {
+   "E501": 15
+  },
+  "hub/routes/layout.py": {
+   "E501": 1
+  },
+  "hub/routes/mcp.py": {
+   "E501": 2
+  },
+  "hub/routes/me.py": {
+   "F401": 1
+  },
+  "hub/routes/media.py": {
+   "E501": 8
+  },
+  "hub/routes/media_requests.py": {
+   "E501": 4
+  },
+  "hub/routes/network.py": {
+   "E501": 2
+  },
+  "hub/routes/people.py": {
+   "BLE001": 1,
+   "E501": 9
+  },
+  "hub/routes/people_web.py": {
+   "E501": 18,
+   "F541": 1
+  },
+  "hub/routes/printers.py": {
+   "E501": 3
+  },
+  "hub/routes/recipes.py": {
+   "B905": 1,
+   "E501": 1
+  },
+  "hub/routes/remotes.py": {
+   "E501": 1
+  },
+  "hub/routes/sends.py": {
+   "E501": 1
+  },
+  "hub/routes/tvapp.py": {
+   "ASYNC109": 1,
+   "E501": 9
+  },
+  "hub/routes/tvfleet.py": {
+   "ASYNC109": 1,
+   "E501": 7
+  },
+  "hub/routes/tvguide.py": {
+   "E501": 5,
+   "F401": 1
+  },
+  "hub/routes/tvpair.py": {
+   "E501": 1
+  },
+  "hub/routes/tvs.py": {
+   "E501": 2
+  },
+  "hub/routes/youtube.py": {
+   "E501": 6
+  },
+  "hub/search.py": {
+   "E501": 3,
+   "E731": 1
+  },
+  "hub/sends.py": {
+   "E501": 11
+  },
+  "hub/settings.py": {
+   "E501": 1
+  },
+  "hub/smart.py": {
+   "B905": 1,
+   "E501": 16
+  },
+  "hub/state.py": {
+   "E501": 2
+  },
+  "hub/testkeys.py": {
+   "E501": 1
+  },
+  "hub/timers.py": {
+   "E501": 1
+  },
+  "hub/titles.py": {
+   "E501": 4
+  },
+  "hub/tvapp.py": {
+   "ASYNC109": 4,
+   "E501": 15
+  },
+  "hub/tvbasic.py": {
+   "E501": 34
+  },
+  "hub/tvbedtime.py": {
+   "E501": 2
+  },
+  "hub/tvcatalog.py": {
+   "ASYNC230": 1,
+   "ASYNC240": 3,
+   "E501": 10
+  },
+  "hub/tvexplore.py": {
+   "E501": 12
+  },
+  "hub/tvfleet.py": {
+   "ASYNC109": 1,
+   "E501": 9
+  },
+  "hub/tvhandoff.py": {
+   "E501": 1
+  },
+  "hub/tvinstall.py": {
+   "E501": 5
+  },
+  "hub/tvlauncher.py": {
+   "E501": 3
+  },
+  "hub/tvlineup.py": {
+   "E501": 1
+  },
+  "hub/tvnames.py": {
+   "E501": 3
+  },
+  "hub/tvpair.py": {
+   "E501": 1
+  },
+  "hub/tvpicks.py": {
+   "E501": 9
+  },
+  "hub/tvs.py": {
+   "E501": 6
+  },
+  "hub/tvsetup.py": {
+   "E501": 5
+  },
+  "hub/tvsport.py": {
+   "E501": 5
+  },
+  "hub/tvwho.py": {
+   "E501": 2
+  },
+  "hub/upnext.py": {
+   "B023": 1,
+   "E501": 3
+  },
+  "hub/vpn.py": {
+   "E501": 3
+  },
+  "hub/weather.py": {
+   "E501": 2
+  },
+  "hub/youtube.py": {
+   "ASYNC109": 1,
+   "E501": 14
+  },
+  "hub/yt_find.py": {
+   "ASYNC109": 1,
+   "B905": 1,
+   "E501": 12
+  },
+  "tests/conftest.py": {
+   "E501": 1
+  },
+  "tests/test_admin_page.py": {
+   "E501": 12
+  },
+  "tests/test_alerts.py": {
+   "E501": 15
+  },
+  "tests/test_ambient_scenes.py": {
+   "ASYNC109": 1,
+   "E501": 1
+  },
+  "tests/test_appupdate.py": {
+   "E501": 4
+  },
+  "tests/test_artwork.py": {
+   "E501": 3
+  },
+  "tests/test_assistant.py": {
+   "E501": 5,
+   "F841": 1
+  },
+  "tests/test_assistant_writes.py": {
+   "E501": 1
+  },
+  "tests/test_brain.py": {
+   "E501": 5
+  },
+  "tests/test_camera_roles.py": {
+   "F811": 2
+  },
+  "tests/test_catalog.py": {
+   "E501": 4
+  },
+  "tests/test_climate.py": {
+   "E501": 2
+  },
+  "tests/test_core.py": {
+   "E501": 6
+  },
+  "tests/test_downloads.py": {
+   "ASYNC221": 4,
+   "E501": 5
+  },
+  "tests/test_family_approvals.py": {
+   "E501": 1
+  },
+  "tests/test_feasts.py": {
+   "E501": 10
+  },
+  "tests/test_guide_parse.py": {
+   "E501": 2,
+   "F401": 1
+  },
+  "tests/test_ha_ws.py": {
+   "E501": 1
+  },
+  "tests/test_home_alerts.py": {
+   "E501": 1
+  },
+  "tests/test_household.py": {
+   "E501": 6
+  },
+  "tests/test_integrations.py": {
+   "E501": 7
+  },
+  "tests/test_iptv_canon.py": {
+   "E501": 1
+  },
+  "tests/test_iptv_play.py": {
+   "E501": 12
+  },
+  "tests/test_kitchen.py": {
+   "E501": 2
+  },
+  "tests/test_layout.py": {
+   "E501": 1
+  },
+  "tests/test_live.py": {
+   "E501": 1
+  },
+  "tests/test_mcp.py": {
+   "E501": 4
+  },
+  "tests/test_media_requests.py": {
+   "E501": 7
+  },
+  "tests/test_nas.py": {
+   "E501": 4
+  },
+  "tests/test_notify_audience.py": {
+   "E501": 1
+  },
+  "tests/test_printers.py": {
+   "E501": 7
+  },
+  "tests/test_remotes.py": {
+   "E501": 8
+  },
+  "tests/test_sends.py": {
+   "E501": 9
+  },
+  "tests/test_services.py": {
+   "B017": 2,
+   "E501": 9
+  },
+  "tests/test_settings.py": {
+   "E501": 14
+  },
+  "tests/test_smart.py": {
+   "E501": 3,
+   "F401": 2
+  },
+  "tests/test_testkeys.py": {
+   "E501": 1
+  },
+  "tests/test_titles.py": {
+   "E501": 1,
+   "F401": 2
+  },
+  "tests/test_tv_api.py": {
+   "B018": 1,
+   "E501": 7
+  },
+  "tests/test_tv_downloads.py": {
+   "E501": 2
+  },
+  "tests/test_tv_explore.py": {
+   "E501": 6
+  },
+  "tests/test_tv_fleet.py": {
+   "E501": 8
+  },
+  "tests/test_tv_fleet_ops.py": {
+   "E501": 8
+  },
+  "tests/test_tv_handoff.py": {
+   "E501": 2
+  },
+  "tests/test_tv_launcher.py": {
+   "ASYNC109": 1,
+   "E501": 1
+  },
+  "tests/test_tv_pair.py": {
+   "E501": 2
+  },
+  "tests/test_tv_phone.py": {
+   "E501": 2,
+   "E741": 1
+  },
+  "tests/test_tv_picks.py": {
+   "E501": 2
+  },
+  "tests/test_tv_plex.py": {
+   "E501": 6
+  },
+  "tests/test_tv_remote.py": {
+   "E501": 5
+  },
+  "tests/test_tv_settings_store.py": {
+   "E501": 5
+  },
+  "tests/test_tv_who.py": {
+   "E501": 2
+  },
+  "tests/test_tvapp.py": {
+   "ASYNC109": 1,
+   "E501": 5
+  },
+  "tests/test_tvbasic.py": {
+   "E501": 2
+  },
+  "tests/test_tvcec.py": {
+   "ASYNC109": 1,
+   "E501": 1
+  },
+  "tests/test_tvinstall.py": {
+   "E501": 1
+  },
+  "tests/test_tvremote.py": {
+   "E501": 4
+  },
+  "tests/test_tvs.py": {
+   "ASYNC109": 2,
+   "E501": 4
+  },
+  "tests/test_tvsetup.py": {
+   "ASYNC109": 1,
+   "E501": 2
+  },
+  "tests/test_tvsport.py": {
+   "E501": 6,
+   "E741": 2,
+   "F401": 1
+  },
+  "tests/test_upnext.py": {
+   "E501": 3
+  },
+  "tests/test_watch.py": {
+   "E501": 2
+  },
+  "tests/test_weather.py": {
+   "E501": 5
+  },
+  "tests/test_youtube.py": {
+   "ASYNC109": 2,
+   "E501": 25,
+   "E731": 1
+  }
+ }
+}
