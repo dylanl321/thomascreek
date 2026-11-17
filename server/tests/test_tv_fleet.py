@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from hub.routes.home import shape_event
+from hub.tvapp_common import KV_TVS
 from hub.tvfleet import devices, report, sweep
 
 from tests.test_tv_api import TV_ID, Clock, Key, _auth, _enroll, _token
@@ -94,3 +95,26 @@ def test_the_house_hears_once_and_a_command_reaches_only_that_tv(hub, people, ho
     report(hub, TV_ID, quiet, NOW)
     sweep(hub, NOW + 31 * 60)
     assert hub.db.kv_get("tv.fleet.notices") == {f"{TV_ID}|offline": True}
+
+
+def test_a_tv_reporting_from_the_background_or_beating_from_the_app_is_online(hub, home_client):
+    _tv(hub, home_client)
+    _stamp(hub, state_at=0, last_seen_at=0)
+    report(hub, TV_ID, BODY, NOW)
+    # The app is closed: only the 15-minute background report arrives, and the TV still reads online.
+    row = devices(hub, NOW + 10 * 60)["devices"][0]
+    assert row["online"] is True and row["health"] == "ok"
+    assert devices(hub, NOW + 25 * 60)["devices"][0]["online"] is False
+    # The app is open: its heartbeat is newer than the last report, so it decides.
+    _stamp(hub, state_at=NOW + 40 * 60)
+    row = devices(hub, NOW + 41 * 60)["devices"][0]
+    assert row["online"] is True and row["health"] == "ok"
+    assert row["last_seen"] == "2026-11-14T18:40:00+00:00"
+    sweep(hub, NOW + 41 * 60)
+    assert f"{TV_ID}|offline" not in list(hub.db.kv_get("tv.fleet.notices") or {})
+
+
+def _stamp(hub, **times):
+    tvs = hub.tv_app.tvs()
+    tvs[TV_ID].update(times)
+    hub.db.kv_set(KV_TVS, tvs)
