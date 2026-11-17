@@ -30,6 +30,7 @@ if TYPE_CHECKING:
 log = logging.getLogger("hub.household")
 
 HOME_STATES = ("home",)
+DOORBELL_LIVE_S = 180  # a ring stays on the Lock Screen this long (the app tidies with the same number)
 APP_PRESENCE_TTL_S = 18 * 3600  # a phone's own report counts this long without a newer one
 INTERCOM_PHRASES = [
     {"id": "dinner", "emoji": "🍽️", "text": "Dinner's ready!"},
@@ -443,11 +444,58 @@ class Household:
     def set_live_token(self, device_id: str, token: str | None, env: str) -> None:
         self.hub.db.kv_set(f"la_start.{device_id}", {"token": token, "env": env} if token else None)
 
+    def add_doorbell_activity(self, device_id: str, activity_id: str, token: str, env: str) -> None:
+        """A ring's own update token (sent by the phone once the Live Activity started). Kept until it's ended."""
+        key = f"la_door.{device_id}"
+        rows = [r for r in (self.hub.db.kv_get(key) or []) if r.get("id") != activity_id and r.get("token") != token]
+        rows.append({"id": activity_id, "token": token, "env": env, "at": time.time()})
+        self.hub.db.kv_set(key, rows[-10:])
+
+    async def end_doorbell_live(self) -> int:
+        """End every doorbell Live Activity the hub knows of, so the card leaves the Lock Screen now."""
+        apns = self.hub.apns
+        now = int(time.time())
+        payload = {"aps": {"timestamp": now, "event": "end", "dismissal-date": now,
+                           "content-state": {"status": "ringing", "atUnix": now, "answeredBy": None}}}
+        ended = 0
+        for row in self.hub.db.all("SELECT key, value FROM hub_kv WHERE key LIKE 'la_door.%'"):
+            tokens = self.hub.db.kv_get(row["key"]) or []
+            if not tokens:
+                continue
+            if apns.enabled:
+                for t in tokens:
+                    res = await apns.send(t["token"], payload, env=t.get("env") or "production", push_type="liveactivity",
+                                          topic_suffix=".push-type.liveactivity", priority=10)
+                    ended += 1 if res.ok else 0
+            self.hub.db.kv_set(row["key"], [])
+        return ended
+
+    def _end_doorbell_later(self, delay: float) -> None:
+        """One timer for the latest ring: a new ring pushes the end back."""
+        old = getattr(self, "_door_end", None)
+        if old and not old.done():
+            old.cancel()
+
+        async def later() -> None:
+            await asyncio.sleep(delay)
+            try:
+                await self.end_doorbell_live()
+            except Exception as exc:  # noqa: BLE001
+                log.info("ending the doorbell Live Activity failed: %s", exc)
+
+        try:
+            self._door_end = asyncio.get_running_loop().create_task(later())
+        except RuntimeError:
+            self._door_end = None
+
     async def doorbell_live(self, person_ids: list[str], camera: str | None, camera_name: str) -> int:
-        """Start the doorbell Live Activity on each phone that registered a push-to-start token."""
+        """Start the doorbell Live Activity on each phone that registered a push-to-start token, and end it
+        DOORBELL_LIVE_S later (each phone sends the ring's update token once it starts)."""
         apns = self.hub.apns
         if not apns.enabled or not person_ids:
             return 0
+        # A new ring replaces the last one rather than stacking a second card under it.
+        await self.end_doorbell_live()
         now = int(time.time())
         payload = {"aps": {
             "timestamp": now, "event": "start",
@@ -455,7 +503,7 @@ class Household:
             "attributes-type": "DoorbellAttributes",
             "attributes": {"camera": camera or "", "cameraName": camera_name, "door": "Front door"},
             "alert": {"title": "Someone's at the front door", "body": camera_name},
-            "stale-date": now + 180, "dismissal-date": now + 600,
+            "stale-date": now + DOORBELL_LIVE_S, "dismissal-date": now + DOORBELL_LIVE_S,
         }}
         sent = 0
         for pid in person_ids:
@@ -471,6 +519,8 @@ class Household:
                     sent += 1
                 elif res.token_dead:
                     self.set_live_token(d["id"], None, "production")
+        if sent:
+            self._end_doorbell_later(DOORBELL_LIVE_S + 5)
         return sent
 
     # -- Tell Dylan --------------------------------------------------------

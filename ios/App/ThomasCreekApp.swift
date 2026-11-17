@@ -17,7 +17,10 @@ struct ThomasCreekApp: App {
                 .environment(pairing)
                 .tint(Theme.accent)
                 .onChange(of: phase, initial: true) { _, p in
-                    if p == .active { store.becameActive() }
+                    if p == .active {
+                        store.becameActive()
+                        Task { await NotificationTidy.sweep(); await DoorbellLive.shared.tidy() }
+                    }
                     else if p == .background { store.wentToBackground() }
                 }
                 .onOpenURL { router.open($0) }

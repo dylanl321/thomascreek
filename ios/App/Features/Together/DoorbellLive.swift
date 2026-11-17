@@ -7,6 +7,9 @@ final class DoorbellLive {
     static let shared = DoorbellLive()
     private var observing = false
 
+    /// How long a ring stays on the Lock Screen. The hub ends it at the same time (household.DOORBELL_LIVE_S).
+    static let ringSeconds: TimeInterval = 180
+
     func observe() {
         guard !observing else { return }
         observing = true
@@ -17,9 +20,27 @@ final class DoorbellLive {
                 await send(tok)
             }
         }
-        // A ring older than ten minutes is over even if the push to end it never came.
-        for a in Activity<DoorbellAttributes>.activities where -a.content.state.at.timeIntervalSinceNow > 600 {
-            Task { await a.end(nil, dismissalPolicy: .immediate) }
+        // Each ring the hub starts by push gets its own update token. The hub needs it to end the ring;
+        // without it the card stayed on the Lock Screen for hours.
+        Task {
+            for await activity in Activity<DoorbellAttributes>.activityUpdates {
+                Task {
+                    for await data in activity.pushTokenUpdates {
+                        let tok = data.map { String(format: "%02x", $0) }.joined()
+                        try? await HubClient.shared.send("/v1/devices/live-activity",
+                                                         ["doorbell_activity_token": tok, "activity_id": activity.id,
+                                                          "env": PushRegistration.apsEnvironment])
+                    }
+                }
+            }
+        }
+        Task { await tidy() }
+    }
+
+    /// A ring older than three minutes is over, even if the hub's push to end it never came.
+    func tidy() async {
+        for a in Activity<DoorbellAttributes>.activities where -a.content.state.at.timeIntervalSinceNow > Self.ringSeconds {
+            await a.end(nil, dismissalPolicy: .immediate)
         }
     }
 

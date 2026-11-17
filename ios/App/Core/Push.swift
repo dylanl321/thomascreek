@@ -19,6 +19,12 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
 
     /// The hub's silent push: something was sent to this device (or taken off it).
     func application(_ application: UIApplication, didReceiveRemoteNotification userInfo: [AnyHashable: Any]) async -> UIBackgroundFetchResult {
+        if userInfo["clear"] != nil {
+            // The hub's "these alerts are over" push: take expired door and camera alerts off the Lock Screen.
+            await NotificationTidy.sweep()
+            await DoorbellLive.shared.tidy()
+            return .newData
+        }
         guard userInfo["cat"] as? String == "sends" else { return .noData }
         return await SendsSync.shared.handlePush()
     }

@@ -7,6 +7,7 @@ as a push.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from typing import TYPE_CHECKING, Any, Iterable
@@ -79,11 +80,19 @@ def categories_for(role: str | None, prefs: dict[str, bool] | None = None) -> li
 
 
 LEVELS = ("act_now", "decision", "maintenance", "fyi")
+# Alerts that are over soon after they happen leave the Lock Screen by themselves: the push carries
+# `expires` and, once it passes, the hub sends a silent "clear" push and the app removes them
+# (ios/Shared/NotificationTidy.swift). The app also tidies whenever it opens or a new alert arrives.
+EXPIRES = {"cameras": 30 * 60, "doors": 30 * 60}
+DOORBELL_EXPIRES_S = 10 * 60
+CLEAR_GRACE_S = 15
 
 
 class Notifier:
     def __init__(self, hub: "Hub"):
         self.hub = hub
+        self._clear_due: dict[str, tuple[float, str, str]] = {}  # device id -> (when, token, env)
+        self._clear_task: asyncio.Task | None = None
         from .notify_sort import Sorter
 
         self.sorter = Sorter(hub)
@@ -247,14 +256,52 @@ class Notifier:
             "SELECT * FROM devices WHERE person_id=? AND status='active' AND apns_token IS NOT NULL", [person_id]
         ):
             # Categories are the person's now (self.prefs), the same on every phone they use.
+            ttl = DOORBELL_EXPIRES_S if kw.get("group_key") == "doorbell" else EXPIRES.get(kw["cat"])
+            extra = kw.get("extra")
+            if ttl:
+                extra = {**(extra or {}), "expires": int(time.time() + ttl)}
             payload = alert_payload(title, body, cat=kw["cat"], inbox_id=kw.get("inbox_id"), ref=kw.get("ref"),
                                     category=kw.get("category"), level=kw.get("level", "fyi"), thread=thread,
                                     silent=kw.get("silent", False), image=kw.get("image"),
-                                    interruption=kw.get("interruption"), extra=kw.get("extra"))
+                                    interruption=kw.get("interruption"), extra=extra)
             res = await apns.send(d["apns_token"], payload, env=d.get("apns_env") or "production",
                                   collapse_id=collapse)
             if res.token_dead:
                 self.hub.db.update("devices", "id", d["id"], {"apns_token": None})
+            elif res.ok and ttl:
+                self._clear_later(d["id"], d["apns_token"], d.get("apns_env") or "production", extra["expires"])
+
+    # -- taking expired alerts off the Lock Screen ---------------------------
+    def _clear_later(self, device_id: str, token: str, env: str, expires: float) -> None:
+        when = expires + CLEAR_GRACE_S
+        cur = self._clear_due.get(device_id)
+        if not cur or when > cur[0]:
+            self._clear_due[device_id] = (when, token, env)
+        if self._clear_task is None or self._clear_task.done():
+            try:
+                self._clear_task = asyncio.get_running_loop().create_task(self._clear_loop())
+            except RuntimeError:
+                self._clear_task = None
+
+    async def _clear_loop(self) -> None:
+        while self._clear_due:
+            now = time.time()
+            due = [(dev, v) for dev, v in self._clear_due.items() if v[0] <= now]
+            for dev, (_, token, env) in due:
+                self._clear_due.pop(dev, None)
+                try:
+                    await self.send_clear(token, env)
+                except Exception as exc:  # noqa: BLE001
+                    log.info("clear push failed: %s", type(exc).__name__)
+            if self._clear_due:
+                await asyncio.sleep(max(1.0, min(v[0] for v in self._clear_due.values()) - time.time()))
+
+    async def send_clear(self, token: str, env: str) -> bool:
+        """A silent push: the app wakes briefly and removes delivered alerts whose `expires` has passed.
+        Apple may hold or drop background pushes; the app also tidies whenever it opens."""
+        res = await self.hub.apns.send(token, {"aps": {"content-available": 1}, "clear": 1}, env=env,
+                                       push_type="background", priority=5, expiration=int(time.time() + 3600))
+        return res.ok
 
     async def push_admins_raw(self, payload: dict[str, Any]) -> None:
         for p in self.hub.db.people_with_role("admin"):

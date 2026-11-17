@@ -10,6 +10,7 @@ final class NotificationService: UNNotificationServiceExtension {
 
     override func didReceive(_ request: UNNotificationRequest, withContentHandler contentHandler: @escaping (UNNotificationContent) -> Void) {
         handler = contentHandler
+        Task { await NotificationTidy.sweep() }  // a new alert is a good moment to drop expired ones
         let content = (request.content.mutableCopy() as? UNMutableNotificationContent) ?? UNMutableNotificationContent()
         best = content
         if TVPairPush.isPairing(title: content.title, userInfo: content.userInfo) {

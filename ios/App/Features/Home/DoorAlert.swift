@@ -57,7 +57,7 @@ enum DoorLive {
             Task { await existing.update(content) }
             return
         }
-        Task { _ = try? Activity.request(attributes: attributes, content: content) }
+        Task { _ = try? Activity.request(attributes: attributes, content: content, pushType: .token) }  // token: the hub ends it
     }
 }
 
