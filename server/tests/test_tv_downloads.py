@@ -32,7 +32,7 @@ def test_an_empty_page_explains_how_to_publish_and_does_not_invent_a_code(hub, p
     assert "No builds yet" in page and "tc-*" in page and "tvapp/inbox" in page
     assert "go.aftvnews.com" in page and "does not make one up" in page
     assert "class=codebig" not in page
-    assert "Downloads" in home_client.get("/admin").text
+    assert "/admin/downloads" in home_client.get("/admin/watching").text
     missing = home_client.get("/tv")
     assert missing.status_code == 404 and "No builds yet." in missing.text
     assert away_client.get("/tv").status_code == 403 and "This link only works at home." in away_client.get("/tv").text

@@ -88,10 +88,10 @@ def test_shell_is_allowlisted_and_stays_off_the_page_until_asked(hub, people, ho
     csrf = _sign_in(home_client, people)
     listed = home_client.get("/admin/devices").text
     assert "Living room" in listed and "No TVs have checked in yet." not in listed
-    page = home_client.get(f"/admin/devices/{TV_ID}").text
+    page = home_client.get(f"/admin/devices/{TV_ID}?tab=remote").text
     assert "Reboot" in page and "logcat" in page and "One command" not in page
     hub.config.tv_fleet.shell = True
-    assert "One command" in home_client.get(f"/admin/devices/{TV_ID}").text
+    assert "One command" in home_client.get(f"/admin/devices/{TV_ID}?tab=remote").text
     asked = home_client.post(f"/admin/devices/{TV_ID}/command", data={"csrf": csrf, "action": "reboot"}, follow_redirects=False)
     assert asked.status_code == 303 and "Asked" in asked.headers["location"]
     setup = home_client.get("/admin/devices/provision").text

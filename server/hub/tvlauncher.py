@@ -283,3 +283,29 @@ def _people(h: Any) -> list[dict[str, Any]]:
     from .tvapp import _household
 
     return _household(h.db)
+
+
+async def open_store(h: Any, install_id: str, package: str) -> str:
+    """Open one app's Play Store page on the TV over network debugging, so someone there can press Install.
+    Returns a sentence for the admin page; never raises."""
+    package = str(package or "").strip()
+    if not _PKG.fullmatch(package) or len(package) > 200:
+        return "That doesn't look like an app."
+    tv = h.tv_app.tvs().get(install_id) or {}
+    ip = box_for(h, tv)
+    if ip is None:
+        return ("The hub can't reach this TV over network debugging. Install the app from the Play Store on the TV, "
+                "then open Thomas Creek TV once so it lists it.")
+    try:
+        refreshed = await h.tv_app.refresh_box(ip)
+        if refreshed.get("state") != "ok":
+            return "The TV didn't answer over network debugging. Wake it and try again."
+        serial = h.tv_app._serial(ip)
+        got = await h.tv_app.adb.run(["-s", serial, "shell", "am", "start", "-a", "android.intent.action.VIEW",
+                                      "-d", f"market://details?id={package}"], 15)
+    except Exception as exc:  # noqa: BLE001 - the page says what happened
+        log.warning("tvlauncher: store %s: %s", install_id, type(exc).__name__)
+        return "The hub couldn't reach this TV over network debugging."
+    if got.code != 0 or "error" in (got.out or "").lower():
+        return "The TV has no Play Store page for that app. Install it another way, then open Thomas Creek TV once."
+    return "The Play Store page is open on the TV. Press Install there; the home row picks it up once the TV lists it."

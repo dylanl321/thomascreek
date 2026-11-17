@@ -39,15 +39,15 @@ def test_key_test_button_shows_works_or_refused_without_the_value(hub, people, h
         mock.get("http://plex.test/library/sections").mock(return_value=httpx.Response(401))
         r = home_client.post("/admin/keys/test", data={"csrf": csrf, "name": "plex.token"})
     assert "Plex refused it" in r.text
-    page = home_client.get("/admin").text
+    page = home_client.get("/admin/watching").text
     assert "Not working" in page and "plex-secret-123" not in page
-    assert "Needs attention" in page
+    assert "Needs you" in home_client.get("/admin").text
     assert hub.keychecks.results["plex"]["state"] == "bad"
     with respx.mock() as mock:
         mock.get("http://plex.test/library/sections").mock(return_value=httpx.Response(200, json={}))
         home_client.post("/admin/keys/test", data={"csrf": csrf, "name": "plex.token"})
     assert hub.keychecks.results["plex"]["state"] == "ok"
-    assert ">Works<" in home_client.get("/admin").text
+    assert ">Works<" in home_client.get("/admin/watching").text
     # The status JSON lists states, never values.
     detail = home_client.get("/admin/status.json?detail=1").json()
     assert {"id": "plex", "state": "ok"}.items() <= next(k for k in detail["keys"] if k["id"] == "plex").items()
@@ -141,7 +141,7 @@ def test_services_and_warnings_on_the_page(hub, people, home_client):
     assert hub.plex.down_since and hub.plex.last_checked and hub.plex.last_ms is not None
     install()
     logging.getLogger("hub.test").warning("leaked tok-abcdefgh-1234 in a message")
-    page = home_client.get("/admin").text
+    page = home_client.get("/admin/security").text
     assert "Recent warnings" in page and "tok-abcdefgh-1234" not in page and "leaked ••• in a message" in page
     logging.getLogger().removeHandler(RECENT)
 
@@ -275,7 +275,7 @@ def test_test_button_waits_for_a_check_already_running_and_tests_again(hub):
 def test_save_all_saves_every_changed_key_at_once_and_tests_each_once(hub, people, home_client, monkeypatch):
     _plex_on(hub)
     csrf = _sign_in(people, home_client)
-    page = home_client.get("/admin").text
+    page = home_client.get("/admin/watching").text
     # Text key rows have no Save button of their own; they belong to the one Save all form.
     assert "form=saveall name='v:plex.token'" in page and "id=saveall" in page and "Save all" in page
     runs = []
@@ -328,7 +328,7 @@ def test_iptv_providers_and_logins_listed_added_and_removed(hub, people, home_cl
     got = {(lg["provider"], lg["login"]): lg["server"] for lg in logins(hub)}
     assert got == {("Strong", "one"): "http://strong.test:8080", ("Strong", "two"): "http://strong.test:8080",
                    ("Other", "main"): "http://other.test"}
-    page = home_client.get("/admin").text
+    page = home_client.get("/admin/watching").text
     assert "2 logins" in page and "1 login " in page and "pw-1" not in page and "iptv.Strong.one.password" not in page
     # A new provider needs its server; bad names are refused.
     r = home_client.post("/admin/iptv/login", data={"csrf": csrf, "provider": "New", "login": "x", "username": "u",
@@ -358,7 +358,7 @@ def test_one_provider_with_a_name_address_and_every_login(hub, people, home_clie
     # The same username again only changes its password.
     home_client.post("/admin/iptv/provider/login", data={"csrf": csrf, "provider": "thomas-creek", "username": "u2", "password": "new"})
     assert len(iptvplay.logins(hub)) == 3 and hub.vault.get("iptv.thomas-creek.2.password") == "new"
-    page = home_client.get("/admin").text
+    page = home_client.get("/admin/watching").text
     assert ">Strong<" in page and "3 logins" in page and "pw-1" not in page and "Xtream username" not in page
     # A new address moves every login with it.
     home_client.post("/admin/iptv/provider/save", data={"csrf": csrf, "provider": "thomas-creek", "name": "Strong TV",
@@ -378,7 +378,7 @@ def test_one_provider_with_a_name_address_and_every_login(hub, people, home_clie
     home_client.post("/admin/iptv/login", data={"csrf": csrf, "provider": "Dup", "server": "http://new.test", "login": "one",
                                                 "username": "u9", "password": "pw-9"})
     assert next(p for p in iptvplay.providers(hub) if p["id"] == "Dup")["same_as_main"]
-    assert "Move to Strong TV" in home_client.get("/admin").text
+    assert "Move to Strong TV" in home_client.get("/admin/watching").text
     home_client.post("/admin/iptv/provider/merge", data={"csrf": csrf, "provider": "Dup"})
     assert {(lg["provider"], lg["username"]) for lg in iptvplay.logins(hub)} == {
         ("thomas-creek", "u2"), ("thomas-creek", "u3"), ("thomas-creek", "u9")}
@@ -398,7 +398,7 @@ def test_pia_refusal_says_what_to_fix():
 
 def test_metadata_sources_section_and_key_checks(hub, people, home_client):
     csrf = _sign_in(people, home_client)
-    page = home_client.get("/admin").text
+    page = home_client.get("/admin/watching").text
     assert "Metadata sources (artwork, ratings, subtitles)" in page
     for name in ("tmdb.api_key", "fanart.api_key", "omdb.api_key", "opensubtitles.api_key", "subdl.api_key"):
         assert f"name='v:{name}'" in page
@@ -438,7 +438,7 @@ def test_catalog_is_one_ai_status_line_with_nothing_to_answer(hub, people, home_
     merge(hub.db, [glad["left"], glad["right"]])
     keep_apart(hub.db, stars["id"])
     _sign_in(people, home_client)
-    page = home_client.get("/admin").text
+    page = home_client.get("/admin/watching").text
     assert "the AI merged 1 duplicate copies and kept 1 look-alikes separate" in page
     assert "Same title" not in page and "/admin/catalog/" not in page and "<h2>Catalog</h2>" not in page
     assert len(search(hub.db, "gladiator")["items"]) == 1

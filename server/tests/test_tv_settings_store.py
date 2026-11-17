@@ -148,7 +148,7 @@ def test_the_admin_page_edits_and_copies_settings(hub, home_client, people):
         "startup": {"autostart": True}, "device": {"android": ANDROID}}})
     home_client.post("/v1/tv/fleet/report", headers=headers, json=BODY)
     csrf = _sign_in(home_client, people)
-    page = home_client.get(f"/admin/devices/{TV_ID}").text
+    page = home_client.get(f"/admin/devices/{TV_ID}?tab=settings").text
     assert "<h2>Settings</h2>" in page and "Opens on" in page and "android 4" in page
 
     saved = home_client.post(f"/admin/devices/{TV_ID}/settings", data={

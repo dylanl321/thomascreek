@@ -84,8 +84,9 @@ def test_the_tv_lists_its_apps_and_the_admin_card_picks_them(hub, people, home_c
 
     home_client.post("/v1/tv/fleet/report", headers=headers, json=BODY)
     csrf = _sign_in(home_client, people)
-    page = home_client.get(f"/admin/devices/{TV_ID}").text
-    assert "<h2>Launcher</h2>" in page and "Kids launcher" not in page and "YouTube Kids" in page and "Theo (child)" in page
+    page = home_client.get(f"/admin/devices/{TV_ID}?tab=home").text
+    assert "Apps on the home row" in page and "Kids launcher" not in page and "YouTube Kids" in page
+    assert "Theo (child: kids rows only)" in page
     saved = home_client.post(f"/admin/devices/{TV_ID}/launcher", data={
         "csrf": csrf, "on": "1", "person_id": people["theo"]["id"], "guard": "1",
         "app": ["com.google.android.youtube.tvkids", "com.google.android.youtube.tv"],
@@ -94,7 +95,7 @@ def test_the_tv_lists_its_apps_and_the_admin_card_picks_them(hub, people, home_c
     block = tvlauncher.view(hub.tv_app.tvs()[TV_ID])
     assert block["on"] and block["apps"] == ["com.google.android.youtube.tvkids", "com.google.android.youtube.tv"]
     # Without a box on the hub's list, the TV asks on screen and the card says so.
-    assert "asks once" in home_client.get(f"/admin/devices/{TV_ID}").text
+    assert "asks once" in home_client.get(f"/admin/devices/{TV_ID}?tab=home").text
 
 
 async def test_the_box_gets_home_and_guard_and_gives_them_back(hub, people, home_client):
