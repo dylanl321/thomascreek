@@ -28,6 +28,7 @@ from urllib.parse import urlsplit, urlunsplit
 import httpx
 
 from .artwork import programme_key
+from . import tvnames
 from .home import iso
 from .tvapp import TvAppError
 from .tvlineup import LineupError, clean_logo, public_channel
@@ -713,6 +714,9 @@ class TvCatalog:
             if shown.get("catchup_days"):
                 public["catchup_days"] = shown["catchup_days"]
             public["logo_url"] = self._art("logo", shown["key"])
+            if shown.get("group"):
+                # The provider's category made readable once here ("|US| SPORTS" as "Sports"); screens show it.
+                public["group_label"] = tvnames.category(shown["group"])
             _with_canon(public, canon)
             rows.append(public)
             seen.add(shown["key"])

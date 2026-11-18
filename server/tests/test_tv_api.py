@@ -525,3 +525,14 @@ def test_films_and_series_come_a_page_at_a_time_in_the_asked_order(hub, people):
     assert added[0]["added"] == 1700000300 and "added" not in added[3]
     assert dylan.client.get("/v1/tv/movies", headers=dylan.h, params={"sort": "rating"}).status_code == 400
     assert dylan.client.get("/v1/tv/series", headers=dylan.h, params={"sort": "added"}).json()["total"] == 0
+
+
+def test_the_lineup_names_each_group_for_the_screens(hub, people):
+    hub.tv_catalog.ingest(live=[
+        {"stream_id": 10, "name": "ESPN", "num": 5, "category_id": "1", "epg_channel_id": "espn.us"},
+        {"stream_id": 11, "name": "Loose", "num": 6, "category_id": "9"},
+    ], live_categories=[{"category_id": "1", "category_name": "|US| SPORTS"}])
+    dylan = people["phones"]["Dylan"]
+    rows = {row["name"]: row for row in dylan.client.get("/v1/tv/lineup", headers=dylan.h).json()["channels"]}
+    assert rows["ESPN"]["group"] == "|US| SPORTS" and rows["ESPN"]["group_label"] == "Sports"
+    assert "group_label" not in rows["Loose"]
