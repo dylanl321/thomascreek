@@ -122,7 +122,7 @@ def build_app(hub: Hub | None = None, *, start_background: bool = True) -> FastA
     # Playback passes (the pass in the address is the whole permission, no cookie or bearer) may be opened by a
     # cast receiver: a Chromecast or a Cast-enabled hotel TV is a web page on another origin, so it needs CORS to
     # read the HLS lists and ranges. Nothing else on the hub answers another origin.
-    cast_paths = ("/v1/tv/phone/file/", "/v1/tv/phone/live/", "/v1/media/hls/")
+    cast_paths = ("/v1/tv/phone/file/", "/v1/tv/phone/live/", "/v1/tv/plex/file/", "/v1/media/hls/")
 
     @app.middleware("http")
     async def cast_cors(request, call_next):
