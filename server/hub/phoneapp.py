@@ -65,8 +65,11 @@ class PhoneApp:
             if r.status_code in (401, 403):
                 raise TvAppError(409, "bad_token", "GitHub refused the TV app token")
             r.raise_for_status()
-            rel = next((x for x in r.json() if str(x.get("tag_name") or "").startswith(TAG_PREFIX)
-                        and not x.get("draft") and any(a.get("name") == APK for a in x.get("assets") or [])), None)
+            # GitHub lists releases by tag name, not date ("phone-0.10.0" came after "phone-0.3.0"), so the newest
+            # is picked by its version, then by when it was published.
+            found = [x for x in r.json() if str(x.get("tag_name") or "").startswith(TAG_PREFIX)
+                     and not x.get("draft") and any(a.get("name") == APK for a in x.get("assets") or [])]
+            rel = max(found, key=_release_order) if found else None
             if rel is None:
                 return
             assets = {a.get("name"): a for a in rel.get("assets") or []}
@@ -115,3 +118,10 @@ class PhoneApp:
         self.tv.db.kv_set(KV, row)
         log.info("phoneapp: kept %s (%d bytes)", tag, len(apk))
         return row
+
+
+def _release_order(rel: dict[str, Any]) -> tuple[tuple[int, ...], str]:
+    """"phone-0.10.0" after "phone-0.9.0"; a tag with no plain version ("phone-0.1.0-test") by its numbers too."""
+    tag = str(rel.get("tag_name") or "")[len(TAG_PREFIX):]
+    numbers = tuple(int(n) for n in re.findall(r"\d+", tag.split("-")[0]))
+    return numbers, str(rel.get("published_at") or rel.get("created_at") or "")

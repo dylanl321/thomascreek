@@ -744,13 +744,43 @@ class TvCatalog:
         }
 
     def lineup(self, *, kids_only: bool) -> dict[str, Any] | None:
+        """The live lineup, worked out once per snapshot and edit (17k channels took about 6 s a call). Each
+        caller gets its own row copies, since routes add health to them."""
         doc = self.load()
         if not doc.get("channels"):
             return None
-        rows = []
-        seen: set[str] = set()
         overlay = self._overlay()
         canon = self._live_canon()
+        stamp = (doc.get("fetched_at"), len(doc["channels"]), json.dumps(overlay, sort_keys=True, default=str),
+                 len(canon), kids_only, int(time.time() // 600))
+        cache: dict[bool, tuple[Any, dict[str, Any]]] | None = getattr(self, "_lineup_cache", None)
+        if not isinstance(cache, dict):
+            cache = {}
+            self._lineup_cache = cache
+        hit = cache.get(kids_only)
+        if hit is None or hit[0] != stamp:
+            hit = cache[kids_only] = (stamp, self._build_lineup(doc, overlay, canon, kids_only=kids_only))
+        body = hit[1]
+        return {**body, "channels": [dict(row) for row in body["channels"]]}
+
+    def groups(self, *, kids_only: bool) -> dict[str, Any]:
+        """Live categories by country and kind (tvgroups), worked out once per lineup."""
+        lineup = self.lineup(kids_only=kids_only) or {"version": 0, "channels": []}
+        stamp = (getattr(self, "_lineup_cache", {}).get(kids_only) or (None,))[0]
+        cache: dict[bool, tuple[Any, dict[str, Any]]] | None = getattr(self, "_groups_cache", None)
+        if not isinstance(cache, dict):
+            cache = {}
+            self._groups_cache = cache
+        hit = cache.get(kids_only)
+        if hit is None or hit[0] != stamp or stamp is None:
+            body = {"version": lineup.get("version") or 0, **tvgroups.groups(lineup.get("channels") or [])}
+            hit = cache[kids_only] = (stamp, body)
+        return hit[1]
+
+    def _build_lineup(self, doc: dict[str, Any], overlay: dict[str, dict[str, Any]], canon: dict[str, str], *,
+                      kids_only: bool) -> dict[str, Any]:
+        rows = []
+        seen: set[str] = set()
         for row in doc["channels"]:
             shown = self._present_channel(row, overlay)
             if shown is None or (kids_only and not shown["kids"]):

@@ -285,3 +285,9 @@ def test_a_build_without_a_version_is_still_handed_out_but_not_offered(hub, peop
     avery = people["phones"]["Avery"]
     r = avery.client.get("/v1/tv/phone/update?version_code=3", headers=avery.h)
     assert r.status_code == 503 and r.json()["error"] == "no_version"
+
+
+def test_the_newest_phone_release_wins_whatever_order_github_lists_them():
+    from hub.phoneapp import _release_order
+    listed = [{"tag_name": t} for t in ("phone-0.9.0", "phone-0.3.0", "phone-0.10.0", "phone-0.1.0-test")]
+    assert max(listed, key=_release_order)["tag_name"] == "phone-0.10.0"
