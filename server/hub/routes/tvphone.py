@@ -32,7 +32,7 @@ from ..state import Hub
 from ..tvapp import TvAppError
 from .deps import Caller, caller, error, hub
 from ..upnext import remember, resume_at, who_key
-from .tvguide import _media, _ready
+from .tvguide import _media, _ready, watcher
 from ..faults import note
 
 router = APIRouter(prefix="/v1/tv/phone", tags=["tv"])
@@ -61,8 +61,14 @@ async def phone_play(body: dict[str, Any], c: Caller = Depends(caller), h: Hub =
     files only a TV opened before are allowed too. Without it the iPhone's MP4 rule holds.
 
     `direct: true` (optional, the Android travel phone) answers the provider's own address instead of a hub
-    pass: a free login is held for this phone like a TV's, kept by `/hold` and freed by `/hold {"stop":true}`."""
-    kids_only = _media(h, c)
+    pass: a free login is held for this phone like a TV's, kept by `/hold` and freed by `/hold {"stop":true}`.
+
+    `person` (optional) is who is watching on a grown-up's phone: one of the children, so only kids' titles play
+    and the place is kept for them (see tvguide.watcher)."""
+    if getattr(c.subject, "tv", False):
+        kids_only, person = _media(h, c), c.subject.person_id
+    else:
+        person, kids_only = watcher(h, c, _person(body))
     await _ready(h)
     cat = h.tv_catalog
     kind = next((k for k in ("movie_id", "episode_id", "channel_key") if body.get(k)), None)
@@ -90,14 +96,14 @@ async def phone_play(body: dict[str, Any], c: Caller = Depends(caller), h: Hub =
         url = urls[0] if urls else None
         if not url:
             raise error(503, "busy", "Every TV login is busy. Try again in a moment.")
-        h.db.log("tv.phone.play", "ok", person_id=c.subject.person_id, device_id=c.device["id"], target=key,
+        h.db.log("tv.phone.play", "ok", person_id=person, device_id=c.device["id"], target=key,
                  params={"title": row.get("name") or row.get("title"), "direct": True})
         out_direct: dict[str, Any] = {"url": url, "kind": mode, "title": row.get("name") or row.get("title"),
                                       "direct": True}
         if len(urls) > 1:
             # The same stream on the provider's backup addresses (same login), to try in order when `url` won't play.
             out_direct["alternates"] = urls[1:]
-        _resume(h, c, body, mode, key, row, out_direct)
+        _resume(h, person, body, mode, key, row, out_direct)
         return out_direct
     # The hub relays it, on a login leased to this phone like a TV's (one stream per login).
     from ..iptvplay import lease
@@ -109,22 +115,27 @@ async def phone_play(body: dict[str, Any], c: Caller = Depends(caller), h: Hub =
                                         "sid": secrets.token_urlsafe(9), "dev": c.device["id"],
                                         "pl": f"{held['provider']}|{held['login']}"}, TTL_S)
     title = row.get("name") or row.get("title")
-    h.db.log("tv.phone.play", "ok", person_id=c.subject.person_id, device_id=c.device["id"], target=key,
+    h.db.log("tv.phone.play", "ok", person_id=person, device_id=c.device["id"], target=key,
              params={"title": title})
     path = f"/v1/tv/phone/live/{token}/index.m3u8" if mode == "live" else f"/v1/tv/phone/file/{token}"
     out: dict[str, Any] = {"url": path, "kind": mode, "title": title, "expires_at": exp}
-    _resume(h, c, body, mode, key, row, out)
+    _resume(h, person, body, mode, key, row, out)
     return out
 
 
-def _resume(h: Hub, c: Caller, body: dict[str, Any], mode: str, key: str, row: dict[str, Any],
+def _person(body: dict[str, Any]) -> str | None:
+    value = body.get("person")
+    return str(value)[:64] if isinstance(value, str) and value else None
+
+
+def _resume(h: Hub, person: str | None, body: dict[str, Any], mode: str, key: str, row: dict[str, Any],
             out: dict[str, Any]) -> None:
     if mode == "live":
         return
     start = _seconds(body.get("start_s"))
     if start is None:
         ids = {"movie_id": key} if mode == "movie" else {"episode_id": key}
-        start = resume_at(h, who_key(person=c.subject.person_id), **ids)["position_s"]
+        start = resume_at(h, who_key(person=person), **ids)["position_s"]
     out["resume_s"] = start
     out["duration_s"] = row.get("duration_s") if isinstance(row.get("duration_s"), (int, float)) else None
     if mode == "episode":
@@ -192,8 +203,13 @@ async def phone_progress(body: dict[str, Any], c: Caller = Depends(caller), h: H
     """{movie_id|episode_id, position_s, duration_s?} from the phone's player, every minute and on close.
 
     The same record a TV's heartbeat makes, kept for the caller's person, so Continue watching follows them to
-    every TV. A title the caller may not see is refused like /play."""
-    kids_only = _media(h, c)
+    every TV. A title the caller may not see is refused like /play. `person` is who is watching (a child picked
+    on a grown-up's phone), and `shuffle` ({order, seasons}) keeps a shuffled show's order so any screen
+    continues it, the same as a TV's heartbeat."""
+    if getattr(c.subject, "tv", False):
+        kids_only, person = _media(h, c), c.subject.person_id
+    else:
+        person, kids_only = watcher(h, c, _person(body))
     await _ready(h)
     cat = h.tv_catalog
     if body.get("movie_id"):
@@ -218,7 +234,13 @@ async def phone_progress(body: dict[str, Any], c: Caller = Depends(caller), h: H
     if duration is not None:
         playing["duration_s"] = duration
     playing["title"] = row.get("name") or row.get("title")
-    remember(h.db, "kids" if kids_only else "adult", playing, person=c.subject.person_id)
+    if playing["kind"] == "episode":
+        from ..tvapp_common import _play_shuffle
+
+        order = _play_shuffle(body.get("shuffle"))
+        if order:
+            playing["shuffle"] = order
+    remember(h.db, "kids" if kids_only else "adult", playing, person=person)
     return {"ok": True, "position_s": position}
 
 
@@ -237,7 +259,7 @@ async def phone_resume(movie_id: str | None = None, episode_id: str | None = Non
         named = person if person and any(p["id"] == person for p in _household(h.db)) else None
         who = who_key(person=named or s.person_id, tv=s.tv_id)
     else:
-        who = who_key(person=s.person_id)
+        who = who_key(person=watcher(h, c, person)[0])
     return resume_at(h, who, movie_id=movie_id, episode_id=episode_id)
 
 
