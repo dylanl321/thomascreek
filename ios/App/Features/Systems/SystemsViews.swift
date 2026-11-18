@@ -391,12 +391,17 @@ struct JoinCodeSheet: View {
         NavigationStack {
             VStack(spacing: 18) {
                 if let made {
-                    Text("Scan with the Thomas Creek app on the new device").font(.headline).multilineTextAlignment(.center)
-                    QrCode(text: made.qr).frame(width: 240, height: 240)
+                    Text(made.downloadUrl == nil ? "Scan with the Thomas Creek app on the new device"
+                         : "Scan with the Android phone's camera to get the app and join")
+                        .font(.headline).multilineTextAlignment(.center)
+                    QrCode(text: made.downloadUrl ?? made.qr).frame(width: 240, height: 240)
                         .padding(12).background(.white, in: RoundedRectangle(cornerRadius: 16))
                     Text("It will be \(made.person.name)'s. Works once, for 10 minutes.")
                         .font(.footnote).foregroundStyle(Theme.dim).multilineTextAlignment(.center)
                     Text(made.code).font(.system(.body, design: .monospaced)).textSelection(.enabled)
+                    if made.downloadUrl != nil {
+                        ShareLink(item: made.qr) { Label("Share the join link", systemImage: "square.and.arrow.up") }
+                    }
                 } else if let problem {
                     Text(problem).foregroundStyle(Theme.warn).multilineTextAlignment(.center)
                     Button("Try again") { Task { await make() } }.buttonStyle(.borderedProminent)

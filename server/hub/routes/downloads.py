@@ -57,6 +57,54 @@ async def tv_file(version_code: str, request: Request, h: Hub = Depends(hub)) ->
                         filename=f"ThomasCreekTV-{version_code}.apk")
 
 
+# -- the Android travel phone app, from anywhere with a live join code ------------------------------------------------
+
+def _phone_code(request: Request, h: Hub) -> str | None:
+    from .. import joincodes
+
+    code = str(request.query_params.get("code") or "").strip().upper()
+    return code if joincodes.peek(h.db, code) else None
+
+
+_EXPIRED = ("This code has expired or was already used. "
+            "Ask for a new one on the iPhone: People, Add a device away from home.")
+
+
+@router.get("/phone")
+async def phone_page(request: Request, h: Hub = Depends(hub)) -> Response:
+    """What the iPhone's "Add a device away from home" QR opens on an Android phone: get the app, then join."""
+    code = _phone_code(request, h)
+    if code is None:
+        return _plain(_EXPIRED, 403)
+    build = await h.phone_app.ensure()
+    remote = (h.config.hub.remote_url or "").rstrip("/")
+    join = f"thomascreek://join?hub={quote(remote, safe='')}&code={code}"
+    app = (f'<p><a class="btn" href="/phone/app?code={code}">Download Thomas Creek '
+           f"({tvbuilds.size_label(int(build['size']))})</a></p>"
+           "<p>Open the download and allow installs from your browser when Android asks.</p>"
+           if build else "<p>The app isn't on the hub yet. Try again in a few minutes.</p>")
+    body = ("<h1>Thomas Creek for Android</h1>"
+            "<h2>1. Get the app</h2>" + app +
+            "<h2>2. Join</h2>"
+            f'<p><a class="btn" href="{html.escape(join)}">Open Thomas Creek and join</a></p>'
+            "<p>Or, in the app, paste this:</p>"
+            f"<p><code style=\"word-break:break-all\">{html.escape(join)}</code></p>"
+            "<p>This page works for 10 minutes and for one phone.</p>")
+    return HTMLResponse(_page("Thomas Creek", body), headers=_headers())
+
+
+@router.get("/phone/app")
+async def phone_apk(request: Request, h: Hub = Depends(hub)) -> Response:
+    if _phone_code(request, h) is None:
+        return _plain(_EXPIRED, 403)
+    build = await h.phone_app.ensure()
+    if build is None:
+        return _plain("The app isn't on the hub yet. Try again in a few minutes.", 503)
+    h.db.log("phoneapp.download", "ok", params={"tag": build.get("tag")})
+    return FileResponse(h.phone_app.path, media_type="application/vnd.android.package-archive",
+                        filename="ThomasCreekPhone.apk")
+
+
 @router.get("/admin/downloads")
 async def downloads_page(request: Request, h: Hub = Depends(hub)) -> Response:
     _home_only(request, h)

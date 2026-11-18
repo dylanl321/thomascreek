@@ -80,7 +80,8 @@ def build_app(hub: Hub | None = None, *, start_background: bool = True) -> FastA
 
     # Unauthenticated sign-in steps, rate-limited for callers away from home (the hub is
     # published through a reverse proxy). Home callers are never limited.
-    limited = ("/v1/enroll", "/v1/auth/challenge", "/v1/auth/token", "/v1/hello", "/v1/ping", "/admin", "/oauth/")
+    limited = ("/v1/enroll", "/v1/auth/challenge", "/v1/auth/token", "/v1/hello", "/v1/ping", "/admin", "/oauth/",
+               "/phone")
     hits: dict[str, list[float]] = {}
 
     @app.middleware("http")
