@@ -104,3 +104,26 @@ def test_the_route_serves_the_basic_lineup(hub, people, monkeypatch):
     assert got["market"] == "Raleigh"
     assert [(row["number"], row["name"]) for row in got["channels"]] == [(5, "NBC 5"), (11, "ABC 11 WTVD"), (30, "ESPN")]
     assert dylan.client.get("/v1/tv/basic", headers={**dylan.h, "If-None-Match": body.headers["etag"]}).status_code == 304
+
+
+def test_new_york_locals_are_new_york_stations_not_upstate_ones():
+    from hub import tvbasic
+    rows = [
+        {"key": "1", "name": "US: ABC 7 WABC New York", "category": "US| LOCALS"},
+        {"key": "2", "name": "US: NBC 4 WNBC NY", "category": "US| LOCALS"},
+        {"key": "3", "name": "US: CBS 2 WCBS New York HD", "category": "US| LOCALS"},
+        {"key": "4", "name": "US: ABC 10 WTEN Albany NY", "category": "US| LOCALS"},
+        {"key": "5", "name": "US: NBC 13 WNYT Albany NY", "category": "US| LOCALS"},
+        {"key": "6", "name": "US: CW 15 WCWN Albany NY", "category": "US| LOCALS"},
+        {"key": "7", "name": "US: FOX 29 WUTV Buffalo NY", "category": "US| LOCALS"},
+        {"key": "8", "name": "US: ABC 7 WABC New York (SD)", "category": "US| LOCALS"},
+    ]
+    nyc = (40.71, -74.01)
+    body = tvbasic.build(rows, nyc)
+    assert body["market"] == "New York"
+    locals_ = {c["key"] for c in body["channels"] if c["local"]}
+    assert locals_ == {"1", "2", "3"}
+    texts = [tvbasic.clean(r["name"]) + " " + r["category"].casefold() for r in rows]
+    counts = tvbasic.locals_per_market(texts)
+    # The count is what the lineup shows: one station per network.
+    assert counts["New York"] == 3 and counts["Albany"] == 3 and counts["Buffalo"] == 1

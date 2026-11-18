@@ -7,6 +7,7 @@ iPhone draw the same names and match the same TMDB titles.
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
 import re
@@ -185,7 +186,11 @@ def is_divider(name: object) -> bool:
 def polish(raw: object) -> tuple[str, int | None]:
     """A card title as people read it, and its year if the name carried one: "EN - Rolling Loud (2026)" ->
     ("Rolling Loud", 2026). A plain title is left alone, so "Blade Runner 2049" keeps its number."""
-    text = str(raw or "").strip()
+    return _polish(str(raw or "").strip())
+
+
+@functools.lru_cache(maxsize=262144)  # the films and series lists sort on it, every row, every page
+def _polish(text: str) -> tuple[str, int | None]:
     if not text or not (_LEAD.match(text) or _PAREN_YEAR.search(text) or _ALL_TAGS.match(text)):
         return text, None
     clean = title(text)

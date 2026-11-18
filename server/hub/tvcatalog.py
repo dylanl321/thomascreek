@@ -817,10 +817,14 @@ class TvCatalog:
         doc = self.load()
         if not doc.get("channels"):
             return None
-        stamp = (doc.get("fetched_at"), doc.get("guide_at"), home, tvbasic.VERSION, len(self._overlay()))
-        cached = getattr(self, "_basic_cache", None)
-        if cached and cached[0] == stamp:
-            return cached[1]
+        stamp = (doc.get("fetched_at"), doc.get("guide_at"), tvbasic.VERSION, len(self._overlay()))
+        # One lineup per place (the house, and each market a phone picked), kept for this snapshot.
+        if getattr(self, "_basic_stamp", None) != stamp:
+            self._basic_stamp = stamp
+            self._basic_by_home: dict[Any, dict[str, Any]] = {}
+        by_home = self._basic_by_home
+        if home in by_home:
+            return by_home[home]
         rows = []
         overlay = self._overlay()
         for row in doc["channels"]:
@@ -829,7 +833,9 @@ class TvCatalog:
                 rows.append({"key": shown["key"], "name": shown["name"], "category": shown["group"]})
         guide = doc.get("guide") or {}
         out = tvbasic.build(rows, home, has_guide=lambda key: bool(guide.get(key)))
-        self._basic_cache = (stamp, out)
+        if len(by_home) >= 16:
+            by_home.pop(next(iter(by_home)))
+        by_home[home] = out
         return out
 
     def channel(self, key: str) -> dict[str, Any] | None:
@@ -911,7 +917,7 @@ class TvCatalog:
         """One page of the list. `sort`: `name` (A to Z), `year` (newest first) or `added` (last added first; the
         provider's own order where it sends no date). `total` counts every match, for paging."""
         needle = (q or "").strip().casefold()
-        rows = []
+        found: list[tuple[dict[str, Any], bool]] = []
         names: set[str] = set()
         for row in self.load().get(kind) or []:  # the provider's order: the index is the "added" fallback
             kids = self._is_kids(row.get("category"))
@@ -923,25 +929,32 @@ class TvCatalog:
                 continue
             if row.get("category"):
                 names.add(row["category"])
+            found.append((row, kids))
+        # Sorted on the readable name ("Dune", not "EN - Dune (2021)"); only the page is turned into public rows.
+        titles = [(tvnames.polish(row.get("name"))[0] or str(row.get("name") or "")).casefold() for row, _ in found]
+        by_name = sorted(range(len(found)), key=lambda i: titles[i])
+        if sort == "year":
+            order = sorted(by_name, key=lambda i: -(_year_of(found[i][0].get("year")) or 0))
+        elif sort == "added":
+            order = sorted(range(len(found)), key=lambda i: (-(found[i][0].get("added") or 0), -i))
+        else:
+            order = by_name
+
+        def public(i: int) -> dict[str, Any]:
+            row, kids = found[i]
             item = dict(row)
             item["kids"] = kids
             item.pop("category_id", None)
-            rows.append(_public_movie(item) if kind == "movies" else _public_series_row(item))
-        by_name = sorted(range(len(rows)), key=lambda i: str(rows[i].get("name") or "").casefold())
-        if sort == "year":
-            order = sorted(by_name, key=lambda i: -(_year_of(rows[i].get("year")) or 0))
-        elif sort == "added":
-            order = sorted(range(len(rows)), key=lambda i: (-(rows[i].get("added") or 0), -i))
-        else:
-            order = by_name
+            return _public_movie(item) if kind == "movies" else _public_series_row(item)
+
         label = "movies" if kind == "movies" else "series"
         start = max(0, offset)
-        page = [rows[i] for i in order[start:start + limit]]
+        page = [public(i) for i in order[start:start + limit]]
         # Art only for the rows sent back, noted in one write.
         notes: dict[str, dict[str, Any]] = {}
         shown = [self._with_title_art(row, show=kind != "movies", notes=notes) for row in page]
         self._flush_notes(notes)
-        return {"categories": sorted(names), label: shown, "total": len(rows), "offset": start}
+        return {"categories": sorted(names), label: shown, "total": len(found), "offset": start}
 
     def movie(self, movie_id: str) -> dict[str, Any] | None:
         if not movie_id.startswith("vod:"):
