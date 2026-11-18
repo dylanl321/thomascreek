@@ -19,7 +19,8 @@ def _fixture(name, body):
     path = FIXTURES / f"{name}.json"
     clean = scrub(body)
     clean["code"] = "ABCDEFGHJKLMNPQRSTUV"
-    clean["qr"] = "thomascreek://join?hub=https%3A%2F%2Fhub.example&code=ABCDEFGHJKLMNPQRSTUV"
+    clean["hub"] = "hub-address"  # fixtures carry no addresses (test_fixtures_carry_no_addresses_or_first_names)
+    clean["qr"] = "thomascreek://join?hub=hub-address&code=ABCDEFGHJKLMNPQRSTUV"
     if os.environ.get("IOS_FIXTURES") == "update":
         path.write_text(json.dumps(clean, indent=2, sort_keys=True) + "\n")
     assert shape(json.loads(path.read_text())) == shape(clean), f"{name} changed shape: IOS_FIXTURES=update"

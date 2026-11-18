@@ -204,7 +204,8 @@ def test_the_phone_reports_progress_and_resumes_where_the_person_stopped(hub, ho
     items = _continue(hub, who_key(person=people["dylan"]["id"]))
     assert items[0]["movie_id"] == "vod:thomas-creek:100" and items[0]["position_s"] == 1500
     assert items[0]["progress"] == 0.25
-    # Avery's phone has its own place.
+    # Avery's phone has its own place (once Dylan's phone gives the one login back).
+    assert dylan.client.post("/v1/tv/phone/hold", headers=dylan.h, json={"stop": True}).status_code == 200
     avery = people["phones"]["Avery"]
     assert avery.client.post("/v1/tv/phone/play", headers=avery.h,
                              json={"movie_id": "vod:thomas-creek:100"}).json()["resume_s"] is None
