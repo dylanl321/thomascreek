@@ -7,6 +7,7 @@
   {
    "backdrop_url": "/v1/art/backdrop/vod:thomas-creek:100",
    "category": "Drama",
+   "category_label": "Drama",
    "cover": null,
    "genre": null,
    "id": "vod:thomas-creek:100",
@@ -19,6 +20,7 @@
   {
    "backdrop_url": "/v1/art/backdrop/vod:thomas-creek:101",
    "category": "Kids",
+   "category_label": "Kids",
    "cover": null,
    "genre": null,
    "id": "vod:thomas-creek:101",

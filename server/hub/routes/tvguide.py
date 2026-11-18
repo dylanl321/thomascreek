@@ -123,6 +123,27 @@ async def handoff(body: HandoffIn, c: Caller = Depends(caller), h: Hub = Depends
         raise error(exc.status, exc.error, exc.message, **exc.extra) from None
 
 
+_CARD_KINDS = {"movie", "series", "show", "tv", "episode"}
+
+
+def _polished(body: Any) -> Any:
+    """Every title card in an answer reads as people say it ("EN - Dune (2021) 4K" -> "Dune", year 2021). Plex
+    and TMDB titles are already clean and pass through unchanged."""
+    if isinstance(body, dict):
+        if body.get("kind") in _CARD_KINDS and isinstance(body.get("title"), str):
+            name, year = tvnames.polish(body["title"])
+            body["title"] = name
+            if year and not body.get("year"):
+                body["year"] = year
+        for value in body.values():
+            if isinstance(value, (dict, list)):
+                _polished(value)
+    elif isinstance(body, list):
+        for value in body:
+            _polished(value)
+    return body
+
+
 @router.get("/explore")
 async def explore(profile: str | None = None, person: str | None = None, c: Caller = Depends(caller),
                   h: Hub = Depends(hub)) -> dict[str, Any]:
@@ -142,7 +163,7 @@ async def explore(profile: str | None = None, person: str | None = None, c: Call
         watching, narrowed = watcher(h, c, person)
         kids = kids or narrowed
         who = who_key(person=watching)
-    return tvpicks.personal_feed(h, "kids" if kids else "adult", who)
+    return _polished(tvpicks.personal_feed(h, "kids" if kids else "adult", who))
 
 
 @router.get("/watchers")
@@ -176,7 +197,7 @@ async def ask_to_watch(body: AskBody, c: Caller = Depends(caller), h: Hub = Depe
         watching, kids = watcher(h, c, body.person)
         who = who_key(person=watching)
     await _ready(h)
-    return await tvask.ask(h, body.text, kids=kids, who=who)
+    return _polished(await tvask.ask(h, body.text, kids=kids, who=who))
 
 
 @router.get("/pick")
@@ -191,7 +212,7 @@ async def pick_for_me(person: str | None = None, skip: str | None = None, c: Cal
         watching, kids = watcher(h, c, person)
         who = who_key(person=watching)
     skipped = [k for k in (skip or "").split(",") if k][:50]
-    return tvask.pick(h, kids=kids, who=who, skip=skipped)
+    return _polished(tvask.pick(h, kids=kids, who=who, skip=skipped))
 
 
 @router.post("/explore/request")
@@ -546,16 +567,24 @@ async def tv_plex_episodes(item_id: str, c: Caller = Depends(caller), h: Hub = D
 
 
 @router.post("/plex/{item_id}/play")
-async def tv_plex_play(item_id: str, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
-    """A pass for the file itself (direct play). The TV's player handles MKV, HEVC and the rest."""
+async def tv_plex_play(item_id: str, person: str | None = None, c: Caller = Depends(caller),
+                       h: Hub = Depends(hub)) -> dict[str, Any]:
+    """A pass for the file itself (direct play). The TV's player handles MKV, HEVC and the rest. A grown-up's
+    phone watching as a child (`person`, as on /explore) only gets that child's ratings."""
     _watch_cap(h, c)
     _plex_id(item_id)
+    narrowed = False
+    if person and not getattr(c.subject, "tv", False):
+        _watching, narrowed = watcher(h, c, person)
     try:
         item = await h.plex.metadata(item_id)
         media = await h.plex.media_info(item_id) if item else None
     except AdapterError as exc:
         raise error(503, "unavailable", str(exc)) from None
-    if item is None or media is None or not _plex_ok(h, c, item.get("rating")) or item.get("kind") not in ("movie", "episode"):
+    allowed = _plex_ok(h, c, item.get("rating")) if item else False
+    if narrowed and item is not None:
+        allowed = item.get("rating") in h.config.child_policy.ratings
+    if item is None or media is None or not allowed or item.get("kind") not in ("movie", "episode"):
         raise error(404, "not_found", "That isn't in the library")
     token, _exp = h.tokens.issue_scoped({"aud": PLEX_FILE_AUD, "part": media["part_key"], "dev": c.device["id"]}, PLEX_FILE_TTL_S)
     h.db.log("tv.plex.play", "ok", person_id=c.subject.person_id, device_id=c.device["id"], target=item_id,

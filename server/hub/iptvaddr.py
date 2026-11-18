@@ -158,7 +158,8 @@ def status(db: Any, pid: str, primary: str, now: float | None = None) -> list[di
     return out
 
 
-async def check(url: str, username: str, password: str, transport: Any = None) -> tuple[bool, str]:
+async def check(url: str, username: str, password: str, transport: Any = None,
+                on_info: Any = None) -> tuple[bool, str]:
     """Does the provider answer on this address? (ok, short reason). Login refusals still count as answering:
     the address works, the login is a separate problem."""
     try:
@@ -180,14 +181,20 @@ async def check(url: str, username: str, password: str, transport: Any = None) -
         return False, "answered with a web page, not the provider (often a block page)"
     if not isinstance(body, (dict, list)):
         return False, "answered with something that isn't the provider"
+    info = body.get("user_info") if isinstance(body, dict) else None
+    if on_info is not None and isinstance(info, dict):
+        try:
+            on_info(info)  # expiry and connections, for the status the phone and admin page show
+        except Exception as exc:  # noqa: BLE001 - a bad user_info must not fail the address check
+            log.info("iptv provider check: user_info not kept (%s)", type(exc).__name__)
     return True, "answered"
 
 
 async def check_provider(db: Any, pid: str, primary: str, username: str, password: str,
-                         transport: Any = None, now: float | None = None) -> list[dict[str, Any]]:
+                         transport: Any = None, now: float | None = None, on_info: Any = None) -> list[dict[str, Any]]:
     """Check every address of one provider (in parallel) and note the answers."""
     every = addresses(db, pid, primary)
-    answers = await asyncio.gather(*(check(u, username, password, transport) for u in every))
+    answers = await asyncio.gather(*(check(u, username, password, transport, on_info) for u in every))
     for url, (ok, why) in zip(every, answers, strict=True):
         note(db, pid, url, ok, "" if ok else why, now)
     return status(db, pid, primary, now)
@@ -214,7 +221,9 @@ async def check_all(h: Any, *, only_with_backups: bool = True) -> dict[str, list
             continue
         seen.add(pid)
         try:
-            out[pid] = await check_provider(h.db, pid, primary, lg["username"], password, transport)
+            out[pid] = await check_provider(
+                h.db, pid, primary, lg["username"], password, transport,
+                on_info=lambda info, pid=pid, login=lg["login"]: iptvplay.note_usage(h, pid, login, info))
         except Exception as exc:  # noqa: BLE001 - one provider's check must not stop the rest
             log.info("iptv provider %s: address check failed (%s)", pid, type(exc).__name__)
     return out

@@ -86,3 +86,11 @@ def test_progress_reaches_plex(plex, people):
     dylan = people["phones"]["Dylan"]
     assert dylan.client.post("/v1/tv/plex/42/progress", headers=dylan.h, json={"offset_s": 90, "duration_s": 5880}).json() == {"ok": True}
     assert plex.calls.last.request.url.params["time"] == "90000"
+
+
+def test_a_grown_up_watching_as_a_child_gets_only_rated_titles(plex, people, hub):
+    dylan = people["phones"]["Dylan"]
+    theo = next(p for p in hub.db.people() if p["name"] == "Theo")
+    assert dylan.client.post(f"/v1/tv/plex/43/play?person={theo['id']}", headers=dylan.h).status_code == 404
+    assert dylan.client.post(f"/v1/tv/plex/42/play?person={theo['id']}", headers=dylan.h).status_code == 200
+    assert dylan.client.post("/v1/tv/plex/43/play", headers=dylan.h).status_code == 200

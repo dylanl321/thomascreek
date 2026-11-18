@@ -51,6 +51,7 @@ def test_each_provider_says_how_it_is_doing_without_addresses(hub, people):
     assert rows["Dream"]["state"] == "expiring" and rows["Dream"]["message"].startswith("Expires in")
     assert rows["Eagle"]["state"] == "expired"
     assert body["all"]["name"] == "All playlists" and body["all"]["working"] == 2
+    assert body["all"]["message"] == "2 working · 1 not working"
     assert body["all"]["connections"] == {"used": 1, "max": 4}
     text = got.text
     for secret in ("alpha.test", "alpha-backup", "house-user", "secret-house", "spare-user", '"house"'):
