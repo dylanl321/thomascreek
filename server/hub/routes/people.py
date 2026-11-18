@@ -292,8 +292,10 @@ async def make_join_code(body: JoinBody, request: Request, c: Caller = Depends(c
     h.db.log("device.join_code", "ok", person_id=c.subject.person_id, device_id=c.device["id"], target=p["id"],
              params={"label": body.label})
     qr = f"thomascreek://join?hub={quote(remote, safe='')}&code={made['code']}"
+    # Scanned with the phone's camera, this page downloads the Android app (no GitHub sign-in) and then joins.
+    page = f"{remote}/phone?code={made['code']}"
     return {"code": made["code"], "expires_at": iso(made["expires_at"]), "hub": remote, "qr": qr,
-            "person": {"id": p["id"], "name": p["name"]}}
+            "download_url": page, "person": {"id": p["id"], "name": p["name"]}}
 
 
 @router.post("/devices/{device_id}/revoke")

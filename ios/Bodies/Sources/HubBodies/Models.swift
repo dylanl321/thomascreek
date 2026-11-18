@@ -725,6 +725,8 @@ struct JoinCode: Codable, Hashable {
     var expiresAt: String?
     var hub: String
     var qr: String
+    /// Hub page that downloads the Android app and then joins (hub 2026-11-18+); nil on an older hub.
+    var downloadUrl: String?
     var person: JoinPerson
     struct JoinPerson: Codable, Hashable { var id: String; var name: String }
 }

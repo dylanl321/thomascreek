@@ -70,7 +70,8 @@ here behind an endpoint.
   pool in `hub/iptvplay.py` (`lease`, `tune`); a lease lives while the holder shows it is playing and is freed
   `IDLE_S` after that stops, or at once on stop. Never open a provider stream outside that pool.
 - A device away from home joins only with a one-time code an admin made with Face ID (`/v1/devices/join`,
-  `hub/joincodes.py`); without one, enrolling stays home-only.
+  `hub/joincodes.py`); without one, enrolling stays home-only. The Android phone app is handed out from away only
+  to someone holding such a live code (`/phone?code=…`, `hub/phoneapp.py`), never on an open link.
 - Pairing approval is an explicit admin action; a push or phone answer that is not "Approve" never approves.
 - Alert media (doorbell, cameras) follows the person's role. Phone pushes with a picture, the doorbell Live
   Activity and camera history go to admins and adults only (`ALERT_ROLES`); a Home Assistant alert sent to

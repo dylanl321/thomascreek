@@ -43,6 +43,19 @@ def make(db: Any, person_id: str, by_person: str | None, label: str | None, now:
     return {"id": row["id"], "code": code, "expires_at": row["expires_at"]}
 
 
+def peek(db: Any, code: str, now: float | None = None) -> dict[str, Any] | None:
+    """The code's row while it is live (not used, not expired), without using it: the app download page."""
+    now = time.time() if now is None else now
+    if not code or len(code.strip()) != 20:
+        return None
+    want = _hash(code)
+    for row in db.kv_get(KV) or []:
+        if (isinstance(row, dict) and secrets.compare_digest(str(row.get("hash") or ""), want)
+                and not row.get("used_at") and float(row.get("expires_at") or 0) > now):
+            return row
+    return None
+
+
 def take(db: Any, code: str, now: float | None = None) -> dict[str, Any] | None:
     """The code's row, marked used, or None when it is unknown, used or expired."""
     now = time.time() if now is None else now
