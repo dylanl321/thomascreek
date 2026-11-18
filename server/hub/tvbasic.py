@@ -158,6 +158,17 @@ def market_for(home: tuple[float, float] | None, channels: Iterable[dict[str, An
     return best
 
 
+def locals_per_market(texts: list[str]) -> dict[str, int]:
+    """How many local network affiliates each market has among cleaned channel texts."""
+    out: dict[str, int] = {}
+    for name, _lat, _lon, pattern in MARKETS:
+        rx = re.compile(rf"\b({pattern})\b", re.I)
+        hits = sum(1 for t in texts if rx.search(t) and _network(t))
+        if hits:
+            out[name] = hits
+    return out
+
+
 def build(channels: list[dict[str, Any]], home: tuple[float, float] | None,
           has_guide: Callable[[str], bool] = lambda key: False) -> dict[str, Any]:
     """The basic lineup from catalog rows (`key`, `name`, `category`)."""
