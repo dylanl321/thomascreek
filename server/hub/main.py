@@ -10,7 +10,7 @@ from typing import Any
 
 from fastapi import FastAPI
 from fastapi.exceptions import HTTPException, RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 from . import __version__
 from .config import Config, data_dir, load_config, master_key_path
@@ -117,6 +117,26 @@ def build_app(hub: Hub | None = None, *, start_background: bool = True) -> FastA
         resp.headers.setdefault("X-Content-Type-Options", "nosniff")
         resp.headers.setdefault("Referrer-Policy", "no-referrer")
         resp.headers.setdefault("Cache-Control", "no-store")
+        return resp
+
+    # Playback passes (the pass in the address is the whole permission, no cookie or bearer) may be opened by a
+    # cast receiver: a Chromecast or a Cast-enabled hotel TV is a web page on another origin, so it needs CORS to
+    # read the HLS lists and ranges. Nothing else on the hub answers another origin.
+    cast_paths = ("/v1/tv/phone/file/", "/v1/tv/phone/live/", "/v1/media/hls/")
+
+    @app.middleware("http")
+    async def cast_cors(request, call_next):
+        if not request.url.path.startswith(cast_paths):
+            return await call_next(request)
+        cors = {"Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+                "Access-Control-Allow-Headers": "Range, Content-Type",
+                "Access-Control-Expose-Headers": "Content-Length, Content-Range, Accept-Ranges, Content-Type",
+                "Access-Control-Max-Age": "3600"}
+        if request.method == "OPTIONS":
+            return Response(status_code=204, headers=cors)
+        resp = await call_next(request)
+        for k, v in cors.items():
+            resp.headers[k] = v
         return resp
 
     app.include_router(mcp_routes.router)  # MCP for outside AI apps, and its OAuth sign-in

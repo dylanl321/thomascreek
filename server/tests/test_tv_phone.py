@@ -59,6 +59,28 @@ def test_mkv_is_tv_only(hub, people, monkeypatch):
     assert no.status_code == 409 and no.json()["error"] == "tv_only"
 
 
+def test_android_phone_plays_mkv(hub, people, monkeypatch):
+    _library(hub)
+    _login(hub)
+    real = hub.tv_catalog.movie
+    monkeypatch.setattr(hub.tv_catalog, "movie", lambda key: {**real(key), "ext": "mkv"})
+    dylan = people["phones"]["Dylan"]
+    with respx.mock(assert_all_called=False) as mock:
+        route = mock.get(f"{SERVER}/movie/household/{PASSWORD}/101.mkv").mock(
+            return_value=httpx.Response(200, content=b"mkv", headers={"content-length": "3"}))
+        play = dylan.client.post("/v1/tv/phone/play", headers=dylan.h,
+                                 json={"movie_id": "vod:thomas-creek:101", "player": "exo"})
+        assert play.status_code == 200, play.text
+        assert PASSWORD not in play.text and "iptv.example" not in play.text
+        got = dylan.client.get(play.json()["url"])
+        assert got.status_code == 200 and got.content == b"mkv" and route.called
+    # A file type no player opens is still refused, and the iPhone's rule is unchanged.
+    monkeypatch.setattr(hub.tv_catalog, "movie", lambda key: {**real(key), "ext": "exe"})
+    odd = dylan.client.post("/v1/tv/phone/play", headers=dylan.h,
+                            json={"movie_id": "vod:thomas-creek:101", "player": "exo"})
+    assert odd.status_code == 409 and odd.json()["error"] == "tv_only"
+
+
 def test_episode_needs_the_series_opened_first(hub, people):
     _library(hub)
     _login(hub)
@@ -113,3 +135,25 @@ def test_rewrite_never_points_the_hub_at_the_house():
     out = rewrite(text, "http://edge.example/a/index.m3u8", row, "TOK")
     lines = [line for line in out.splitlines() if line and not line.startswith("#")]
     assert len(lines) == 1 and row["refs"][int(lines[0].rsplit("/", 1)[-1])] == "http://edge.example/a/seg.ts"
+
+
+def test_cast_receiver_can_read_the_pass_addresses(hub, people):
+    """A Chromecast is another web origin: the pass routes answer CORS, the rest of the hub does not."""
+    _library(hub)
+    _login(hub)
+    dylan = people["phones"]["Dylan"]
+    with respx.mock(assert_all_called=False) as mock:
+        mock.get(f"{SERVER}/movie/household/{PASSWORD}/101.mp4").mock(
+            return_value=httpx.Response(206, content=b"abc", headers={"content-range": "bytes 0-2/10"}))
+        url = dylan.client.post("/v1/tv/phone/play", headers=dylan.h,
+                                json={"movie_id": "vod:thomas-creek:101"}).json()["url"]
+        pre = dylan.client.options(url, headers={"Origin": "https://receiver.example",
+                                                 "Access-Control-Request-Method": "GET",
+                                                 "Access-Control-Request-Headers": "range"})
+        assert pre.status_code == 204 and pre.headers["access-control-allow-origin"] == "*"
+        assert "Range" in pre.headers["access-control-allow-headers"]
+        got = dylan.client.get(url, headers={"Origin": "https://receiver.example", "Range": "bytes=0-2"})
+        assert got.status_code == 206 and got.headers["access-control-allow-origin"] == "*"
+        assert "Content-Range" in got.headers["access-control-expose-headers"]
+    other = dylan.client.get("/v1/me", headers={**dylan.h, "Origin": "https://receiver.example"})
+    assert "access-control-allow-origin" not in other.headers
