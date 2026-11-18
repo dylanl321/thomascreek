@@ -58,7 +58,10 @@ async def phone_play(body: dict[str, Any], c: Caller = Depends(caller), h: Hub =
     """{movie_id} | {episode_id} | {channel_key} -> a hub path the phone's player opens.
 
     `player: "exo"` (optional) says the phone plays with Media3, as an Android phone does, so MKV and the other
-    files only a TV opened before are allowed too. Without it the iPhone's MP4 rule holds."""
+    files only a TV opened before are allowed too. Without it the iPhone's MP4 rule holds.
+
+    `direct: true` (optional, the Android travel phone) answers the provider's own address instead of a hub
+    pass: a free login is held for this phone like a TV's, kept by `/hold` and freed by `/hold {"stop":true}`."""
     kids_only = _media(h, c)
     await _ready(h)
     cat = h.tv_catalog
@@ -78,23 +81,50 @@ async def phone_play(body: dict[str, Any], c: Caller = Depends(caller), h: Hub =
     allowed = EXO_TYPES if body.get("player") == "exo" else PHONE_TYPES
     if mode != "live" and ext not in allowed:
         raise error(409, "tv_only", "This one only plays on a TV")
+    if body.get("direct") is True and not getattr(c.subject, "tv", False):
+        # Straight from the provider (the travel phone, Dylan's choice Nov 2026): the address carries a login,
+        # so it goes only to this signed-in phone and is never logged.
+        from ..iptvplay import direct
+
+        url = direct(h, key, f"phone:{c.device['id']}")
+        if not url:
+            raise error(503, "busy", "Every TV login is busy. Try again in a moment.")
+        h.db.log("tv.phone.play", "ok", person_id=c.subject.person_id, device_id=c.device["id"], target=key,
+                 params={"title": row.get("name") or row.get("title"), "direct": True})
+        out_direct: dict[str, Any] = {"url": url, "kind": mode, "title": row.get("name") or row.get("title"),
+                                      "direct": True}
+        _resume(h, c, body, mode, key, row, out_direct)
+        return out_direct
+    # The hub relays it, on a login leased to this phone like a TV's (one stream per login).
+    from ..iptvplay import lease
+
+    held = lease(h, key, f"phone:{c.device['id']}")
+    if held is None:
+        raise error(503, "busy", "Every TV login is busy. Try again when something stops playing.")
     token, exp = h.tokens.issue_scoped({"aud": AUD, "k": mode, "s": _stream_id(key), "x": ext,
-                                        "sid": secrets.token_urlsafe(9), "dev": c.device["id"]}, TTL_S)
+                                        "sid": secrets.token_urlsafe(9), "dev": c.device["id"],
+                                        "pl": f"{held['provider']}|{held['login']}"}, TTL_S)
     title = row.get("name") or row.get("title")
     h.db.log("tv.phone.play", "ok", person_id=c.subject.person_id, device_id=c.device["id"], target=key,
              params={"title": title})
     path = f"/v1/tv/phone/live/{token}/index.m3u8" if mode == "live" else f"/v1/tv/phone/file/{token}"
     out: dict[str, Any] = {"url": path, "kind": mode, "title": title, "expires_at": exp}
-    if mode != "live":
-        start = _seconds(body.get("start_s"))
-        if start is None:
-            ids = {"movie_id": key} if mode == "movie" else {"episode_id": key}
-            start = resume_at(h, who_key(person=c.subject.person_id), **ids)["position_s"]
-        out["resume_s"] = start
-        out["duration_s"] = row.get("duration_s") if isinstance(row.get("duration_s"), (int, float)) else None
-        if mode == "episode":
-            out["series_id"] = row.get("series_id")
+    _resume(h, c, body, mode, key, row, out)
     return out
+
+
+def _resume(h: Hub, c: Caller, body: dict[str, Any], mode: str, key: str, row: dict[str, Any],
+            out: dict[str, Any]) -> None:
+    if mode == "live":
+        return
+    start = _seconds(body.get("start_s"))
+    if start is None:
+        ids = {"movie_id": key} if mode == "movie" else {"episode_id": key}
+        start = resume_at(h, who_key(person=c.subject.person_id), **ids)["position_s"]
+    out["resume_s"] = start
+    out["duration_s"] = row.get("duration_s") if isinstance(row.get("duration_s"), (int, float)) else None
+    if mode == "episode":
+        out["series_id"] = row.get("series_id")
 
 
 def _seconds(value: object) -> int | None:
@@ -102,6 +132,21 @@ def _seconds(value: object) -> int | None:
         return None
     seconds = int(value)
     return seconds if 0 < seconds <= 24 * 3600 else None
+
+
+@router.post("/hold")
+async def phone_hold(body: dict[str, Any] | None = None, c: Caller = Depends(caller),
+                     h: Hub = Depends(hub)) -> dict[str, Any]:
+    """A phone playing straight from the provider keeps its login slot (every minute), or frees it on close."""
+    from ..iptvplay import release_tv, touch
+
+    _media(h, c)
+    holder = f"phone:{c.device['id']}"
+    if (body or {}).get("stop") is True:
+        release_tv(h, holder)
+        return {"ok": True, "held": False}
+    touch(h, holder)
+    return {"ok": True, "held": True}
 
 
 @router.post("/progress")
@@ -168,12 +213,32 @@ def _claims(h: Hub, token: str, mode: set[str]) -> dict[str, Any]:
     return claims
 
 
+def _keep(h: Hub, claims: dict[str, Any]) -> None:
+    """A relayed live channel keeps its leased login while the player keeps asking for it."""
+    if claims.get("pl"):
+        from ..iptvplay import touch
+
+        touch(h, f"phone:{claims.get('dev')}")
+
+
 def _provider(h: Hub, claims: dict[str, Any], ext: str) -> str:
-    """The provider address. Never logged or returned."""
-    try:
-        server, user, password = h.tv_catalog._login()
-    except TvAppError as exc:
-        raise error(exc.status, exc.code, exc.message) from None
+    """The provider address, on the login leased for this pass. Never logged or returned.
+
+    Each request keeps the phone's lease alive, so the login is freed shortly after the bytes stop."""
+    from ..iptvplay import credentials, touch
+
+    found = None
+    if isinstance(claims.get("pl"), str) and "|" in claims["pl"]:
+        provider, login = claims["pl"].split("|", 1)
+        found = credentials(h, provider, login)
+        touch(h, f"phone:{claims.get('dev')}")
+    if found is not None:
+        server, user, password = found
+    else:
+        try:
+            server, user, password = h.tv_catalog._login()
+        except TvAppError as exc:
+            raise error(exc.status, exc.code, exc.message) from None
     folder = {"movie": "movie", "episode": "series"}.get(claims["k"], "live")
     return f"{server}/{folder}/{quote(user)}/{quote(password)}/{quote(str(claims['s']))}.{ext}"
 
@@ -320,6 +385,7 @@ def _m3u8(text: str) -> Response:
 @router.get("/live/{token}/index.m3u8")
 async def phone_live(token: str, h: Hub = Depends(hub)) -> Response:
     claims = _claims(h, token, {"live"})
+    _keep(h, claims)
     row = LIVE.get(str(claims.get("sid") or token[-16:]))
     text = None
     if row["media"]:
@@ -338,6 +404,7 @@ async def phone_live(token: str, h: Hub = Depends(hub)) -> Response:
 @router.get("/live/{token}/p/{n}.m3u8")
 async def phone_live_list(token: str, n: int, h: Hub = Depends(hub)) -> Response:
     claims = _claims(h, token, {"live"})
+    _keep(h, claims)
     row = LIVE.get(str(claims.get("sid") or token[-16:]))
     url = row["refs"].get(n)
     if url is None:
@@ -349,6 +416,7 @@ async def phone_live_list(token: str, n: int, h: Hub = Depends(hub)) -> Response
 @router.get("/live/{token}/s/{n}")
 async def phone_live_segment(token: str, n: int, request: Request, h: Hub = Depends(hub)) -> Response:
     claims = _claims(h, token, {"live"})
+    _keep(h, claims)
     row = LIVE.get(str(claims.get("sid") or token[-16:]))
     url = row["refs"].get(n)
     if url is None:

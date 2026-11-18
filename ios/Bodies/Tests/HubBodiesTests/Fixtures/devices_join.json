@@ -1,0 +1,10 @@
+{
+  "code": "ABCDEFGHJKLMNPQRSTUV",
+  "expires_at": "2026-11-18T11:55:08.054471+00:00",
+  "hub": "hub-address",
+  "person": {
+    "id": "per_9ee924a1212e49d6ad6b",
+    "name": "Grown-up"
+  },
+  "qr": "thomascreek://join?hub=hub-address&code=ABCDEFGHJKLMNPQRSTUV"
+}

@@ -63,7 +63,14 @@ here behind an endpoint.
 ## Security rules learned the hard way
 
 - A provider stream address is handed out only through `/v1/tv/stream/<session>`, to the TV that holds the
-  session. TVs resolve that redirect themselves so the hub bearer never reaches the provider.
+  session. TVs resolve that redirect themselves so the hub bearer never reaches the provider. The one other
+  route is the Android travel phone's `/v1/tv/phone/play` with `direct: true` (Dylan, Nov 2026): the address
+  goes only to that signed-in phone, is never logged, and its login is leased like a TV's.
+- One IPTV login carries one stream. Every player (TV, phone, relayed or direct) takes its login from the lease
+  pool in `hub/iptvplay.py` (`lease`, `tune`); a lease lives while the holder shows it is playing and is freed
+  `IDLE_S` after that stops, or at once on stop. Never open a provider stream outside that pool.
+- A device away from home joins only with a one-time code an admin made with Face ID (`/v1/devices/join`,
+  `hub/joincodes.py`); without one, enrolling stays home-only.
 - Pairing approval is an explicit admin action; a push or phone answer that is not "Approve" never approves.
 - Alert media (doorbell, cameras) follows the person's role. Phone pushes with a picture, the doorbell Live
   Activity and camera history go to admins and adults only (`ALERT_ROLES`); a Home Assistant alert sent to

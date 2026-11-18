@@ -36,6 +36,8 @@ class EnrollBody(BaseModel):
     # Simulator builds only: a key Dylan made on /admin. See hub/testkeys.py.
     simulator: bool = False
     test_key: str | None = Field(default=None, max_length=100)
+    # A code from an admin's phone (POST /v1/devices/join): enroll from anywhere, active for that person.
+    join_code: str | None = Field(default=None, max_length=40)
 
 
 @router.post("/enroll")
@@ -46,6 +48,8 @@ async def enroll(body: EnrollBody, request: Request, h: Hub = Depends(hub)) -> d
     `pending` (the child's limits, no room) until Dylan says whose it is.
     """
     ip = caller_ip(request, h)
+    if body.join_code:
+        return await _enroll_with_code(body, h, ip)
     if not h.is_home(ip):
         raise error(403, "not_home", "Open the app at home on Wi-Fi to set it up")
     try:
@@ -110,6 +114,52 @@ async def enroll(body: EnrollBody, request: Request, h: Hub = Depends(hub)) -> d
         ref=f"thomascreek://people/devices/{did}", group_key=f"device:{did}", push_category="NEW_DEVICE",
     )
     return {"device_id": did, "status": "pending"}
+
+
+async def _enroll_with_code(body: EnrollBody, h: Hub, ip: str | None) -> dict[str, Any]:
+    """A device away from home with a one-time code an admin made: it starts active for the named person."""
+    from .. import joincodes
+
+    try:
+        pk = normalize_public_key(body.public_key)
+        spk = normalize_public_key(body.secure_public_key) if body.secure_public_key else None
+    except CryptoError as exc:
+        raise error(400, "bad_key", str(exc)) from None
+    row = joincodes.take(h.db, body.join_code or "")
+    if row is None:
+        h.db.log("device.enroll", "denied", detail="bad join code",
+                 params={"name": body.device_name, "model": body.model}, source="app")
+        raise error(403, "bad_join_code", "That code has expired or was already used. Make a new one on your iPhone.")
+    person = h.db.person(row["person_id"])
+    if person is None:
+        raise error(403, "bad_join_code", "That code's person was removed. Make a new one on your iPhone.")
+    existing = h.db.one("SELECT * FROM devices WHERE public_key=?", [pk])
+    if existing and existing["status"] == "revoked":
+        raise error(403, "revoked", "This device was removed. Ask Dylan to let it back in.")
+    now = time.time()
+    if existing:
+        did = existing["id"]
+        h.db.update("devices", "id", did, {"person_id": person["id"], "status": "active", "last_seen_at": now,
+                                           "app_version": body.app_version})
+    else:
+        did = new_id("dev")
+        h.db.insert("devices", {
+            "id": did, "name": body.device_name, "model": body.model, "platform": body.platform,
+            "app_version": body.app_version, "public_key": pk, "secure_public_key": spk, "status": "pending",
+            "apns_token": body.apns_token, "apns_env": body.apns_env or "production", "enrolled_ip": ip,
+            "created_at": now, "last_seen_at": now,
+        })
+        h.db.update("devices", "id", did, {"person_id": person["id"], "status": "active"})
+    h.db.log("device.enroll", "ok", device_id=did, target=did, person_id=person["id"],
+             detail="join code", params={"name": body.device_name, "model": body.model, "code": row["id"]},
+             source="app")
+    await h.notify.send(
+        roles=("admin",), level="fyi", cat="devices",
+        title=f"{body.model or 'A device'} joined with your code",
+        body=f"“{body.device_name}” is now {person['name']}'s.",
+        ref=f"thomascreek://people/devices/{did}", group_key=f"device:{did}",
+    )
+    return {"device_id": did, "status": "active"}
 
 
 def _activate_test(h: Hub, device_id: str, tkey: dict[str, Any]) -> None:

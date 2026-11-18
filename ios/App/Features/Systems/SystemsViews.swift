@@ -119,6 +119,7 @@ struct PeopleView: View {
     @Environment(HomeStore.self) private var store
     @State private var loadFailure: String?
     @State private var data: PeopleList?
+    @State private var joinFor: Person?
 
     var body: some View {
         List {
@@ -164,6 +165,19 @@ struct PeopleView: View {
                         HStack { Avatar(name: p.name, color: Color(hexString: p.color), size: 22); Text(p.name); Spacer(); Text((p.role ?? .pending).rawValue.capitalized) }
                     }
                 }
+                if store.role == .admin {
+                    Section {
+                        Menu {
+                            ForEach(data.people.filter { $0.role != nil && $0.role != .pending }) { p in
+                                Button(p.name) { joinFor = p.person }
+                            }
+                        } label: {
+                            Label("Add a device away from home", systemImage: "qrcode")
+                        }
+                    } footer: {
+                        Text("Shows a code the Thomas Creek Android app scans. It works anywhere, once, for 10 minutes.")
+                    }
+                }
                 Section {
                     Text("Roles and per-person rules are edited on the hub for now. Revoking a phone also removes its VPN key.")
                         .font(.footnote).foregroundStyle(Theme.dim)
@@ -172,6 +186,7 @@ struct PeopleView: View {
         }
         .scrollContentBackground(.hidden).background(Backdrop())
         .navigationTitle("People")
+        .sheet(item: $joinFor) { p in JoinCodeSheet(person: p).personalStyle() }
         .loadFailure(loadFailure) { await load() }
         .task { await load() }
         .refreshable { await load() }
@@ -361,5 +376,47 @@ private struct ActivityRowLink: ViewModifier {
         } else {
             content.links(to: entry.personId.map { .person($0) }, entry.what, container: true)
         }
+    }
+}
+
+/// A one-time QR code that adds a device (the Android travel phone) for one person from anywhere.
+/// Making it asks for Face ID; the hub keeps only a hash and lets it work once, for 10 minutes.
+struct JoinCodeSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let person: Person
+    @State private var made: JoinCode?
+    @State private var problem: String?
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 18) {
+                if let made {
+                    Text("Scan with the Thomas Creek app on the new device").font(.headline).multilineTextAlignment(.center)
+                    QrCode(text: made.qr).frame(width: 240, height: 240)
+                        .padding(12).background(.white, in: RoundedRectangle(cornerRadius: 16))
+                    Text("It will be \(made.person.name)'s. Works once, for 10 minutes.")
+                        .font(.footnote).foregroundStyle(Theme.dim).multilineTextAlignment(.center)
+                    Text(made.code).font(.system(.body, design: .monospaced)).textSelection(.enabled)
+                } else if let problem {
+                    Text(problem).foregroundStyle(Theme.warn).multilineTextAlignment(.center)
+                    Button("Try again") { Task { await make() } }.buttonStyle(.borderedProminent)
+                } else {
+                    ProgressView()
+                }
+            }
+            .padding()
+            .navigationTitle("Add a device")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { Button("Done") { dismiss() } }
+            .task { await make() }
+        }
+    }
+
+    private func make() async {
+        problem = nil
+        do {
+            made = try await HubClient.shared.post("/v1/devices/join", ["person_id": person.id, "label": "Added from iPhone"],
+                                                   confirm: "Add a device for \(person.name)", as: JoinCode.self)
+        } catch { problem = error.localizedDescription }
     }
 }

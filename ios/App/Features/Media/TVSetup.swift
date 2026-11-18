@@ -445,7 +445,7 @@ private struct TvAppProgress: View {
     }
 }
 
-private struct QrCode: View {
+struct QrCode: View {
     var text: String
 
     var body: some View {

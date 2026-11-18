@@ -7,6 +7,7 @@ import logging
 
 import time
 from typing import Any
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
@@ -266,6 +267,33 @@ async def assign_device(device_id: str, body: AssignBody, request: Request, c: C
     # Tell that phone to sign in again so its new role takes effect now.
     h.bus.publish({"type": "snapshot", "data": {"reason": "role_changed"}})
     return _device_out(h.db.device(device_id))  # type: ignore[arg-type]
+
+
+class JoinBody(BaseModel):
+    person_id: str
+    label: str | None = Field(default=None, max_length=80)
+
+
+@router.post("/devices/join")
+async def make_join_code(body: JoinBody, request: Request, c: Caller = Depends(caller),
+                         h: Hub = Depends(hub)) -> dict[str, Any]:
+    """A one-time code (and QR text) that adds a device for this person from anywhere: hub/joincodes.py."""
+    from .. import joincodes
+
+    need(h, c, "people")
+    await require_confirm(request, h, c, "admin")
+    p = h.db.person(body.person_id)
+    if p is None or p["role"] == "pending":
+        raise error(404, "not_found", "No such person")
+    remote = (h.config.hub.remote_url or "").rstrip("/")
+    if not remote:
+        raise error(409, "no_remote", "The hub has no outside address yet, so a device away from home can't reach it")
+    made = joincodes.make(h.db, p["id"], c.subject.person_id, body.label)
+    h.db.log("device.join_code", "ok", person_id=c.subject.person_id, device_id=c.device["id"], target=p["id"],
+             params={"label": body.label})
+    qr = f"thomascreek://join?hub={quote(remote, safe='')}&code={made['code']}"
+    return {"code": made["code"], "expires_at": iso(made["expires_at"]), "hub": remote, "qr": qr,
+            "person": {"id": p["id"], "name": p["name"]}}
 
 
 @router.post("/devices/{device_id}/revoke")
