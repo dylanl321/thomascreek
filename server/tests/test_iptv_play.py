@@ -336,3 +336,23 @@ def test_a_title_only_a_second_provider_carries_has_its_own_pages(hub, people, h
     opened = home_client.get(started["stream"]["url"], headers=tv_headers, follow_redirects=False)
     assert opened.headers["location"].startswith("http://other.test/series/spare/")
     assert opened.headers["location"].endswith("/3101.mkv")
+
+
+def test_a_tv_that_stopped_frees_its_login(hub, people, home_client, monkeypatch):
+    """The heartbeat keeps a login only while something plays (Dylan, Nov 2026: one stream per login)."""
+    import hub.iptvplay as iptvplay
+
+    canonical, tv_headers = _ready(hub, home_client)
+    started = home_client.post("/v1/tv/tune", headers=tv_headers, json={"canonical_id": canonical})
+    assert started.status_code == 200 and started.json()["ok"], started.text
+    real = iptvplay.time.time
+    monkeypatch.setattr(iptvplay.time, "time", lambda: real() + 60)
+    home_client.post("/v1/tv/state", headers=tv_headers,
+                     json={"playing": {"name": "The Matrix", "title": "The Matrix"}})
+    monkeypatch.setattr(iptvplay.time, "time", lambda: real() + 120)
+    home_client.post("/v1/tv/state", headers=tv_headers, json={"foreground": True})
+    iptvplay._release_idle(hub, real() + 120)
+    assert [row for row in hub.db.kv_get("iptv.sessions") if row["tv"] == TV_ID]
+    monkeypatch.setattr(iptvplay.time, "time", lambda: real() + 200)
+    iptvplay._release_idle(hub, real() + 200)
+    assert not [row for row in hub.db.kv_get("iptv.sessions") if row["tv"] == TV_ID]

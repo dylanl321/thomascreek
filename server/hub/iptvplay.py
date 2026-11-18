@@ -290,6 +290,63 @@ def tune(h: Any, canonical_id: str, tv_id: str, *, avoid: set[str] | None = None
     return {"ok": True, "session": session, "canonical_id": canonical_id, "stream": stream}
 
 
+def lease(h: Any, ref: str, holder: str, *, avoid: set[str] | None = None,
+          now: float | None = None) -> dict[str, Any] | None:
+    """Reserve one login for `holder` (a TV's install id, or `phone:<device id>`) to play `ref`.
+
+    One login carries one stream, so every player in the house takes its login from this one pool: a TV through
+    /v1/tv/tune, a phone through /v1/tv/phone/play (straight from the provider or relayed by the hub). The lease
+    lives while the holder shows it is playing (a TV's heartbeat with something playing, a phone's /hold or the
+    relayed bytes themselves) and is freed IDLE_S after that stops, or at once on stop. A holder has one lease:
+    a new one replaces it. None when every login that carries this title is busy."""
+    now = time.time() if now is None else now
+    _release_idle(h, now)
+    _kind, provider, _stream = _split_ref(ref)
+    item = _holding(h, ref) or {"id": ref, "sources": [{"provider": provider, "ref": ref, "quality": None}]}
+    _release_tv(h, holder)
+    chosen = _pick(h, item, avoid if avoid is not None else _failed(h, now), now)
+    if chosen is None:
+        return None
+    row = {"session": new_id("ses"), "tv": holder, "provider": chosen["provider"], "login": chosen["login"],
+           "canonical_id": item.get("id"), "ref": chosen["ref"], "quality": chosen["quality"],
+           "since": now, "seen": now}
+    sessions = _sessions(h)
+    sessions.append(row)
+    h.db.kv_set(KV_SESSIONS, sessions)
+    return row
+
+
+def direct(h: Any, ref: str, holder: str, *, now: float | None = None) -> str | None:
+    """The provider address itself, for a travel phone that plays straight from the provider (Dylan, Nov 2026).
+    Live channels are HLS (`.m3u8`). Callers must not log the answer: it carries the login."""
+    row = lease(h, ref, holder, now=now)
+    if row is None:
+        return None
+    url = target(h, row["session"], holder)
+    if url and url.endswith(".ts") and "/live/" in url:
+        url = url[:-3] + ".m3u8"
+    return url
+
+
+def credentials(h: Any, provider: str, login: str) -> tuple[str, str, str] | None:
+    """Server, username and password of one login in the pool. Never logged."""
+    found = next((row for row in logins(h) if row["provider"] == provider and row["login"] == login), None)
+    if found is None or not h.vault.has(found["password_secret"]):
+        return None
+    password = str(h.vault.get(found["password_secret"]) or "")
+    return (found["server"], found["username"], password) if password else None
+
+
+def _holding(h: Any, ref: str) -> dict[str, Any] | None:
+    """The folded title (several copies of one film) this provider ref belongs to."""
+    state = h.db.kv_get("tv.catalog.canonical") or {}
+    for item in (state.get("items") or []):
+        sources = item.get("sources") if isinstance(item, dict) else None
+        if any(isinstance(src, dict) and src.get("ref") == ref for src in sources or []):
+            return item
+    return None
+
+
 def fail(h: Any, session: str, tv_id: str, now: float | None = None) -> dict[str, Any]:
     """The picture did not start, or it dropped. Try the next login."""
     now = time.time() if now is None else now

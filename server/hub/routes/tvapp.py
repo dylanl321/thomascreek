@@ -623,7 +623,9 @@ async def tv_state(body: StateIn, c: Caller = Depends(caller), h: Hub = Depends(
         tvwho.refresh(h, install_id, body.person_id)
         data = h.tv_app.record_state(install_id, body.model_dump())
         data["watching"] = tvwho.current(h, install_id)
-        touch(h, install_id)
+        if body.playing is not None:
+            # Only a TV that is playing keeps its login; one that stopped frees it after iptvplay.IDLE_S.
+            touch(h, install_id)
     except TvAppError as exc:
         raise _err(exc) from None
     h.bus.publish({"type": "tv", "data": data})

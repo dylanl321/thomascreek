@@ -719,6 +719,16 @@ struct PeopleList: Codable {
     }
 }
 
+/// `POST /v1/devices/join`: a one-time code that adds a device for this person from anywhere (10 minutes).
+struct JoinCode: Codable, Hashable {
+    var code: String
+    var expiresAt: String?
+    var hub: String
+    var qr: String
+    var person: JoinPerson
+    struct JoinPerson: Codable, Hashable { var id: String; var name: String }
+}
+
 struct CameraPass: Codable { var playerUrl: String; var hlsUrl: String?; var expiresAt: String? }
 /// One Frigate detection (person, car, package...).
 struct CameraEvent: Codable, Hashable, Identifiable {
