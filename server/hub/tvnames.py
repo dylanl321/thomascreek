@@ -145,6 +145,11 @@ _VIP = re.compile(r"\s*\bVIP\b\s*", re.I)
 def category(raw: object) -> str:
     """"|EN| ACTORS & DIRECTORS" as "Actors & Directors"; "|MULTI| NETFLIX SERIES 4K" as "Netflix Series 4K";
     "UK | SKY SPORTS+ ᵛᴵᴾ" as "Sky Sports+" (the place is kept apart, see tvgroups.country_of)."""
+    return _category(str(raw or ""))
+
+
+@functools.lru_cache(maxsize=16384)  # a few thousand provider categories, asked for on every list
+def _category(raw: str) -> str:
     text = _plain(_BADGE.sub(" ", str(raw or ""))).strip()
     original = text
     text = _VIP.sub(" ", text).strip()

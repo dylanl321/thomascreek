@@ -716,12 +716,9 @@ async def tv_markets(q: str | None = None, lat: float | None = None, lon: float 
 async def tv_groups(request: Request, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> Response:
     """Live TV categories by country, then kind (sports, news, kids...), with clean labels and counts.
     The home country (United States) comes first. Kids get only their own channels' groups."""
-    from .. import tvgroups
-
     if not (h.policy.has(c.subject, "media.all") or h.policy.has(c.subject, "media.own_tv")):
         raise error(403, "forbidden", "Not available", ask_parent=c.subject.is_child_like)
-    lineup = h.tv_catalog.lineup(kids_only=c.subject.is_child_like) or {"version": 0, "channels": []}
-    body = {"version": lineup.get("version") or 0, **tvgroups.groups(lineup.get("channels") or [])}
+    body = h.tv_catalog.groups(kids_only=c.subject.is_child_like)
     return _cached(request, body)
 
 
