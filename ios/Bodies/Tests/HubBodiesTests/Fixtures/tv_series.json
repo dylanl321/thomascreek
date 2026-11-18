@@ -2,6 +2,7 @@
  "categories": [
   "Kids"
  ],
+ "offset": 0,
  "series": [
   {
    "backdrop_url": "/v1/art/backdrop/series:thomas-creek:50",
@@ -15,5 +16,6 @@
    "rating": null,
    "year": null
   }
- ]
+ ],
+ "total": 1
 }

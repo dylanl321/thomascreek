@@ -657,7 +657,33 @@ def _personal(h: Any, base: dict[str, Any], profile: str, who: str | None, *, fa
         hero = dict(hero)
         if hero_reason:
             hero["reason"] = hero_reason
-    return {"hero": hero, "rows": rows, "curated_by": source}
+    out = {"hero": hero, "rows": rows, "curated_by": source}
+    steps = hero_steps(hero, heroes)
+    if len(steps) > 1:
+        out["heroes"] = steps  # the hand-scrollable hero; one hero needs no list (older apps read "hero" only)
+    return out
+
+
+HERO_STEPS = 6
+
+
+def hero_steps(hero: dict[str, Any] | None, candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The hero first, then the next new and trending titles it was chosen from: what a screen steps through when
+    the hero moves on by itself or by hand. Each says why it is there."""
+    if hero is None:
+        return []
+    out, keys = [hero], {key_of(hero)}
+    for card in candidates:
+        if len(out) >= HERO_STEPS:
+            break
+        k = key_of(card)
+        if k in keys:
+            continue
+        keys.add(k)
+        step = dict(card)
+        step.setdefault("reason", "New this week" if "New" in (card.get("badges") or []) else "Trending now")
+        out.append(step)
+    return out
 
 
 def _pick_pool(cards, watched, taken, extra) -> list[dict[str, Any]]:

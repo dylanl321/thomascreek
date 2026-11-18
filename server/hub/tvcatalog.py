@@ -826,17 +826,22 @@ class TvCatalog:
         self._flush_notes(notes)
         return {"from": iso(start), "to": iso(end), "channels": wanted[:200]}
 
-    def movies(self, *, q: str | None, category: str | None, kids_only: bool, limit: int) -> dict[str, Any]:
-        return self._list("movies", q=q, category=category, kids_only=kids_only, limit=limit)
+    def movies(self, *, q: str | None, category: str | None, kids_only: bool, limit: int, offset: int = 0,
+               sort: str = "name") -> dict[str, Any]:
+        return self._list("movies", q=q, category=category, kids_only=kids_only, limit=limit, offset=offset, sort=sort)
 
-    def series(self, *, q: str | None, category: str | None, kids_only: bool, limit: int) -> dict[str, Any]:
-        return self._list("series", q=q, category=category, kids_only=kids_only, limit=limit)
+    def series(self, *, q: str | None, category: str | None, kids_only: bool, limit: int, offset: int = 0,
+               sort: str = "name") -> dict[str, Any]:
+        return self._list("series", q=q, category=category, kids_only=kids_only, limit=limit, offset=offset, sort=sort)
 
-    def _list(self, kind: str, *, q: str | None, category: str | None, kids_only: bool, limit: int) -> dict[str, Any]:
+    def _list(self, kind: str, *, q: str | None, category: str | None, kids_only: bool, limit: int, offset: int = 0,
+              sort: str = "name") -> dict[str, Any]:
+        """One page of the list. `sort`: `name` (A to Z), `year` (newest first) or `added` (last added first; the
+        provider's own order where it sends no date). `total` counts every match, for paging."""
         needle = (q or "").strip().casefold()
         rows = []
         names: set[str] = set()
-        for row in self.load().get(kind) or []:
+        for row in self.load().get(kind) or []:  # the provider's order: the index is the "added" fallback
             kids = self._is_kids(row.get("category"))
             if kids_only and not kids:
                 continue
@@ -850,13 +855,21 @@ class TvCatalog:
             item["kids"] = kids
             item.pop("category_id", None)
             rows.append(_public_movie(item) if kind == "movies" else _public_series_row(item))
-        rows.sort(key=lambda item: str(item.get("name") or "").casefold())
+        by_name = sorted(range(len(rows)), key=lambda i: str(rows[i].get("name") or "").casefold())
+        if sort == "year":
+            order = sorted(by_name, key=lambda i: -(_year_of(rows[i].get("year")) or 0))
+        elif sort == "added":
+            order = sorted(range(len(rows)), key=lambda i: (-(rows[i].get("added") or 0), -i))
+        else:
+            order = by_name
         label = "movies" if kind == "movies" else "series"
+        start = max(0, offset)
+        page = [rows[i] for i in order[start:start + limit]]
         # Art only for the rows sent back, noted in one write.
         notes: dict[str, dict[str, Any]] = {}
-        shown = [self._with_title_art(row, show=kind != "movies", notes=notes) for row in rows[:limit]]
+        shown = [self._with_title_art(row, show=kind != "movies", notes=notes) for row in page]
         self._flush_notes(notes)
-        return {"categories": sorted(names), label: shown}
+        return {"categories": sorted(names), label: shown, "total": len(rows), "offset": start}
 
     def movie(self, movie_id: str) -> dict[str, Any] | None:
         if not movie_id.startswith("vod:"):
@@ -963,6 +976,20 @@ def _clip(value: object, limit: int) -> str | None:
     return text[:limit] or None
 
 
+def _year_of(value: object) -> int | None:
+    text = str(value or "").strip()[:4]
+    return int(text) if text.isdigit() else None
+
+
+def _epoch(value: object) -> int | None:
+    """When the provider added a title (unix seconds, sent as text by Xtream panels). Junk or 0 is None."""
+    try:
+        n = int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+    return n if 946684800 <= n <= 4102444800 else None
+
+
 def _tmdb_id(value: object) -> str | None:
     """A provider's TMDB id, when it looks like one. Panels send 0, "" or junk for unknown."""
     text = str(value or "").strip()
@@ -995,6 +1022,9 @@ def _title(row: dict[str, Any], key_of: Any, categories: dict[str, str], art_fie
     tmdb = _tmdb_id(row.get("tmdb") or row.get("tmdb_id"))
     if tmdb:
         item["tmdb"] = tmdb
+    added = _epoch(row.get("added") or row.get("last_modified"))
+    if added:
+        item["added"] = added
     ext = _ext(row.get("container_extension"))
     if ext:
         item["ext"] = ext
@@ -1083,7 +1113,7 @@ def _public_series_row(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": row.get("id"), "name": row.get("name"), "cover": row.get("cover"), "year": row.get("year"),
         "genre": row.get("genre"), "rating": row.get("rating"), "category": row.get("category"),
-        "kids": bool(row.get("kids")),
+        "kids": bool(row.get("kids")), **({"added": row["added"]} if row.get("added") else {}),
     }
 
 
@@ -1099,7 +1129,7 @@ def _public_movie(row: dict[str, Any], detail: bool = False) -> dict[str, Any]:
     out = {
         "id": row.get("id"), "name": row.get("name"), "cover": row.get("cover"), "year": row.get("year"),
         "genre": row.get("genre"), "rating": row.get("rating"), "category": row.get("category"),
-        "kids": bool(row.get("kids")),
+        "kids": bool(row.get("kids")), **({"added": row["added"]} if row.get("added") else {}),
     }
     if detail or row.get("plot") or row.get("duration_s"):
         out["plot"] = row.get("plot")

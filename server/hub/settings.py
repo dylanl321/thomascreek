@@ -22,7 +22,7 @@ from .policy import Subject
 if TYPE_CHECKING:
     from .state import Hub
 
-FAVORITE_KINDS = ("room", "device", "camera", "mode", "media", "recipe", "youtube")
+FAVORITE_KINDS = ("room", "device", "camera", "mode", "media", "recipe", "youtube", "channel", "title")
 MAX_FAVORITES = 60
 HOME_SECTIONS = ("whos_home", "rightnow", "weather", "status", "favorites", "modes", "kids", "playing", "printer", "cameras", "holiday",
                  "trip", "today", "systems")
@@ -171,7 +171,9 @@ class PersonSettings:
             return pol.has(s, "cameras")
         if kind == "mode":
             return any(m.id == item_id and s.role in m.roles for m in h.config.modes)
-        if kind == "media":
+        if kind in ("media", "channel", "title"):
+            # "channel": favourite live channels (the channel key). "title": My list on the TVs and phones,
+            # `movie:<id>`, `series:<id>` or `plex:<id>`. Both follow the person to every screen.
             return pol.has(s, "media.all") or pol.has(s, "media.own_tv") or pol.has(s, "media.request")
         if kind == "recipe":
             return pol.has(s, "family.view")
