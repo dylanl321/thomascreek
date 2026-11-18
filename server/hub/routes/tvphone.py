@@ -16,8 +16,10 @@ on any screen) and takes `start_s` (start from the second a TV was at), and the 
 
 from __future__ import annotations
 
+import asyncio
 import ipaddress
 import secrets
+import shutil
 import time
 from collections import OrderedDict
 from typing import Any
@@ -26,6 +28,7 @@ from urllib.parse import quote, urljoin, urlsplit
 import httpx
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import FileResponse, Response, StreamingResponse
+from pydantic import BaseModel, Field
 
 from ..crypto import CryptoError
 from ..state import Hub
@@ -119,8 +122,42 @@ async def phone_play(body: dict[str, Any], c: Caller = Depends(caller), h: Hub =
              params={"title": title})
     path = f"/v1/tv/phone/live/{token}/index.m3u8" if mode == "live" else f"/v1/tv/phone/file/{token}"
     out: dict[str, Any] = {"url": path, "kind": mode, "title": title, "expires_at": exp}
+    _cast_fields(out, mode, ext, token, cast=body.get("cast") is True)
     _resume(h, person, body, mode, key, row, out)
     return out
+
+
+# -- casting ------------------------------------------------------------------------------------------------------
+# What the phone tells a Cast receiver the stream is. Google's receivers open MP4, WebM, MPEG-TS and HLS; MKV, AVI
+# and the rest are not supported, and many Chromecasts have no HEVC or AC-3/E-AC-3 decoding. Those get the hub's
+# converted copy (`/cast/{pass}`): ffmpeg remuxes to fragmented MP4, keeps H.264 video and makes stereo AAC.
+CONTENT_TYPES = {"mp4": "video/mp4", "m4v": "video/mp4", "mov": "video/mp4", "webm": "video/webm",
+                 "ts": "video/mp2t", "m3u8": "application/x-mpegURL"}
+CAST_NATIVE = {"mp4", "m4v", "mov", "webm"}
+
+
+def _cast_fields(out: dict[str, Any], mode: str, ext: str, token: str, *, cast: bool) -> None:
+    """Relayed plays carry what a Cast TV needs: the receiver's content type and a second way to play.
+
+    The converted copy (`/cast/{pass}`) is the fallback for a TV that can't decode a stream it should open
+    (HEVC, AC-3). A file no receiver opens (MKV and the rest) gets it as `cast_url`; with `cast: true` on /play
+    (the phone is casting) it is the `url` itself, so the TV never sits on a black screen, the original stays
+    as `fallback_url` for the TVs that can, and `cast_note` says why."""
+    converted = f"/v1/tv/phone/cast/{token}"
+    out["container"] = ext
+    if mode == "live" or ext in CAST_NATIVE:
+        out["content_type"] = CONTENT_TYPES.get(ext, "video/mp4")
+        out["fallback_url"] = converted
+        out["fallback_content_type"] = "video/mp4"
+        return
+    original = {"mkv": "video/x-matroska", "ts": "video/mp2t", "webm": "video/webm"}.get(ext, "video/mp4")
+    out["cast_url"] = converted
+    out["cast_note"] = f"Cast TVs can't open {ext.upper()} files, so the TV gets a converted copy."
+    if cast:
+        out["fallback_url"], out["fallback_content_type"] = out["url"], original
+        out["url"], out["content_type"], out["converted"] = converted, "video/mp4", True
+    else:
+        out["content_type"] = original
 
 
 def _person(body: dict[str, Any]) -> str | None:
@@ -513,3 +550,146 @@ async def phone_live_segment(token: str, n: int, request: Request, h: Hub = Depe
         raise error(404, "not_found", "Not part of this stream")
     headers = {"Range": request.headers["range"]} if request.headers.get("range") else {}
     return await _relay(_client(h), url, headers, None)
+
+
+# -- the converted copy for Cast TVs -------------------------------------------------------------------------------
+class _Converts:
+    """One ffmpeg per device: a new cast from the same phone stops the old one. A few at most for the house."""
+
+    MAX = 3
+
+    def __init__(self) -> None:
+        self.running: OrderedDict[str, Any] = OrderedDict()
+
+    async def start(self, dev: str, args: list[str]) -> Any:
+        old = self.running.pop(dev, None)
+        if old is not None:
+            await _stop(old)
+        while len(self.running) >= self.MAX:
+            _dev, oldest = self.running.popitem(last=False)
+            await _stop(oldest)
+        proc = await asyncio.create_subprocess_exec(*args, stdin=asyncio.subprocess.DEVNULL,
+                                                    stdout=asyncio.subprocess.PIPE,
+                                                    stderr=asyncio.subprocess.DEVNULL)
+        self.running[dev] = proc
+        return proc
+
+    def done(self, dev: str, proc: Any) -> None:
+        if self.running.get(dev) is proc:
+            self.running.pop(dev, None)
+
+
+CONVERTS = _Converts()
+
+
+async def _stop(proc: Any) -> None:
+    if proc.returncode is None:
+        try:
+            proc.kill()
+        except ProcessLookupError:
+            return
+        await proc.wait()
+
+
+async def video_codec(url: str) -> str | None:
+    """The first video stream's codec, or None when the probe fails (then the video is re-encoded). Tests replace
+    this."""
+    probe = shutil.which("ffprobe")
+    if not probe:
+        return None
+    proc = await asyncio.create_subprocess_exec(
+        probe, "-v", "error", "-rw_timeout", "10000000", "-select_streams", "v:0", "-show_entries",
+        "stream=codec_name", "-of", "default=nw=1:nk=1", url,
+        stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
+    try:
+        out, _err = await asyncio.wait_for(proc.communicate(), timeout=12)
+    except asyncio.TimeoutError:
+        await _stop(proc)
+        return None
+    name = out.decode("ascii", "ignore").strip().splitlines()
+    return name[0] if name else None
+
+
+def convert_args(ffmpeg: str, url: str, codec: str | None, start_s: int, live: bool) -> list[str]:
+    """Fragmented MP4 a Cast receiver plays as it arrives: H.264 kept (or made), stereo AAC, no subtitles."""
+    args = [ffmpeg, "-hide_banner", "-nostdin", "-loglevel", "error", "-rw_timeout", "15000000"]
+    if start_s > 0 and not live:
+        args += ["-ss", str(start_s)]
+    args += ["-i", url, "-map", "0:v:0", "-map", "0:a:0?", "-sn", "-dn"]
+    if codec == "h264":
+        args += ["-c:v", "copy"]
+    else:
+        args += ["-c:v", "libx264", "-preset", "veryfast", "-crf", "22", "-pix_fmt", "yuv420p",
+                 "-vf", "scale=-2:'min(1080,ih)'"]
+    args += ["-c:a", "aac", "-ac", "2", "-b:a", "192k",
+             "-movflags", "frag_keyframe+empty_moov+default_base_moof", "-f", "mp4", "pipe:1"]
+    return args
+
+
+@router.api_route("/cast/{token}", methods=["GET", "HEAD"])
+async def phone_cast(token: str, request: Request, t: int = 0, h: Hub = Depends(hub)) -> Response:
+    """The converted copy (see `_cast_fields`). `t` starts a film at that second; seeking means asking again."""
+    claims = _claims(h, token, {"movie", "episode", "live"})
+    headers = {"Cache-Control": "no-store", "Accept-Ranges": "none"}
+    if request.method == "HEAD":
+        return Response(status_code=200, media_type="video/mp4", headers=headers)
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        raise error(503, "unavailable", "The hub can't convert videos right now")
+    live = claims["k"] == "live"
+    _keep(h, claims)
+    url = _provider(h, claims, "m3u8" if live else str(claims.get("x") or "mp4"))
+    codec = await video_codec(url)
+    dev = str(claims.get("dev") or "")
+    proc = await CONVERTS.start(dev, convert_args(ffmpeg, url, codec, max(0, min(int(t), 12 * 3600)), live))
+    assert proc.stdout is not None
+    first = await proc.stdout.read(1 << 16)
+    if not first:
+        await _stop(proc)
+        CONVERTS.done(dev, proc)
+        h.db.log("tv.phone.cast", "error", device_id=dev or None, params={"step": "convert", "codec": codec})
+        raise error(502, "unavailable", "The TV source didn't answer")
+    h.db.log("tv.phone.cast", "ok", device_id=dev or None,
+             params={"step": "convert", "codec": codec, "video": "copy" if codec == "h264" else "x264"})
+
+    async def body():
+        last = time.time()
+        try:
+            yield first
+            while True:
+                chunk = await proc.stdout.read(1 << 16)
+                if not chunk:
+                    break
+                if time.time() - last > 30:
+                    _keep(h, claims)
+                    last = time.time()
+                yield chunk
+        finally:
+            await _stop(proc)
+            CONVERTS.done(dev, proc)
+
+    return StreamingResponse(body(), media_type="video/mp4", headers=headers)
+
+
+class CastReport(BaseModel):
+    """What the Cast TV did with a stream, from the phone: kept so a black screen can be traced afterwards."""
+
+    kind: str = Field(default="", max_length=16)
+    id: str = Field(default="", max_length=200)
+    state: str = Field(max_length=24)
+    code: int | None = None
+    reason: str = Field(default="", max_length=200)
+    attempt: str = Field(default="", max_length=24)
+    receiver: str = Field(default="", max_length=80)
+
+
+@router.post("/cast/report")
+async def phone_cast_report(body: CastReport, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """`state` is playing, failed or timeout. Failed and timeout are logged as errors with the receiver's code."""
+    _media(h, c)
+    outcome = "ok" if body.state == "playing" else "error"
+    h.db.log("tv.phone.cast", outcome, person_id=c.subject.person_id, device_id=c.device["id"],
+             target=body.id or None,
+             params={"kind": body.kind, "state": body.state, "code": body.code, "reason": body.reason[:200],
+                     "attempt": body.attempt, "receiver": body.receiver})
+    return {"ok": True}
