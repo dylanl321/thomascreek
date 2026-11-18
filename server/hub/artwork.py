@@ -69,6 +69,9 @@ class ArtError(Exception):
         self.status, self.code, self.message = status, code, message
 
 
+# 2: title searches use the cleaned name and its year (Nov 18). Older picks for library titles are redone.
+MATCH_VERSION = 2
+
 def programme_key(title: str, year: int | None = None) -> str:
     """Stable art id for a guide title. The same show on two channels shares one poster."""
     text = re.sub(r"[^a-z0-9]+", " ", (title or "").casefold()).strip()
@@ -223,6 +226,8 @@ class Artwork:
         variant = normalize_size(size)
         slot = f"{kind}|{key}|{variant}"
         hit = self._cache.get(slot)
+        if hit and key.startswith(("vod:", "series:")) and hit.get("v") != MATCH_VERSION:
+            hit = None  # picked before titles were cleaned for the search: look again once
         now = time.time()
         if hit and hit.get("sha") and not self._expired(hit):
             path = self.files / f"{hit['sha']}.{hit['ext']}"
@@ -483,6 +488,12 @@ class Artwork:
                 one = await self._get_json(f"{TMDB}/{path}/{tmdb_id}", params)
                 picked = one if isinstance(one, dict) and one.get("id") else None
             elif title:
+                # Search on the name people read, with its year: "EN - A Funny Thing Happened On The Way To The
+                # Forum (1966) BUSTER KEATON" found a 2011 short, not the 1966 film.
+                from . import tvnames
+                clean, named_year = tvnames.polish(title)
+                title = clean or title
+                year = year or named_year
                 path = "search/tv" if kind == "tv" else "search/movie"
                 query = {"query": title, **params}
                 if year and kind == "tv":
@@ -594,7 +605,7 @@ class Artwork:
         (self.dir / name).write_text(json.dumps(doc))
 
     def _remember_cache(self, slot: str, row: dict[str, Any]) -> None:
-        self._cache[slot] = row
+        self._cache[slot] = {**row, "v": MATCH_VERSION}
         self._save_json("cache.json", self._cache)
 
     @staticmethod
