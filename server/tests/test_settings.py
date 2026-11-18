@@ -12,7 +12,8 @@ def test_settings_start_from_defaults_and_follow_the_person(hub, people, home_cl
     body = r.json()
     assert body["version"] == 0
     assert body["settings"]["downloads.cellular"] is False and body["settings"]["appearance"] == "system"
-    assert set(body["favorites"]) == {"room", "device", "camera", "mode", "media", "recipe", "youtube"}
+    assert set(body["favorites"]) == {"room", "device", "camera", "mode", "media", "recipe", "youtube",
+                                      "channel", "title"}
 
     r = home_client.patch("/v1/me/settings", headers=dylan.h,
                           json={"changes": {"downloads.cellular": True, "home.order": ["favorites", "cameras", "rightnow"]}})
@@ -63,6 +64,22 @@ def test_stars_merge_and_reorder(people, home_client):
     # Starring twice is harmless; unknown kinds are not.
     assert home_client.put("/v1/me/favorites/device/light.kitchen", headers=h).status_code == 200
     assert home_client.put("/v1/me/favorites/spaceship/x", headers=h).status_code == 404
+
+
+def test_favourite_channels_and_my_list_follow_the_person(people, home_client):
+    h = people["phones"]["Dylan"].h
+    r = home_client.put("/v1/me/favorites/channel/xc:thomas-creek:10", headers=h, json={"title": "CNN"})
+    assert r.status_code == 200
+    r = home_client.put("/v1/me/favorites/title/movie:vod:thomas-creek:101", headers=h,
+                        json={"title": "Kids Movie", "image": "/v1/tv/art/poster/vod:thomas-creek:101"})
+    favs = r.json()["favorites"]
+    assert favs["channel"] == [{"id": "xc:thomas-creek:10", "title": "CNN"}]
+    assert [f["id"] for f in favs["title"]] == ["movie:vod:thomas-creek:101"]
+    # Another person's lists are their own.
+    other = home_client.get("/v1/me/settings", headers=people["phones"]["Avery"].h).json()["favorites"]
+    assert other["channel"] == [] and other["title"] == []
+    r = home_client.delete("/v1/me/favorites/channel/xc:thomas-creek:10", headers=h)
+    assert r.json()["favorites"]["channel"] == []
 
 
 def test_children_can_only_star_what_they_can_use(people, home_client):
