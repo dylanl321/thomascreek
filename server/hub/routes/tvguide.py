@@ -20,7 +20,7 @@ from ..adapters.base import AdapterError
 from ..policy import Target
 from ..state import Hub
 from ..tvapp import TvAppError
-from .. import tvcontrol, tvexplore, tvhandoff, tvnames, tvpicks, tvsport
+from .. import tvask, tvcontrol, tvexplore, tvhandoff, tvnames, tvpicks, tvsport
 from ..tvapp import _household as household
 from ..upnext import shelf, warm_plex, who_key
 from .deps import Caller, caller, error, hub, need
@@ -35,6 +35,22 @@ def _media(h: Hub, c: Caller) -> bool:
     if not (h.policy.has(c.subject, "media.all") or h.policy.has(c.subject, "media.own_tv")):
         raise error(403, "forbidden", "Not available", ask_parent=c.subject.is_child_like)
     return c.subject.is_child_like
+
+
+def watcher(h: Hub, c: Caller, person: str | None) -> tuple[str | None, bool]:
+    """Who a phone is watching as, and whether that is kids-only: the phone's own person, or one of the house's
+    children picked by a grown-up's phone ("who's watching"). Picking only ever narrows: a child's phone can't
+    pick anyone else, and nobody picks a grown-up. A TV keeps its own rule (`person` names who sits there)."""
+    kids = _media(h, c)
+    own = c.subject.person_id
+    if not person or person == own:
+        return own, kids
+    found = next((p for p in household(h.db) if p["id"] == person), None)
+    if found is None:
+        raise error(404, "not_found", "Nobody in the house has that id")
+    if found.get("role") != "child" or kids or c.subject.role not in ("admin", "adult"):
+        raise error(403, "forbidden", "A phone can watch as its own person or, from a grown-up's phone, a child")
+    return str(found["id"]), True
 
 
 async def _ready(h: Hub) -> None:
@@ -123,8 +139,59 @@ async def explore(profile: str | None = None, person: str | None = None, c: Call
             kids = True
         who = who_key(person=(found or {}).get("id") or subject.person_id, tv=subject.tv_id)
     else:
-        who = who_key(person=subject.person_id)
+        watching, narrowed = watcher(h, c, person)
+        kids = kids or narrowed
+        who = who_key(person=watching)
     return tvpicks.personal_feed(h, "kids" if kids else "adult", who)
+
+
+@router.get("/watchers")
+async def watchers(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """Who a phone may watch as: its own person first, then (on a grown-up's phone) the house's children.
+    What the phone's "Who's watching" menu lists; each id goes back as `person`."""
+    kids = _media(h, c)
+    own = c.subject.person_id
+    out: list[dict[str, Any]] = []
+    for p in household(h.db):
+        if p["id"] == own:
+            out.insert(0, {"id": p["id"], "name": p["name"], "role": p.get("role"), "self": True})
+        elif p.get("role") == "child" and not kids and c.subject.role in ("admin", "adult"):
+            out.append({"id": p["id"], "name": p["name"], "role": "child", "self": False})
+    return {"watchers": out}
+
+
+class AskBody(BaseModel):
+    text: str = Field(min_length=1, max_length=300)
+    person: str | None = Field(default=None, max_length=64)
+
+
+@router.post("/ask")
+async def ask_to_watch(body: AskBody, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """Something to watch, asked in plain words ("something funny under 90 minutes"). {reply, items, by}: the
+    items are cards like Explore's, from the caller's own library, so a child only ever gets kids' titles."""
+    if getattr(c.subject, "tv", False):
+        kids = _media(h, c) or tvexplore._profile(h, c.subject) == "kids"
+        who = who_key(person=c.subject.person_id, tv=c.subject.tv_id)
+    else:
+        watching, kids = watcher(h, c, body.person)
+        who = who_key(person=watching)
+    await _ready(h)
+    return await tvask.ask(h, body.text, kids=kids, who=who)
+
+
+@router.get("/pick")
+async def pick_for_me(person: str | None = None, skip: str | None = None, c: Caller = Depends(caller),
+                      h: Hub = Depends(hub)) -> dict[str, Any]:
+    """"Pick for me": one title for right now with its reason, from this person's own hero and picks. `skip`
+    (comma-separated keys from earlier answers) steps on to the next one."""
+    if getattr(c.subject, "tv", False):
+        kids = _media(h, c) or tvexplore._profile(h, c.subject) == "kids"
+        who = who_key(person=c.subject.person_id, tv=c.subject.tv_id)
+    else:
+        watching, kids = watcher(h, c, person)
+        who = who_key(person=watching)
+    skipped = [k for k in (skip or "").split(",") if k][:50]
+    return tvask.pick(h, kids=kids, who=who, skip=skipped)
 
 
 @router.post("/explore/request")
@@ -168,7 +235,9 @@ async def up_next(profile: str | None = None, person: str | None = None, c: Call
         named = person if person and any(p["id"] == person for p in household(h.db)) else None
         who = who_key(person=named or subject.person_id, tv=subject.tv_id)
     else:
-        who = who_key(person=subject.person_id)
+        watching, narrowed = watcher(h, c, person)
+        kids = kids or narrowed
+        who = who_key(person=watching)
     await warm_plex(h, who, "kids" if kids else "adult")
     return shelf(h, "kids" if kids else "adult", who=who)
 
