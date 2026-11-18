@@ -19,7 +19,7 @@ import math
 import re
 from typing import Any, Callable, Iterable
 
-VERSION = 2  # 2: channels with no guide are left out (Dylan, Nov 15)
+VERSION = 3  # 2: channels with no guide are left out (Dylan, Nov 15); 3: "NY" alone no longer means New York
 
 # Local broadcast networks, in the order a cable guide lists them when a station has no number in its name.
 LOCAL_NETWORKS: list[tuple[str, str]] = [
@@ -110,6 +110,28 @@ MARKETS: list[tuple[str, float, float, str]] = [
 ]
 
 
+# A short alternative that other markets' channels also carry ("WTEN Albany NY", "KTLA LA"): it counts for its
+# market only when no other market is named in the same channel.
+WEAK: dict[str, str] = {"New York": r"\bny\b", "Los Angeles": r"\bla\b", "Washington": r"\bdc\b"}
+_STRONG = [
+    (name, re.compile(r"\b(" + "|".join(alt for alt in pattern.split("|") if alt != WEAK.get(name)) + r")\b", re.I))
+    for name, _lat, _lon, pattern in MARKETS
+]
+
+
+def in_market(text: str, name: str, pattern: str) -> bool:
+    """Whether a cleaned channel text belongs to market [name] (see WEAK)."""
+    if not re.search(rf"\b({pattern})\b", text, re.I):
+        return False
+    weak = WEAK.get(name)
+    if weak is None:
+        return True
+    strong = next(rx for market, rx in _STRONG if market == name)
+    if strong.search(text):
+        return True
+    return not any(rx.search(text) for market, rx in _STRONG if market != name)
+
+
 def clean(name: str) -> str:
     """The name without a country/provider prefix, lower case, single spaces."""
     text = _PREFIX.sub("", name or "", count=1)
@@ -146,26 +168,26 @@ def market_for(home: tuple[float, float] | None, channels: Iterable[dict[str, An
     if home is None:
         return None
     texts = [clean(str(row.get("name") or "")) + " " + str(row.get("category") or "").casefold() for row in channels]
+    texts = [t for t in texts if _network(t)]
     best = None
     for name, lat, lon, pattern in MARKETS:
         km = distance_km(home, (lat, lon))
         if km > 250:
             continue
-        rx = re.compile(rf"\b({pattern})\b", re.I)
-        hits = sum(1 for t in texts if rx.search(t) and _network(t))
+        hits = sum(1 for t in texts if in_market(t, name, pattern))
         if hits >= 2 and (best is None or km < best["km"]):
             best = {"name": name, "km": round(km), "pattern": pattern}
     return best
 
 
 def locals_per_market(texts: list[str]) -> dict[str, int]:
-    """How many local network affiliates each market has among cleaned channel texts."""
+    """How many local stations each market's lineup would show: one per network (ABC, NBC, ...), as `build` picks."""
+    found = [(t, network) for t in texts if (network := _network(t))]
     out: dict[str, int] = {}
     for name, _lat, _lon, pattern in MARKETS:
-        rx = re.compile(rf"\b({pattern})\b", re.I)
-        hits = sum(1 for t in texts if rx.search(t) and _network(t))
-        if hits:
-            out[name] = hits
+        networks = {network for t, network in found if in_market(t, name, pattern) and not _OTHER.search(t)}
+        if networks:
+            out[name] = len(networks)
     return out
 
 
@@ -178,13 +200,13 @@ def build(channels: list[dict[str, Any]], home: tuple[float, float] | None,
     used: set[str] = set()
     taken_numbers: set[int] = set()
 
+    cleaned = {row["key"]: clean(str(row.get("name") or "")) for row in us}
     if market:
-        rx = re.compile(rf"\b({market['pattern']})\b", re.I)
         by_network: dict[str, list[tuple[tuple, dict[str, Any], str]]] = {}
         for row in us:
-            text = clean(str(row.get("name") or ""))
+            text = cleaned[row["key"]]
             where = text + " " + str(row.get("category") or "").casefold()
-            if not rx.search(where) or _OTHER.search(text):
+            if _OTHER.search(text) or not _network(text) or not in_market(where, market["name"], market["pattern"]):
                 continue
             network = _network(text)
             if network is None:
@@ -220,7 +242,7 @@ def build(channels: list[dict[str, Any]], home: tuple[float, float] | None,
         for row in us:
             if row["key"] in used:
                 continue
-            text = clean(str(row.get("name") or ""))
+            text = cleaned[row["key"]]
             if not rx.search(text) or _OTHER.search(text):
                 continue
             options.append((_quality(row, text, has_guide), row))

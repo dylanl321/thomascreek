@@ -403,8 +403,24 @@ def _hero_line(hero: dict[str, Any], watched: list[dict[str, Any]], now: float) 
     liked = [g for g in genres_of(hero.get("genres")) if weights.get(g) and g not in ("kids", "family")]
     if not liked:
         return None
-    lead = "New this week" if "New" in (hero.get("badges") or []) else "Trending now"
-    return f"{lead}, and you like {liked[0]}"
+    return f"{_lead(hero, now)}, and you like {liked[0]}"
+
+
+def _lead(card: dict[str, Any], now: float | None = None) -> str:
+    """"New this week" only for a new release; an older title just added to the library is "Just added"."""
+    if "New" not in (card.get("badges") or []):
+        return "Trending now"
+    this_year = time.gmtime(time.time() if now is None else now).tm_year
+    try:
+        year = int(card.get("year") or 0)
+    except (TypeError, ValueError):
+        year = 0
+    if card.get("reason") == "New this week":
+        if not year or year >= this_year - 1:
+            return "New this week"
+        if card.get("kind") in ("series", "show", "tv"):
+            return "New episodes this week"
+    return "Just added"
 
 
 def hero_candidates(base: dict[str, Any], watched: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -681,7 +697,8 @@ def hero_steps(hero: dict[str, Any] | None, candidates: list[dict[str, Any]]) ->
             continue
         keys.add(k)
         step = dict(card)
-        step.setdefault("reason", "New this week" if "New" in (card.get("badges") or []) else "Trending now")
+        if step.get("reason") in (None, "", "New this week"):
+            step["reason"] = _lead(card)
         out.append(step)
     return out
 

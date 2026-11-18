@@ -51,3 +51,15 @@ def test_an_address_check_keeps_the_logins_expiry_and_connections(hub):
     asyncio.run(iptvaddr.check_all(hub, only_with_backups=False))
     kept = hub.db.kv_get(KV_USAGE)["alpha|house"]
     assert kept["max_connections"] == 3 and kept["active_cons"] == 1 and kept["exp_date"] == "1893456000"
+
+
+def test_an_older_title_is_not_called_new_this_week():
+    from datetime import datetime, timezone
+
+    from hub.tvpicks import _lead
+    now = datetime(2026, 11, 18, tzinfo=timezone.utc).timestamp()
+    assert _lead({"badges": ["New"], "reason": "New this week", "year": 2026, "kind": "movie"}, now) == "New this week"
+    assert _lead({"badges": ["New"], "reason": "New this week", "year": 2022, "kind": "series"}, now) \
+        == "New episodes this week"
+    assert _lead({"badges": ["New"], "reason": "In your library", "year": 2022, "kind": "series"}, now) == "Just added"
+    assert _lead({"badges": ["Popular"], "year": 2022}, now) == "Trending now"
