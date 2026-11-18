@@ -492,6 +492,11 @@ class DB:
         row = self.one("SELECT value FROM hub_kv WHERE key=?", [key])
         return json.loads(row["value"]) if row else None
 
+    def kv_stamp(self, key: str) -> float | None:
+        """When a setting last changed, without reading its value (some hold large maps)."""
+        row = self.one("SELECT updated_at FROM hub_kv WHERE key=?", [key])
+        return float(row["updated_at"]) if row else None
+
     def kv_set(self, key: str, value: Any) -> None:
         self.execute("INSERT INTO hub_kv (key, value, updated_at) VALUES (?,?,?) ON CONFLICT(key) DO UPDATE SET "
                      "value=excluded.value, updated_at=excluded.updated_at", [key, json.dumps(value), time.time()])

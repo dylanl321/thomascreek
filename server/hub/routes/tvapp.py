@@ -649,7 +649,22 @@ async def tv_lineup(request: Request, c: Caller = Depends(caller), h: Hub = Depe
     """Channels with stable keys. A child, a guest and a kids' TV only get kids' channels."""
     if not (h.policy.has(c.subject, "media.all") or h.policy.has(c.subject, "media.own_tv")):
         raise error(403, "forbidden", "Not available", ask_parent=c.subject.is_child_like)
-    lineup = h.tv_catalog.lineup(kids_only=c.subject.is_child_like) or h.tv_app.public_lineup(kids_only=c.subject.is_child_like)
+    started = time.monotonic()
+    kids = c.subject.is_child_like
+    stamp = h.tv_catalog.lineup_stamp(kids)
+    if stamp is not None:
+        # The encoded reply is kept per lineup and health change: building, hashing and packing 17k rows
+        # took seconds a call. A changed lineup or a new play report makes a new one.
+        from ..channelhealth import KV as HEALTH_KV
+        key = ("lineup", stamp, h.db.kv_stamp(HEALTH_KV))
+        replies: dict[bool, tuple[Any, _Encoded]] = h.tv_catalog.replies
+        reply = replies.get(kids)
+        if reply is None or reply[0] != key:
+            lineup = h.tv_catalog.lineup(kids_only=kids) or {"version": 0, "channels": []}
+            h.source_health.annotate(lineup.get("channels") or [])
+            reply = replies[kids] = (key, _encoded(lineup))
+        return _send(request, reply[1], started)
+    lineup = h.tv_app.public_lineup(kids_only=kids)
     h.source_health.annotate(lineup.get("channels") or [])
     return _cached(request, lineup)
 
@@ -718,8 +733,9 @@ async def tv_groups(request: Request, c: Caller = Depends(caller), h: Hub = Depe
     The home country (United States) comes first. Kids get only their own channels' groups."""
     if not (h.policy.has(c.subject, "media.all") or h.policy.has(c.subject, "media.own_tv")):
         raise error(403, "forbidden", "Not available", ask_parent=c.subject.is_child_like)
+    started = time.monotonic()
     body = h.tv_catalog.groups(kids_only=c.subject.is_child_like)
-    return _cached(request, body)
+    return _cached(request, body, started)
 
 
 @tv_router.get("/commands")
@@ -762,10 +778,37 @@ def _etag(body: dict[str, Any]) -> str:
 _GZIP_FROM = 32 * 1024
 
 
-def _cached(request: Request, body: dict[str, Any]) -> Response:
+class _Encoded:
+    """A reply body packed once: its ETag, JSON bytes and (for a large one) gzip bytes."""
+
+    def __init__(self, tag: str, raw: bytes, packed: bytes | None):
+        self.tag, self.raw, self.packed = tag, raw, packed
+
+
+def _encoded(body: dict[str, Any]) -> _Encoded:
+    raw = json.dumps(body, ensure_ascii=False, allow_nan=False, separators=(",", ":")).encode()
+    packed = gzip.compress(raw, compresslevel=5) if len(raw) >= _GZIP_FROM else None
+    return _Encoded(_etag(body), raw, packed)
+
+
+def _send(request: Request, body: _Encoded, started: float | None = None) -> Response:
+    headers = {"ETag": body.tag, "Cache-Control": "private, no-cache", "Vary": "Accept-Encoding"}
+    if started is not None:
+        # How long the hub spent on the reply, so a slow screen can be told from a slow network.
+        headers["Server-Timing"] = f"app;dur={(time.monotonic() - started) * 1000:.0f}"
+    if request.headers.get("if-none-match") == body.tag:
+        return Response(status_code=304, headers=headers)
+    if body.packed is not None and "gzip" in request.headers.get("accept-encoding", "").lower():
+        return Response(body.packed, media_type="application/json", headers={**headers, "Content-Encoding": "gzip"})
+    return Response(body.raw, media_type="application/json", headers=headers)
+
+
+def _cached(request: Request, body: dict[str, Any], started: float | None = None) -> Response:
     """A body the TVs keep: an ETag (304 while unchanged) and gzip for a large one (the full lineup is ~4 MB)."""
     tag = _etag(body)
     headers = {"ETag": tag, "Cache-Control": "private, no-cache", "Vary": "Accept-Encoding"}
+    if started is not None:
+        headers["Server-Timing"] = f"app;dur={(time.monotonic() - started) * 1000:.0f}"
     if request.headers.get("if-none-match") == tag:
         return Response(status_code=304, headers=headers)
     raw = json.dumps(body, ensure_ascii=False, allow_nan=False, separators=(",", ":")).encode()

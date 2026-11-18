@@ -53,3 +53,42 @@ def test_the_lineup_on_the_wire_is_a_fifth_of_the_json_or_less(hub, people):
     dylan = people["phones"]["Dylan"]
     res = dylan.client.get("/v1/tv/lineup", headers={**dylan.h, "Accept-Encoding": "gzip"})
     assert res.num_bytes_downloaded * 5 <= len(res.content)
+
+
+def test_a_repeat_lineup_or_groups_call_does_not_rebuild_or_reread_the_id_map(hub, people, monkeypatch):
+    """The live hub took 4-5 s a call: every call decoded the large canonical-id map to check its cache."""
+    _ingest(hub, 600)
+    dylan = people["phones"]["Dylan"]
+    assert dylan.client.get("/v1/tv/lineup", headers=dylan.h).status_code == 200
+    assert dylan.client.get("/v1/tv/groups", headers=dylan.h).status_code == 200
+    calls = []
+    real = hub.tv_catalog._live_canon
+    monkeypatch.setattr(hub.tv_catalog, "_live_canon", lambda: calls.append(1) or real())
+
+    def rebuilt(*_a, **_k):
+        raise AssertionError("rebuilt")
+
+    monkeypatch.setattr(hub.tv_catalog, "_build_lineup", rebuilt)
+    again = dylan.client.get("/v1/tv/lineup", headers=dylan.h)
+    groups = dylan.client.get("/v1/tv/groups", headers=dylan.h)
+    assert again.status_code == 200 and len(again.json()["channels"]) == 600
+    assert groups.status_code == 200 and groups.json()["countries"]
+    assert calls == []
+    assert again.headers["server-timing"].startswith("app;dur=")
+
+
+def test_a_lineup_edit_and_a_health_report_show_on_the_next_call(hub, people):
+    _ingest(hub, 3)
+    dylan = people["phones"]["Dylan"]
+    first = dylan.client.get("/v1/tv/lineup", headers=dylan.h).json()
+    key = first["channels"][0]["key"]
+    hub.db.kv_set("tvapp.lineup", {"channels": [{"key": key, "name": "Renamed by hand"}]})
+    renamed = dylan.client.get("/v1/tv/lineup", headers=dylan.h).json()
+    assert next(row for row in renamed["channels"] if row["key"] == key)["name"] == "Renamed by hand"
+    from hub.channelhealth import KV
+    hub.db.kv_set(KV, {key: {"main": {"bits": [1, 1, 1], "last_ok": 1.0}}})
+    healthy = dylan.client.get("/v1/tv/lineup", headers=dylan.h).json()
+    assert next(row for row in healthy["channels"] if row["key"] == key)["health"]["score"] == 1.0
+    hub.db.kv_set(KV, {})
+    cleared = dylan.client.get("/v1/tv/lineup", headers=dylan.h).json()
+    assert "health" not in next(row for row in cleared["channels"] if row["key"] == key)
