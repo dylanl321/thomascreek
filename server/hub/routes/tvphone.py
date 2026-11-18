@@ -318,6 +318,11 @@ def _keep(h: Hub, claims: dict[str, Any]) -> None:
         touch(h, f"phone:{claims.get('dev')}")
 
 
+def _provider(h: Hub, claims: dict[str, Any], ext: str) -> str:
+    """The stream address on the provider's best address now (a backup when the main one is marked down)."""
+    return _providers(h, claims, ext)[0][2]
+
+
 def _providers(h: Hub, claims: dict[str, Any], ext: str) -> list[tuple[str, str, str]]:
     """The provider address on the login leased for this pass, as (provider, address, stream address) on each of
     the provider's addresses, best first (hub/iptvaddr.py). Never logged or returned.
