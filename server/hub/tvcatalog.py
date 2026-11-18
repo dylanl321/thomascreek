@@ -28,7 +28,7 @@ from urllib.parse import urlsplit, urlunsplit
 import httpx
 
 from .artwork import programme_key
-from . import iptvaddr, tvnames
+from . import iptvaddr, tvgroups, tvnames
 from .home import iso
 from .tvapp import TvAppError
 from .tvlineup import LineupError, clean_logo, public_channel
@@ -762,6 +762,9 @@ class TvCatalog:
             if shown.get("group"):
                 # The provider's category made readable once here ("|US| SPORTS" as "Sports"); screens show it.
                 public["group_label"] = tvnames.category(shown["group"])
+                place = tvgroups.country_of(shown["group"])
+                if place:
+                    public["group_country"] = place[0]
             _with_canon(public, canon)
             rows.append(public)
             seen.add(shown["key"])
@@ -787,6 +790,24 @@ class TvCatalog:
             return {}
         by_source = state.get("by_source") if isinstance(state, dict) else None
         return by_source if isinstance(by_source, dict) else {}
+
+    def market_counts(self) -> dict[str, int]:
+        """Local stations the provider carries per market (tvbasic.MARKETS), worked out once per snapshot."""
+        from . import tvbasic
+        doc = self.load()
+        stamp = (doc.get("fetched_at"), tvbasic.VERSION)
+        cached = getattr(self, "_market_cache", None)
+        if cached and cached[0] == stamp:
+            return cached[1]
+        texts = []
+        for row in doc.get("channels") or []:
+            name = str(row.get("name") or "")
+            group = str(row.get("group") or row.get("category") or "")
+            if tvbasic.is_us({"name": name, "category": group}):
+                texts.append(tvbasic.clean(name) + " " + group.casefold())
+        counts = tvbasic.locals_per_market(texts)
+        self._market_cache = (stamp, counts)
+        return counts
 
     def basic(self, home: tuple[float, float] | None) -> dict[str, Any] | None:
         """The household's basic cable lineup (see tvbasic). Worked out once per provider snapshot."""

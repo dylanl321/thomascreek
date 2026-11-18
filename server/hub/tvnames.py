@@ -32,11 +32,13 @@ _COUNTRY = re.compile(r"^(?:US|USA|UK|GB|KR|JP|TR|FR|DE|ES|IT|IN|CA|AU|CN|MX|BR|
 _LANGS = {"FRENCH", "ENGLISH", "SPANISH", "GERMAN", "ITALIAN", "JAPANESE", "KOREAN", "TURKISH", "HINDI",
           "CHINESE", "PORTUGUESE", "ARABIC", "RUSSIAN", "DUTCH", "POLISH", "THAI", "SWEDISH"}
 # Words kept upper case when a shouting category name is title-cased.
-_UPPER = {"4K", "HD", "UHD", "TV", "UFC", "NFL", "NBA", "MLB", "NHL", "WWE", "F1", "HBO", "BBC", "AMC", "MTV",
+_UPPER = {"8K", "16K",
+          "4K", "HD", "UHD", "TV", "UFC", "NFL", "NBA", "MLB", "NHL", "WWE", "F1", "HBO", "BBC", "AMC", "MTV",
           "USA", "UK", "US", "ESPN", "PPV", "DC", "MMA", "TNT", "TBS", "CW", "ABC", "CBS", "NBC", "FX", "PBS", "AMC+",
           "NCAA", "MLS", "WNBA", "PGA", "LGBTQ", "LGBTQ+", "XXX", "24/7", "3D", "II", "III", "IV"}
 _PROPER = {"NETFLIX": "Netflix", "DISNEY+": "Disney+", "HULU": "Hulu", "PEACOCK": "Peacock", "PARAMOUNT+": "Paramount+",
            "APPLE": "Apple", "AMAZON": "Amazon", "PRIME": "Prime", "MAX": "Max", "WORLDCUP": "World Cup",
+           "IPLAYER": "iPlayer",
            "MARVEL": "Marvel", "PIXAR": "Pixar", "STARZ": "Starz", "SHOWTIME": "Showtime", "CRUNCHYROLL": "Crunchyroll"}
 _SMALL = {"and", "or", "of", "the", "a", "an", "in", "on", "for", "to", "with", "vs", "at", "by"}
 _ALL_TAGS = re.compile(r"^\s*(?:\|[^|]{1,8}\||\[[^\]]{1,8}\])\s*")
@@ -130,12 +132,23 @@ def _quality(tag: str) -> str | None:
     return None
 
 
+# Place codes a provider puts in front of a live group ("UK | SPORTS", "NL: NEWS", "UK I SKY STORE").
+PLACE_CODES = ("US|USA|UK|GB|IE|CA|AU|NZ|NL|BE|DE|AT|CH|FR|ES|PT|IT|SE|NO|DK|FI|PL|TR|GR|RO|IN|PK|AR|AE|MX|BR|LAT"
+               "|LATAM|CN|JP|KR|PH|ZA|CARIB|AF|RU|UA|HU|CZ|IL|WS|INT|WW")
+_GROUP_LEAD = re.compile(rf"^\s*\|?\s*(?:EN|MULTI|SPT|NF|WC|{PLACE_CODES})\s*(?:[|\-–:]|\s+I\s+)\s*(?=\S)", re.I)
+# Superscript badges ("ᵛᴵᴾ", "ᵁᴴᴰ") and the VIP tag they spell: decoration, not part of the name.
+_BADGE = re.compile(r"[\u02b0-\u02ff\u1d2c-\u1dbf\u2070-\u209f]+")
+_VIP = re.compile(r"\s*\bVIP\b\s*", re.I)
+
+
 def category(raw: object) -> str:
-    """"|EN| ACTORS & DIRECTORS" as "Actors & Directors"; "|MULTI| NETFLIX SERIES 4K" as "Netflix Series 4K"."""
-    text = _plain(str(raw or "")).strip()
+    """"|EN| ACTORS & DIRECTORS" as "Actors & Directors"; "|MULTI| NETFLIX SERIES 4K" as "Netflix Series 4K";
+    "UK | SKY SPORTS+ ᵛᴵᴾ" as "Sky Sports+" (the place is kept apart, see tvgroups.country_of)."""
+    text = _plain(_BADGE.sub(" ", str(raw or ""))).strip()
     original = text
+    text = _VIP.sub(" ", text).strip()
     for _ in range(3):
-        found = _ALL_TAGS.match(text) or re.match(r"^\s*(?:EN|MULTI|SPT|US|UK|NF|WC)\s*[|\-–:]\s*(?=\S)", text, re.I)
+        found = _ALL_TAGS.match(text) or _GROUP_LEAD.match(text)
         if not found:
             break
         text = text[found.end():]

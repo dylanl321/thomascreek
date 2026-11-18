@@ -659,12 +659,69 @@ async def tv_basic(request: Request, c: Caller = Depends(caller), h: Hub = Depen
     """The basic cable lineup: the home market's locals and one copy of each standard network, numbered."""
     if not (h.policy.has(c.subject, "media.all") or h.policy.has(c.subject, "media.own_tv")):
         raise error(403, "forbidden", "Not available", ask_parent=c.subject.is_child_like)
-    try:
-        home = await h.smart.weather._location()
-    except Exception as exc:  # noqa: BLE001  the lineup falls back to no home market
-        note("basic lineup: house location", exc)
-        home = None
+    from .. import tvbasic
+
+    lat, lon, market = (request.query_params.get(k) for k in ("lat", "lon", "market"))
+    home: tuple[float, float] | None = None
+    if market:
+        # A place picked by name (the phone's Locals search): the market's own centre.
+        found = next((m for m in tvbasic.MARKETS if m[0].casefold() == market.strip().casefold()), None)
+        if found is None:
+            raise error(404, "not_found", "That market isn't in the list. Search for a nearby city.")
+        home = (found[1], found[2])
+    elif lat and lon:
+        # A phone away from home: where it is now (or a point picked on a map), rounded to about 1 km.
+        try:
+            home = (round(float(lat), 2), round(float(lon), 2))
+        except ValueError:
+            raise error(400, "bad_params", "lat and lon are numbers") from None
+        if not (-90 <= home[0] <= 90 and -180 <= home[1] <= 180):
+            raise error(400, "bad_params", "lat and lon are out of range")
+    else:
+        try:
+            home = await h.smart.weather._location()
+        except Exception as exc:  # noqa: BLE001  the lineup falls back to no home market
+            note("basic lineup: house location", exc)
+            home = None
     body = h.tv_catalog.basic(home) or {"version": 0, "market": None, "channels": []}
+    return _cached(request, body)
+
+
+@tv_router.get("/markets")
+async def tv_markets(q: str | None = None, lat: float | None = None, lon: float | None = None,
+                     c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """Places with local stations, for the phone's Locals search and map: [{name, lat, lon, km?, locals}].
+
+    `q` filters by name; `lat`/`lon` sorts by distance. `locals` is how many local stations the provider has
+    there, so places the provider doesn't carry can be greyed out."""
+    from .. import tvbasic
+
+    if not (h.policy.has(c.subject, "media.all") or h.policy.has(c.subject, "media.own_tv")):
+        raise error(403, "forbidden", "Not available", ask_parent=c.subject.is_child_like)
+    counts = h.tv_catalog.market_counts()
+    out = []
+    word = (q or "").strip().casefold()
+    for name, mlat, mlon, _pattern in tvbasic.MARKETS:
+        if word and word not in name.casefold():
+            continue
+        row: dict[str, Any] = {"name": name, "lat": mlat, "lon": mlon, "locals": counts.get(name, 0)}
+        if lat is not None and lon is not None:
+            row["km"] = round(tvbasic.distance_km((lat, lon), (mlat, mlon)))
+        out.append(row)
+    out.sort(key=lambda r: (r.get("km", 0), -r["locals"], r["name"]))
+    return {"markets": out}
+
+
+@tv_router.get("/groups")
+async def tv_groups(request: Request, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> Response:
+    """Live TV categories by country, then kind (sports, news, kids...), with clean labels and counts.
+    The home country (United States) comes first. Kids get only their own channels' groups."""
+    from .. import tvgroups
+
+    if not (h.policy.has(c.subject, "media.all") or h.policy.has(c.subject, "media.own_tv")):
+        raise error(403, "forbidden", "Not available", ask_parent=c.subject.is_child_like)
+    lineup = h.tv_catalog.lineup(kids_only=c.subject.is_child_like) or {"version": 0, "channels": []}
+    body = {"version": lineup.get("version") or 0, **tvgroups.groups(lineup.get("channels") or [])}
     return _cached(request, body)
 
 
