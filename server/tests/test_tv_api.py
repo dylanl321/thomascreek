@@ -502,3 +502,37 @@ def test_a_child_asking_for_several_channels_still_gets_only_kids_channels(hub, 
     kid = theo.client.get("/v1/tv/guide", headers=theo.h,
                           params={"channels": "xc:thomas-creek:10,xc:thomas-creek:11"}).json()
     assert [row["name"] for row in kid["channels"]] == ["Cartoon"]
+
+
+def test_films_and_series_come_a_page_at_a_time_in_the_asked_order(hub, people):
+    hub.tv_catalog.ingest(vod=[
+        {"stream_id": 300 + i, "name": name, "year": year, "added": added, "category_id": "3"}
+        for i, (name, year, added) in enumerate([
+            ("Beta", "2019", "1700000300"), ("alpha", "2024", "1700000100"), ("Gamma", "2001", "junk"),
+            ("Delta", "2022-05-01", "1700000200"),
+        ])
+    ], vod_categories=[{"category_id": "3", "category_name": "Drama"}])
+    dylan = people["phones"]["Dylan"]
+    get = lambda **q: dylan.client.get("/v1/tv/movies", headers=dylan.h, params=q).json()  # noqa: E731
+    first = get(limit=2)
+    assert [r["name"] for r in first["movies"]] == ["alpha", "Beta"] and first["total"] == 4 and first["offset"] == 0
+    assert [r["name"] for r in get(limit=2, offset=2)["movies"]] == ["Delta", "Gamma"]
+    assert get(limit=2, offset=10)["movies"] == []
+    assert [r["name"] for r in get(sort="year")["movies"]] == ["alpha", "Delta", "Beta", "Gamma"]
+    # Last added first; a title with no date keeps the provider's order, after the dated ones.
+    added = get(sort="added")["movies"]
+    assert [r["name"] for r in added] == ["Beta", "Delta", "alpha", "Gamma"]
+    assert added[0]["added"] == 1700000300 and "added" not in added[3]
+    assert dylan.client.get("/v1/tv/movies", headers=dylan.h, params={"sort": "rating"}).status_code == 400
+    assert dylan.client.get("/v1/tv/series", headers=dylan.h, params={"sort": "added"}).json()["total"] == 0
+
+
+def test_the_lineup_names_each_group_for_the_screens(hub, people):
+    hub.tv_catalog.ingest(live=[
+        {"stream_id": 10, "name": "ESPN", "num": 5, "category_id": "1", "epg_channel_id": "espn.us"},
+        {"stream_id": 11, "name": "Loose", "num": 6, "category_id": "9"},
+    ], live_categories=[{"category_id": "1", "category_name": "|US| SPORTS"}])
+    dylan = people["phones"]["Dylan"]
+    rows = {row["name"]: row for row in dylan.client.get("/v1/tv/lineup", headers=dylan.h).json()["channels"]}
+    assert rows["ESPN"]["group"] == "|US| SPORTS" and rows["ESPN"]["group_label"] == "Sports"
+    assert "group_label" not in rows["Loose"]

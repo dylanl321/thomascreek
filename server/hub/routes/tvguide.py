@@ -313,13 +313,24 @@ async def names(request: Request, c: Caller = Depends(caller), h: Hub = Depends(
     return Response(memo[2], media_type="application/json", headers={"ETag": tag})
 
 
+SORTS = ("name", "year", "added")
+
+
+def _sort(sort: str) -> str:
+    if sort not in SORTS:
+        raise error(400, "bad_request", "Sort by name, year or added")
+    return sort
+
+
 @router.get("/series")
-async def series(q: str | None = None, category: str | None = None, limit: int = 60,
-                 c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
-    """Series in the provider library."""
+async def series(q: str | None = None, category: str | None = None, limit: int = 60, offset: int = 0,
+                 sort: str = "name", c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """Series in the provider library, a page at a time (`offset`, `limit` up to 100, `total`), sorted by `name`,
+    `year` or `added`."""
     kids = _media(h, c)
     await _ready(h)
-    return h.tv_catalog.series(q=q, category=category, kids_only=kids, limit=_limit(limit))
+    return h.tv_catalog.series(q=q, category=category, kids_only=kids, limit=_limit(limit), offset=max(0, offset),
+                               sort=_sort(sort))
 
 
 @router.get("/series/{series_id:path}")
@@ -335,12 +346,14 @@ async def one_series(series_id: str, c: Caller = Depends(caller), h: Hub = Depen
 
 
 @router.get("/movies")
-async def movies(q: str | None = None, category: str | None = None, limit: int = 60,
-                 c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
-    """Movies in the provider library."""
+async def movies(q: str | None = None, category: str | None = None, limit: int = 60, offset: int = 0,
+                 sort: str = "name", c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """Movies in the provider library, a page at a time (`offset`, `limit` up to 100, `total`), sorted by `name`,
+    `year` or `added`."""
     kids = _media(h, c)
     await _ready(h)
-    return h.tv_catalog.movies(q=q, category=category, kids_only=kids, limit=_limit(limit))
+    return h.tv_catalog.movies(q=q, category=category, kids_only=kids, limit=_limit(limit), offset=max(0, offset),
+                               sort=_sort(sort))
 
 
 @router.get("/movies/{movie_id:path}")

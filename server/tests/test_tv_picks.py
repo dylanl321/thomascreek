@@ -116,6 +116,11 @@ def test_two_people_get_their_own_rows_and_hero(hub, house):
     assert {"Elf", "The Polar Express", "A Christmas Story"} <= set(_titles(_rows(mine)["season"]))
     order = [row["id"] for row in mine["rows"]]
     assert order.index("new") < order.index("because") < order.index("moment")
+    # Heroes to step through: the hero first, then other new and trending titles, each with a reason.
+    steps = mine["heroes"]
+    assert steps[0]["title"] == "Sicario" and len(steps) >= 2
+    assert len({tvpicks.key_of(s) for s in steps}) == len(steps) <= tvpicks.HERO_STEPS
+    assert all(s.get("reason") for s in steps[1:])
 
 
 def test_a_child_never_gets_an_adult_title_and_nothing_goes_to_the_model(hub, house):

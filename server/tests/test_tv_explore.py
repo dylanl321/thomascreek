@@ -95,7 +95,10 @@ def test_the_feed_is_the_contract(hub, people):
     theo = people["phones"]["Theo"]
     want = {**ADULT, "curated_by": "rules",
             "rows": [{**row, "reason": BASE_REASONS[row["id"]]} for row in ADULT["rows"]]}
-    assert dylan.client.get("/v1/tv/explore", headers=dylan.h).json() == want
+    body = dylan.client.get("/v1/tv/explore", headers=dylan.h).json()
+    heroes = body.pop("heroes", [want["hero"]])
+    assert heroes[0] == want["hero"] and len({h["title"] for h in heroes}) == len(heroes)
+    assert body == want
     kids = theo.client.get("/v1/tv/explore?profile=adult", headers=theo.h).json()
     titles = [item["title"] for row in kids["rows"] for item in row["items"]]
     assert "The Matrix" not in titles and "Bluey" in titles and "Spirited Away" in titles
