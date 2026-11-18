@@ -382,6 +382,10 @@ class Hub:
 
         install()
         self.keychecks.start()
+        from .iptvaddr import AddressWatch
+
+        self.iptv_addresses = AddressWatch(self)
+        self.iptv_addresses.start()
         from .dropbox import watch
 
         self._dropbox = asyncio.create_task(watch(self.vault))
@@ -645,6 +649,8 @@ class Hub:
         await self.household.stop()
         await self.brain.stop()
         await self.keychecks.stop()
+        if getattr(self, "iptv_addresses", None):
+            await self.iptv_addresses.stop()
         await self.onepassword.stop()
         if getattr(self, "_dropbox", None):
             self._dropbox.cancel()

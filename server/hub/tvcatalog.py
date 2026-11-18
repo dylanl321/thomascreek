@@ -28,7 +28,7 @@ from urllib.parse import urlsplit, urlunsplit
 import httpx
 
 from .artwork import programme_key
-from . import tvnames
+from . import iptvaddr, tvnames
 from .home import iso
 from .tvapp import TvAppError
 from .tvlineup import LineupError, clean_logo, public_channel
@@ -261,6 +261,16 @@ class TvCatalog:
         return all(self.vault.has(n) for n in ("iptv.xtream_server", "iptv.xtream_username", "iptv.xtream_password"))
 
     def _login(self) -> tuple[str, str, str]:
+        """The main provider's login on its best address now (a backup when the main address is marked down)."""
+        servers, user, password = self._main_login()
+        return servers[0], user, password
+
+    def _main_login(self) -> tuple[list[str], str, str]:
+        """The main provider's addresses (best first), username and password."""
+        server, user, password = self._main_saved()
+        return iptvaddr.ordered(self.db, SOURCE, server), user, password
+
+    def _main_saved(self) -> tuple[str, str, str]:
         server = str(self.vault.get("iptv.xtream_server") or "").strip().rstrip("/")
         user = str(self.vault.get("iptv.xtream_username") or "").strip()
         password = str(self.vault.get("iptv.xtream_password") or "").strip()
@@ -354,13 +364,13 @@ class TvCatalog:
     # The main provider (the iptv.xtream_* login) fills the guide, the films and the series. Every other provider
     # added on the admin page is read as a light list (names, ids, file types) and folded into the same catalog, so
     # a title both providers carry gets both copies, and /v1/tv/tune can spread TVs over every provider's logins.
-    def _extra_logins(self) -> dict[str, dict[str, str]]:
+    def _extra_logins(self) -> dict[str, dict[str, Any]]:
         from types import SimpleNamespace
 
         from . import iptvplay
 
         shim = SimpleNamespace(config=SimpleNamespace(iptv=None), vault=self.vault, db=self.db)
-        out: dict[str, dict[str, str]] = {}
+        out: dict[str, dict[str, Any]] = {}
         for lg in iptvplay.logins(shim):
             pid = str(lg.get("provider") or "")
             if pid == SOURCE or not pid or ":" in pid or "/" in pid or pid in out:
@@ -368,7 +378,9 @@ class TvCatalog:
             secret = str(lg.get("password_secret") or "")
             password = str(self.vault.get(secret) or "").strip() if secret and self.vault.has(secret) else ""
             if lg.get("server") and lg.get("username") and password:
-                out[pid] = {"server": str(lg["server"]).rstrip("/"), "username": str(lg["username"]), "password": password}
+                server = str(lg["server"]).rstrip("/")
+                out[pid] = {"server": server, "username": str(lg["username"]), "password": password,
+                            "servers": list(lg.get("servers") or [server])}
         return out
 
     def _extra_path(self, pid: str) -> Path:
@@ -409,15 +421,40 @@ class TvCatalog:
         row = next((item for item in self.load().get(bucket) or [] if item.get("id") == ref), None)
         return row if row is not None else self.extra_row(bucket, ref)
 
-    def _login_for(self, ref: str) -> tuple[str, str, str]:
-        """The login that can open this id's page: the main one, or the other provider's own."""
+    def _login_for(self, ref: str) -> tuple[str, list[str], str, str]:
+        """The login that can open this id's page: the main one, or the other provider's own.
+        (provider id, its addresses best first, username, password)."""
         pid = provider_of(ref)
         if pid in (None, SOURCE):
-            return self._login()
+            servers, user, password = self._main_login()
+            return SOURCE, servers, user, password
         lg = self._extra_logins().get(pid)
         if lg is None:
             raise TvAppError(404, "not_found", "That provider isn't set up on the hub any more")
-        return lg["server"], lg["username"], lg["password"]
+        return str(pid), lg["servers"], lg["username"], lg["password"]
+
+    async def _api(self, pid: str, servers: list[str], params: dict[str, str],
+                   wait_s: float = 45) -> tuple[str, httpx.Response]:
+        """One player_api.php call, on the first of the provider's addresses that answers. An address that can't be
+        reached (or answers with a redirect or a server error, as a blocked domain does) is marked down and the
+        next one is tried."""
+        last = "The TV provider didn't answer"
+        for server in servers:
+            try:
+                async with httpx.AsyncClient(timeout=wait_s, follow_redirects=False,
+                                             transport=self._transport) as client:
+                    response = await client.get(f"{server}/player_api.php", params=params)
+            except httpx.HTTPError:
+                iptvaddr.note(self.db, pid, server, False, "couldn't be reached")
+                continue
+            if response.status_code in (301, 302, 303, 307, 308) or response.status_code >= 500:
+                iptvaddr.note(self.db, pid, server, False, f"answered {response.status_code}")
+                last = ("The TV provider redirected. Check the server address."
+                        if response.status_code < 400 else last)
+                continue
+            iptvaddr.note(self.db, pid, server, True)
+            return server, response
+        raise TvAppError(502, "bad_provider", last)
 
     def ingest_extra(self, pid: str, *, live: list[Any] | None, vod: list[Any] | None, series: list[Any] | None,
                      now: float | None = None) -> dict[str, Any]:
@@ -499,14 +536,16 @@ class TvCatalog:
         for pid, lg in logins.items():
             params = {"username": lg["username"], "password": lg["password"]}
             try:
-                async with httpx.AsyncClient(timeout=60, follow_redirects=False, transport=self._transport) as client:
-                    got = []
-                    for action in ("get_live_streams", "get_vod_streams", "get_series"):
-                        r = await client.get(f"{lg['server']}/player_api.php", params={**params, "action": action})
-                        if r.status_code >= 300:
-                            raise TvAppError(502, "bad_provider", f"answered {r.status_code}")
-                        part = r.json()
-                        got.append(part if isinstance(part, list) else [])
+                got = []
+                servers = list(lg["servers"])
+                for action in ("get_live_streams", "get_vod_streams", "get_series"):
+                    used, r = await self._api(pid, servers, {**params, "action": action}, wait_s=60)
+                    if r.status_code >= 300:
+                        raise TvAppError(502, "bad_provider", f"answered {r.status_code}")
+                    # Stay on the address that just answered for the rest of this read.
+                    servers = [used] + [s for s in servers if s != used]
+                    part = r.json()
+                    got.append(part if isinstance(part, list) else [])
                 doc = self.ingest_extra(pid, live=got[0], vod=got[1], series=got[2])
                 result[pid] = f"{len(doc['channels'])} channels, {len(doc['movies'])} films, {len(doc['series'])} series"
                 log.info("provider %s: %s", pid, result[pid])
@@ -610,8 +649,11 @@ class TvCatalog:
 
     async def refresh(self) -> dict[str, Any]:
         async with self._lock:
-            server, user, password = self._login()
+            servers, user, password = self._main_login()
             params = {"username": user, "password": password}
+            # The first address that answers the first list read is used for the whole refresh; one that doesn't
+            # is marked down (a blocked domain) and the next backup address is tried.
+            server, first = await self._api(SOURCE, servers, {**params, "action": "get_live_streams"})
             async with httpx.AsyncClient(timeout=45, follow_redirects=False, transport=self._transport) as client:
                 async def pull(action: str) -> Any:
                     try:
@@ -627,7 +669,12 @@ class TvCatalog:
                     except json.JSONDecodeError:
                         raise TvAppError(502, "bad_provider", "The TV provider sent something that isn't a list") from None
 
-                live = await pull("get_live_streams")
+                if first.status_code >= 400:
+                    raise TvAppError(502, "bad_provider", "The TV provider didn't answer")
+                try:
+                    live = first.json()
+                except json.JSONDecodeError:
+                    raise TvAppError(502, "bad_provider", "The TV provider sent something that isn't a list") from None
                 live_categories = await pull("get_live_categories")
                 vod = await pull("get_vod_streams")
                 vod_categories = await pull("get_vod_categories")
@@ -655,11 +702,10 @@ class TvCatalog:
         cached = self._details()["series"].get(series_id)
         if cached and time.time() - float(cached.get("fetched_at") or 0) < DETAIL_TTL_S:
             return self._present_series(cached)
-        server, user, password = self._login_for(series_id)
+        pid, servers, user, password = self._login_for(series_id)
         part = series_id.split(":")[-1]
-        async with httpx.AsyncClient(timeout=45, follow_redirects=False, transport=self._transport) as client:
-            response = await client.get(f"{server}/player_api.php", params={
-                "username": user, "password": password, "action": "get_series_info", "series_id": part})
+        _used, response = await self._api(pid, servers, {
+            "username": user, "password": password, "action": "get_series_info", "series_id": part})
         if response.status_code >= 400:
             raise TvAppError(502, "bad_provider", "The TV provider didn't send that series")
         try:
@@ -674,11 +720,10 @@ class TvCatalog:
         cached = self._details()["movies"].get(movie_id)
         if cached and time.time() - float(cached.get("fetched_at") or 0) < DETAIL_TTL_S:
             return self._present_movie(cached)
-        server, user, password = self._login_for(movie_id)
+        pid, servers, user, password = self._login_for(movie_id)
         part = movie_id.split(":")[-1]
-        async with httpx.AsyncClient(timeout=45, follow_redirects=False, transport=self._transport) as client:
-            response = await client.get(f"{server}/player_api.php", params={
-                "username": user, "password": password, "action": "get_vod_info", "vod_id": part})
+        _used, response = await self._api(pid, servers, {
+            "username": user, "password": password, "action": "get_vod_info", "vod_id": part})
         if response.status_code >= 400:
             raise TvAppError(502, "bad_provider", "The TV provider didn't send that movie")
         try:
