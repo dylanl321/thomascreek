@@ -138,6 +138,8 @@ class TvCatalog:
         self._transport = transport
         self.kids_categories: KidsFn = lambda: []
         self._lock = asyncio.Lock()
+        # Packed /v1/tv/lineup replies per audience (kids or not), kept by the route with what they were built from.
+        self.replies: dict[bool, Any] = {}
 
     # -- cache -----------------------------------------------------------------------------------------------------
     def load(self) -> dict[str, Any]:
@@ -743,38 +745,69 @@ class TvCatalog:
             "series": len(doc.get("series") or []), "configured": self.configured(),
         }
 
-    def lineup(self, *, kids_only: bool) -> dict[str, Any] | None:
-        """The live lineup, worked out once per snapshot and edit (17k channels took about 6 s a call). Each
-        caller gets its own row copies, since routes add health to them."""
+    def _kv_stamp(self, key: str) -> Any:
+        """A cheap change mark for a setting: its write time, or its value where the store has no times."""
+        stamp = getattr(self.db, "kv_stamp", None)
+        if callable(stamp):
+            return stamp(key)
+        return json.dumps(self.db.kv_get(key), sort_keys=True, default=str)
+
+    def _lineup_stamp(self, kids_only: bool) -> Any:
+        """What the built lineup depends on, read without parsing the catalog or the large canonical-id map
+        (decoding that map on every call made each lineup and groups call take seconds on the live hub)."""
+        from .iptvcanon import KV
+        loaded = getattr(self, "_loaded", None)
+        try:
+            stat = self.path.stat()
+            file_stamp: Any = (stat.st_mtime_ns, stat.st_size)
+        except OSError:
+            file_stamp = None
+        if loaded is None or loaded[0] != file_stamp:
+            file_stamp = (file_stamp, "unloaded")
+        return (file_stamp, self._kv_stamp("tvapp.lineup"), self._kv_stamp(KV), kids_only, int(time.time() // 600))
+
+    def _lineup_body(self, kids_only: bool) -> tuple[Any, dict[str, Any] | None]:
+        """The built lineup shared by every caller (not to be changed) and its stamp."""
         doc = self.load()
         if not doc.get("channels"):
-            return None
-        overlay = self._overlay()
-        canon = self._live_canon()
-        stamp = (doc.get("fetched_at"), len(doc["channels"]), json.dumps(overlay, sort_keys=True, default=str),
-                 len(canon), kids_only, int(time.time() // 600))
+            return None, None
+        stamp = self._lineup_stamp(kids_only)
         cache: dict[bool, tuple[Any, dict[str, Any]]] | None = getattr(self, "_lineup_cache", None)
         if not isinstance(cache, dict):
             cache = {}
             self._lineup_cache = cache
         hit = cache.get(kids_only)
         if hit is None or hit[0] != stamp:
-            hit = cache[kids_only] = (stamp, self._build_lineup(doc, overlay, canon, kids_only=kids_only))
-        body = hit[1]
+            started = time.monotonic()
+            body = self._build_lineup(doc, self._overlay(), self._live_canon(), kids_only=kids_only)
+            hit = cache[kids_only] = (stamp, body)
+            log.info("live lineup built: %d channels in %.2fs", len(body["channels"]), time.monotonic() - started)
+        return hit
+
+    def lineup(self, *, kids_only: bool) -> dict[str, Any] | None:
+        """The live lineup, worked out once per snapshot and edit (17k channels took about 6 s a call). Each
+        caller gets its own row copies, since routes add health to them."""
+        _, body = self._lineup_body(kids_only)
+        if body is None:
+            return None
         return {**body, "channels": [dict(row) for row in body["channels"]]}
+
+    def lineup_stamp(self, kids_only: bool) -> Any:
+        """The stamp of the lineup `lineup()` returns now, for callers that keep their own copy of a reply."""
+        return self._lineup_body(kids_only)[0]
 
     def groups(self, *, kids_only: bool) -> dict[str, Any]:
         """Live categories by country and kind (tvgroups), worked out once per lineup."""
-        lineup = self.lineup(kids_only=kids_only) or {"version": 0, "channels": []}
-        stamp = (getattr(self, "_lineup_cache", {}).get(kids_only) or (None,))[0]
+        stamp, body = self._lineup_body(kids_only)
         cache: dict[bool, tuple[Any, dict[str, Any]]] | None = getattr(self, "_groups_cache", None)
         if not isinstance(cache, dict):
             cache = {}
             self._groups_cache = cache
         hit = cache.get(kids_only)
         if hit is None or hit[0] != stamp or stamp is None:
-            body = {"version": lineup.get("version") or 0, **tvgroups.groups(lineup.get("channels") or [])}
-            hit = cache[kids_only] = (stamp, body)
+            lineup = body or {"version": 0, "channels": []}
+            built = {"version": lineup.get("version") or 0, **tvgroups.groups(lineup.get("channels") or [])}
+            hit = cache[kids_only] = (stamp, built)
         return hit[1]
 
     def _build_lineup(self, doc: dict[str, Any], overlay: dict[str, dict[str, Any]], canon: dict[str, str], *,
