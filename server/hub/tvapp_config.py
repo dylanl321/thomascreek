@@ -58,9 +58,16 @@ class ConfigMixin(TvAppParts):
                 continue
             seen.add(provider)
             # The original login keeps its address exactly as saved, so a TV that has it doesn't add it twice.
-            server = v("iptv.xtream_server") if secret == "iptv.xtream_password" else login["server"]
-            playlists.append({"type": "xtream", "name": str(login.get("name") or provider), "server": server,
-                              "username": login["username"], "password": password})
+            # `server` stays the main address even while it's marked down (a TV keys its list by it); `servers`
+            # (optional) is every address of the provider, best first, for a TV that tries the backups itself.
+            main = str(login.get("primary") or login["server"])
+            server = v("iptv.xtream_server") if secret == "iptv.xtream_password" else main
+            servers = [str(s) for s in (login.get("servers") or []) if s]
+            entry: dict[str, Any] = {"type": "xtream", "name": str(login.get("name") or provider), "server": server,
+                                     "username": login["username"], "password": password}
+            if len(servers) > 1:
+                entry["servers"] = servers
+            playlists.append(entry)
         if v("iptv.m3u_url"):
             playlists.append({"type": "m3u", "name": "Thomas Creek" if not playlists else "Thomas Creek M3U",
                               "url": v("iptv.m3u_url")})

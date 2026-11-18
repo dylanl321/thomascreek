@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import RedirectResponse
 
 from ..iptvcanon import copies
-from ..iptvplay import accounts, fail, target, tune
+from ..iptvplay import accounts, fail_checked, target, tune
 from ..policy import Target
 from ..tvapp import TvAppError
 from .deps import Caller, caller, caller_ip, error, hub, need
@@ -61,7 +61,8 @@ async def tv_tune_fail(body: dict[str, Any], c: Caller = Depends(caller), h=Depe
     _media(h, c)
     if not c.subject.tv or not c.subject.tv_id:
         return {"ok": False, "message": "That stream has ended."}
-    return fail(h, str((body or {}).get("session") or ""), c.subject.tv_id)
+    # A blocked provider address moves the stream to the provider's next address before another login.
+    return await fail_checked(h, str((body or {}).get("session") or ""), c.subject.tv_id)
 
 
 @router.get("/stream/{session}")

@@ -36,7 +36,7 @@ from ..iptvcanon import fold_stats as catalog_fold_stats
 from ..iptvplay import accounts as iptv_accounts
 from ..iptvplay import add_login
 from ..iptvplay import logins as iptv_logins
-from .. import iptvplay
+from .. import iptvaddr, iptvplay
 from ..bambu_cloud import token_expiry
 from ..crypto import CryptoError
 from ..mcp_oauth import OAuthError
@@ -644,6 +644,30 @@ def _bambu_html(h: Hub, csrf: str) -> str:
     return f"<details class=key><summary><span>Bambu account (optional)</span>{badge}</summary><div class=kbody>{body}</div></details>"
 
 
+def _iptv_addresses_html(p: dict[str, Any]) -> str:
+    """Each address of a provider and what it last did. Shown once the provider has a backup address."""
+    e = html.escape
+    rows = p.get("addresses") or []
+    if len(rows) < 2:
+        return ""
+    out = []
+    for a in rows:
+        kind = "Main address" if a["main"] else "Backup"
+        if a["state"] == "down":
+            pill = "<span class=pill-miss>Not answering</span>"
+            line = f"{a.get('why') or 'not answering'} · since {_ago(a.get('since'))}; tried again within 15 min"
+        elif a["state"] == "ok":
+            pill = "<span class=pill-ok>Answering</span>"
+            line = f"checked {_ago(a.get('at'))}"
+        else:
+            pill = "<span class=pill-miss>Not checked yet</span>"
+            line = "checked within a few minutes"
+        use = " · <b>in use</b>" if a["in_use"] else ""
+        out.append(f"<div class=row><div><b>{e(kind)}</b> {pill}<div class=dim>{e(a['address'])}{use}</div>"
+                   f"<div class=dim>{e(line)}</div></div></div>")
+    return "".join(out)
+
+
 def _iptv_providers_html(h: Hub, csrf: str) -> str:
     """One row per provider (name and address), with every username and password under it."""
     e = html.escape
@@ -683,8 +707,13 @@ def _iptv_providers_html(h: Hub, csrf: str) -> str:
         summary_pill = f"<span class=pill-ok>{n} {'login' if n == 1 else 'logins'} · {in_use} of {slots} in use</span>"
         role = ("The hub loads the guide, films and series from this provider." if p["main"]
                 else "The TVs get this provider's channels and films as their own list.")
+        addresses = _iptv_addresses_html(p)
+        if any(a["state"] == "down" for a in p.get("addresses") or []):
+            summary_pill = summary_pill.replace("<span class=pill-ok>", "<span class=pill-miss>", 1).replace(
+                "</span>", " · an address is down</span>", 1)
+        backups_text = e("\n".join(p.get("backups") or []))
         if p["config"]:
-            body = f"<div class=dim>{e(p['server'])} · set in the hub's config file.</div>{''.join(rows)}"
+            body = f"<div class=dim>{e(p['server'])} · set in the hub's config file.</div>{addresses}{''.join(rows)}"
         else:
             merge = ""
             if p["same_as_main"]:
@@ -696,7 +725,11 @@ def _iptv_providers_html(h: Hub, csrf: str) -> str:
             body = f"""<div class=dim>{e(role)}</div>
 <form method=post action=/admin/iptv/provider/save class=fform style="padding:8px 0">{hid}<input type=hidden name=provider value='{pid}'>
 <input name=name value='{e(p['name'])}' placeholder="Name" maxlength=40 required>
-<input name=server value='{e(p['server'])}' placeholder="Address (http://…:8080)" required><button class=ghost2>Save</button></form>{merge}
+<input name=server value='{e(p['server'])}' placeholder="Address (http://…:8080)" required>
+<textarea name=backups rows=2 placeholder="Backup addresses, one per line (optional)" autocomplete=off spellcheck=false>{backups_text}</textarea>
+<div class=dim style="flex-basis:100%">Other addresses this provider answers on with the same logins. When one is blocked or down, the hub,
+the TVs and the phones move to the next one by themselves, and back when the main address answers again.</div>
+<button class=ghost2>Save</button></form>{addresses}{merge}
 {''.join(rows)}
 <form method=post action=/admin/iptv/provider/login class=fform style="padding:10px 0">{hid}<input type=hidden name=provider value='{pid}'>
 <input name=username placeholder="Username" required autocomplete=off>
@@ -718,6 +751,7 @@ connection limit, and moves a TV to the next login when a stream fails.</div>
 <input name=server placeholder="Address (http://…:8080)" required>
 <input name=username placeholder="First username" required autocomplete=off>
 <input type=password name=password placeholder="Password" autocomplete=off required>
+<textarea name=backups rows=2 placeholder="Backup addresses, one per line (optional)" autocomplete=off spellcheck=false></textarea>
 <button>Add provider</button></form></div></details>""")
     return "".join(out)
 
@@ -1304,6 +1338,11 @@ def _iptv_changed(h: Hub, claims: dict[str, Any], what: str, target: str, secret
             asyncio.get_running_loop().create_task(catalog.refresh_extras())
         except RuntimeError:
             pass
+    # Check every provider address now (backups included), so the page shows which ones answer.
+    try:
+        asyncio.get_running_loop().create_task(iptvaddr.check_all(h))
+    except RuntimeError:
+        pass
 
 
 _SERVER_RE = re.compile(r"https?://[^\s/]+(:\d+)?(/\S*)?")
@@ -1316,7 +1355,11 @@ async def add_iptv_provider(request: Request, h: Hub = Depends(hub)) -> Response
     server = str(form.get("server") or "").strip()
     if not _SERVER_RE.fullmatch(server):
         return _back("Add the provider's address, like http://example.tv:8080.")
-    pid, msg = iptvplay.add_provider(h, name, server, str(form.get("username") or ""), str(form.get("password") or ""))
+    backups, refused = iptvaddr.parse_list(form.get("backups"))
+    if refused:
+        return _back(f"{refused[0][:60]} isn't an address. Use one like http://example.tv:8080.")
+    pid, msg = iptvplay.add_provider(h, name, server, str(form.get("username") or ""), str(form.get("password") or ""),
+                                     backups)
     if pid:
         names = list(iptvplay.MAIN_SECRETS) if pid == iptvplay.MAIN else [f"iptv.{pid}.1.password"]
         _iptv_changed(h, claims, "admin.iptv_provider_add", pid, names)
@@ -1330,7 +1373,11 @@ async def save_iptv_provider(request: Request, h: Hub = Depends(hub)) -> Respons
     server = str(form.get("server") or "").strip()
     if server and not _SERVER_RE.fullmatch(server):
         return _back("The address should look like http://example.tv:8080.")
-    msg = iptvplay.update_provider(h, provider, re.sub(r"\s+", " ", str(form.get("name") or "")), server)
+    backups, refused = iptvaddr.parse_list(form.get("backups"))
+    if refused:
+        return _back(f"{refused[0][:60]} isn't an address. Use one like http://example.tv:8080.")
+    msg = iptvplay.update_provider(h, provider, re.sub(r"\s+", " ", str(form.get("name") or "")), server,
+                                   backups if "backups" in form else None)
     if not msg:
         return _back("That provider can't be changed here.")
     secrets_ = [lg["password_secret"] for p in iptvplay.providers(h) if p["id"] == provider for lg in p["logins"]]

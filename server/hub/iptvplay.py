@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import quote
 
+from . import iptvaddr
 from .db import new_id
 from .home import iso
 
@@ -103,13 +104,16 @@ def providers(h: Any) -> list[dict[str, Any]]:
             continue
         p = out.setdefault(lg["provider"], {
             "id": lg["provider"], "name": names.get(lg["provider"]) or lg.get("name") or lg["provider"],
-            "main": lg["provider"] == MAIN, "config": lg["provider"] in from_config, "server": lg["server"], "logins": []})
+            "main": lg["provider"] == MAIN, "config": lg["provider"] in from_config, "server": lg.get("primary") or lg["server"],
+            "logins": []})
         p["logins"].append({"provider": lg["provider"], "login": lg["login"], "username": lg["username"],
                             "password_secret": lg["password_secret"], "first": False})
     rows = sorted(out.values(), key=lambda p: (not p["main"], p["name"].lower()))
     main_server = out.get(MAIN, {}).get("server")
     for p in rows:
         p["same_as_main"] = bool(not p["main"] and main_server and p["server"] == main_server)
+        p["backups"] = iptvaddr.backups(h.db, p["id"])
+        p["addresses"] = iptvaddr.status(h.db, p["id"], p["server"])
     return rows
 
 
@@ -121,7 +125,8 @@ def _next_login_id(h: Any, provider: str) -> str:
     return str(n)
 
 
-def add_provider(h: Any, name: str, server: str, username: str, password: str) -> tuple[str, str]:
+def add_provider(h: Any, name: str, server: str, username: str, password: str,
+                 backups: list[str] | None = None) -> tuple[str, str]:
     """A new provider with its first login. Returns (provider id, message); the id is "" when refused.
 
     With no main provider yet, this one becomes the main provider (the original vault keys), so the
@@ -136,6 +141,8 @@ def add_provider(h: Any, name: str, server: str, username: str, password: str) -
         names = provider_names(h)
         names[MAIN] = name
         h.db.kv_set(KV_NAMES, names)
+        if backups:
+            iptvaddr.set_backups(h.db, MAIN, backups, server)
         return MAIN, f"Added {name}."
     pid = _BAD_ID.sub("-", name).strip("-")[:40]
     taken = {p["id"].lower() for p in providers(h)} | {p["name"].lower() for p in providers(h)}
@@ -145,6 +152,8 @@ def add_provider(h: Any, name: str, server: str, username: str, password: str) -
     names = provider_names(h)
     names[pid] = name
     h.db.kv_set(KV_NAMES, names)
+    if backups:
+        iptvaddr.set_backups(h.db, pid, backups, server)
     return pid, f"Added {name}."
 
 
@@ -168,8 +177,9 @@ def add_provider_login(h: Any, provider: str, username: str, password: str) -> t
     return f"iptv.{provider}.{login}.password", f"Added {username} to {p['name']}."
 
 
-def update_provider(h: Any, provider: str, name: str, server: str) -> str:
-    """Rename a provider or change its address; every login of that provider follows."""
+def update_provider(h: Any, provider: str, name: str, server: str, backups: list[str] | None = None) -> str:
+    """Rename a provider or change its address; every login of that provider follows. `backups` (when given)
+    replaces the provider's backup addresses: the same logins on other domains, tried when one is blocked."""
     name, server = name.strip()[:40], server.strip().rstrip("/")
     p = next((p for p in providers(h) if p["id"] == provider), None)
     if p is None or p["config"]:
@@ -186,6 +196,8 @@ def update_provider(h: Any, provider: str, name: str, server: str) -> str:
             if row.get("provider") == provider:
                 row["server"] = server
         h.db.kv_set(KV_LOGINS, rows)
+    if backups is not None:
+        iptvaddr.set_backups(h.db, provider, backups, server or p["server"])
     return f"Saved {name or p['name']}."
 
 
@@ -215,6 +227,10 @@ def merge_into_main(h: Any, provider: str) -> int:
     names = provider_names(h)
     if names.pop(provider, None) is not None:
         h.db.kv_set(KV_NAMES, names)
+    # The moved provider's other addresses serve the same logins: keep them as the main provider's backups.
+    extra = [str(r.get("server") or "") for r in moving] + iptvaddr.backups(h.db, provider)
+    iptvaddr.set_backups(h.db, MAIN, iptvaddr.backups(h.db, MAIN) + extra, main_server)
+    iptvaddr.forget(h.db, provider)
     return moved
 
 
@@ -246,6 +262,7 @@ def remove_provider(h: Any, provider: str) -> str:
     names = provider_names(h)
     if names.pop(provider, None) is not None:
         h.db.kv_set(KV_NAMES, names)
+    iptvaddr.forget(h.db, provider)
     return f"Removed {p['name']}."
 
 
@@ -319,13 +336,35 @@ def lease(h: Any, ref: str, holder: str, *, avoid: set[str] | None = None,
 def direct(h: Any, ref: str, holder: str, *, now: float | None = None) -> str | None:
     """The provider address itself, for a travel phone that plays straight from the provider (Dylan, Nov 2026).
     Live channels are HLS (`.m3u8`). Callers must not log the answer: it carries the login."""
+    found = direct_all(h, ref, holder, now=now)
+    return found[0] if found else None
+
+
+def direct_all(h: Any, ref: str, holder: str, *, now: float | None = None) -> list[str]:
+    """`direct`, then the same stream on each of the provider's backup addresses (same login), best first.
+    The phone tries them in order when one doesn't play. Empty when every login is busy. Never logged."""
     row = lease(h, ref, holder, now=now)
     if row is None:
-        return None
-    url = target(h, row["session"], holder)
-    if url and url.endswith(".ts") and "/live/" in url:
-        url = url[:-3] + ".m3u8"
-    return url
+        return []
+    out: list[str] = []
+    for server in [None, *addresses_for(h, row["session"], holder)[1:]]:
+        url = target(h, row["session"], holder, server=server)
+        if url and url.endswith(".ts") and "/live/" in url:
+            url = url[:-3] + ".m3u8"
+        if url and url not in out:
+            out.append(url)
+    return out
+
+
+def addresses_for(h: Any, session: str, holder: str) -> list[str]:
+    """Every address of the provider this session plays from, best first."""
+    row = next((item for item in _sessions(h) if item.get("session") == session and item.get("tv") == holder), None)
+    login = _login_of(h, row) if row else None
+    return list(login.get("servers") or [login["server"]]) if login else []
+
+
+def _login_of(h: Any, row: dict[str, Any]) -> dict[str, Any] | None:
+    return next((item for item in logins(h) if item["provider"] == row.get("provider") and item["login"] == row.get("login")), None)
 
 
 def credentials(h: Any, provider: str, login: str) -> tuple[str, str, str] | None:
@@ -345,6 +384,28 @@ def _holding(h: Any, ref: str) -> dict[str, Any] | None:
         if any(isinstance(src, dict) and src.get("ref") == ref for src in sources or []):
             return item
     return None
+
+
+async def fail_checked(h: Any, session: str, tv_id: str, now: float | None = None) -> dict[str, Any]:
+    """`fail`, first asking whether the provider address itself stopped answering (a blocked domain).
+
+    When the provider has backup addresses and the one this stream used doesn't answer, that address is marked
+    down for the house and the title plays again on the next address, on the same login. Otherwise the login
+    is moved on as before."""
+    now = time.time() if now is None else now
+    current = next((row for row in _sessions(h) if row.get("session") == session and row.get("tv") == tv_id), None)
+    login = _login_of(h, current) if current else None
+    used = str((current or {}).get("server") or "")
+    if current is not None and login is not None and used and len(login.get("servers") or []) > 1:
+        secret = login.get("password_secret") or ""
+        password = str(h.vault.get(secret) or "") if secret and h.vault.has(secret) else ""
+        transport = getattr(getattr(h, "tv_catalog", None), "_transport", None)
+        ok, why = await iptvaddr.check(used, login["username"], password, transport)
+        iptvaddr.note(h.db, login["provider"], used, ok, "" if ok else why, now)
+        if not ok:
+            _drop(h, session)
+            return tune(h, str(current.get("canonical_id") or ""), tv_id, avoid=_failed(h, now), now=now)
+    return fail(h, session, tv_id, now)
 
 
 def fail(h: Any, session: str, tv_id: str, now: float | None = None) -> dict[str, Any]:
@@ -375,14 +436,22 @@ def touch(h: Any, tv_id: str, now: float | None = None) -> None:
         h.db.kv_set(KV_SESSIONS, sessions)
 
 
-def target(h: Any, session: str, tv_id: str) -> str | None:
-    """The provider address for this session. Callers must not log it."""
-    row = next((item for item in _sessions(h) if item.get("session") == session and item.get("tv") == tv_id), None)
+def target(h: Any, session: str, tv_id: str, *, server: str | None = None) -> str | None:
+    """The provider address for this session. Callers must not log it.
+
+    Built on the provider's best address now (see hub/iptvaddr.py), which the session remembers so a failure
+    report can check that address. `server` builds it on another of the provider's addresses instead."""
+    sessions = _sessions(h)
+    row = next((item for item in sessions if item.get("session") == session and item.get("tv") == tv_id), None)
     if row is None:
         return None
-    login = next((item for item in logins(h) if item["provider"] == row.get("provider") and item["login"] == row.get("login")), None)
+    login = _login_of(h, row)
     if login is None:
         return None
+    base = login["server"] if server is None else server
+    if server is None and row.get("server") != base:
+        row["server"] = base
+        h.db.kv_set(KV_SESSIONS, sessions)
     password = h.vault.get(login["password_secret"]) if h.vault.has(login["password_secret"]) else None
     if not password:
         return None
@@ -390,7 +459,7 @@ def target(h: Any, session: str, tv_id: str) -> str | None:
     kind, _provider, stream_id = _split_ref(ref)
     folder = {"vod": "movie", "series": "series", "ep": "series"}.get(kind, "live")
     ext = "ts" if folder == "live" else _file_type(h, kind, ref)
-    return f"{login['server']}/{folder}/{quote(login['username'])}/{quote(str(password))}/{quote(stream_id)}.{ext}"
+    return f"{base}/{folder}/{quote(login['username'])}/{quote(str(password))}/{quote(stream_id)}.{ext}"
 
 
 def _file_type(h: Any, kind: str, ref: str) -> str:
@@ -457,6 +526,13 @@ def logins(h: Any) -> list[dict[str, Any]]:
                 "provider": "thomas-creek", "login": "main", "server": server, "username": username,
                 "password_secret": "iptv.xtream_password", "name": "Thomas Creek",
             }
+    # Backup addresses: `primary` is the address as saved, `servers` every address best first, and `server` the
+    # one to use now (the first that isn't marked down). See hub/iptvaddr.py.
+    db = getattr(h, "db", None)
+    for row in found.values():
+        row["primary"] = row["server"]
+        row["servers"] = iptvaddr.ordered(db, row["provider"], row["server"]) if db is not None else [row["server"]]
+        row["server"] = row["servers"][0] if row["servers"] else row["server"]
     return list(found.values())
 
 

@@ -84,15 +84,19 @@ async def phone_play(body: dict[str, Any], c: Caller = Depends(caller), h: Hub =
     if body.get("direct") is True and not getattr(c.subject, "tv", False):
         # Straight from the provider (the travel phone, Dylan's choice Nov 2026): the address carries a login,
         # so it goes only to this signed-in phone and is never logged.
-        from ..iptvplay import direct
+        from ..iptvplay import direct_all
 
-        url = direct(h, key, f"phone:{c.device['id']}")
+        urls = direct_all(h, key, f"phone:{c.device['id']}")
+        url = urls[0] if urls else None
         if not url:
             raise error(503, "busy", "Every TV login is busy. Try again in a moment.")
         h.db.log("tv.phone.play", "ok", person_id=c.subject.person_id, device_id=c.device["id"], target=key,
                  params={"title": row.get("name") or row.get("title"), "direct": True})
         out_direct: dict[str, Any] = {"url": url, "kind": mode, "title": row.get("name") or row.get("title"),
                                       "direct": True}
+        if len(urls) > 1:
+            # The same stream on the provider's backup addresses (same login), to try in order when `url` won't play.
+            out_direct["alternates"] = urls[1:]
         _resume(h, c, body, mode, key, row, out_direct)
         return out_direct
     # The hub relays it, on a login leased to this phone like a TV's (one stream per login).
@@ -255,26 +259,50 @@ def _keep(h: Hub, claims: dict[str, Any]) -> None:
         touch(h, f"phone:{claims.get('dev')}")
 
 
-def _provider(h: Hub, claims: dict[str, Any], ext: str) -> str:
-    """The provider address, on the login leased for this pass. Never logged or returned.
+def _providers(h: Hub, claims: dict[str, Any], ext: str) -> list[tuple[str, str, str]]:
+    """The provider address on the login leased for this pass, as (provider, address, stream address) on each of
+    the provider's addresses, best first (hub/iptvaddr.py). Never logged or returned.
 
     Each request keeps the phone's lease alive, so the login is freed shortly after the bytes stop."""
-    from ..iptvplay import credentials, touch
+    from ..iptvplay import credentials, logins, touch
 
     found = None
+    pid = "thomas-creek"
+    servers: list[str] = []
     if isinstance(claims.get("pl"), str) and "|" in claims["pl"]:
         provider, login = claims["pl"].split("|", 1)
         found = credentials(h, provider, login)
+        row = next((lg for lg in logins(h) if lg["provider"] == provider and lg["login"] == login), None)
+        pid, servers = provider, list((row or {}).get("servers") or [])
         touch(h, f"phone:{claims.get('dev')}")
     if found is not None:
         server, user, password = found
     else:
         try:
-            server, user, password = h.tv_catalog._login()
+            servers, user, password = h.tv_catalog._main_login()
+            server = servers[0]
         except TvAppError as exc:
             raise error(exc.status, exc.code, exc.message) from None
     folder = {"movie": "movie", "episode": "series"}.get(claims["k"], "live")
-    return f"{server}/{folder}/{quote(user)}/{quote(password)}/{quote(str(claims['s']))}.{ext}"
+    tail = f"/{folder}/{quote(user)}/{quote(password)}/{quote(str(claims['s']))}.{ext}"
+    return [(pid, s, s + tail) for s in (servers or [server])]
+
+
+class _Unreachable(Exception):
+    """The provider address didn't connect: try the provider's next address."""
+
+
+async def _on_each_address(h: Hub, claims: dict[str, Any], ext: str, attempt: Any) -> Any:
+    """Run `attempt(url, may_fall_back)` on the best address, then the backups when one can't be reached."""
+    from ..iptvaddr import note as note_address
+
+    every = _providers(h, claims, ext)
+    for i, (pid, server, url) in enumerate(every):
+        try:
+            return await attempt(url, i < len(every) - 1)
+        except _Unreachable:
+            note_address(h.db, pid, server, False, "couldn't be reached")
+    raise error(502, "unavailable", "The TV source didn't answer")
 
 
 def _client(h: Hub, timeout: float = 20) -> httpx.AsyncClient:
@@ -283,11 +311,14 @@ def _client(h: Hub, timeout: float = 20) -> httpx.AsyncClient:
                              headers={"User-Agent": "ThomasCreekHub"})
 
 
-async def _relay(client: httpx.AsyncClient, url: str, headers: dict[str, str], media: str | None) -> Response:
+async def _relay(client: httpx.AsyncClient, url: str, headers: dict[str, str], media: str | None,
+                 fall_back: bool = False) -> Response:
     try:
         upstream = await client.send(client.build_request("GET", url, headers=headers), stream=True)
     except httpx.HTTPError:
         await client.aclose()
+        if fall_back:
+            raise _Unreachable() from None
         raise error(502, "unavailable", "The TV source didn't answer") from None
     if upstream.status_code >= 400:
         await upstream.aclose()
@@ -315,7 +346,8 @@ async def phone_file(token: str, request: Request, h: Hub = Depends(hub)) -> Res
     ext = str(claims.get("x") or "mp4")
     headers = {"Range": request.headers["range"]} if request.headers.get("range") else {}
     media = {"mp4": "video/mp4", "m4v": "video/x-m4v", "mov": "video/quicktime"}.get(ext)
-    return await _relay(_client(h), _provider(h, claims, ext), headers, media)
+    return await _on_each_address(h, claims, ext,
+                                  lambda url, more: _relay(_client(h), url, headers, media, fall_back=more))
 
 
 # -- live channels (HLS) -------------------------------------------------------------------------------------------
@@ -401,11 +433,13 @@ def rewrite(text: str, base_url: str, row: dict[str, Any], token: str) -> str:
     return "\n".join(out) + "\n"
 
 
-async def _playlist(h: Hub, url: str) -> tuple[str, str]:
+async def _playlist(h: Hub, url: str, fall_back: bool = False) -> tuple[str, str]:
     async with _client(h, 15) as client:
         try:
             resp = await client.get(url)
         except httpx.HTTPError:
+            if fall_back:
+                raise _Unreachable() from None
             raise error(502, "unavailable", "The channel didn't answer") from None
     if resp.status_code >= 400 or "#EXTM3U" not in resp.text[:200]:
         raise error(502, "unavailable", "The channel didn't answer")
@@ -430,7 +464,7 @@ async def phone_live(token: str, h: Hub = Depends(hub)) -> Response:
             note("phone stream: provider playlist", exc)
             text = None
     if text is None:
-        text, final = await _playlist(h, _provider(h, claims, "m3u8"))
+        text, final = await _on_each_address(h, claims, "m3u8", lambda url, more: _playlist(h, url, fall_back=more))
     row["media"] = final
     return _m3u8(rewrite(text, final, row, token))
 
