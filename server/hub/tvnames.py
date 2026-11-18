@@ -159,7 +159,41 @@ def category(raw: object) -> str:
     letters = [ch for ch in text if ch.isalpha()]
     if letters and sum(ch.isupper() for ch in letters) / len(letters) > 0.8:
         text = _title_case(text)
+    else:
+        text = _acronyms(text)
     return text[:60]
+
+
+def _acronyms(text: str) -> str:
+    """Known acronyms in a mixed-case label keep their capitals: "Espn+ PPV" -> "ESPN+ PPV"."""
+    out = []
+    for word in text.split(" "):
+        bare = word.upper().strip("()[]&,.:!?")
+        out.append(word.upper() if (bare in _UPPER or bare.rstrip("+") in _UPPER) and len(bare) > 1 else word)
+    return " ".join(out)
+
+
+_PAREN_YEAR = re.compile(r"[(\[]\s*(?:19|20)\d{2}\s*[)\]]")
+_DIVIDER = re.compile(r"^[\W_]*[#=*~\-]{3,}")
+
+
+def is_divider(name: object) -> bool:
+    """A provider's section header listed as a channel ("###### ARABIC ######", "===== UK ====")."""
+    return bool(_DIVIDER.match(_plain(str(name or ""))))
+
+
+def polish(raw: object) -> tuple[str, int | None]:
+    """A card title as people read it, and its year if the name carried one: "EN - Rolling Loud (2026)" ->
+    ("Rolling Loud", 2026). A plain title is left alone, so "Blade Runner 2049" keeps its number."""
+    text = str(raw or "").strip()
+    if not text or not (_LEAD.match(text) or _PAREN_YEAR.search(text) or _ALL_TAGS.match(text)):
+        return text, None
+    clean = title(text)
+    name, year = clean["name"] or text, clean["year"]
+    if year and not _PAREN_YEAR.search(text):
+        # The year came off the end of a plain name ("EN - Blade Runner 2049"): it's part of the title.
+        name, year = f"{name} {year}", None
+    return name, year
 
 
 def _title_case(text: str) -> str:
@@ -167,7 +201,7 @@ def _title_case(text: str) -> str:
     for index, word in enumerate(text.split(" ")):
         upper = word.upper()
         bare = upper.strip("()[]&,.:!?")
-        if bare in _UPPER:
+        if bare in _UPPER or bare.rstrip("+") in _UPPER:
             out.append(word.upper())
         elif bare in _PROPER:
             out.append(word.upper().replace(bare, _PROPER[bare]))

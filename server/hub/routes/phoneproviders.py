@@ -7,18 +7,24 @@ its addresses answer. No address, username or login id leaves the hub.
 
 from __future__ import annotations
 
+import asyncio
+import logging
 import time
 from datetime import date, datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends
 
+from .. import iptvaddr
 from ..iptvplay import KV_USAGE, accounts, providers
 from ..state import Hub
 from .deps import Caller, caller, hub
 from .tvguide import _media
 
 router = APIRouter(prefix="/v1/tv/phone", tags=["tv"])
+log = logging.getLogger(__name__)
+REFRESH_S = 30 * 60
+_last_refresh = {"at": 0.0}
 
 WARN_DAYS = 7
 # Worst first: the sheet's dot shows the worst login of a provider only when no login works.
@@ -97,12 +103,29 @@ def provider_status(h: Hub, now: float | None = None) -> dict[str, Any]:
     used = sum(p["connections"]["used"] for p in out)
     most = sum(p["connections"]["max"] for p in out)
     working = sum(1 for p in out if p["state"] in ("ok", "expiring", "full"))
+    unchecked = sum(1 for p in out if p["state"] == "unknown")
+    if not out:
+        summary = "No providers on the hub yet"
+    else:
+        parts = [f"{working} working"]
+        if unchecked:
+            parts.append(f"{unchecked} not checked yet")
+        broken = len(out) - working - unchecked
+        if broken:
+            parts.append(f"{broken} not working")
+        summary = " · ".join(parts)
     return {
         "providers": out,
-        "all": {"name": "All playlists", "providers": len(out), "working": working,
-                "connections": {"used": used, "max": most},
-                "message": f"{working} of {len(out)} working" if out else "No providers on the hub yet"},
+        "all": {"name": "All playlists", "providers": len(out), "working": working, "unchecked": unchecked,
+                "connections": {"used": used, "max": most}, "message": summary},
     }
+
+
+async def _refresh(h: Hub) -> None:
+    try:
+        await iptvaddr.check_all(h, only_with_backups=False)
+    except Exception as exc:  # noqa: BLE001 - a status refresh never fails the sheet
+        log.info("provider status refresh failed (%s)", type(exc).__name__)
 
 
 @router.get("/providers")
@@ -110,4 +133,12 @@ async def phone_providers(c: Caller = Depends(caller), h: Hub = Depends(hub)) ->
     """{providers:[{id, name, main, state, message, expires, days_left, logins, connections, addresses,
     checked_at}], all:{...}}. The hub already merges every provider into one library."""
     _media(h, c)
-    return provider_status(h)
+    body = provider_status(h)
+    now = time.time()
+    stale = any(p["state"] == "unknown" for p in body["providers"]) or now - _last_refresh["at"] > REFRESH_S
+    if stale and now - _last_refresh["at"] > 60:
+        # Ask each provider for its expiry and connections in the background; the next open shows them.
+        _last_refresh["at"] = now
+        asyncio.get_running_loop().create_task(_refresh(h))
+        body["refreshing"] = True
+    return body

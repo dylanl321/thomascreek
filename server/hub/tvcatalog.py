@@ -755,6 +755,8 @@ class TvCatalog:
             shown = self._present_channel(row, overlay)
             if shown is None or (kids_only and not shown["kids"]):
                 continue
+            if tvnames.is_divider(shown.get("name")):
+                continue  # the provider's "###### ARABIC ######" section headers are not channels
             public = {key: shown[key] for key in ("key", "name", "number", "group", "logo", "kids")}
             if shown.get("catchup_days"):
                 public["catchup_days"] = shown["catchup_days"]
@@ -1179,12 +1181,25 @@ def _programme(item: dict[str, Any], channel: dict[str, Any], now: float) -> dic
     }
 
 
+def _readable(row: dict[str, Any], out: dict[str, Any]) -> dict[str, Any]:
+    """Optional `title` (the name as people read it) and `category_label`, so screens show "Dune", not
+    "EN - Dune (2021) 4K". `name` stays the provider's own, which the TVs key their lists by."""
+    name, year = tvnames.polish(row.get("name"))
+    if name and name != row.get("name"):
+        out["title"] = name
+    if year and not out.get("year"):
+        out["year"] = year
+    if row.get("category"):
+        out["category_label"] = tvnames.category(row["category"])
+    return out
+
+
 def _public_series_row(row: dict[str, Any]) -> dict[str, Any]:
-    return {
+    return _readable(row, {
         "id": row.get("id"), "name": row.get("name"), "cover": row.get("cover"), "year": row.get("year"),
         "genre": row.get("genre"), "rating": row.get("rating"), "category": row.get("category"),
         "kids": bool(row.get("kids")), **({"added": row["added"]} if row.get("added") else {}),
-    }
+    })
 
 
 def _public_series(record: dict[str, Any]) -> dict[str, Any]:
@@ -1196,11 +1211,11 @@ def _public_series(record: dict[str, Any]) -> dict[str, Any]:
 
 
 def _public_movie(row: dict[str, Any], detail: bool = False) -> dict[str, Any]:
-    out = {
+    out = _readable(row, {
         "id": row.get("id"), "name": row.get("name"), "cover": row.get("cover"), "year": row.get("year"),
         "genre": row.get("genre"), "rating": row.get("rating"), "category": row.get("category"),
         "kids": bool(row.get("kids")), **({"added": row["added"]} if row.get("added") else {}),
-    }
+    })
     if detail or row.get("plot") or row.get("duration_s"):
         out["plot"] = row.get("plot")
         out["backdrop"] = row.get("backdrop")

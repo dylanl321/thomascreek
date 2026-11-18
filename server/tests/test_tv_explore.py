@@ -313,5 +313,5 @@ def test_recently_added_leads_with_house_language_titles_that_have_pictures(hub,
     assert titles[:2] == ["Good Film", "Older Good Film"]
     assert body["hero"]["title"] == "Good Film"
     assert titles.index("Blank Card") < titles.index("Le Grand Film")
-    assert set(titles[-3:]) == {"Le Grand Film", "AR - فيلم جديد", "فيلم آخر"}
+    assert set(titles[-3:]) == {"Le Grand Film", "فيلم جديد", "فيلم آخر"}
     assert "art_known" not in body["hero"] and "category" not in body["hero"]
