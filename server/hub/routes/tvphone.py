@@ -41,6 +41,8 @@ AUD = "tv-phone"
 TTL_S = 6 * 3600
 # AVPlayer opens these. MKV, AVI and the rest only play on a TV.
 PHONE_TYPES = {"mp4", "m4v", "mov"}
+# An Android phone's player (Media3, `"player": "exo"` on /play) also opens these, like the TVs do.
+EXO_TYPES = PHONE_TYPES | {"mkv", "avi", "webm", "ts", "m2ts", "flv", "wmv", "mpg", "mpeg"}
 SOURCE_PREFIX = {"movie": "vod:", "episode": "ep:", "live": "xc:"}
 
 
@@ -53,7 +55,10 @@ def _stream_id(key: str) -> str:
 
 @router.post("/play")
 async def phone_play(body: dict[str, Any], c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
-    """{movie_id} | {episode_id} | {channel_key} -> a hub path the phone's player opens."""
+    """{movie_id} | {episode_id} | {channel_key} -> a hub path the phone's player opens.
+
+    `player: "exo"` (optional) says the phone plays with Media3, as an Android phone does, so MKV and the other
+    files only a TV opened before are allowed too. Without it the iPhone's MP4 rule holds."""
     kids_only = _media(h, c)
     await _ready(h)
     cat = h.tv_catalog
@@ -70,7 +75,8 @@ async def phone_play(body: dict[str, Any], c: Caller = Depends(caller), h: Hub =
     if row is None or (kids_only and not row.get("kids")):
         raise error(404, "not_found", "That isn't in the library")
     ext = "m3u8" if mode == "live" else str(row.get("ext") or "mp4").lower()
-    if mode != "live" and ext not in PHONE_TYPES:
+    allowed = EXO_TYPES if body.get("player") == "exo" else PHONE_TYPES
+    if mode != "live" and ext not in allowed:
         raise error(409, "tv_only", "This one only plays on a TV")
     token, exp = h.tokens.issue_scoped({"aud": AUD, "k": mode, "s": _stream_id(key), "x": ext,
                                         "sid": secrets.token_urlsafe(9), "dev": c.device["id"]}, TTL_S)
