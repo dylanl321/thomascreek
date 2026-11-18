@@ -25,7 +25,7 @@ from urllib.parse import quote, urljoin, urlsplit
 
 import httpx
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import Response, StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 
 from ..crypto import CryptoError
 from ..state import Hub
@@ -132,6 +132,40 @@ def _seconds(value: object) -> int | None:
         return None
     seconds = int(value)
     return seconds if 0 < seconds <= 24 * 3600 else None
+
+
+@router.get("/update")
+async def phone_update(version_code: int | None = None, c: Caller = Depends(caller),
+                       h: Hub = Depends(hub)) -> dict[str, Any]:
+    """The Android phone app's own update: the newest `phone-*` build the hub keeps, for a signed-in phone.
+
+    Answers `{"up_to_date": true}` when `version_code` (the installed one) is already that build. Otherwise the
+    build's version, sha256 and signer, and `apk_path` to download with the same bearer. The phone checks the
+    file and the signer itself, then installs it (silently on Android 12 and newer)."""
+    build = await h.phone_app.ensure()
+    if not build:
+        why = h.phone_app.last_error or "No phone app build yet"
+        raise error(503, "no_build", f"{why}. The phone will look again later.")
+    code = build.get("version_code")
+    if not isinstance(code, int):
+        raise error(503, "no_version", "The newest phone build has no version number, so it can't be offered yet")
+    if version_code is not None and version_code >= code:
+        return {"up_to_date": True, "version_code": code}
+    return {"up_to_date": False, "version_code": code, "version_name": build.get("version_name"),
+            "notes": build.get("notes") or "", "size": build.get("size"), "sha256": build.get("sha256"),
+            "signer_sha256": build.get("signer_sha256"), "tag": build.get("tag"),
+            "apk_path": "/v1/tv/phone/update/apk"}
+
+
+@router.get("/update/apk")
+async def phone_update_apk(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> Response:
+    """The kept phone build, for a signed-in phone updating itself."""
+    build = await h.phone_app.ensure()
+    if not build:
+        raise error(503, "no_build", "No phone app build yet. The phone will look again later.")
+    h.db.log("phoneapp.update", "ok", device_id=c.device["id"], params={"tag": build.get("tag")})
+    return FileResponse(h.phone_app.path, media_type="application/vnd.android.package-archive",
+                        filename="ThomasCreekPhone.apk")
 
 
 @router.post("/hold")

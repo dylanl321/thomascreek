@@ -10,7 +10,9 @@ GitHub link would need a GitHub sign-in on the phone; this one needs only the co
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
+import re
 import time
 from pathlib import Path
 from typing import Any
@@ -21,6 +23,7 @@ log = logging.getLogger("hub.phoneapp")
 
 APK = "ThomasCreekPhone.apk"
 TAG_PREFIX = "phone-"
+INFO = "phone-update.json"  # optional: {"versionCode", "versionName", "sha256", "notes"}, as the TV's update.json
 KV = "phoneapp.latest"
 CHECK_EVERY_S = 10 * 60
 
@@ -66,26 +69,49 @@ class PhoneApp:
                         and not x.get("draft") and any(a.get("name") == APK for a in x.get("assets") or [])), None)
             if rel is None:
                 return
+            assets = {a.get("name"): a for a in rel.get("assets") or []}
             cur = self.latest()
-            if cur and cur.get("tag") == rel["tag_name"]:
+            if cur and cur.get("tag") == rel["tag_name"] and (cur.get("version_code") or INFO not in assets):
                 return
-            asset = next(a for a in rel["assets"] if a.get("name") == APK)
+            asset = assets[APK]
             if int(asset.get("size") or 0) > MAX_APK:
                 raise TvAppError(502, "too_big", "The phone app in the release is too large")
+            info: dict[str, Any] | None = None
+            if INFO in assets:
+                try:
+                    info = json.loads((await self.tv._asset(c, assets[INFO])).decode())
+                except ValueError:
+                    raise TvAppError(502, "bad_release", f"{INFO} in {rel['tag_name']} isn't readable") from None
             apk = await self.tv._asset(c, asset)
-        self.store(apk, str(rel["tag_name"]))
+        self.store(apk, str(rel["tag_name"]), info)
 
-    def store(self, apk: bytes, tag: str) -> dict[str, Any]:
-        """Keep a signed APK (Android checks the signature itself on install; an unsigned file is refused here)."""
+    def store(self, apk: bytes, tag: str, info: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Keep a signed APK (Android checks the signature itself on install; an unsigned file is refused here).
+
+        With the release's phone-update.json the row also carries `version_code` and `version_name`, which is what
+        a signed-in phone compares for its own update (`/v1/tv/phone/update`); its sha256 must match the APK.
+        """
         try:
-            signer_certificates(apk)
+            certs = signer_certificates(apk)
         except ValueError as exc:
             raise TvAppError(502, "unsigned", f"Phone app {tag} isn't properly signed ({exc})") from None
+        sha = hashlib.sha256(apk).hexdigest()
+        version: dict[str, Any] = {}
+        if isinstance(info, dict):
+            code = info.get("versionCode")
+            if isinstance(code, bool) or not isinstance(code, int) or code < 1:
+                raise TvAppError(502, "bad_release", f"{INFO} in {tag} has no version code")
+            want = str(info.get("sha256") or "").lower()
+            if want and (not re.fullmatch(r"[0-9a-f]{64}", want) or want != sha):
+                raise TvAppError(502, "bad_hash", f"Phone app {tag} doesn't match its {INFO}; not kept")
+            version = {"version_code": code, "version_name": str(info.get("versionName") or code)[:40],
+                       "notes": str(info.get("notes") or "")[:500]}
         self.dir.mkdir(parents=True, exist_ok=True)
         tmp = self.path.with_suffix(".part")
         tmp.write_bytes(apk)
         tmp.replace(self.path)
-        row = {"tag": tag, "size": len(apk), "sha256": hashlib.sha256(apk).hexdigest(), "fetched_at": time.time()}
+        row = {"tag": tag, "size": len(apk), "sha256": sha, "signer_sha256": certs[0], "fetched_at": time.time(),
+               **version}
         self.tv.db.kv_set(KV, row)
         log.info("phoneapp: kept %s (%d bytes)", tag, len(apk))
         return row

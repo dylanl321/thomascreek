@@ -219,3 +219,69 @@ def test_an_unsigned_phone_build_is_not_handed_out(hub, people, away_client):
     assert "isn't on the hub yet" in away_client.get(f"/phone?code={code}").text
     assert away_client.get(f"/phone/app?code={code}").status_code == 503
     assert hub.phone_app.last_error and "signed" in hub.phone_app.last_error
+
+
+# -- the phone app updating itself (signed in, with its own bearer) -------------------------------------------------
+
+def _github_with_info(apk, info, tag="phone-0.2.0"):
+    import httpx
+
+    def handler(request):
+        if request.url.path.endswith("/releases"):
+            return httpx.Response(200, json=[
+                {"tag_name": tag, "draft": False, "prerelease": True, "assets": [
+                    {"id": 7, "name": "ThomasCreekPhone.apk", "size": len(apk)},
+                    {"id": 8, "name": "phone-update.json"}]},
+            ])
+        if request.url.path.endswith("/releases/assets/7"):
+            return httpx.Response(200, content=apk)
+        if request.url.path.endswith("/releases/assets/8"):
+            return httpx.Response(200, json=info)
+        return httpx.Response(404)
+
+    return httpx.MockTransport(handler)
+
+
+def test_a_signed_in_phone_finds_and_downloads_its_update(hub, people):
+    import hashlib
+
+    from tests.test_tvapp import CERT_A, make_apk
+
+    apk = make_apk(CERT_A)
+    hub.vault.set("github.tv_app_token", "gh-token")
+    hub.tv_app._transport = _github_with_info(apk, {"versionCode": 4, "versionName": "0.2.1",
+                                                    "sha256": hashlib.sha256(apk).hexdigest(), "notes": "Updates"})
+    avery = people["phones"]["Avery"]
+    r = avery.client.get("/v1/tv/phone/update?version_code=3", headers=avery.h)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["up_to_date"] is False and body["version_code"] == 4 and body["version_name"] == "0.2.1"
+    assert body["sha256"] == hashlib.sha256(apk).hexdigest() and len(body["signer_sha256"]) == 64
+    assert body["apk_path"] == "/v1/tv/phone/update/apk"
+    got = avery.client.get(body["apk_path"], headers=avery.h)
+    assert got.status_code == 200 and got.content == apk
+    same = avery.client.get("/v1/tv/phone/update?version_code=4", headers=avery.h).json()
+    assert same == {"up_to_date": True, "version_code": 4}
+    # No bearer, no build.
+    assert avery.client.get("/v1/tv/phone/update").status_code == 401
+    assert avery.client.get("/v1/tv/phone/update/apk").status_code == 401
+
+
+def test_a_build_that_does_not_match_its_info_is_not_offered(hub, people):
+    from tests.test_tvapp import CERT_A, make_apk
+
+    hub.vault.set("github.tv_app_token", "gh-token")
+    hub.tv_app._transport = _github_with_info(make_apk(CERT_A), {"versionCode": 4, "sha256": "0" * 64})
+    avery = people["phones"]["Avery"]
+    r = avery.client.get("/v1/tv/phone/update?version_code=3", headers=avery.h)
+    assert r.status_code == 503 and "doesn't match" in r.json()["message"]
+
+
+def test_a_build_without_a_version_is_still_handed_out_but_not_offered(hub, people):
+    from tests.test_tvapp import CERT_A, make_apk
+
+    hub.vault.set("github.tv_app_token", "gh-token")
+    hub.tv_app._transport, _ = _github(make_apk(CERT_A))
+    avery = people["phones"]["Avery"]
+    r = avery.client.get("/v1/tv/phone/update?version_code=3", headers=avery.h)
+    assert r.status_code == 503 and r.json()["error"] == "no_version"
