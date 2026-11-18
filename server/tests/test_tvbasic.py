@@ -117,13 +117,17 @@ def test_new_york_locals_are_new_york_stations_not_upstate_ones():
         {"key": "6", "name": "US: CW 15 WCWN Albany NY", "category": "US| LOCALS"},
         {"key": "7", "name": "US: FOX 29 WUTV Buffalo NY", "category": "US| LOCALS"},
         {"key": "8", "name": "US: ABC 7 WABC New York (SD)", "category": "US| LOCALS"},
+        {"key": "9", "name": "US: FOX 40 WICZ Binghamton NY", "category": "US| LOCALS"},
+        {"key": "10", "name": "US: FOX 5 WNYW NY", "category": "US| LOCALS"},
+        {"key": "11", "name": "US: FOX 5 WNYW New York", "category": "US| LOCALS"},
     ]
     nyc = (40.71, -74.01)
     body = tvbasic.build(rows, nyc)
     assert body["market"] == "New York"
     locals_ = {c["key"] for c in body["channels"] if c["local"]}
-    assert locals_ == {"1", "2", "3"}
-    texts = [tvbasic.clean(r["name"]) + " " + r["category"].casefold() for r in rows]
+    assert locals_ == {"1", "2", "3", "11"}
+    texts = [(tvbasic.clean(r["name"]), tvbasic.clean(r["name"]) + " " + r["category"].casefold()) for r in rows]
     counts = tvbasic.locals_per_market(texts)
     # The count is what the lineup shows: one station per network.
-    assert counts["New York"] == 3 and counts["Albany"] == 3 and counts["Buffalo"] == 1
+    assert counts["New York"] == len(locals_) == 4
+    assert counts["Albany"] == 3 and counts["Buffalo"] == 1 and counts["Binghamton"] == 1

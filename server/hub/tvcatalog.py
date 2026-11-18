@@ -801,12 +801,13 @@ class TvCatalog:
         cached = getattr(self, "_market_cache", None)
         if cached and cached[0] == stamp:
             return cached[1]
-        texts = []
+        texts: list[tuple[str, str]] = []
         for row in doc.get("channels") or []:
             name = str(row.get("name") or "")
             group = str(row.get("group") or row.get("category") or "")
             if tvbasic.is_us({"name": name, "category": group}):
-                texts.append(tvbasic.clean(name) + " " + group.casefold())
+                text = tvbasic.clean(name)
+                texts.append((text, text + " " + group.casefold()))
         counts = tvbasic.locals_per_market(texts)
         self._market_cache = (stamp, counts)
         return counts

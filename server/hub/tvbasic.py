@@ -19,7 +19,9 @@ import math
 import re
 from typing import Any, Callable, Iterable
 
-VERSION = 3  # 2: channels with no guide are left out (Dylan, Nov 15); 3: "NY" alone no longer means New York
+# 2: channels with no guide are left out (Dylan, Nov 15); 3: "NY" alone no longer means New York;
+# 4: stations that name the market come first
+VERSION = 4
 
 # Local broadcast networks, in the order a cable guide lists them when a station has no number in its name.
 LOCAL_NETWORKS: list[tuple[str, str]] = [
@@ -107,6 +109,13 @@ MARKETS: list[tuple[str, float, float, str]] = [
     ("Charleston SC", 32.78, -79.93, r"charleston"), ("Savannah", 32.08, -81.09, r"savannah"), ("Chattanooga", 35.05, -85.31, r"chattanooga"),
     ("Columbia SC", 34.00, -81.03, r"columbia"), ("Madison", 43.07, -89.40, r"madison"), ("Des Moines", 41.59, -93.62, r"des moines"),
     ("Tucson", 32.22, -110.97, r"tucson"), ("Boise", 43.62, -116.20, r"boise"), ("Anchorage", 61.22, -149.90, r"anchorage"),
+    # Smaller markets whose channels carry a state abbreviation another market uses alone ("Binghamton NY",
+    # "Shreveport LA"): listed so those stations are theirs, not New York's or Los Angeles's.
+    ("Binghamton", 42.10, -75.91, r"binghamton"), ("Elmira", 42.09, -76.81, r"elmira|corning"),
+    ("Utica", 43.10, -75.23, r"utica"), ("Watertown", 43.97, -75.91, r"watertown"),
+    ("Burlington", 44.48, -73.21, r"burlington|plattsburgh"), ("Baton Rouge", 30.45, -91.15, r"baton rouge"),
+    ("Shreveport", 32.53, -93.75, r"shreveport"), ("Lafayette", 30.22, -92.02, r"lafayette"),
+    ("Lake Charles", 30.23, -93.22, r"lake charles"), ("Monroe", 32.51, -92.12, r"monroe"),
 ]
 
 
@@ -117,6 +126,10 @@ _STRONG = [
     (name, re.compile(r"\b(" + "|".join(alt for alt in pattern.split("|") if alt != WEAK.get(name)) + r")\b", re.I))
     for name, _lat, _lon, pattern in MARKETS
 ]
+
+
+def _named(text: str, name: str) -> bool:
+    return any(rx.search(text) for market, rx in _STRONG if market == name)
 
 
 def in_market(text: str, name: str, pattern: str) -> bool:
@@ -180,14 +193,17 @@ def market_for(home: tuple[float, float] | None, channels: Iterable[dict[str, An
     return best
 
 
-def locals_per_market(texts: list[str]) -> dict[str, int]:
-    """How many local stations each market's lineup would show: one per network (ABC, NBC, ...), as `build` picks."""
-    found = [(t, network) for t in texts if (network := _network(t))]
+def locals_per_market(texts: list[str] | list[tuple[str, str]]) -> dict[str, int]:
+    """How many local stations each market's lineup would show: one per network (ABC, NBC, ...), as `build` picks.
+    Each text is a channel's cleaned name with its category, or a (name, name and category) pair as `build`
+    reads them."""
+    pairs = [(t, t) if isinstance(t, str) else t for t in texts]
+    found = [(where, network) for name, where in pairs if not _OTHER.search(name) and (network := _network(name))]
     out: dict[str, int] = {}
-    for name, _lat, _lon, pattern in MARKETS:
-        networks = {network for t, network in found if in_market(t, name, pattern) and not _OTHER.search(t)}
+    for market, _lat, _lon, pattern in MARKETS:
+        networks = {network for where, network in found if in_market(where, market, pattern)}
         if networks:
-            out[name] = len(networks)
+            out[market] = len(networks)
     return out
 
 
@@ -211,7 +227,9 @@ def build(channels: list[dict[str, Any]], home: tuple[float, float] | None,
             network = _network(text)
             if network is None:
                 continue
-            by_network.setdefault(network, []).append((_quality(row, text, has_guide), row, text))
+            # A station that names the market ("New York") beats one that only says "NY".
+            named = 0 if _named(where, market["name"]) else 1
+            by_network.setdefault(network, []).append(((named, *_quality(row, text, has_guide)), row, text))
         for order, (network, _) in enumerate(LOCAL_NETWORKS):
             options = sorted(by_network.get(network) or [], key=lambda option: option[0])
             if not options:

@@ -155,3 +155,37 @@ def urlsplit_host(request: httpx.Request) -> str:
     if request.url.host == "image.tmdb.org":
         return str(request.url)
     return request.url.host or ""
+
+
+def test_a_library_poster_is_searched_by_its_readable_name_and_year(hub, people):
+    hub.tv_catalog.ingest(vod=[{
+        "stream_id": 102, "category_id": "4",
+        "name": "EN - A Funny Thing Happened On The Way To The Forum (1966) BUSTER KEATON, BROADWAY MUSICAL",
+    }], vod_categories=[{"category_id": "4", "category_name": "EN - Comedy"}])
+    asked: list[dict[str, str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "api.themoviedb.org" in str(request.url):
+            asked.append(dict(request.url.params))
+            if request.url.params.get("year") != "1966":
+                return httpx.Response(200, json={"results": [
+                    {"id": 76535, "title": "A Funny Thing Happened on the Way to Thor's Hammer",
+                     "release_date": "2011-10-25", "poster_path": "/thor.jpg"}]})
+            return httpx.Response(200, json={"results": [
+                {"id": 17768, "title": "A Funny Thing Happened on the Way to the Forum",
+                 "release_date": "1966-10-16", "poster_path": "/forum.jpg"}]})
+        if request.url.host == "image.tmdb.org":
+            return httpx.Response(200, content=request.url.path.encode(), headers={"content-type": "image/png"})
+        return httpx.Response(404)
+
+    hub.artwork._transport = httpx.MockTransport(handler)
+    hub.vault.set("tmdb.api_key", "tmdb-test")
+    key = "vod:thomas-creek:102"
+    # A pick made before this fix is looked up again.
+    hub.artwork._cache[f"poster|{key}|m"] = {"sha": "0" * 64, "ext": "png", "at": 9e12}
+    dylan = people["phones"]["Dylan"]
+    poster = dylan.client.get(f"/v1/art/poster/{key}", headers=dylan.h, params={"size": "m"})
+    assert poster.status_code == 200, poster.text
+    assert b"forum" in poster.content
+    assert asked and asked[0]["query"] == "A Funny Thing Happened On The Way To The Forum"
+    assert asked[0]["year"] == "1966"
