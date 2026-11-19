@@ -18,6 +18,7 @@ import json
 import os
 import logging
 import tempfile
+import threading
 import time
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
@@ -127,6 +128,9 @@ def _text(parent: ET.Element, name: str) -> str | None:
     return None
 
 
+_FOLD_LOCK = threading.Lock()
+
+
 class TvCatalog:
     def __init__(self, vault: Any, db: Any, data: Path, *, transport: httpx.AsyncBaseTransport | None = None):
         # Set by the hub: asks the model about titles the rules were unsure of, after each refresh.
@@ -177,7 +181,13 @@ class TvCatalog:
     def _write(self, doc: dict[str, Any]) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.write_text(json.dumps(doc))
-        self._loaded = None
+        try:
+            # Keep the snapshot just written as the parsed copy: parsing tens of MB again on the next read
+            # blocked the hub for seconds.
+            stat = self.path.stat()
+            self._loaded = ((stat.st_mtime_ns, stat.st_size), doc)
+        except OSError:
+            self._loaded = None
 
     def _write_details(self, doc: dict[str, Any]) -> None:
         self.details_path.parent.mkdir(parents=True, exist_ok=True)
@@ -494,6 +504,10 @@ class TvCatalog:
     def fold(self, doc: dict[str, Any] | None = None) -> None:
         """Fold every provider's titles into the one catalog. All providers go in one call: a source left out
         of a call is treated as gone."""
+        with _FOLD_LOCK:  # one fold at a time: the main refresh and the other providers' read can overlap
+            self._fold(doc)
+
+    def _fold(self, doc: dict[str, Any] | None) -> None:
         try:
             from .iptvcanon import observe, sources_from_catalog
 
@@ -546,16 +560,16 @@ class TvCatalog:
                         raise TvAppError(502, "bad_provider", f"answered {r.status_code}")
                     # Stay on the address that just answered for the rest of this read.
                     servers = [used] + [s for s in servers if s != used]
-                    part = r.json()
+                    part = await asyncio.to_thread(r.json)
                     got.append(part if isinstance(part, list) else [])
-                doc = self.ingest_extra(pid, live=got[0], vod=got[1], series=got[2])
+                doc = await asyncio.to_thread(self.ingest_extra, pid, live=got[0], vod=got[1], series=got[2])
                 result[pid] = f"{len(doc['channels'])} channels, {len(doc['movies'])} films, {len(doc['series'])} series"
                 log.info("provider %s: %s", pid, result[pid])
             except (httpx.HTTPError, TvAppError, ValueError) as exc:
                 result[pid] = "not read"
                 log.info("provider %s: lists not read (%s)", pid, type(exc).__name__)
         if logins:
-            self.fold()
+            await asyncio.to_thread(self.fold)
         return result
 
     def store_series(self, payload: dict[str, Any], series_id: str) -> dict[str, Any]:
@@ -667,14 +681,14 @@ class TvCatalog:
                     if response.status_code >= 400:
                         raise TvAppError(502, "bad_provider", "The TV provider didn't answer")
                     try:
-                        return response.json()
+                        return await asyncio.to_thread(response.json)
                     except json.JSONDecodeError:
                         raise TvAppError(502, "bad_provider", "The TV provider sent something that isn't a list") from None
 
                 if first.status_code >= 400:
                     raise TvAppError(502, "bad_provider", "The TV provider didn't answer")
                 try:
-                    live = first.json()
+                    live = await asyncio.to_thread(first.json)
                 except json.JSONDecodeError:
                     raise TvAppError(502, "bad_provider", "The TV provider sent something that isn't a list") from None
                 live_categories = await pull("get_live_categories")
@@ -687,8 +701,13 @@ class TvCatalog:
             if not all(isinstance(part, list) for part in (live, live_categories, vod, vod_categories, series, series_categories)):
                 raise TvAppError(502, "bad_provider", "The TV provider didn't send its lists")
             try:
-                doc = self.ingest(live=live, live_categories=live_categories, vod=vod, vod_categories=vod_categories,
-                                  series=series, series_categories=series_categories, xmltv=xmltv)
+                # Parsing the guide, writing the snapshot and folding every provider's titles take from seconds to
+                # minutes with a large provider. On the hub's loop that stopped it answering anyone (Nov 19), so
+                # it runs in a worker thread.
+                doc = await asyncio.to_thread(
+                    lambda: self.ingest(live=live, live_categories=live_categories, vod=vod,
+                                        vod_categories=vod_categories, series=series,
+                                        series_categories=series_categories, xmltv=xmltv))
             finally:
                 if isinstance(xmltv, Path):
                     xmltv.unlink(missing_ok=True)
