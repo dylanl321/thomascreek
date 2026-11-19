@@ -335,3 +335,119 @@ def test_subtitles_say_why_when_the_service_fails_and_keep_the_kids_rule(hub, pe
     assert playersubs.to_vtt(b"not a subtitle") is None
     vtt = "WEBVTT\n\n00:01.000 --> 00:02.000\nHi"
     assert playersubs.to_vtt(vtt.encode()) == vtt + "\n"
+
+
+NIGHT = 1795158000.0      # 02:00 on a November night in the house's time zone
+DAY = 1795201200.0        # 14:00 the same day
+
+
+def _watched(phone, **item):
+    done = phone.client.post("/v1/tv/phone/progress", headers=phone.h, json={**item, "position_s": 600})
+    assert done.status_code == 200, done.text
+
+
+def _fake_ffmpeg(monkeypatch, during=None, sheets=2):
+    from pathlib import Path
+
+    from hub import iptvplay, playerthumbs
+
+    seen = {"runs": 0, "args": []}
+
+    async def run(args, keep_going):
+        seen["runs"] += 1
+        seen["args"] = args
+        seen["held"] = [row["tv"] for row in iptvplay.accounts(seen["hub"])["sessions"]]
+        if during is not None:
+            during()
+            if not await keep_going():
+                return False
+        for n in range(1, sheets + 1):
+            (Path(args[-1]).parent / f"{n:02d}.jpg").write_bytes(b"\xff\xd8 sheet")
+        return True
+
+    monkeypatch.setattr(playerthumbs, "_run", run)
+    monkeypatch.setattr(playerthumbs.shutil, "which", lambda name: "/usr/bin/ffmpeg")
+    return seen
+
+
+def test_scrub_pictures_are_made_at_night_on_a_spare_login_and_follow_the_kids_rule(
+        hub, people, monkeypatch, tmp_path):
+    import asyncio
+
+    from hub import iptvplay, playerthumbs
+
+    _library(hub)
+    _login(hub)
+    dylan, theo = people["phones"]["Dylan"], people["phones"]["Theo"]
+    _watched(dylan, movie_id="vod:thomas-creek:100")
+    assert playerthumbs.wanted(hub) == ["vod:thomas-creek:100"]
+    assert playerthumbs.at_night(hub, NIGHT) and not playerthumbs.at_night(hub, DAY)
+    url = "/v1/tv/phone/thumbs?movie_id=vod:thomas-creek:100"
+    empty = dylan.client.get(url, headers=dylan.h).json()
+    assert empty["sheets"] == [] and (empty["interval_s"], empty["columns"], empty["rows"]) == (10, 10, 10)
+
+    seen = _fake_ffmpeg(monkeypatch)
+    seen["hub"] = hub
+    folder = tmp_path / "thumbs"
+    # By day nothing runs. At night with one login nothing runs either: a person could be left waiting.
+    assert asyncio.run(playerthumbs.night(hub, folder, now=DAY)) == 0
+    assert asyncio.run(playerthumbs.night(hub, folder, now=NIGHT)) == 0 and seen["runs"] == 0
+    assert iptvplay.accounts(hub)["sessions"] == []
+
+    iptvplay.add_login(hub, "thomas-creek", SERVER, "two", "second", "second-pass")
+    monkeypatch.setattr(hub.tv_app, "dir", tmp_path)
+    assert asyncio.run(playerthumbs.night(hub, folder, now=NIGHT)) == 1
+    assert seen["held"] == [playerthumbs.HOLDER]              # the job read it on a leased login
+    assert iptvplay.accounts(hub)["sessions"] == []           # and gave the login back
+    assert playerthumbs.wanted(hub) == []
+    # The address went to ffmpeg alone: not into the log, the kept note or any answer.
+    kept = json.dumps(hub.db.kv_get(playerthumbs.KV)) + json.dumps(
+        [dict(r) for r in hub.db.all("SELECT * FROM activity WHERE action='player.thumbs'")], default=str)
+    assert any(SERVER in arg for arg in seen["args"]) and SERVER not in kept and PASSWORD not in kept
+
+    made = dylan.client.get(url, headers=dylan.h).json()
+    assert len(made["sheets"]) == 2 and SERVER not in json.dumps(made)
+    one = dylan.client.get(made["sheets"][0], headers=dylan.h, params={"movie_id": "vod:thomas-creek:100"})
+    assert one.status_code == 200 and one.headers["content-type"] == "image/jpeg"
+    assert one.content.startswith(b"\xff\xd8")
+    # A sheet is only handed out for its own title, and never to a child for a grown-up's film.
+    other = dylan.client.get(made["sheets"][0], headers=dylan.h, params={"movie_id": "vod:thomas-creek:101"})
+    assert other.status_code == 404
+    assert theo.client.get(url, headers=theo.h).status_code == 404
+    kid = theo.client.get(made["sheets"][0], headers=theo.h, params={"movie_id": "vod:thomas-creek:100"})
+    assert kid.status_code == 404
+
+
+def test_the_night_job_gives_way_the_moment_someone_plays(hub, people, monkeypatch, tmp_path):
+    import asyncio
+
+    from hub import iptvplay, playerthumbs
+
+    _library(hub)
+    _login(hub)
+    iptvplay.add_login(hub, "thomas-creek", SERVER, "two", "second", "second-pass")
+    dylan = people["phones"]["Dylan"]
+    _watched(dylan, movie_id="vod:thomas-creek:100")
+    folder = tmp_path / "thumbs"
+
+    # Someone is already playing: the job does not start.
+    seen = _fake_ffmpeg(monkeypatch)
+    seen["hub"] = hub
+    assert _play(dylan, direct=True).status_code == 200
+    assert asyncio.run(playerthumbs.make(hub, folder, "vod:thomas-creek:100")) == "wait" and seen["runs"] == 0
+    iptvplay.release_tv(hub, f"phone:{dylan.device_id}")
+
+    # Someone starts while it runs: it stops, frees its login, keeps nothing and tries again another night.
+    seen = _fake_ffmpeg(monkeypatch, during=lambda: _play(dylan, direct=True))
+    seen["hub"] = hub
+    assert asyncio.run(playerthumbs.make(hub, folder, "vod:thomas-creek:100")) == "wait" and seen["runs"] == 1
+    assert [row["tv"] for row in iptvplay.accounts(hub)["sessions"]] == [f"phone:{dylan.device_id}"]
+    assert not list(folder.glob("*")) or not any(p.glob("*.jpg") for p in folder.iterdir())
+    assert playerthumbs.wanted(hub) == ["vod:thomas-creek:100"]
+
+    # ffmpeg failing is noted, so the same title is not tried every night.
+    iptvplay.release_tv(hub, f"phone:{dylan.device_id}")
+    seen = _fake_ffmpeg(monkeypatch, sheets=0)
+    seen["hub"] = hub
+    assert asyncio.run(playerthumbs.make(hub, folder, "vod:thomas-creek:100")) == "failed"
+    assert playerthumbs.wanted(hub) == [] and iptvplay.accounts(hub)["sessions"] == []
