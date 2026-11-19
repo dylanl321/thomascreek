@@ -489,8 +489,12 @@ def note_title(h: Any, holder: str, title: str | None, kids: bool = False) -> No
         h.db.kv_set(KV_SESSIONS, sessions)
 
 
+# The hub's own jobs that lease a login, named for the busy answer.
+HUB_HOLDERS = {"hub:thumbs": "The hub (making previews)"}
+
+
 def holders(h: Any, ref: str, *, titles: bool = True) -> list[dict[str, Any]]:
-    """Who holds each login that carries `ref`, for the busy answer: {kind: tv|phone, name, title?}.
+    """Who holds each login that carries `ref`, for the busy answer: {kind: tv|phone|hub, name, title?}.
 
     `titles=False` (a child or a kids' device asking) leaves the titles out, so a child never reads the name of
     something outside their library; only what the hub itself marked as a kids' title is named for them."""
@@ -507,6 +511,8 @@ def holders(h: Any, ref: str, *, titles: bool = True) -> list[dict[str, Any]]:
         if who.startswith("phone:"):
             device = h.db.one("SELECT name FROM devices WHERE id=?", [who[len("phone:"):]])
             entry: dict[str, Any] = {"kind": "phone", "name": str((device or {}).get("name") or "A phone")}
+        elif who.startswith("hub:"):
+            entry = {"kind": "hub", "name": HUB_HOLDERS.get(who, "The hub")}
         else:
             tv = tvs.get(who) or {}
             entry = {"kind": "tv", "name": str(tv.get("name") or "A TV")}
@@ -516,7 +522,7 @@ def holders(h: Any, ref: str, *, titles: bool = True) -> list[dict[str, Any]]:
         if title and (titles or row.get("kids") is True):
             entry["title"] = str(title)[:120]
         out.append(entry)
-    return sorted(out, key=lambda e: (e["kind"] != "tv", e["name"]))
+    return sorted(out, key=lambda e: ({"tv": 0, "phone": 1}.get(e["kind"], 2), e["name"]))
 
 
 def addresses_for(h: Any, session: str, holder: str) -> list[str]:
