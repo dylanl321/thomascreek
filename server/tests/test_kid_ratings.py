@@ -82,3 +82,19 @@ def test_a_kids_title_above_the_childs_level_never_plays(hub, people):
     theo_id = next(p["id"] for p in hub.db.people_with_role("child") if p["name"] == "Theo")
     kidratings.set_level(hub, theo_id, "teen")
     assert theo.client.get("/v1/tv/phone/available", headers=theo.h, params=ask).status_code == 200
+
+
+def test_the_admin_people_page_changes_a_childs_level(hub, people, home_client):
+    from tests.test_admin_page import _sign_in
+
+    csrf = _sign_in(people, home_client)
+    page = home_client.get("/admin/people").text
+    assert "/admin/people/ratings" in page and "Kids: adds TV-Y7 and PG films" in page
+    theo = people["theo"]
+    r = home_client.post("/admin/people/ratings", data={"csrf": csrf, "person": theo["id"], "level": "older"})
+    assert "now watches at older kids" in r.text
+    assert kidratings.level_of(hub, hub.db.person(theo["id"])) == "older"
+    grown = {"csrf": csrf, "person": people["avery"]["id"], "level": "kid"}
+    bad = home_client.post("/admin/people/ratings", data=grown)
+    assert "children only" in bad.text
+    assert home_client.post("/admin/people/ratings", data={"person": theo["id"], "level": "teen"}).status_code == 403
