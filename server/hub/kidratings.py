@@ -14,11 +14,16 @@ The levels build on each other, so a level adds ratings and never takes one away
 
 The kids' library and feeds are still built once for every child, from the loosest level any child has
 (`house_allowed`). A child's own view is narrowed when it is served. A title whose rating isn't a content
-rating (no rating, or a provider's star score) is judged as before: by the kids' categories the hub trusts.
+rating (no rating, or a provider's star score) is judged by its US certification from TMDB once the hub has
+looked it up (`kidcerts`), and until then as before: by the kids' categories the hub trusts.
+
+Some grown-up cartoons sit in a provider's kids' groups ("24/7 HAPPY TREE FRIENDS"). `denied` names them; they
+never reach a child, whatever group or rating they carry.
 """
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 KV = "kids.ratings.{person}"
@@ -34,6 +39,27 @@ NAMES = tuple(level for level, _label, _adds in LEVELS)
 CONTENT = {r for _level, _label, adds in LEVELS for r in adds} | {"R", "NC-17", "TV-MA", "X", "XXX", "NR", "UR"}
 DEFAULT_BY_STYLE = {"little": "little", "kid": "kid"}
 FALLBACK = "kid"
+
+
+# Grown-up animation a provider files with the kids' channels. Matched on whole words in a channel or title name.
+DENIED = (
+    "happy tree friends", "south park", "family guy", "american dad", "rick and morty", "beavis and butt",
+    "bojack horseman", "big mouth", "robot chicken", "adult swim", "aqua teen", "squidbillies", "the boondocks",
+    "harley quinn", "f is for family", "solar opposites", "hazbin hotel", "helluva boss", "paradise pd",
+    "brickleberry", "the cleveland show", "archer",
+)
+_DENIED = re.compile(r"\b(?:" + "|".join(re.escape(n) for n in DENIED) + r")\b")
+
+
+def denied(name: object) -> bool:
+    """A channel or title no child gets, whichever kids' group the provider put it in."""
+    text = re.sub(r"[^a-z0-9]+", " ", str(name or "").lower())
+    return bool(_DENIED.search(text))
+
+
+def denied_channel(name: object) -> bool:
+    """For the catalog's kids flag on a channel (lineup, search and guide)."""
+    return denied(name)
 
 
 def allowed_at(level: str) -> set[str]:
@@ -100,14 +126,27 @@ def allows(allowed: set[str], rating: object) -> bool:
     return text not in CONTENT or text in allowed
 
 
-def narrow(body: Any, allowed: set[str]) -> Any:
-    """A feed, row list or search answer with every card a level doesn't allow taken out. Rows left empty go."""
+def allows_item(allowed: set[str], item: dict[str, Any], certs: Any = None) -> bool:
+    """A card or catalog row: its own content rating, else its certification from TMDB (`kidcerts`) once known.
+    A denied grown-up cartoon never passes."""
+    if denied(item.get("name") or item.get("title")):
+        return False
+    rating = str(item.get("rating") or "").strip().upper()
+    if rating in CONTENT:
+        return rating in allowed
+    cert = certs.cert(item) if certs is not None else None
+    return allows(allowed, cert)
+
+
+def narrow(body: Any, allowed: set[str], certs: Any = None) -> Any:
+    """A feed, row list or search answer with every card a level doesn't allow taken out. Rows left empty go.
+    With `certs` (`kidcerts.store`), a provider title is judged by its age certification once the hub knows it."""
     if isinstance(body, list):
         out = []
         for item in body:
-            if isinstance(item, dict) and not allows(allowed, item.get("rating")):
+            if isinstance(item, dict) and not allows_item(allowed, item, certs):
                 continue
-            kept = narrow(item, allowed)
+            kept = narrow(item, allowed, certs)
             if isinstance(item, dict) and isinstance(item.get("items"), list) and item["items"] and not kept["items"]:
                 continue  # a row with nothing left
             out.append(kept)
@@ -115,10 +154,10 @@ def narrow(body: Any, allowed: set[str]) -> Any:
     if isinstance(body, dict):
         out_d: dict[str, Any] = {}
         for key, value in body.items():
-            if key == "hero" and isinstance(value, dict) and not allows(allowed, value.get("rating")):
+            if key == "hero" and isinstance(value, dict) and not allows_item(allowed, value, certs):
                 out_d[key] = None
             elif isinstance(value, (list, dict)):
-                out_d[key] = narrow(value, allowed)
+                out_d[key] = narrow(value, allowed, certs)
             else:
                 out_d[key] = value
         return out_d

@@ -90,10 +90,12 @@ def _narrow(h: Hub, c: Caller, body: Any, person: str | None = None, *, kids: bo
     """Takes out what this child's level doesn't allow (a grown-up's answer is left as it is)."""
     from .. import kidratings
 
+    from .. import kidcerts
+
     allowed = child_ratings(h, c, person) if kids else None
     if allowed is None and kids:
         allowed = kidratings.for_person(h, None)
-    return kidratings.narrow(body, allowed) if allowed is not None else body
+    return kidratings.narrow(body, allowed, kidcerts.store(h)) if allowed is not None else body
 
 
 async def _ready(h: Hub) -> None:
@@ -494,7 +496,7 @@ async def movies(request: Request, q: str | None = None, category: str | None = 
 
 async def _title_page(request: Request, h: Hub, c: Caller, kind: str, *, q: str | None, category: str | None,
                       limit: int, offset: int, sort: str, person: str | None = None) -> Any:
-    from .. import kidratings
+    from .. import kidcerts, kidratings
 
     kids, person = _kids_for(h, c, person)
     # A child's page holds only what that child's level allows (`kidratings`). A page may hold fewer than
@@ -508,7 +510,8 @@ async def _title_page(request: Request, h: Hub, c: Caller, kind: str, *, q: str 
     stamp = cat.snapshot_stamp()
     tag = None
     if stamp is not None:
-        seed = json.dumps([kind, stamp, sorted(cat._kid_names()) if kids else [], sorted(allowed or []), args],
+        certs_seen = kidcerts.store(h).version if kids else 0  # a page changes as certifications arrive
+        seed = json.dumps([kind, stamp, sorted(cat._kid_names()) if kids else [], sorted(allowed or []), certs_seen, args],
                           sort_keys=True)
         tag = 'W/"' + hashlib.sha256(seed.encode()).hexdigest()[:20] + '"'
         if request.headers.get("if-none-match") == tag:
@@ -517,7 +520,11 @@ async def _title_page(request: Request, h: Hub, c: Caller, kind: str, *, q: str 
     fn = cat.series if kind == "series" else cat.movies
     body = await asyncio.to_thread(fn, **args)
     if allowed is not None:
-        body = kidratings.narrow(body, allowed)
+        certs = kidcerts.store(h)
+        if certs.warm_due():
+            await asyncio.to_thread(certs.warm)  # a scan of the whole library, kept off the loop
+            certs.kick()
+        body = kidratings.narrow(body, allowed, certs)
     headers = {"ETag": tag} if tag else {}
     return Response(json.dumps(body), media_type="application/json", headers=headers)
 
@@ -609,12 +616,13 @@ def _limit(limit: int) -> int:
 
 def _known(h: Hub, kind: str, item_id: str, kids_only: bool) -> None:
     # Any provider's film or series: the main list, or the light list of the provider the id names.
-    from .. import kidratings
+    from .. import kidcerts, kidratings
 
     row = h.tv_catalog.known_row(kind, item_id)
     if row is None or (kids_only and not h.tv_catalog._is_kids(row.get("category"))):
         raise error(404, "not_found", "That isn't in the library")
-    if kids_only and not kidratings.allows(kidratings.for_person(h, None), row.get("rating")):
+    judged = {**row, "id": item_id, "kind": "series" if kind == "series" else "movie"}
+    if kids_only and not kidratings.allows_item(kidratings.for_person(h, None), judged, kidcerts.store(h)):
         raise error(404, "not_found", "That isn't in the library")
 
 
