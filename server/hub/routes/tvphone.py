@@ -442,6 +442,72 @@ async def phone_progress(body: dict[str, Any], c: Caller = Depends(caller), h: H
     return {"ok": True, "position_s": position}
 
 
+def _subtitle_title(h: Hub, c: Caller, episode_id: str | None, movie_id: str | None,
+                    person: str | None) -> tuple[str, dict[str, Any], dict[str, Any]]:
+    """The title a subtitle call is about (its id, its row and, for an episode, its series row), after the same
+    kids' rule as `/play`."""
+    if getattr(c.subject, "tv", False):
+        kids_only, who = _media(h, c), c.subject.person_id
+    else:
+        who, kids_only = watcher(h, c, person[:64] if person else None)
+    cat = h.tv_catalog
+    if episode_id:
+        title_id, row = episode_id, cat.episode(episode_id)
+        series = cat.known_row("series", str((row or {}).get("series_id") or "")) or {}
+    elif movie_id:
+        title_id, row, series = movie_id, cat.movie(movie_id), {}
+    else:
+        raise error(400, "bad_params", "Pick a film or an episode")
+    if row is None or (kids_only and (not row.get("kids") or not _level_allows(h, c, who, row))):
+        raise error(404, "not_found", "That isn't in the library")
+    return title_id, row, series
+
+
+@router.get("/subtitles")
+async def phone_subtitles(episode_id: str | None = None, movie_id: str | None = None, lang: str = "en",
+                          person: str | None = None, c: Caller = Depends(caller),
+                          h: Hub = Depends(hub)) -> dict[str, Any]:
+    """Subtitles the hub can fetch for a film or episode that has none of its own in `lang`:
+    `{"subtitles":[{"id","lang","label","hearing_impaired","downloads","url"}], "reason"?}`, best first. Asked
+    only when the person opens Subtitles; `url` is the hub path of the WebVTT file. An empty list comes with a
+    short `reason` to show."""
+    from .. import playersubs, tvnames
+
+    await _ready(h)
+    title_id, row, series = _subtitle_title(h, c, episode_id, movie_id, person)
+    known = series if episode_id else row
+    name = tvnames.title(known.get("name") or row.get("series_name") or "").get("name")
+    async with _client(h, 10) as client:
+        out = await playersubs.search(
+            h, title_id, tmdb=str(known.get("tmdb") or "") or None, name=name,
+            year=str(known.get("year") or "") or None,
+            season=row.get("season") if episode_id else None, number=row.get("number") if episode_id else None,
+            lang=lang.lower()[:6], client=client)
+    pick = f"episode_id={quote(title_id)}" if episode_id else f"movie_id={quote(title_id)}"
+    who = f"&person={quote(person[:64])}" if person else ""
+    out["subtitles"] = [{**s, "url": f"/v1/tv/phone/subtitles/{s['id']}.vtt?{pick}{who}"} for s in out["subtitles"]]
+    return out
+
+
+@router.get("/subtitles/{file_id}.vtt")
+async def phone_subtitle_file(file_id: str, episode_id: str | None = None, movie_id: str | None = None,
+                              person: str | None = None, c: Caller = Depends(caller),
+                              h: Hub = Depends(hub)) -> Response:
+    """One subtitle the hub offered for this title, as WebVTT. The hub downloads it once and keeps it."""
+    from .. import playersubs
+
+    await _ready(h)
+    title_id, _row, _series = _subtitle_title(h, c, episode_id, movie_id, person)
+    if not await asyncio.to_thread(playersubs.offered, h, title_id, file_id):
+        raise error(404, "not_found", "That subtitle isn't on offer for this title")
+    try:
+        async with _client(h, 15) as client:
+            text = await playersubs.fetch(h, h.tv_app.dir / "subtitles", file_id, client)
+    except playersubs.SubtitleError as exc:
+        raise error(exc.status, exc.error, exc.message) from None
+    return Response(text, media_type="text/vtt; charset=utf-8", headers={"Cache-Control": "private, max-age=86400"})
+
+
 class QueueChange(BaseModel):
     add: str | None = Field(default=None, max_length=120)
     first: bool = False

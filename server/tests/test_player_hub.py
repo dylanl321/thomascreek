@@ -251,3 +251,87 @@ def test_play_next_queue_follows_the_person_and_keeps_to_kids_titles_for_a_child
     seen = theo.client.get("/v1/tv/phone/queue", headers=theo.h).json()["items"]
     assert [i["id"] for i in seen] == ["vod:thomas-creek:101"]
     assert change(dylan, clear=True) == []
+
+
+OS_SEARCH = {"data": [
+    {"attributes": {"language": "en", "release": "Cartoon.Show.S01E02.WEB", "hearing_impaired": True,
+                    "download_count": 900, "files": [{"file_id": 111, "file_name": "a.srt"}]}},
+    {"attributes": {"language": "en", "release": "Cartoon.Show.S01E02.BluRay", "download_count": 400,
+                    "files": [{"file_id": 222, "file_name": "b.srt"}]}},
+    {"attributes": {"language": "en", "release": "machine", "ai_translated": True, "download_count": 9999,
+                    "files": [{"file_id": 333}]}},
+    {"attributes": {"language": "en", "release": "two discs", "files": [{"file_id": 444}, {"file_id": 445}]}},
+]}
+SRT = "1\r\n00:00:01,000 --> 00:00:02,500\r\nHello there\r\n\r\n2\r\n00:00:03,000 --> 00:00:04,000\r\nCaf\xe9\r\n"
+
+
+def test_subtitles_are_searched_and_fetched_by_the_hub(hub, people, monkeypatch):
+    import httpx
+    import respx
+
+    from hub import playersubs
+
+    _library(hub)
+    _two_episodes(hub)
+    _with_tmdb(hub, monkeypatch)
+    dylan = people["phones"]["Dylan"]
+    url = "/v1/tv/phone/subtitles?episode_id=ep:thomas-creek:901"
+    # Without a key: an empty list and why, and nothing is asked.
+    none = dylan.client.get(url, headers=dylan.h).json()
+    assert none["subtitles"] == [] and "key" in none["reason"]
+    hub.vault.set(playersubs.KEY, "os-test-key")
+    with respx.mock(assert_all_called=False) as mock:
+        search = mock.get(f"{playersubs.API}/subtitles").mock(return_value=httpx.Response(200, json=OS_SEARCH))
+        ticket = mock.post(f"{playersubs.API}/download").mock(
+            return_value=httpx.Response(200, json={"link": "https://dl.example/b.srt", "file_name": "b.srt"}))
+        mock.get("https://dl.example/b.srt").mock(return_value=httpx.Response(200, content=SRT.encode("cp1252")))
+        got = dylan.client.get(url, headers=dylan.h)
+        assert got.status_code == 200, got.text
+        subs = got.json()["subtitles"]
+        # Made by people, one file each; the plain one before the one for the hard of hearing.
+        assert [s["id"] for s in subs] == ["222", "111"] and subs[0]["label"] == "Cartoon.Show.S01E02.BluRay"
+        asked = dict(search.calls.last.request.url.params)
+        assert asked == {"languages": "en", "parent_tmdb_id": "1396", "season_number": "1", "episode_number": "2"}
+        assert search.calls.last.request.headers["Api-Key"] == "os-test-key"
+        assert "os-test-key" not in got.text
+        # Kept for the house: the second ask is not a second search.
+        assert dylan.client.get(url, headers=dylan.h).json()["subtitles"] == subs and search.call_count == 1
+
+        file = dylan.client.get(subs[0]["url"], headers=dylan.h)
+        assert file.status_code == 200 and file.headers["content-type"].startswith("text/vtt")
+        assert file.text.startswith("WEBVTT\n\n1\n00:00:01.000 --> 00:00:02.500\nHello there") and "Café" in file.text
+        # Downloaded once (the service counts them), then served from the hub.
+        assert dylan.client.get(subs[0]["url"], headers=dylan.h).text == file.text and ticket.call_count == 1
+        # Only a file the hub offered for this title is ever downloaded.
+        other = "/v1/tv/phone/subtitles/999.vtt?episode_id=ep:thomas-creek:901"
+        assert dylan.client.get(other, headers=dylan.h).status_code == 404 and ticket.call_count == 1
+        wrong = "/v1/tv/phone/subtitles/222.vtt?episode_id=ep:thomas-creek:900"
+        assert dylan.client.get(wrong, headers=dylan.h).status_code == 404
+
+
+def test_subtitles_say_why_when_the_service_fails_and_keep_the_kids_rule(hub, people, monkeypatch):
+    import httpx
+    import respx
+
+    from hub import playersubs
+
+    _library(hub)
+    _two_episodes(hub, "series:thomas-creek:51")     # a "Drama Show" episode
+    hub.vault.set(playersubs.KEY, "os-test-key")
+    dylan, theo = people["phones"]["Dylan"], people["phones"]["Theo"]
+    url = "/v1/tv/phone/subtitles?episode_id=ep:thomas-creek:901&lang=de"
+    with respx.mock(assert_all_called=False) as mock:
+        search = mock.get(f"{playersubs.API}/subtitles").mock(side_effect=httpx.ConnectError("down"))
+        got = dylan.client.get(url, headers=dylan.h)
+        assert got.status_code == 200
+        assert got.json() == {"subtitles": [], "reason": "The subtitle service didn't answer"}
+        # No TMDB id: searched by the series' clean name.
+        asked = dict(search.calls.last.request.url.params)
+        assert asked["query"] == "Drama Show" and asked["languages"] == "de" and "parent_tmdb_id" not in asked
+    assert theo.client.get(url, headers=theo.h).status_code == 404
+    file = "/v1/tv/phone/subtitles/222.vtt?episode_id=ep:thomas-creek:901"
+    assert theo.client.get(file, headers=theo.h).status_code == 404
+    assert dylan.client.get("/v1/tv/phone/subtitles", headers=dylan.h).status_code == 400
+    assert playersubs.to_vtt(b"not a subtitle") is None
+    vtt = "WEBVTT\n\n00:01.000 --> 00:02.000\nHi"
+    assert playersubs.to_vtt(vtt.encode()) == vtt + "\n"
