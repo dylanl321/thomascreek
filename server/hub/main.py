@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import time
@@ -19,6 +20,7 @@ from .routes import mcp as mcp_routes
 from .routes import admin_web, alerts, ambient, people_web, appupdate, art, assistant, auth, brain, cameras, catalog, climate, downloads, dvr, family, feasts, fleet_web, home, home_alerts, household, iptvplay, kitchen, layout, lights, me, media, media_requests, nas, network, people, printers, recipes, remotes, search, smart, titles, trips, tvapp, tvfleet, tvguide, tvcameras, tvpair, tvphone, tvs, weather, youtube
 from .routes.deps import http_error_handler
 from .state import Hub
+from .timings import HOST_EVERY_S, HostLoad, TimingMiddleware, Timings
 from .routes import sends as sends_routes
 from .routes import phonelogs, phoneproviders
 from .vault import Vault, load_master_key
@@ -32,6 +34,7 @@ def build_app(hub: Hub | None = None, *, start_background: bool = True) -> FastA
         h: Hub = app.state.hub
         zc = None
         dog = None
+        host_task = None
         if start_background:
             # A hub whose loop is stuck restarts itself and leaves a note on where (see watchdog.py).
             from .watchdog import Watchdog
@@ -40,11 +43,20 @@ def build_app(hub: Hub | None = None, *, start_background: bool = True) -> FastA
             dog.start()
             app.state.watchdog = dog
             await h.start()
+
+            async def host_loop() -> None:
+                while True:
+                    await asyncio.to_thread(app.state.host_load.sample)
+                    await asyncio.sleep(HOST_EVERY_S)
+
+            host_task = asyncio.create_task(host_loop())
             if h.config.hub.bonjour:
                 from .bonjour import advertise
 
                 zc = await advertise(h)
         yield
+        if host_task is not None:
+            host_task.cancel()
         if zc is not None:
             await zc.async_close()
         await h.stop()
@@ -62,6 +74,9 @@ def build_app(hub: Hub | None = None, *, start_background: bool = True) -> FastA
     if hub is None:
         hub = default_hub()
     app.state.hub = hub
+    app.state.timings = Timings()
+    app.state.host_load = HostLoad()
+    hub.timings, hub.host_load = app.state.timings, app.state.host_load  # for the admin page
     app.add_exception_handler(HTTPException, http_error_handler)  # type: ignore[arg-type]
 
     async def validation_handler(_req, exc: RequestValidationError):
@@ -86,6 +101,20 @@ def build_app(hub: Hub | None = None, *, start_background: bool = True) -> FastA
         dog = getattr(app.state, "watchdog", None)
         rows = list(dog.samples) if dog is not None else []
         return {"running": dog is not None, "stalls": rows[::-1]}
+
+    @app.get("/v1/ping/timings", tags=["meta"])
+    async def ping_timings(request: Request, window: int | None = None) -> dict[str, Any]:
+        """Home network only, no sign-in: p50, p95 and the slowest answer per route (route templates only, never an
+        address or an id), and how busy the NAS and the hub are. `window` = only the last that many seconds."""
+        from .routes.deps import caller_ip, error
+
+        if not hub.is_home(caller_ip(request, hub)):
+            raise error(403, "not_home", "Only on the home network")
+        t: Timings = app.state.timings
+        host: HostLoad = app.state.host_load
+        return {"since": round(t.since), "version": __version__, "build": os.environ.get("HUB_BUILD"),
+                "host": host.last(), "host_hour": host.hour(),
+                "routes": t.summary(window_s=float(window) if window else None)}
 
     @app.get("/v1/hello", tags=["meta"])
     async def hello() -> dict[str, Any]:
@@ -169,6 +198,8 @@ def build_app(hub: Hub | None = None, *, start_background: bool = True) -> FastA
               cameras.router, kitchen.router, nas.router, printers.router, remotes.router, tvapp.router, tvapp.tv_router, tvguide.router, tvphone.router, phonelogs.router, phoneproviders.router, catalog.router, iptvplay.router, tvfleet.router, tvpair.router, tvs.router, tvs.tv_router, home_alerts.router, tvcameras.router, ambient.router, art.router, dvr.router, titles.router, layout.router, recipes.router, search.router, lights.router, appupdate.router, lights.pages, admin_web.api, admin_web.pages, people_web.pages, fleet_web.pages, downloads.router,
               assistant.router, brain.router, youtube.router, smart.router, weather.router, climate.router, me.router, household.router, household.pages):
         app.include_router(r)
+    # Outermost, so its time covers every other middleware too.
+    app.add_middleware(TimingMiddleware, timings=app.state.timings)
     return app
 
 
