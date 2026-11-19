@@ -112,11 +112,14 @@ async def phone_play(body: dict[str, Any], response: Response, c: Caller = Depen
     if body.get("direct") is True and not getattr(c.subject, "tv", False):
         # Straight from the provider (the travel phone, Dylan's choice Nov 2026): the address carries a login,
         # so it goes only to this signed-in phone and is never logged.
-        from ..iptvplay import busy_reason, direct_all, refresh_usage
+        from ..iptvplay import busy_reason, direct_all, read_twins, refresh_usage, warm_twins
 
         await refresh_usage(h, key)
         lap("usage")
         urls = direct_all(h, key, f"phone:{c.device['id']}")
+        if not urls and mode == "episode" and await read_twins(h, key):
+            urls = direct_all(h, key, f"phone:{c.device['id']}")  # the same episode from another provider
+        warm_twins(h, key)
         lap("lease")
         url = urls[0] if urls else None
         if not url:
@@ -143,11 +146,14 @@ async def phone_play(body: dict[str, Any], response: Response, c: Caller = Depen
         lap("resume", done=True)
         return out_direct
     # The hub relays it, on a login leased to this phone like a TV's (one stream per login).
-    from ..iptvplay import busy_reason, lease, refresh_usage
+    from ..iptvplay import busy_reason, lease, read_twins, refresh_usage, warm_twins
 
     await refresh_usage(h, key)
     lap("usage")
     held = lease(h, key, f"phone:{c.device['id']}")
+    if held is None and mode == "episode" and await read_twins(h, key):
+        held = lease(h, key, f"phone:{c.device['id']}")  # the same episode from another provider
+    warm_twins(h, key)
     lap("lease")
     if held is None:
         raise error(503, "busy", busy_reason(h, key))

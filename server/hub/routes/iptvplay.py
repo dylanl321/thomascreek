@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import RedirectResponse
 
 from ..iptvcanon import copies
-from ..iptvplay import accounts, fail_checked, target, tune
+from ..iptvplay import accounts, fail_checked, read_twins, target, tune, warm_twins
 from ..policy import Target
 from ..tvapp import TvAppError
 from .deps import Caller, caller, caller_ip, error, hub, need
@@ -53,7 +53,11 @@ async def tv_tune(body: dict[str, Any], c: Caller = Depends(caller), h=Depends(h
         where = Target(entity_id=tv.get("media_entity") or tv_id, area=tv.get("room"), kind="tv")
         if not h.policy.decide(c.subject, "tv.play", where, {}).allowed:
             return {"ok": False, "message": "That room isn't one you can use."}
-    return tune(h, canonical_id, tv_id)
+    out = tune(h, canonical_id, tv_id)
+    if not out.get("ok") and canonical_id.startswith("ep:") and await read_twins(h, canonical_id):
+        out = tune(h, canonical_id, tv_id)  # the same episode from another provider
+    warm_twins(h, canonical_id)
+    return out
 
 
 @router.post("/tune/fail")

@@ -324,7 +324,8 @@ def lease(h: Any, ref: str, holder: str, *, avoid: set[str] | None = None,
     now = time.time() if now is None else now
     _release_idle(h, now)
     _kind, provider, _stream = _split_ref(ref)
-    item = _holding(h, ref) or {"id": ref, "sources": [{"provider": provider, "ref": ref, "quality": None}]}
+    item = _holding(h, ref) or _episode(h, ref) or {"id": ref, "sources": [{"provider": provider, "ref": ref,
+                                                                              "quality": None}]}
     mine = {_key(row) for row in _sessions(h) if row.get("tv") == holder}
     _release_tv(h, holder)
     # The stream this holder just let go may still be counted by the provider; it is this holder's to reuse.
@@ -371,7 +372,7 @@ async def refresh_usage(h: Any, ref: str, *, budget_s: float = 3.0, now: float |
 
     now = time.time() if now is None else now
     _kind, provider, _stream = _split_ref(ref)
-    item = _holding(h, ref)
+    item = _holding(h, ref) or _episode(h, ref)
     providers = {str(src.get("provider")) for src in (item or {}).get("sources") or []} or {provider}
     usage = _usage(h)
     transport = getattr(getattr(h, "tv_catalog", None), "_transport", None)
@@ -401,7 +402,7 @@ async def refresh_usage(h: Any, ref: str, *, budget_s: float = 3.0, now: float |
 
 def busy_reason(h: Any, ref: str) -> str:
     """Why no login is free for this title, in words the phone can show: who holds each login that carries it."""
-    item = _holding(h, ref)
+    item = _holding(h, ref) or _episode(h, ref)
     _kind, provider, _stream = _split_ref(ref)
     providers = {str(src.get("provider")) for src in (item or {}).get("sources") or []} or {provider}
     names = {tv_id: str(tv.get("name") or "a TV") for tv_id, tv in (h.tv_app.tvs() or {}).items()} \
@@ -725,7 +726,79 @@ def _episode(h: Any, ref: str) -> dict[str, Any] | None:
     if not known:
         return None
     _kind, provider, _stream = _split_ref(ref)
-    return {"id": ref, "sources": [{"provider": provider, "ref": ref, "quality": None}]}
+    sources = [{"provider": provider, "ref": ref, "quality": None}]
+    sources += [{"provider": _split_ref(twin)[1], "ref": twin, "quality": None} for twin in _twins(h, known)]
+    return {"id": ref, "sources": sources}
+
+
+def _twin_series(h: Any, series_id: str) -> list[str]:
+    """The same show on the other providers: the folded series' other copies (Nov 19 2026: episodes played only
+    from the provider they were listed under, so a show competed for that provider's logins alone)."""
+    from .iptvcanon import index
+
+    item = index(h.db).by_ref.get(series_id) if series_id else None
+    return [str(src["ref"]) for src in (item or {}).get("sources") or []
+            if src.get("ref") and str(src["ref"]).startswith("series:") and src["ref"] != series_id]
+
+
+def _twins(h: Any, known: dict[str, Any]) -> list[str]:
+    """The same episode (season and number) on the other providers, from series pages the hub has already read."""
+    season, number = known.get("season"), known.get("number")
+    if season is None or number is None:
+        return []
+    catalog = getattr(h, "tv_catalog", None)
+    try:
+        read = catalog._details()["series"] if catalog is not None else {}
+    except Exception:  # noqa: BLE001 - a catalog read must not stop playback
+        return []
+    out = []
+    for other in _twin_series(h, str(known.get("series_id") or "")):
+        for part in (read.get(other) or {}).get("seasons") or []:
+            if part.get("number") != season:
+                continue
+            match = next((ep for ep in part.get("episodes") or [] if ep.get("number") == number), None)
+            if match and match.get("id"):
+                out.append(str(match["id"]))
+    return out
+
+
+def warm_twins(h: Any, ref: str) -> None:
+    """`read_twins` in the background after an episode starts, so the next episode of the show has its copies."""
+    if not ref.startswith("ep:"):
+        return
+    try:
+        task = asyncio.get_running_loop().create_task(read_twins(h, ref, budget_s=30))
+    except RuntimeError:
+        return
+    _WARMING.add(task)
+    task.add_done_callback(_WARMING.discard)
+
+
+_WARMING: set[Any] = set()
+
+
+async def read_twins(h: Any, ref: str, *, budget_s: float = 4.0) -> int:
+    """Read the other providers' pages for this episode's show, so the same episode can play from them. Pages read
+    within a day are kept (`fetch_series`). Gives up after `budget_s`. How many copies of the episode are known."""
+    catalog = getattr(h, "tv_catalog", None)
+    known = catalog.episode(ref) if catalog is not None and ref.startswith("ep:") else None
+    if not known or catalog is None:
+        return 0
+    others = _twin_series(h, str(known.get("series_id") or ""))
+    if not others:
+        return 0
+
+    async def one(series_id: str) -> None:
+        try:
+            await catalog.fetch_series(series_id)
+        except Exception as exc:  # noqa: BLE001 - another provider's page is a bonus, never a failure
+            log.info("iptv: the other copy of a show wasn't read (%s)", type(exc).__name__)
+
+    try:
+        await asyncio.wait_for(asyncio.gather(*(one(s) for s in others[:3])), timeout=budget_s)
+    except asyncio.TimeoutError:
+        log.info("iptv: other copies of a show took over %.0f s", budget_s)
+    return len(_twins(h, known))
 
 
 def _mark_failed(h: Any, row: dict[str, Any], now: float) -> None:
