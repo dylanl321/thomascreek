@@ -63,6 +63,18 @@ def test_a_child_never_reads_an_adult_title_in_a_busy_answer(hub, people):
     assert _play(theo).json()["holders"] == [{"kind": "phone", "name": dylan.name, "title": "Kids Movie"}]
 
 
+def test_a_busy_answer_names_the_hub_when_its_own_job_holds_the_login(hub, people):
+    from hub.iptvplay import direct
+
+    _library(hub)
+    _login(hub)
+    assert direct(hub, FILM["movie_id"], "hub:thumbs")
+    busy = _play(people["phones"]["Avery"], direct=True)
+    assert busy.status_code == 503, busy.text
+    assert busy.json()["holders"][0]["kind"] == "hub"
+    assert busy.json()["holders"][0]["name"] == "The hub (making previews)"
+
+
 def test_player_settings_follow_the_person(hub, people, home_client):
     dylan = people["phones"]["Dylan"]
     r = home_client.patch("/v1/me/settings", headers=dylan.h, json={"changes": {
