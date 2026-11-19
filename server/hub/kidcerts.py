@@ -29,7 +29,7 @@ MISS_TTL_S = 14 * 86400
 MAX_PENDING = 5000
 BATCH = 8
 SAVE_EVERY_S = 30.0
-START_QUIET_S = 300.0  # the hub's own start-up reads come first; the warm scan waits this long after start
+START_QUIET_S = 90.0  # the hub's own start-up reads come first; the warm scan waits this long after start
 _STARTED = time.monotonic()
 US = "US"
 
