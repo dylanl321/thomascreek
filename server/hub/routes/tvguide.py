@@ -57,6 +57,16 @@ def watcher(h: Hub, c: Caller, person: str | None) -> tuple[str | None, bool]:
     return str(found["id"]), True
 
 
+def _kids_for(h: Hub, c: Caller, person: str | None) -> tuple[bool, str | None]:
+    """Whether this answer is kids-only, and the child it is for. A grown-up's phone naming a child (`person`)
+    gets that child's titles; naming anyone else, or nobody, changes nothing. Naming only ever narrows."""
+    kids = _media(h, c)
+    watching = next((p for p in household(h.db) if p["id"] == person), None) if person else None
+    if watching is not None and watching.get("role") == "child":
+        return True, str(watching["id"])
+    return kids, None
+
+
 def child_ratings(h: Hub, c: Caller, person: str | None = None) -> set[str] | None:
     """The ratings this caller may see when it is a child or watches as one (`kidratings`), or None for a
     grown-up. A kids' TV or a child's screen with nobody named gets the strictest child's level."""
@@ -451,11 +461,13 @@ def _sort(sort: str) -> str:
 
 @router.get("/series")
 async def series(request: Request, q: str | None = None, category: str | None = None, limit: int = 60,
-                 offset: int = 0, sort: str = "name", c: Caller = Depends(caller), h: Hub = Depends(hub)) -> Any:
+                 offset: int = 0, sort: str = "name", person: str | None = None, c: Caller = Depends(caller),
+                 h: Hub = Depends(hub)) -> Any:
     """Series in the provider library, a page at a time (`offset`, `limit` up to 100, `total`), sorted by `name`,
     `year` or `added`. Sends an `ETag`; the same page asked with `If-None-Match` while the library is unchanged
     answers 304 with no body."""
-    return await _title_page(request, h, c, "series", q=q, category=category, limit=limit, offset=offset, sort=sort)
+    return await _title_page(request, h, c, "series", q=q, category=category, limit=limit, offset=offset, sort=sort,
+                             person=person)
 
 
 @router.get("/series/{series_id:path}")
@@ -472,15 +484,22 @@ async def one_series(series_id: str, c: Caller = Depends(caller), h: Hub = Depen
 
 @router.get("/movies")
 async def movies(request: Request, q: str | None = None, category: str | None = None, limit: int = 60,
-                 offset: int = 0, sort: str = "name", c: Caller = Depends(caller), h: Hub = Depends(hub)) -> Any:
+                 offset: int = 0, sort: str = "name", person: str | None = None, c: Caller = Depends(caller),
+                 h: Hub = Depends(hub)) -> Any:
     """Movies in the provider library, a page at a time (`offset`, `limit` up to 100, `total`), sorted by `name`,
     `year` or `added`. Sends an `ETag`, like /series."""
-    return await _title_page(request, h, c, "movies", q=q, category=category, limit=limit, offset=offset, sort=sort)
+    return await _title_page(request, h, c, "movies", q=q, category=category, limit=limit, offset=offset, sort=sort,
+                             person=person)
 
 
 async def _title_page(request: Request, h: Hub, c: Caller, kind: str, *, q: str | None, category: str | None,
-                      limit: int, offset: int, sort: str) -> Any:
-    kids = _media(h, c)
+                      limit: int, offset: int, sort: str, person: str | None = None) -> Any:
+    from .. import kidratings
+
+    kids, person = _kids_for(h, c, person)
+    # A child's page holds only what that child's level allows (`kidratings`). A page may hold fewer than
+    # `limit` cards then; `total` stays the kids' library's.
+    allowed = (child_ratings(h, c, person) or kidratings.for_person(h, person)) if kids else None
     await _ready(h)
     args: dict[str, Any] = {"q": q, "category": category, "kids_only": kids, "limit": _limit(limit),
             "offset": max(0, offset),
@@ -489,13 +508,16 @@ async def _title_page(request: Request, h: Hub, c: Caller, kind: str, *, q: str 
     stamp = cat.snapshot_stamp()
     tag = None
     if stamp is not None:
-        seed = json.dumps([kind, stamp, sorted(cat._kid_names()) if kids else [], args], sort_keys=True)
+        seed = json.dumps([kind, stamp, sorted(cat._kid_names()) if kids else [], sorted(allowed or []), args],
+                          sort_keys=True)
         tag = 'W/"' + hashlib.sha256(seed.encode()).hexdigest()[:20] + '"'
         if request.headers.get("if-none-match") == tag:
             return Response(status_code=304, headers={"ETag": tag})
     # SQLite does the scan (phase 3) without holding the loop; the snapshot fallback runs here too.
     fn = cat.series if kind == "series" else cat.movies
     body = await asyncio.to_thread(fn, **args)
+    if allowed is not None:
+        body = kidratings.narrow(body, allowed)
     headers = {"ETag": tag} if tag else {}
     return Response(json.dumps(body), media_type="application/json", headers=headers)
 
@@ -522,12 +544,7 @@ async def library_search(q: str, response: Response, person: str | None = None, 
 
     The work runs off the event loop (it reads the whole library), so a search never holds up other calls, and
     `Server-Timing` says how long each part took."""
-    kids = _media(h, c)
-    watching = next((p for p in household(h.db) if p["id"] == person), None) if person else None
-    if watching is not None and watching.get("role") == "child":
-        kids = True
-    else:
-        person = None
+    kids, person = _kids_for(h, c, person)
     if len(q.strip()) < 2:
         raise error(400, "bad_request", "Type at least two letters")
     timing: dict[str, float] = {}
