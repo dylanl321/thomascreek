@@ -567,7 +567,10 @@ async def library_search(q: str, response: Response, person: str | None = None, 
     def run() -> dict[str, Any]:
         # How long the search waited for a worker thread: the part of `total` no other lap covered (Nov 19 2026).
         timing["wait"] = round((time.perf_counter() - queued) * 1000, 1)
-        return h.tv_catalog.search(q, kids_only=kids, timing=timing)
+        # The grown-up section leaves before the top 20 is cut, or its titles crowd out the real matches and
+        # `_grown_up_search` leaves nothing (Nov 19 2026: "friends" found no films). Kids never see it anyway.
+        hide = None if kids or _ASKS_ADULT.search(q.lower()) else h.tv_catalog.categories_matching(_ADULT)
+        return h.tv_catalog.search(q, kids_only=kids, timing=timing, skip_categories=hide)
 
     found = await asyncio.to_thread(run)
     for card in found.get("channels") or []:
