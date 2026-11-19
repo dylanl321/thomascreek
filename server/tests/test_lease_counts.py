@@ -48,3 +48,15 @@ def test_busy_says_who_holds_the_login(hub, people):
     assert busy.status_code == 503
     assert "a phone" in busy.json()["message"] and "in use" in busy.json()["message"]
     assert "phone" in busy_reason(hub, "vod:thomas-creek:101")
+
+
+def test_a_play_says_how_long_each_step_took(hub, people):
+    _library(hub)
+    _login(hub)
+    dylan = people["phones"]["Dylan"]
+    for direct in (False, True):
+        r = dylan.client.post("/v1/tv/phone/play", headers=dylan.h,
+                              json={"movie_id": "vod:thomas-creek:101", "player": "exo", "direct": direct})
+        assert r.status_code == 200
+        steps = [part.split(";")[0] for part in r.headers["Server-Timing"].split(", ")]
+        assert steps == ["ready", "row", "usage", "lease", "resume"]

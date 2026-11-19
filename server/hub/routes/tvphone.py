@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import ipaddress
+import logging
 import secrets
 import shutil
 import time
@@ -39,6 +40,8 @@ from ..upnext import remember, resume_at, who_key
 from .tvguide import _media, _ready, watcher
 from ..faults import note
 
+log = logging.getLogger("hub.tvphone")
+
 router = APIRouter(prefix="/v1/tv/phone", tags=["tv"])
 
 AUD = "tv-phone"
@@ -58,7 +61,8 @@ def _stream_id(key: str) -> str:
 
 
 @router.post("/play")
-async def phone_play(body: dict[str, Any], c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+async def phone_play(body: dict[str, Any], response: Response, c: Caller = Depends(caller),
+                     h: Hub = Depends(hub)) -> dict[str, Any]:
     """{movie_id} | {episode_id} | {channel_key} -> a hub path the phone's player opens.
 
     `player: "exo"` (optional) says the phone plays with Media3, as an Android phone does, so MKV and the other
@@ -68,12 +72,16 @@ async def phone_play(body: dict[str, Any], c: Caller = Depends(caller), h: Hub =
     pass: a free login is held for this phone like a TV's, kept by `/hold` and freed by `/hold {"stop":true}`.
 
     `person` (optional) is who is watching on a grown-up's phone: one of the children, so only kids' titles play
-    and the place is kept for them (see tvguide.watcher)."""
+    and the place is kept for them (see tvguide.watcher).
+
+    `Server-Timing` says how long each step took (ready, row, usage, lease, resume), so a slow start is found."""
+    lap = _Laps(response)
     if getattr(c.subject, "tv", False):
         kids_only, person = _media(h, c), c.subject.person_id
     else:
         person, kids_only = watcher(h, c, _person(body))
     await _ready(h)
+    lap("ready")
     cat = h.tv_catalog
     kind = next((k for k in ("movie_id", "episode_id", "channel_key") if body.get(k)), None)
     if kind is None:
@@ -94,6 +102,7 @@ async def phone_play(body: dict[str, Any], c: Caller = Depends(caller), h: Hub =
             row = cat.episode(key)
     else:
         row, mode = cat.channel(key), "live"
+    lap("row")
     if row is None or (kids_only and not row.get("kids")):
         raise error(404, "not_found", "That isn't in the library")
     ext = "m3u8" if mode == "live" else str(row.get("ext") or "mp4").lower()
@@ -106,7 +115,9 @@ async def phone_play(body: dict[str, Any], c: Caller = Depends(caller), h: Hub =
         from ..iptvplay import busy_reason, direct_all, refresh_usage
 
         await refresh_usage(h, key)
+        lap("usage")
         urls = direct_all(h, key, f"phone:{c.device['id']}")
+        lap("lease")
         url = urls[0] if urls else None
         if not url:
             raise error(503, "busy", busy_reason(h, key))
@@ -129,12 +140,15 @@ async def phone_play(body: dict[str, Any], c: Caller = Depends(caller), h: Hub =
             # The same stream on the provider's backup addresses (same login), to try in order when `url` won't play.
             out_direct["alternates"] = alternates
         _resume(h, person, body, mode, key, row, out_direct)
+        lap("resume", done=True)
         return out_direct
     # The hub relays it, on a login leased to this phone like a TV's (one stream per login).
     from ..iptvplay import busy_reason, lease, refresh_usage
 
     await refresh_usage(h, key)
+    lap("usage")
     held = lease(h, key, f"phone:{c.device['id']}")
+    lap("lease")
     if held is None:
         raise error(503, "busy", busy_reason(h, key))
     token, exp = h.tokens.issue_scoped({"aud": AUD, "k": mode, "s": _stream_id(key), "x": ext,
@@ -147,7 +161,25 @@ async def phone_play(body: dict[str, Any], c: Caller = Depends(caller), h: Hub =
     out: dict[str, Any] = {"url": path, "kind": mode, "title": title, "expires_at": exp}
     _cast_fields(out, mode, ext, token, cast=body.get("cast") is True)
     _resume(h, person, body, mode, key, row, out)
+    lap("resume", done=True)
     return out
+
+
+class _Laps:
+    """Milliseconds per step of a play, sent as `Server-Timing` and logged when the whole call is over a second."""
+
+    def __init__(self, response: Response) -> None:
+        self.response, self.start = response, time.perf_counter()
+        self.last, self.parts = self.start, []  # type: ignore[var-annotated]
+
+    def __call__(self, name: str, *, done: bool = False) -> None:
+        now = time.perf_counter()
+        self.parts.append(f"{name};dur={(now - self.last) * 1000:.0f}")
+        self.last = now
+        if done:
+            self.response.headers["Server-Timing"] = ", ".join(self.parts)
+            if now - self.start > 1.0:
+                log.info("tv.phone.play slow: %s", self.response.headers["Server-Timing"])
 
 
 def _relay_pass(h: Hub, c: Caller, mode: str, key: str, ext: str) -> str | None:

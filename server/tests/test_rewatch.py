@@ -77,3 +77,17 @@ def test_the_models_list_is_kept_a_month_and_a_miss_keeps_the_classics(hub):
 def test_only_a_json_list_of_names_is_read():
     assert rewatch.read_titles('Sure! {"titles": ["Friends", "Friends", "", 3]}') == ["Friends"]
     assert rewatch.read_titles("no json here") == []
+
+
+def test_shows_without_a_picture_are_left_out_of_a_full_row():
+    names = ["Seinfeld", "Friends", "Frasier", "Cheers", "Scrubs", "Community", "Monk", "Psych"]
+    library = [{"kind": "series", "series_id": f"series:x:{n}", "title": name, "poster_url": f"/art/{n}",
+                "art_known": name not in ("Monk", "Psych")} for n, name in enumerate(names)]
+    got = [i["title"] for i in rewatch.row(library, list(rewatch.CLASSICS))]
+    assert sorted(got) == sorted(names[:6])  # six with pictures: no grey tiles
+    few = [item for item in library if item["title"] in ("Seinfeld", "Monk")]
+    assert [i["title"] for i in rewatch.row(few, list(rewatch.CLASSICS))] == ["Seinfeld", "Monk"]  # pictures first
+    # The copy with a picture wins over one without.
+    copies = [{"kind": "series", "series_id": "series:a:1", "title": "Monk", "art_known": False, "poster_url": "/a"},
+              {"kind": "series", "series_id": "series:b:1", "title": "Monk", "art_known": True, "poster_url": "/b"}]
+    assert rewatch.row(copies, list(rewatch.CLASSICS))[0]["series_id"] == "series:b:1"
