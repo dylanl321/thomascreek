@@ -30,3 +30,17 @@ def test_unknown_titles_and_missing_ids_say_so(hub, people):
     assert dylan.client.get("/v1/tv/phone/available", headers=dylan.h,
                             params={"movie_id": "vod:thomas-creek:nope"}).status_code == 404
     assert lease is not None
+
+
+def test_an_episode_read_straight_from_the_provider_answers_for_its_series(hub, people):
+    # Phone 0.13.0 walkthrough: show pages asked with an episode id the hub hadn't read and got 404.
+    _library(hub)
+    _login(hub)
+    dylan, theo = people["phones"]["Dylan"], people["phones"]["Theo"]
+    ask = {"episode_id": "ep:thomas-creek:99999", "series_id": "series:thomas-creek:51"}
+    got = dylan.client.get("/v1/tv/phone/available", headers=dylan.h, params=ask)
+    assert got.status_code == 200 and got.json()["state"] == "ready"
+    assert dylan.client.get("/v1/tv/phone/available", headers=dylan.h,
+                            params={"episode_id": "ep:thomas-creek:99999"}).status_code == 404
+    # A child never gets an answer this way (the kids' rules read only episodes the hub knows).
+    assert theo.client.get("/v1/tv/phone/available", headers=theo.h, params=ask).status_code == 404

@@ -103,3 +103,19 @@ def test_a_child_row_takes_only_kids_shows_even_when_a_sitcom_is_rated_for_kids(
     assert kid == ["bluey", "paw patrol"]
     grown = {rewatch.norm(i["title"]) for i in rewatch.row(library, list(rewatch.CLASSICS))}
     assert "friends" in grown and "bluey" in grown
+
+
+def test_a_kids_feed_saved_before_the_kids_list_drops_grown_up_shows_when_served(hub):
+    from hub import tvexplore
+
+    raw = {"kids": {"hero": None, "rows": [
+        {"id": "acclaimed", "title": "Must watch", "items": [{"title": "Swapped", "kind": "movie"}]},
+        {"id": "rewatch", "title": "Shuffle a favorite", "items": [
+            {"title": "Seinfeld", "kind": "series"}, {"title": "EN - Bluey", "kind": "series"}]},
+    ]}}
+    hub.db.kv_set(tvexplore.KV, raw)
+    rows = {row["id"]: row for row in tvexplore.feed(hub, "kids")["rows"]}
+    assert [card["title"] for card in rows["rewatch"]["items"]] == ["EN - Bluey"]
+    raw["kids"]["rows"][1]["items"] = [{"title": "Friends", "kind": "series"}]
+    hub.db.kv_set(tvexplore.KV, raw)
+    assert [row["id"] for row in tvexplore.feed(hub, "kids")["rows"]] == ["acclaimed"]

@@ -402,10 +402,13 @@ async def phone_progress(body: dict[str, Any], c: Caller = Depends(caller), h: H
 
 @router.get("/available")
 async def phone_available(movie_id: str | None = None, episode_id: str | None = None,
-                          channel_key: str | None = None, person: str | None = None,
+                          channel_key: str | None = None, person: str | None = None, series_id: str | None = None,
                           c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
     """Whether Play would start now and from how many copies, for a details page, without taking a login.
-    {"state": "ready" | "busy", "copies", "providers", "reason" when busy}. A child's title only for a child."""
+    {"state": "ready" | "busy", "copies", "providers", "reason" when busy}. A child's title only for a child.
+
+    An episode a grown-up's phone read straight from the provider is not known here yet; with its `series_id`
+    the answer is the series' (its copies on every provider), without reading the series."""
     if getattr(c.subject, "tv", False):
         kids_only = _media(h, c)
     else:
@@ -418,6 +421,10 @@ async def phone_available(movie_id: str | None = None, episode_id: str | None = 
     row = cat.movie(key) if movie_id else cat.episode(key) if episode_id else cat.channel(key)
     if row is None and movie_id and hasattr(cat, "extra_movie"):
         row = cat.extra_movie(key)
+    sid = str(series_id or "")
+    if row is None and episode_id and not kids_only and sid.startswith("series:"):
+        row = cat.known_row("series", sid)
+        key = sid if row is not None else key
     if row is None or (kids_only and not row.get("kids")):
         raise error(404, "not_found", "That isn't in the library")
     from ..playnow import availability
