@@ -450,6 +450,75 @@ def held_by(h: Any, holder: str) -> dict[str, Any] | None:
     return next((row for row in _sessions(h) if row.get("tv") == holder), None)
 
 
+def source_view(h: Any, holder: str, *, route: str, address: int = 1,
+                addresses: int | None = None) -> dict[str, Any] | None:
+    """What a player may show about the stream `holder` has now (its "Stats" panel): the route it takes, the
+    provider's name, which of that provider's logins it holds and how many addresses the provider has.
+
+    Numbers and a name only: never an address, a username or a login's own id, so the answer is safe to show
+    on a screen and to keep in the log."""
+    row = held_by(h, holder)
+    if row is None:
+        return None
+    provider = str(row.get("provider") or "")
+    pool = logins(h)
+    order = sorted(lg["login"] for lg in pool if lg["provider"] == provider)
+    names = {lg["provider"]: str(lg.get("name") or lg["provider"]) for lg in pool}
+    names.update(provider_names(h))
+    total = addresses if addresses is not None else len(addresses_for(h, str(row.get("session")), holder))
+    out: dict[str, Any] = {
+        "route": route, "provider": names.get(provider) or provider,
+        "login": order.index(row["login"]) + 1 if row.get("login") in order else 1, "logins": max(1, len(order)),
+        "address": max(1, address), "addresses": max(1, total),
+    }
+    if row.get("quality"):
+        out["quality"] = row["quality"]
+    return out
+
+
+@_pooled
+def note_title(h: Any, holder: str, title: str | None, kids: bool = False) -> None:
+    """Remember what `holder`'s lease is playing, so a busy answer can say it (see `holders`)."""
+    sessions = _sessions(h)
+    changed = False
+    for row in sessions:
+        if row.get("tv") == holder and (row.get("title") != title or row.get("kids") != kids):
+            row["title"], row["kids"] = title, kids
+            changed = True
+    if changed:
+        h.db.kv_set(KV_SESSIONS, sessions)
+
+
+def holders(h: Any, ref: str, *, titles: bool = True) -> list[dict[str, Any]]:
+    """Who holds each login that carries `ref`, for the busy answer: {kind: tv|phone, name, title?}.
+
+    `titles=False` (a child or a kids' device asking) leaves the titles out, so a child never reads the name of
+    something outside their library; only what the hub itself marked as a kids' title is named for them."""
+    item = _holding(h, ref) or _episode(h, ref)
+    _kind, provider, _stream = _split_ref(ref)
+    providers = {str(src.get("provider")) for src in (item or {}).get("sources") or []} or {provider}
+    tvs = (h.tv_app.tvs() or {}) if getattr(h, "tv_app", None) else {}
+    out: list[dict[str, Any]] = []
+    for row in _sessions(h):
+        if row.get("provider") not in providers:
+            continue
+        who = str(row.get("tv") or "")
+        title = row.get("title")
+        if who.startswith("phone:"):
+            device = h.db.one("SELECT name FROM devices WHERE id=?", [who[len("phone:"):]])
+            entry: dict[str, Any] = {"kind": "phone", "name": str((device or {}).get("name") or "A phone")}
+        else:
+            tv = tvs.get(who) or {}
+            entry = {"kind": "tv", "name": str(tv.get("name") or "A TV")}
+            playing = tv.get("playing")
+            if isinstance(playing, dict):
+                title = playing.get("title") or playing.get("name") or title
+        if title and (titles or row.get("kids") is True):
+            entry["title"] = str(title)[:120]
+        out.append(entry)
+    return sorted(out, key=lambda e: (e["kind"] != "tv", e["name"]))
+
+
 def addresses_for(h: Any, session: str, holder: str) -> list[str]:
     """Every address of the provider this session plays from, best first."""
     row = next((item for item in _sessions(h) if item.get("session") == session and item.get("tv") == holder), None)
