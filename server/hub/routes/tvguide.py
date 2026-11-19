@@ -8,6 +8,7 @@ login or a stream address.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import time
@@ -449,14 +450,12 @@ def _sort(sort: str) -> str:
 
 
 @router.get("/series")
-async def series(q: str | None = None, category: str | None = None, limit: int = 60, offset: int = 0,
-                 sort: str = "name", c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+async def series(request: Request, q: str | None = None, category: str | None = None, limit: int = 60,
+                 offset: int = 0, sort: str = "name", c: Caller = Depends(caller), h: Hub = Depends(hub)) -> Any:
     """Series in the provider library, a page at a time (`offset`, `limit` up to 100, `total`), sorted by `name`,
-    `year` or `added`."""
-    kids = _media(h, c)
-    await _ready(h)
-    return h.tv_catalog.series(q=q, category=category, kids_only=kids, limit=_limit(limit), offset=max(0, offset),
-                               sort=_sort(sort))
+    `year` or `added`. Sends an `ETag`; the same page asked with `If-None-Match` while the library is unchanged
+    answers 304 with no body."""
+    return await _title_page(request, h, c, "series", q=q, category=category, limit=limit, offset=offset, sort=sort)
 
 
 @router.get("/series/{series_id:path}")
@@ -472,14 +471,33 @@ async def one_series(series_id: str, c: Caller = Depends(caller), h: Hub = Depen
 
 
 @router.get("/movies")
-async def movies(q: str | None = None, category: str | None = None, limit: int = 60, offset: int = 0,
-                 sort: str = "name", c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+async def movies(request: Request, q: str | None = None, category: str | None = None, limit: int = 60,
+                 offset: int = 0, sort: str = "name", c: Caller = Depends(caller), h: Hub = Depends(hub)) -> Any:
     """Movies in the provider library, a page at a time (`offset`, `limit` up to 100, `total`), sorted by `name`,
-    `year` or `added`."""
+    `year` or `added`. Sends an `ETag`, like /series."""
+    return await _title_page(request, h, c, "movies", q=q, category=category, limit=limit, offset=offset, sort=sort)
+
+
+async def _title_page(request: Request, h: Hub, c: Caller, kind: str, *, q: str | None, category: str | None,
+                      limit: int, offset: int, sort: str) -> Any:
     kids = _media(h, c)
     await _ready(h)
-    return h.tv_catalog.movies(q=q, category=category, kids_only=kids, limit=_limit(limit), offset=max(0, offset),
-                               sort=_sort(sort))
+    args: dict[str, Any] = {"q": q, "category": category, "kids_only": kids, "limit": _limit(limit),
+            "offset": max(0, offset),
+            "sort": _sort(sort)}
+    cat = h.tv_catalog
+    stamp = cat.snapshot_stamp()
+    tag = None
+    if stamp is not None:
+        seed = json.dumps([kind, stamp, sorted(cat._kid_names()) if kids else [], args], sort_keys=True)
+        tag = 'W/"' + hashlib.sha256(seed.encode()).hexdigest()[:20] + '"'
+        if request.headers.get("if-none-match") == tag:
+            return Response(status_code=304, headers={"ETag": tag})
+    # SQLite does the scan (phase 3) without holding the loop; the snapshot fallback runs here too.
+    fn = cat.series if kind == "series" else cat.movies
+    body = await asyncio.to_thread(fn, **args)
+    headers = {"ETag": tag} if tag else {}
+    return Response(json.dumps(body), media_type="application/json", headers=headers)
 
 
 @router.get("/movies/{movie_id:path}")

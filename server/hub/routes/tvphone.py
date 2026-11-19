@@ -118,15 +118,16 @@ async def phone_play(body: dict[str, Any], response: Response, c: Caller = Depen
         from ..iptvplay import busy_reason, direct_all, read_twins, refresh_usage, warm_twins
 
         holder = f"phone:{c.device['id']}"
-        urls = direct_all(h, key, holder)
+        # The pool takes its own lock (hub/iptvplay.py _POOL), so the lease runs off the loop.
+        urls = await asyncio.to_thread(direct_all, h, key, holder)
         lap("lease")
         if not urls:
             # Only when no login looked free: ask the provider for its live counts (an old count may be stale),
             # then the other providers' copies of an episode.
             await refresh_usage(h, key)
-            urls = direct_all(h, key, holder)
+            urls = await asyncio.to_thread(direct_all, h, key, holder)
             if not urls and mode == "episode" and await read_twins(h, key):
-                urls = direct_all(h, key, holder)  # the same episode from another provider
+                urls = await asyncio.to_thread(direct_all, h, key, holder)  # the same episode, another provider
             lap("retry")
         warm_twins(h, key)
         url = urls[0] if urls else None
@@ -157,13 +158,13 @@ async def phone_play(body: dict[str, Any], response: Response, c: Caller = Depen
     from ..iptvplay import busy_reason, lease, read_twins, refresh_usage, warm_twins
 
     holder = f"phone:{c.device['id']}"
-    held = lease(h, key, holder)
+    held = await asyncio.to_thread(lease, h, key, holder)
     lap("lease")
     if held is None:
         await refresh_usage(h, key)  # only when no login looked free (see the direct path)
-        held = lease(h, key, holder)
+        held = await asyncio.to_thread(lease, h, key, holder)
         if held is None and mode == "episode" and await read_twins(h, key):
-            held = lease(h, key, holder)  # the same episode from another provider
+            held = await asyncio.to_thread(lease, h, key, holder)  # the same episode from another provider
         lap("retry")
     warm_twins(h, key)
     if held is None:
