@@ -371,7 +371,12 @@ class TvCatalog:
         if mark[0] is not None and memo is not None and memo[0] == mark:
             return memo[1]
         names = {str(c).strip().casefold() for c in self.kids_categories() if str(c).strip()}
-        present = self._category_names()
+        # The index's film and series categories first: reading every category from the snapshot parsed the
+        # whole file, and a child's first page after a start paid 1.4 s for it (Nov 19 2026). The snapshot
+        # (which also has the channels' categories) is read only when none of the saved names is there.
+        present = self._title_categories()
+        if not present or not names & present:
+            present = self._category_names()
         if present and not names & present:
             # None of the saved kids' categories is in the provider's lists any more (renamed, another provider,
             # or never picked): children got empty pages and searches (Nov 19 2026). Fall back to the provider's
@@ -383,7 +388,17 @@ class TvCatalog:
     def categories_matching(self, pattern: re.Pattern[str]) -> set[str]:
         """The snapshot's category names (lower-cased) this pattern finds, once per snapshot; for
         `skip_categories`."""
-        return {name for name in self._category_names() if pattern.search(name)}
+        return {name for name in (self._title_categories() or self._category_names()) if pattern.search(name)}
+
+    def _title_categories(self) -> set[str]:
+        """Film and series category names (lower-cased) from the catalog index, without parsing the snapshot;
+        empty while the index is not ready."""
+        if not self.index_ready():
+            return set()
+        try:
+            return self.index.categories()
+        except sqlite3.Error:
+            return set()
 
     def _category_names(self) -> set[str]:
         """Every category name in the snapshot (films, series, channels), lower-cased, once per snapshot."""
