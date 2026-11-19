@@ -171,3 +171,32 @@ def test_explore_builds_the_clean_title_rows_once_per_folded_index(hub, monkeypa
     monkeypatch.setattr(iptvcanon, "peek", lambda db: object())  # a new index after the state changed
     tvexplore._canonical_rows(hub)
     assert len(built) == 2
+
+
+def test_explore_waits_for_the_first_title_index_instead_of_building_a_second(hub, monkeypatch):
+    """After a start, a background thread builds the title index; Explore building its own copy beside it doubled
+    the parse and starved the loop for 20 s (Nov 19 2026). It waits for that build instead."""
+    import threading
+    import time as _time
+
+    from hub import iptvcanon
+
+    ready = object()
+    monkeypatch.setattr(iptvcanon, "peek", lambda db: None)  # a big house, first build still running
+    monkeypatch.setattr(iptvcanon, "index", lambda db: (_ for _ in ()).throw(AssertionError("second build")))
+    with iptvcanon._BUILD_LOCK:
+        iptvcanon._BUILDING.add(id(hub.db))
+
+    def finish():
+        _time.sleep(0.6)
+        iptvcanon._TITLED[id(hub.db)] = (hub.db, ready)
+        with iptvcanon._BUILD_LOCK:
+            iptvcanon._BUILDING.discard(id(hub.db))
+
+    threading.Thread(target=finish, daemon=True).start()
+    try:
+        assert iptvcanon.settled(hub.db, wait_s=5) is ready
+    finally:
+        iptvcanon._TITLED.pop(id(hub.db), None)
+        with iptvcanon._BUILD_LOCK:
+            iptvcanon._BUILDING.discard(id(hub.db))
