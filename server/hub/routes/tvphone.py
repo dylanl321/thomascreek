@@ -103,9 +103,20 @@ async def phone_play(body: dict[str, Any], c: Caller = Depends(caller), h: Hub =
                  params={"title": row.get("name") or row.get("title"), "direct": True})
         out_direct: dict[str, Any] = {"url": url, "kind": mode, "title": row.get("name") or row.get("title"),
                                       "direct": True}
-        if len(urls) > 1:
+        alternates = urls[1:]
+        relay = _relay_pass(h, c, mode, key, ext)
+        if relay is not None:
+            # The same stream relayed by the hub, on the same leased login (one stream at a time either way): the
+            # route that still works where the provider turns away the phone's own address (abroad, a hotel
+            # network). `relay_url` is the hub path; the absolute address goes last in `alternates`, so phones
+            # that only know `alternates` try it too after the provider's own addresses.
+            out_direct["relay_url"] = relay
+            base = (h.config.hub.remote_url or "").rstrip("/")
+            if base:
+                alternates.append(base + relay)
+        if alternates:
             # The same stream on the provider's backup addresses (same login), to try in order when `url` won't play.
-            out_direct["alternates"] = urls[1:]
+            out_direct["alternates"] = alternates
         _resume(h, person, body, mode, key, row, out_direct)
         return out_direct
     # The hub relays it, on a login leased to this phone like a TV's (one stream per login).
@@ -125,6 +136,19 @@ async def phone_play(body: dict[str, Any], c: Caller = Depends(caller), h: Hub =
     _cast_fields(out, mode, ext, token, cast=body.get("cast") is True)
     _resume(h, person, body, mode, key, row, out)
     return out
+
+
+def _relay_pass(h: Hub, c: Caller, mode: str, key: str, ext: str) -> str | None:
+    """A hub pass for the stream on the login this phone leased for direct play, or None without a lease."""
+    from ..iptvplay import held_by
+
+    held = held_by(h, f"phone:{c.device['id']}")
+    if held is None:
+        return None
+    token, _exp = h.tokens.issue_scoped({"aud": AUD, "k": mode, "s": _stream_id(key), "x": ext,
+                                         "sid": secrets.token_urlsafe(9), "dev": c.device["id"],
+                                         "pl": f"{held['provider']}|{held['login']}"}, TTL_S)
+    return f"/v1/tv/phone/live/{token}/index.m3u8" if mode == "live" else f"/v1/tv/phone/file/{token}"
 
 
 # -- casting ------------------------------------------------------------------------------------------------------

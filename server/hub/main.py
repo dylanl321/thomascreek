@@ -8,7 +8,7 @@ import time
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.exceptions import HTTPException, RequestValidationError
 from fastapi.responses import JSONResponse, Response
 
@@ -31,7 +31,14 @@ def build_app(hub: Hub | None = None, *, start_background: bool = True) -> FastA
     async def lifespan(app: FastAPI):
         h: Hub = app.state.hub
         zc = None
+        dog = None
         if start_background:
+            # A hub whose loop is stuck restarts itself and leaves a note on where (see watchdog.py).
+            from .watchdog import Watchdog
+
+            dog = Watchdog(h.tv_catalog.path.parents[1])
+            dog.start()
+            app.state.watchdog = dog
             await h.start()
             if h.config.hub.bonjour:
                 from .bonjour import advertise
@@ -41,6 +48,8 @@ def build_app(hub: Hub | None = None, *, start_background: bool = True) -> FastA
         if zc is not None:
             await zc.async_close()
         await h.stop()
+        if dog is not None:
+            await dog.stop()
 
     app = FastAPI(
         title="Thomas Creek Hub",
@@ -65,6 +74,18 @@ def build_app(hub: Hub | None = None, *, start_background: bool = True) -> FastA
     async def ping() -> dict[str, Any]:
         """Unauthenticated: lets the app check it found the right hub."""
         return {"ok": True, "id": hub.config.hub.id, "name": hub.config.hub.name, "api": "v1", "version": __version__}
+
+    @app.get("/v1/ping/stalls", tags=["meta"])
+    async def ping_stalls(request: Request) -> dict[str, Any]:
+        """Home network only, no sign-in: where the hub's loop was when it stopped answering for a few seconds
+        (code locations only), so a hub that hangs can be diagnosed without a log or a key."""
+        from .routes.deps import caller_ip, error
+
+        if not hub.is_home(caller_ip(request, hub)):
+            raise error(403, "not_home", "Only on the home network")
+        dog = getattr(app.state, "watchdog", None)
+        rows = list(dog.samples) if dog is not None else []
+        return {"running": dog is not None, "stalls": rows[::-1]}
 
     @app.get("/v1/hello", tags=["meta"])
     async def hello() -> dict[str, Any]:

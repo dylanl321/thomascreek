@@ -356,6 +356,11 @@ def direct_all(h: Any, ref: str, holder: str, *, now: float | None = None) -> li
     return out
 
 
+def held_by(h: Any, holder: str) -> dict[str, Any] | None:
+    """The lease `holder` has now (its provider and login), or None."""
+    return next((row for row in _sessions(h) if row.get("tv") == holder), None)
+
+
 def addresses_for(h: Any, session: str, holder: str) -> list[str]:
     """Every address of the provider this session plays from, best first."""
     row = next((item for item in _sessions(h) if item.get("session") == session and item.get("tv") == holder), None)
