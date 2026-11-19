@@ -383,12 +383,9 @@ def credentials(h: Any, provider: str, login: str) -> tuple[str, str, str] | Non
 
 def _holding(h: Any, ref: str) -> dict[str, Any] | None:
     """The folded title (several copies of one film) this provider ref belongs to."""
-    state = h.db.kv_get("tv.catalog.canonical") or {}
-    for item in (state.get("items") or []):
-        sources = item.get("sources") if isinstance(item, dict) else None
-        if any(isinstance(src, dict) and src.get("ref") == ref for src in sources or []):
-            return item
-    return None
+    from .iptvcanon import index
+
+    return index(h.db).by_ref.get(ref)
 
 
 async def fail_checked(h: Any, session: str, tv_id: str, now: float | None = None) -> dict[str, Any]:
@@ -544,10 +541,11 @@ def logins(h: Any) -> list[dict[str, Any]]:
 def _pick(h: Any, item: dict[str, Any], avoid: set[str], now: float) -> dict[str, Any] | None:
     usage = _usage(h)
     sessions = _sessions(h)
+    pool = logins(h)
     best = None
     best_key = None
     for source in item.get("sources") or []:
-        for login in logins(h):
+        for login in pool:
             if login["provider"] != source.get("provider"):
                 continue
             mark = f"{login['provider']}|{login['login']}|{source.get('ref')}"
@@ -639,11 +637,9 @@ def _notice(h: Any, provider: str, login: str, info: dict[str, Any], now: float)
 
 
 def _canonical(h: Any, canonical_id: str) -> dict[str, Any] | None:
-    state = h.db.kv_get("tv.catalog.canonical") or {}
-    for item in (state.get("items") or []):
-        if isinstance(item, dict) and item.get("id") == canonical_id:
-            return item
-    return None
+    from .iptvcanon import index
+
+    return index(h.db).by_id.get(canonical_id)
 
 
 def _episode(h: Any, ref: str) -> dict[str, Any] | None:

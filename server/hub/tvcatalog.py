@@ -167,6 +167,17 @@ class TvCatalog:
         return doc
 
     def _details(self) -> dict[str, Any]:
+        """Every fetched page and episode, parsed once per file change like `load` (the file grows with every
+        series opened, and play, Continue watching and art read it on each call). Writers change it and then
+        `_write_details` it, which changes the file and so the stamp."""
+        try:
+            stat = self.details_path.stat()
+        except OSError:
+            return {"series": {}, "movies": {}, "episodes": {}}
+        stamp = (stat.st_mtime_ns, stat.st_size)
+        cached = getattr(self, "_details_loaded", None)
+        if cached is not None and cached[0] == stamp:
+            return cached[1]
         try:
             doc = json.loads(self.details_path.read_text())
         except (OSError, json.JSONDecodeError):
@@ -176,6 +187,7 @@ class TvCatalog:
         doc.setdefault("series", {})
         doc.setdefault("movies", {})
         doc.setdefault("episodes", {})
+        self._details_loaded = (stamp, doc)
         return doc
 
     def _write(self, doc: dict[str, Any]) -> None:
@@ -192,6 +204,8 @@ class TvCatalog:
     def _write_details(self, doc: dict[str, Any]) -> None:
         self.details_path.parent.mkdir(parents=True, exist_ok=True)
         self.details_path.write_text(json.dumps(doc))
+        stat = self.details_path.stat()
+        self._details_loaded = ((stat.st_mtime_ns, stat.st_size), doc)
 
     def _overlay(self) -> dict[str, dict[str, Any]]:
         raw = self.db.kv_get("tvapp.lineup") or {}
@@ -440,7 +454,15 @@ class TvCatalog:
 
     def known_row(self, bucket: str, ref: str) -> dict[str, Any] | None:
         """A film or series row from any provider: the main list first, then the provider the id names."""
-        row = next((item for item in self.load().get(bucket) or [] if item.get("id") == ref), None)
+        doc = self.load()
+        ids = getattr(self, "_ids", None)
+        if ids is None or ids[0] is not doc:
+            # One id map per loaded file, instead of a scan of every film or series on each call.
+            ids = (doc, {name: {str(item.get("id")): item for item in doc.get(name) or [] if isinstance(item, dict)}
+                         for name in ("movies", "series")})
+            self._ids = ids
+        row = ids[1].get(bucket, {}).get(ref) if bucket in ids[1] else next(
+            (item for item in doc.get(bucket) or [] if item.get("id") == ref), None)
         return row if row is not None else self.extra_row(bucket, ref)
 
     def _login_for(self, ref: str) -> tuple[str, list[str], str, str]:
