@@ -74,7 +74,8 @@ async def phone_play(body: dict[str, Any], response: Response, c: Caller = Depen
     `person` (optional) is who is watching on a grown-up's phone: one of the children, so only kids' titles play
     and the place is kept for them (see tvguide.watcher).
 
-    `Server-Timing` says how long each step took (ready, row, usage, lease, resume), so a slow start is found."""
+    `Server-Timing` says how long each step took (ready, row, lease, retry when nothing was free,
+    resume), so a slow start is found."""
     lap = _Laps(response)
     if getattr(c.subject, "tv", False):
         kids_only, person = _media(h, c), c.subject.person_id
@@ -114,13 +115,18 @@ async def phone_play(body: dict[str, Any], response: Response, c: Caller = Depen
         # so it goes only to this signed-in phone and is never logged.
         from ..iptvplay import busy_reason, direct_all, read_twins, refresh_usage, warm_twins
 
-        await refresh_usage(h, key)
-        lap("usage")
-        urls = direct_all(h, key, f"phone:{c.device['id']}")
-        if not urls and mode == "episode" and await read_twins(h, key):
-            urls = direct_all(h, key, f"phone:{c.device['id']}")  # the same episode from another provider
-        warm_twins(h, key)
+        holder = f"phone:{c.device['id']}"
+        urls = direct_all(h, key, holder)
         lap("lease")
+        if not urls:
+            # Only when no login looked free: ask the provider for its live counts (an old count may be stale),
+            # then the other providers' copies of an episode.
+            await refresh_usage(h, key)
+            urls = direct_all(h, key, holder)
+            if not urls and mode == "episode" and await read_twins(h, key):
+                urls = direct_all(h, key, holder)  # the same episode from another provider
+            lap("retry")
+        warm_twins(h, key)
         url = urls[0] if urls else None
         if not url:
             raise error(503, "busy", busy_reason(h, key))
@@ -148,13 +154,16 @@ async def phone_play(body: dict[str, Any], response: Response, c: Caller = Depen
     # The hub relays it, on a login leased to this phone like a TV's (one stream per login).
     from ..iptvplay import busy_reason, lease, read_twins, refresh_usage, warm_twins
 
-    await refresh_usage(h, key)
-    lap("usage")
-    held = lease(h, key, f"phone:{c.device['id']}")
-    if held is None and mode == "episode" and await read_twins(h, key):
-        held = lease(h, key, f"phone:{c.device['id']}")  # the same episode from another provider
-    warm_twins(h, key)
+    holder = f"phone:{c.device['id']}"
+    held = lease(h, key, holder)
     lap("lease")
+    if held is None:
+        await refresh_usage(h, key)  # only when no login looked free (see the direct path)
+        held = lease(h, key, holder)
+        if held is None and mode == "episode" and await read_twins(h, key):
+            held = lease(h, key, holder)  # the same episode from another provider
+        lap("retry")
+    warm_twins(h, key)
     if held is None:
         raise error(503, "busy", busy_reason(h, key))
     token, exp = h.tokens.issue_scoped({"aud": AUD, "k": mode, "s": _stream_id(key), "x": ext,
