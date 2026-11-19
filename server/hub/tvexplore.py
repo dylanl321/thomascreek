@@ -178,10 +178,30 @@ def feed(h: Any, profile: str) -> dict[str, Any]:
     """The last built feed. A missing copy is the library, with no network call."""
     cached = _cache(h).get(profile)
     if isinstance(cached, dict) and "rows" in cached:
-        return {"hero": cached.get("hero"), "rows": cached.get("rows") or []}
+        rows = cached.get("rows") or []
+        if profile == "kids":
+            rows = _kids_rewatch(rows)
+        return {"hero": cached.get("hero"), "rows": rows}
     built = library_feed(h, profile)
     _store_profile(h, profile, built)
     return built
+
+
+def _kids_rewatch(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """A kids' feed saved before the kids-only Shuffle list (Nov 19 2026) kept grown-up sitcoms in that row until
+    the next build; serving it checks the row against `rewatch.KIDS_CLASSICS` every time."""
+    from .rewatch import KIDS_CLASSICS, norm
+
+    allowed = {norm(name) for name in KIDS_CLASSICS}
+    out = []
+    for row in rows:
+        if isinstance(row, dict) and row.get("id") == "rewatch":
+            items = [card for card in row.get("items") or [] if norm(str(card.get("title") or "")) in allowed]
+            if not items:
+                continue
+            row = {**row, "items": items}
+        out.append(row)
+    return out
 
 
 def pool(h: Any, profile: str) -> list[dict[str, Any]]:
