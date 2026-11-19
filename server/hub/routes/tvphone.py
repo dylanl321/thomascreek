@@ -103,12 +103,13 @@ async def phone_play(body: dict[str, Any], c: Caller = Depends(caller), h: Hub =
     if body.get("direct") is True and not getattr(c.subject, "tv", False):
         # Straight from the provider (the travel phone, Dylan's choice Nov 2026): the address carries a login,
         # so it goes only to this signed-in phone and is never logged.
-        from ..iptvplay import direct_all
+        from ..iptvplay import busy_reason, direct_all, refresh_usage
 
+        await refresh_usage(h, key)
         urls = direct_all(h, key, f"phone:{c.device['id']}")
         url = urls[0] if urls else None
         if not url:
-            raise error(503, "busy", "Every TV login is busy. Try again in a moment.")
+            raise error(503, "busy", busy_reason(h, key))
         h.db.log("tv.phone.play", "ok", person_id=person, device_id=c.device["id"], target=key,
                  params={"title": row.get("name") or row.get("title"), "direct": True})
         out_direct: dict[str, Any] = {"url": url, "kind": mode, "title": row.get("name") or row.get("title"),
@@ -130,11 +131,12 @@ async def phone_play(body: dict[str, Any], c: Caller = Depends(caller), h: Hub =
         _resume(h, person, body, mode, key, row, out_direct)
         return out_direct
     # The hub relays it, on a login leased to this phone like a TV's (one stream per login).
-    from ..iptvplay import lease
+    from ..iptvplay import busy_reason, lease, refresh_usage
 
+    await refresh_usage(h, key)
     held = lease(h, key, f"phone:{c.device['id']}")
     if held is None:
-        raise error(503, "busy", "Every TV login is busy. Try again when something stops playing.")
+        raise error(503, "busy", busy_reason(h, key))
     token, exp = h.tokens.issue_scoped({"aud": AUD, "k": mode, "s": _stream_id(key), "x": ext,
                                         "sid": secrets.token_urlsafe(9), "dev": c.device["id"],
                                         "pl": f"{held['provider']}|{held['login']}"}, TTL_S)

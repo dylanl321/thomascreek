@@ -6,6 +6,7 @@ path. The provider address is only the redirect for that one TV.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import time
@@ -24,6 +25,10 @@ KV_USAGE = "iptv.usage"
 KV_SESSIONS = "iptv.sessions"
 KV_NOTICES = "iptv.notices"
 IDLE_S = 90
+# The provider's own count of open streams is trusted only this long. Every player in the house leases through
+# this pool, so after that the hub's own leases are the truth (Nov 19 2026: a count read minutes earlier kept a
+# freed login "full" and plays waited until the phone gave up).
+USAGE_FRESH_S = 90
 FAIL_S = 600
 QUALITY = {"2160p": 0, "1080p": 1, "720p": 2, "sd": 3}
 
@@ -320,8 +325,10 @@ def lease(h: Any, ref: str, holder: str, *, avoid: set[str] | None = None,
     _release_idle(h, now)
     _kind, provider, _stream = _split_ref(ref)
     item = _holding(h, ref) or {"id": ref, "sources": [{"provider": provider, "ref": ref, "quality": None}]}
+    mine = {_key(row) for row in _sessions(h) if row.get("tv") == holder}
     _release_tv(h, holder)
-    chosen = _pick(h, item, avoid if avoid is not None else _failed(h, now), now)
+    # The stream this holder just let go may still be counted by the provider; it is this holder's to reuse.
+    chosen = _pick(h, item, avoid if avoid is not None else _failed(h, now), now, mine=mine)
     if chosen is None:
         return None
     row = {"session": new_id("ses"), "tv": holder, "provider": chosen["provider"], "login": chosen["login"],
@@ -354,6 +361,64 @@ def direct_all(h: Any, ref: str, holder: str, *, now: float | None = None) -> li
         if url and url not in out:
             out.append(url)
     return out
+
+
+async def refresh_usage(h: Any, ref: str, *, budget_s: float = 3.0, now: float | None = None) -> None:
+    """Ask the provider, live, how many streams each login that carries `ref` has open, when the last answer is
+    older than USAGE_FRESH_S. Done before a play so a login is never called busy on an old count. Gives up after
+    `budget_s`; the play then goes on with the hub's own leases."""
+    from . import iptvaddr as addr
+
+    now = time.time() if now is None else now
+    _kind, provider, _stream = _split_ref(ref)
+    item = _holding(h, ref)
+    providers = {str(src.get("provider")) for src in (item or {}).get("sources") or []} or {provider}
+    usage = _usage(h)
+    transport = getattr(getattr(h, "tv_catalog", None), "_transport", None)
+    jobs = []
+    for login in logins(h):
+        if login["provider"] not in providers:
+            continue
+        known = usage.get(_key(login)) or {}
+        at = known.get("at")
+        if isinstance(at, (int, float)) and now - float(at) <= USAGE_FRESH_S:
+            continue
+        if _int(known.get("active_cons"), 0) == 0:
+            continue  # nothing outside the pool was seen on it; the hub's own leases decide
+        secret = login.get("password_secret") or ""
+        password = str(h.vault.get(secret) or "") if secret and h.vault.has(secret) else ""
+        if not password:
+            continue
+        jobs.append(addr.check(login["server"], login["username"], password, transport,
+                               on_info=lambda info, lg=login: note_usage(h, lg["provider"], lg["login"], info)))
+    if not jobs:
+        return
+    try:
+        await asyncio.wait_for(asyncio.gather(*jobs, return_exceptions=True), timeout=budget_s)
+    except asyncio.TimeoutError:
+        log.info("iptv: live login check took over %.0f s; playing on the hub's own counts", budget_s)
+
+
+def busy_reason(h: Any, ref: str) -> str:
+    """Why no login is free for this title, in words the phone can show: who holds each login that carries it."""
+    item = _holding(h, ref)
+    _kind, provider, _stream = _split_ref(ref)
+    providers = {str(src.get("provider")) for src in (item or {}).get("sources") or []} or {provider}
+    names = {tv_id: str(tv.get("name") or "a TV") for tv_id, tv in (h.tv_app.tvs() or {}).items()} \
+        if getattr(h, "tv_app", None) else {}
+    holders = []
+    for row in _sessions(h):
+        if row.get("provider") in providers:
+            who = str(row.get("tv") or "")
+            holders.append("a phone" if who.startswith("phone:") else names.get(who, "a TV"))
+    known = {lg["provider"]: lg.get("name") or lg["provider"] for lg in logins(h)}
+    known.update(provider_names(h))
+    pnames = sorted({str(known.get(p) or p) for p in providers})
+    where = " and ".join(pnames) if pnames else "this provider"
+    if holders:
+        return f"Every {where} login that carries this is in use ({', '.join(sorted(set(holders)))}). " \
+               "Try again when it stops."
+    return f"The {where} login that carries this says it's busy. Try again in a minute."
 
 
 def held_by(h: Any, holder: str) -> dict[str, Any] | None:
@@ -538,7 +603,8 @@ def logins(h: Any) -> list[dict[str, Any]]:
     return list(found.values())
 
 
-def _pick(h: Any, item: dict[str, Any], avoid: set[str], now: float) -> dict[str, Any] | None:
+def _pick(h: Any, item: dict[str, Any], avoid: set[str], now: float,
+          mine: set[str] | None = None) -> dict[str, Any] | None:
     usage = _usage(h)
     sessions = _sessions(h)
     pool = logins(h)
@@ -552,6 +618,8 @@ def _pick(h: Any, item: dict[str, Any], avoid: set[str], now: float) -> dict[str
             if mark in avoid:
                 continue
             info = usage.get(_key(login)) or {}
+            if mine and _key(login) in mine:
+                info = {**info, "active_cons": max(0, _int(info.get("active_cons"), 0) - 1)}
             ours = sum(1 for row in sessions if row.get("provider") == login["provider"] and row.get("login") == login["login"])
             view = _view(login, info, ours, now)
             if view["status"] != "ok":
@@ -566,6 +634,9 @@ def _pick(h: Any, item: dict[str, Any], avoid: set[str], now: float) -> dict[str
 def _view(login: dict[str, Any], info: dict[str, Any], ours: int, now: float) -> dict[str, Any]:
     maximum = _int(info.get("max_connections"), 1)
     active = _int(info.get("active_cons"), 0)
+    at = info.get("at")
+    if isinstance(at, (int, float)) and now - float(at) > USAGE_FRESH_S:
+        active = 0
     used = max(active, ours)
     expires, expired = _expires(info.get("exp_date"), now)
     raw = str(info.get("status") or "Active").lower()

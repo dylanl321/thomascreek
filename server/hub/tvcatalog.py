@@ -553,6 +553,25 @@ class TvCatalog:
         except Exception as exc:  # noqa: BLE001
             log.info("catalog fold: %s", exc)
 
+    def _refresh_soon(self) -> None:
+        """One background `refresh`, unless one is already running. A failure is noted; the old lists stay."""
+        if self.__dict__.get("_refresh_running") or self._lock.locked():
+            return
+
+        async def run() -> None:
+            try:
+                await self.refresh()
+            except Exception as exc:  # noqa: BLE001 - the stale lists keep serving; the next call tries again
+                log.warning("tv catalog: background refresh failed (%s)", type(exc).__name__)
+            finally:
+                self._refresh_running = False
+
+        try:
+            self._refresh_task = asyncio.get_running_loop().create_task(run())
+            self._refresh_running = True
+        except RuntimeError:
+            pass
+
     def _extras_due(self, now: float) -> None:
         """Read another provider's lists in the background when they are missing or older than the main list's
         refresh time (a provider just added, or a hub that restarted with a fresh main list)."""
@@ -687,6 +706,12 @@ class TvCatalog:
             if doc:
                 return doc
             raise TvAppError(409, "not_set_up", "The TV source isn't set up on the hub yet")
+        if doc and doc.get("guide_format") == GUIDE_FORMAT:
+            # Stale but usable: answer from it now and read the provider in the background. Before, the first call
+            # after the lists or guide aged out (a play, a search, a page) waited for the whole provider download
+            # and timed the phone out ("finding a free login", Nov 19 2026).
+            self._refresh_soon()
+            return doc
         try:
             await self.refresh()
         except TvAppError:
