@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import threading
 import time
 from typing import Any
 
@@ -324,9 +325,55 @@ def index(db: Any) -> Index:
     cached = _INDEX.get(id(db))
     if cached is not None and stamp is not None and cached[0] == stamp:
         return cached[1]
+    started = time.perf_counter()
     built = Index(_state(db))
     _INDEX[id(db)] = (stamp, built)
+    took = time.perf_counter() - started
+    if took > 1:
+        log.info("iptvcanon: read %d folded titles in %.1f s", len(built.items), took)
     return built
+
+
+# A state this small is indexed on the spot; a bigger one (the live house: several MB) in the background.
+SMALL_STATE = 2_000_000
+_BUILDING: set[int] = set()
+_BUILD_LOCK = threading.Lock()
+
+
+def peek(db: Any) -> Index | None:
+    """The index with its title map, without making the caller wait for a rebuild of a big catalog: the last one
+    built (even if the state changed since), or None before the first. A rebuild then runs in the background.
+    Search uses this to add `canonical_id`, which the apps treat as optional (Nov 19 2026: rebuilding inside
+    search took 27 to 47 s on the live hub and timed the phone out)."""
+    stamp = _stamp(db)
+    cached = _INDEX.get(id(db))
+    fresh = cached is not None and stamp is not None and cached[0] == stamp and cached[1]._titles is not None
+    if fresh:
+        return cached[1]  # type: ignore[index]
+    size = stamp[1] if isinstance(stamp, tuple) and len(stamp) == 2 else 0
+    if size < SMALL_STATE:
+        found = index(db)
+        found.by_title("movie", "")
+        return found
+    with _BUILD_LOCK:
+        start = id(db) not in _BUILDING
+        if start:
+            _BUILDING.add(id(db))
+    if start:
+        threading.Thread(target=_build, args=(db,), name="iptvcanon-index", daemon=True).start()
+    return cached[1] if cached is not None else None
+
+
+def _build(db: Any) -> None:
+    try:
+        started = time.perf_counter()
+        index(db).by_title("movie", "")
+        log.info("iptvcanon: title index ready in %.1f s", time.perf_counter() - started)
+    except Exception:  # noqa: BLE001 - search then simply goes without canonical ids
+        log.exception("iptvcanon: title index failed")
+    finally:
+        with _BUILD_LOCK:
+            _BUILDING.discard(id(db))
 
 
 _INFO_FIELDS = ("name", "year", "category", "genre", "rating", "tmdb", "plot", "duration_s")
