@@ -1,0 +1,54 @@
+{
+ "can_change": true,
+ "kids": [
+  {
+   "level": "kid",
+   "levels": [
+    {
+     "id": "little",
+     "label": "Little kids: G, TV-Y and TV-G"
+    },
+    {
+     "id": "kid",
+     "label": "Kids: adds TV-Y7 and PG films"
+    },
+    {
+     "id": "older",
+     "label": "Older kids: adds TV-PG"
+    },
+    {
+     "id": "teen",
+     "label": "Teens: adds PG-13 and TV-14"
+    }
+   ],
+   "name": "Child",
+   "person": "per_ff2811585aa3476f8ca0",
+   "ratings": [
+    "G",
+    "PG",
+    "TV-G",
+    "TV-Y",
+    "TV-Y7",
+    "TV-Y7-FV"
+   ]
+  }
+ ],
+ "levels": [
+  {
+   "id": "little",
+   "label": "Little kids: G, TV-Y and TV-G"
+  },
+  {
+   "id": "kid",
+   "label": "Kids: adds TV-Y7 and PG films"
+  },
+  {
+   "id": "older",
+   "label": "Older kids: adds TV-PG"
+  },
+  {
+   "id": "teen",
+   "label": "Teens: adds PG-13 and TV-14"
+  }
+ ]
+}

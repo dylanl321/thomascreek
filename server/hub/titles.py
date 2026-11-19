@@ -300,7 +300,9 @@ async def _plex(h: "Hub", s: Subject, q: str) -> list[dict[str, Any]]:
         log.info("plex search: %s", exc)
         return []
     if s.is_child_like:
-        allowed = set(h.config.child_policy.ratings)
+        from .kidratings import for_subject
+
+        allowed = for_subject(h, s)
         rows = [row for row in rows if row.get("rating") in allowed]
     return rows
 
@@ -316,11 +318,13 @@ async def _seerr(h: "Hub", s: Subject, q: str) -> list[dict[str, Any]]:
     rows = rows[:12]
     if not s.is_child_like:
         return rows
-    return await _kids_only(h, rows)
+    return await _kids_only(h, rows, s)
 
 
-async def _kids_only(h: "Hub", rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    allowed = set(h.config.child_policy.ratings)
+async def _kids_only(h: "Hub", rows: list[dict[str, Any]], s: Subject | None = None) -> list[dict[str, Any]]:
+    from .kidratings import for_subject
+
+    allowed = for_subject(h, s) if s is not None else set(h.config.child_policy.ratings)
     sem = asyncio.Semaphore(4)
 
     async def one(row: dict[str, Any]) -> dict[str, Any] | None:
@@ -380,7 +384,7 @@ async def request_title(h: "Hub", s: Subject, media_id: str, device_id: str | No
     except Exception as exc:  # noqa: BLE001
         raise TitleError(503, "unavailable", "Couldn't look up that title") from exc
     rating = h.jellyseerr.content_rating(kind, detail)
-    if s.is_child_like and rating not in set(h.config.child_policy.ratings):
+    if s.is_child_like and rating not in _child_allowed(h, s):
         raise TitleError(403, "forbidden", "That one needs a grown-up", ask_parent=True)
     name = detail.get("title") or detail.get("name") or "A title"
     poster = f"https://image.tmdb.org/t/p/w342{detail['posterPath']}" if detail.get("posterPath") else None
@@ -417,3 +421,9 @@ async def request_title(h: "Hub", s: Subject, media_id: str, device_id: str | No
     h.db.log("media.request", "ok", person_id=s.person_id, device_id=device_id, target=media_id,
              params={"title": name, "via": "titles"})
     return {"status": "requested", "request_id": ext or None, "media_id": media_id, "title": name, "ask_parent": False}
+
+
+def _child_allowed(h: "Hub", s: Subject) -> set[str]:
+    from .kidratings import for_subject
+
+    return for_subject(h, s)

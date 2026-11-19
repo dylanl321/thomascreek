@@ -474,7 +474,9 @@ def _childlike(s: Subject) -> bool:
 async def _media(h: "Hub", s: Subject, q: str, ws: list[str]) -> list[dict[str, Any]]:
     if not (h.policy.has(s, "media.all") or h.policy.has(s, "media.own_tv")) or not h.plex.enabled:
         return []
-    ratings = set(h.config.child_policy.ratings)
+    from .kidratings import for_subject
+
+    ratings = for_subject(h, s) if _childlike(s) else set(h.config.child_policy.ratings)
     rows = await h.plex.search(q, limit=20)
     out: list[dict[str, Any]] = []
     have: set[str] = set()

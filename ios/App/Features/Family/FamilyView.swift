@@ -46,6 +46,7 @@ struct FamilyView: View {
                         }
                         if store.me?.can(.choresManage) == true {
                             SectionTile(symbol: "moon.stars.fill", title: "Bedtimes", detail: "Kids' night screen") { router.go(.bedtimes) }
+                            SectionTile(symbol: "film.stack", title: "Kids' ratings", detail: "What each child may watch") { router.go(.kidRatings) }
                         }
                     }
                 }

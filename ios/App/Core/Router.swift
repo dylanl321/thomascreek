@@ -29,7 +29,7 @@ enum Destination: Hashable {
     case systems, storage, activity, people, kidNet, vpnPool, hubWeb, youtube
     case houseBrain, brainRun(String)     // admin: the background AI's spend, jobs and run log
     case nasApps(String?), nasApp(String), nasLogs(String, String?), nasUpdates, nasSettings
-    case today, leaving, intercom, guestPasses, bedtimes, feedback
+    case today, leaving, intercom, guestPasses, bedtimes, kidRatings, feedback
     case weather, weatherAlert(String), weatherRadar, weatherOutlook
     /// Weather for one place: "home", "here" or "trip:<id>" (a trip's forecast).
     case weatherPlace(String)
@@ -317,6 +317,7 @@ final class Router {
         case "intercom", "announce": if !kid { show(.family, .intercom) }
         case "guests", "guestpass": if !kid { show(.family, .guestPasses) }
         case "bedtime", "bedtimes": if !kid { show(.family, .bedtimes) }
+        case "ratings", "kid-ratings": if !kid { show(.family, .kidRatings) }
         case "feedback": if role == .admin { show(.systems, .feedback) }
         case "tell": TellDylan.shared.open()
         default: show(.home)

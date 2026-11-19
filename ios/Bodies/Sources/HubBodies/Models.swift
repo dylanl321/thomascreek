@@ -1023,3 +1023,25 @@ struct PrinterSummary: Codable, Hashable, Identifiable {
     var color: String?
 }
 
+// MARK: - Kids' ratings
+
+/// `GET /v1/kids/ratings`: each child's rating level, which a grown-up changes with
+/// `PUT /v1/people/{id}/ratings` (the answer is one `Kid`). The hub filters every row, search and play by it.
+struct KidRatings: Codable, Hashable {
+    var kids: [Kid]
+    var levels: [Level]?
+    var canChange: Bool?
+
+    struct Kid: Codable, Hashable, Identifiable {
+        var person: String
+        var name: String?
+        var level: String
+        var ratings: [String]?
+        var id: String { person }
+    }
+
+    struct Level: Codable, Hashable, Identifiable {
+        var id: String
+        var label: String
+    }
+}

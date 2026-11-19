@@ -106,6 +106,8 @@ async def phone_play(body: dict[str, Any], response: Response, c: Caller = Depen
     lap("row")
     if row is None or (kids_only and not row.get("kids")):
         raise error(404, "not_found", "That isn't in the library")
+    if kids_only and not _level_allows(h, c, person, row):
+        raise error(404, "not_found", "That isn't in the library")
     ext = "m3u8" if mode == "live" else str(row.get("ext") or "mp4").lower()
     allowed = EXO_TYPES if body.get("player") == "exo" else PHONE_TYPES
     if mode != "live" and ext not in allowed:
@@ -401,6 +403,16 @@ async def phone_progress(body: dict[str, Any], c: Caller = Depends(caller), h: H
     return {"ok": True, "position_s": position}
 
 
+def _level_allows(h: Hub, c: Caller, person: str | None, row: dict[str, Any]) -> bool:
+    """A child's own level (`kidratings`) on top of the kids' library: a TV-PG title a nine-year-old's level
+    leaves out never plays, even from a link or an old list."""
+    from .. import kidratings
+    from .tvguide import child_ratings
+
+    allowed = child_ratings(h, c, person) or kidratings.for_person(h, None)
+    return kidratings.allows(allowed, row.get("rating"))
+
+
 @router.get("/available")
 async def phone_available(movie_id: str | None = None, episode_id: str | None = None,
                           channel_key: str | None = None, person: str | None = None, series_id: str | None = None,
@@ -427,6 +439,8 @@ async def phone_available(movie_id: str | None = None, episode_id: str | None = 
         row = cat.known_row("series", sid)
         key = sid if row is not None else key
     if row is None or (kids_only and not row.get("kids")):
+        raise error(404, "not_found", "That isn't in the library")
+    if kids_only and not _level_allows(h, c, person, row):
         raise error(404, "not_found", "That isn't in the library")
     from ..playnow import availability
 

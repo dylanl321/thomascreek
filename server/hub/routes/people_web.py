@@ -15,6 +15,7 @@ from urllib.parse import quote
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
+from .. import kidratings
 from ..notify import CATEGORIES, CATEGORY, GROUPS, role_defaults
 from ..policy import ROLES
 from ..state import Hub
@@ -79,6 +80,19 @@ def _notify_card(h: Hub, p: dict[str, Any], csrf: str) -> str:
             f"<div class=kbody><form method=post action=/admin/people/notify>{_hid(csrf, person=p['id'])}"
             f"{''.join(groups)}<div class=factions><button>Save</button>"
             f"<button class=ghost name=reset value=1>Back to defaults</button></div></form></div></details>")
+
+
+def _ratings_row(h: Hub, p: dict[str, Any], csrf: str) -> str:
+    """A child's rating level: what every TV, phone and iPad lets them watch (Dylan, Nov 19 2026)."""
+    if p.get("role") != "child":
+        return ""
+    level = kidratings.level_of(h, p)
+    opts = "".join(f"<option value={name}{' selected' if name == level else ''}>{html.escape(label)}</option>"
+                   for name, label, _adds in kidratings.LEVELS)
+    return (f"<div class=row style='flex-wrap:wrap'><div><b>Ratings</b> <span class=dim>"
+            f"{html.escape(', '.join(sorted(kidratings.allowed_at(level))))}</span></div>"
+            f"<form method=post action=/admin/people/ratings class=fform style='margin:0'>{_hid(csrf, person=p['id'])}"
+            f"<select name=level>{opts}</select><button class=ghost2>Save</button></form></div>")
 
 
 def _sorted_html(h: Hub, csrf: str) -> str:
@@ -148,7 +162,7 @@ def _page_html(h: Hub, claims: dict[str, Any], flash: str | None) -> str:
         cards.append(f"<h3 style='display:flex;justify-content:space-between;align-items:center;text-transform:none;"
                      f"font-size:15px;color:var(--fg)'><span>{e(p['name'])} <span class=dim style='font-weight:400'>"
                      f"{len(devs)} device{'s' if len(devs) != 1 else ''}{e(expires)}</span></span>{role}</h3>"
-                     f"<div class=card>{rows}{_notify_card(h, p, csrf)}</div>")
+                     f"<div class=card>{_ratings_row(h, p, csrf)}{rows}{_notify_card(h, p, csrf)}</div>")
 
     gone = "".join(f"<div class=row><div>{e(d['name'])} <span class=dim>{e(d.get('model') or '')}</span></div>"
                    f"<div class=dim>last seen {ago(d.get('last_seen_at'))}</div></div>" for d in removed[-30:][::-1])
@@ -251,6 +265,23 @@ async def add_person(request: Request, h: Hub = Depends(hub)) -> Response:
     p = h.db.add_person(name, role)
     h.db.log("people.create", "ok", person_id=claims.get("per"), device_id=claims.get("dev"), target=p["id"], source="web")
     return _go(f"Added {name}. Approve their device under Waiting for you once they open the app at home.")
+
+
+@pages.post("/admin/people/ratings")
+async def set_ratings(request: Request, h: Hub = Depends(hub)) -> Response:
+    claims, form = await _form_session(request, h)
+    p = h.db.person(str(form.get("person", "")))
+    level = str(form.get("level", ""))
+    if p is None or p["role"] != "child":
+        return _go("Ratings are set for children only.")
+    if level not in kidratings.NAMES:
+        return _go("Pick a rating level.")
+    before = kidratings.level_of(h, p)
+    kidratings.set_level(h, p["id"], level, by=claims.get("per"))
+    h.db.log("kids.ratings", "ok", person_id=claims.get("per"), device_id=claims.get("dev"), target=p["id"],
+             params={"from": before, "to": level}, source="web")
+    label = next(lab for name, lab, _adds in kidratings.LEVELS if name == level)
+    return _go(f"{p['name']} now watches at {label.split(':')[0].lower()}.")
 
 
 @pages.post("/admin/people/notify")
