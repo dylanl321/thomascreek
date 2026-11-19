@@ -442,6 +442,43 @@ async def phone_progress(body: dict[str, Any], c: Caller = Depends(caller), h: H
     return {"ok": True, "position_s": position}
 
 
+@router.get("/segments")
+async def phone_segments(episode_id: str | None = None, movie_id: str | None = None, duration_s: int | None = None,
+                         person: str | None = None, c: Caller = Depends(caller),
+                         h: Hub = Depends(hub)) -> dict[str, Any]:
+    """Where the recap, intro and credits of an episode (or the credits of a film) are, for the player's Skip
+    button: `{"segments":[{"kind":"recap"|"intro"|"credits","start_s","end_s"}]}`, in play order and empty when
+    nothing is known. The player asks once after the stream starts, with the length it measured (`duration_s`),
+    so a slow answer never delays the picture. The hub asks the outside service and keeps the answer."""
+    from ..playersegments import segments
+
+    if getattr(c.subject, "tv", False):
+        kids_only, who = _media(h, c), c.subject.person_id
+    else:
+        who, kids_only = watcher(h, c, person[:64] if person else None)
+    await _ready(h)
+    cat = h.tv_catalog
+    if episode_id:
+        row = cat.episode(episode_id)
+        series = cat.known_row("series", str((row or {}).get("series_id") or "")) or {}
+        tmdb, season, number = series.get("tmdb"), (row or {}).get("season"), (row or {}).get("number")
+    elif movie_id:
+        row = cat.movie(movie_id)
+        tmdb, season, number = (row or {}).get("tmdb"), None, None
+    else:
+        raise error(400, "bad_params", "Pick a film or an episode")
+    if row is None or (kids_only and (not row.get("kids") or not _level_allows(h, c, who, row))):
+        raise error(404, "not_found", "That isn't in the library")
+    if episode_id and not (isinstance(season, int) and isinstance(number, int)):
+        return {"segments": []}
+    length = duration_s if duration_s and 0 < duration_s < 86400 else row.get("duration_s")
+    async with _client(h, 6) as client:
+        found = await segments(h, tmdb=str(tmdb) if tmdb else None, season=season, number=number,
+                               duration_s=int(length) if isinstance(length, (int, float)) and length > 0 else None,
+                               client=client)
+    return {"segments": found}
+
+
 def _level_allows(h: Hub, c: Caller, person: str | None, row: dict[str, Any]) -> bool:
     """A child's own level (`kidratings`) on top of the kids' library: a TV-PG title a nine-year-old's level
     leaves out never plays, even from a link or an old list."""

@@ -145,3 +145,66 @@ def test_a_child_is_only_offered_a_kids_next_episode(hub, people):
     assert next_episode(cat, "ep:thomas-creek:900", kids_only=False)["episode_id"] == "ep:thomas-creek:901"
     assert next_episode(cat, "ep:thomas-creek:900", kids_only=True) is None
     assert next_episode(cat, "ep:thomas-creek:nope") is None
+
+
+def _with_tmdb(hub, monkeypatch, tmdb="1396"):
+    real = hub.tv_catalog.known_row
+
+    def known(kind, key):
+        row = real(kind, key)
+        return {**row, "tmdb": tmdb} if row and kind == "series" else row
+    monkeypatch.setattr(hub.tv_catalog, "known_row", known)
+
+
+def test_segments_come_from_the_hub_cleaned_and_kept(hub, people, monkeypatch):
+    import httpx
+    import respx
+
+    from hub.playersegments import API
+
+    _library(hub)
+    _two_episodes(hub)
+    _with_tmdb(hub, monkeypatch)
+    dylan = people["phones"]["Dylan"]
+    url = "/v1/tv/phone/segments?episode_id=ep:thomas-creek:901&duration_s=1500"
+    with respx.mock(assert_all_called=False) as mock:
+        route = mock.get(API).mock(return_value=httpx.Response(200, json={
+            "recap": [{"start_ms": 0, "end_ms": 45000}],
+            "intro": [{"start_ms": 45000, "end_ms": 105000}, {"start_ms": 1200000, "end_ms": 1260000},  # mid-episode
+                      {"start_ms": 50000, "end_ms": None}],                                          # no end
+            "credits": [{"start_ms": 1440000, "end_ms": None}, {"start_ms": 300000, "end_ms": 400000}],
+        }))
+        got = dylan.client.get(url, headers=dylan.h)
+        assert got.status_code == 200, got.text
+        assert got.json()["segments"] == [
+            {"kind": "recap", "start_s": 0.0, "end_s": 45.0},
+            {"kind": "intro", "start_s": 45.0, "end_s": 105.0},
+            {"kind": "credits", "start_s": 1440.0, "end_s": 1500.0},
+        ]
+        asked = dict(route.calls.last.request.url.params)
+        assert asked == {"tmdb_id": "1396", "season": "1", "episode": "2", "duration_ms": "1500000"}
+        # Asked once for the house: the second player gets the kept answer.
+        assert dylan.client.get(url, headers=dylan.h).json() == got.json() and route.call_count == 1
+
+
+def test_segments_are_empty_without_an_answer_and_never_for_a_child_on_an_adult_title(hub, people, monkeypatch):
+    import httpx
+    import respx
+
+    from hub.playersegments import API
+
+    _library(hub)
+    _two_episodes(hub)
+    dylan, theo = people["phones"]["Dylan"], people["phones"]["Theo"]
+    url = "/v1/tv/phone/segments?episode_id=ep:thomas-creek:900"
+    with respx.mock(assert_all_called=False) as mock:
+        route = mock.get(API).mock(side_effect=httpx.ConnectError("down"))
+        # No TMDB id for the series: nothing is asked.
+        assert dylan.client.get(url, headers=dylan.h).json() == {"segments": []} and not route.called
+        _with_tmdb(hub, monkeypatch)
+        # The service is down: an empty list, not an error.
+        assert dylan.client.get(url, headers=dylan.h).json() == {"segments": []} and route.called
+    assert dylan.client.get("/v1/tv/phone/segments", headers=dylan.h).status_code == 400
+    assert dylan.client.get("/v1/tv/phone/segments?episode_id=ep:thomas-creek:nope", headers=dylan.h).status_code == 404
+    _two_episodes(hub, "series:thomas-creek:51")   # now a "Drama Show" episode
+    assert theo.client.get(url, headers=theo.h).status_code == 404
