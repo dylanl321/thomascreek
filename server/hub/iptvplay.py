@@ -472,9 +472,9 @@ def credentials(h: Any, provider: str, login: str) -> tuple[str, str, str] | Non
 
 def _holding(h: Any, ref: str) -> dict[str, Any] | None:
     """The folded title (several copies of one film) this provider ref belongs to."""
-    from .iptvcanon import index
+    from .iptvcanon import recent
 
-    return index(h.db).by_ref.get(ref)
+    return recent(h.db).by_ref.get(ref)
 
 
 async def fail_checked(h: Any, session: str, tv_id: str, now: float | None = None) -> dict[str, Any]:
@@ -736,9 +736,10 @@ def _notice(h: Any, provider: str, login: str, info: dict[str, Any], now: float)
 
 
 def _canonical(h: Any, canonical_id: str) -> dict[str, Any] | None:
-    from .iptvcanon import index
+    from .iptvcanon import index, recent
 
-    return index(h.db).by_id.get(canonical_id)
+    # A folded id made since the last index (rare) is looked up again in a fresh one.
+    return recent(h.db).by_id.get(canonical_id) or index(h.db).by_id.get(canonical_id)
 
 
 def _episode(h: Any, ref: str) -> dict[str, Any] | None:
@@ -761,9 +762,9 @@ def _episode(h: Any, ref: str) -> dict[str, Any] | None:
 def _twin_series(h: Any, series_id: str) -> list[str]:
     """The same show on the other providers: the folded series' other copies (Nov 19 2026: episodes played only
     from the provider they were listed under, so a show competed for that provider's logins alone)."""
-    from .iptvcanon import index
+    from .iptvcanon import recent
 
-    item = index(h.db).by_ref.get(series_id) if series_id else None
+    item = recent(h.db).by_ref.get(series_id) if series_id else None
     return [str(src["ref"]) for src in (item or {}).get("sources") or []
             if src.get("ref") and str(src["ref"]).startswith("series:") and src["ref"] != series_id]
 

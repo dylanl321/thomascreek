@@ -384,6 +384,38 @@ def index(db: Any) -> Index:
     return built
 
 
+def recent(db: Any) -> Index:
+    """`index`, but a call after the state was written gets the last index at once and the rebuild runs in a
+    worker. The live lineup and every play read this: rebuilding inline after each fold or batch of model answers
+    parsed several MB while holding the interpreter lock, and lineups took 8 to 10 s from abroad (Nov 19 2026).
+    Folded ids change slowly; the first call after a start still builds."""
+    stamp = _stamp(db)
+    cached = _INDEX.get(id(db))
+    if cached is None or stamp is None:
+        return index(db)
+    if cached[0] != stamp:
+        with _BUILD_LOCK:
+            start = id(db) not in _REFRESHING
+            if start:
+                _REFRESHING.add(id(db))
+        if start:
+            threading.Thread(target=_refresh, args=(db,), name="iptvcanon-refresh", daemon=True).start()
+    return cached[1]
+
+
+_REFRESHING: set[int] = set()
+
+
+def _refresh(db: Any) -> None:
+    try:
+        index(db)
+    except Exception:  # noqa: BLE001 - the last index keeps answering
+        log.exception("iptvcanon: refresh failed")
+    finally:
+        with _BUILD_LOCK:
+            _REFRESHING.discard(id(db))
+
+
 # A state this small is indexed on the spot; a bigger one (the live house: several MB) in the background.
 SMALL_STATE = 2_000_000
 SMALL_ITEMS = 5_000  # a titled index this big marks the house as big: later rebuilds run in the background
