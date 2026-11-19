@@ -1365,18 +1365,22 @@ class TvCatalog:
         lap("series")
         films = self.movies(q=q, category=None, kids_only=kids_only, limit=20)["movies"]
         lap("movies")
-        _mark_canonical(self.db, shows, "series")
-        _mark_canonical(self.db, films, "movie")
+        from .iptvcanon import peek
+
+        found = peek(self.db)
+        lap("peek")
+        _mark_canonical(self.db, shows, "series", found)
+        _mark_canonical(self.db, films, "movie", found)
         lap("canonical")
         return {"q": q.strip(), "channels": channels[:20], "programmes": programmes[:20], "series": shows, "movies": films}
 
 
-def _mark_canonical(db: Any, rows: list[dict[str, Any]], kind: str) -> None:
+def _mark_canonical(db: Any, rows: list[dict[str, Any]], kind: str, found: Any = False) -> None:
     """Adds `canonical_id` (optional for the apps) from the folded catalog: the title this row's own id belongs
     to, else the same cleaned name. Never waits for a big catalog to be indexed; rows go without it meanwhile."""
     from .iptvcanon import parse, peek
 
-    found = peek(db)
+    found = peek(db) if found is False else found  # a caller marking several lists peeks once
     if found is None:
         return
     want = "series" if kind == "series" else "movie"
