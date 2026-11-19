@@ -124,7 +124,7 @@ def observe(db: Any, sources: list[dict[str, Any]], *, decisions: dict[str, bool
 def search(db: Any, q: str = "", kind: str | None = None) -> dict[str, Any]:
     needle = q.strip().casefold()
     items = []
-    for item in _public(_items(db))["items"]:
+    for item in _public(index(db).items)["items"]:  # the cached read: the state is several MB of JSON
         if kind and item.get("kind") != kind:
             continue
         if needle and needle not in str(item.get("title") or "").casefold() and not any(
@@ -141,7 +141,7 @@ def copies(db: Any) -> dict[str, Any]:
     A TV shows one row per title and plays it through the hub. Titles with one copy are left out.
     """
     groups = []
-    for item in _items(db):
+    for item in index(db).items:
         if item.get("kind") not in ("movie", "series") or item.get("season") is not None:
             continue
         sources = sorted(item.get("sources") or [], key=lambda source: _quality_rank(source.get("quality")))
@@ -287,6 +287,8 @@ class Index:
         self.by_id = {item["id"]: item for item in self.items}
         self.by_tmdb = {str(k): str(v) for k, v in (state.get("by_tmdb") or {}).items()} \
             if isinstance(state.get("by_tmdb"), dict) else {}
+        self.by_source: dict[str, str] = dict(state.get("by_source") or {}) \
+            if isinstance(state.get("by_source"), dict) else {}
         self.by_ref: dict[str, dict[str, Any]] = {}
         for item in self.items:
             for source in item.get("sources") or []:

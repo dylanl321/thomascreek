@@ -182,16 +182,22 @@ def build_pool(library: list[dict[str, Any]], *, today: date) -> list[dict[str, 
         take(rows, GENRE_DEPTH)
     for years in ANNIVERSARIES:
         take([row for row in usable if row.get("year") == today.year - years and row.get("kind") == "movie"], 24)
-    for season in SEASONS:
-        take(sorted((row for row in usable if _season_score(row, season) > 0),
-                    key=lambda row: -_season_score(row, season)), 30)
+    named = [(row, f" {_name(row.get('title'))} ", f" {_name(row.get('overview'))} ") for row in usable]
+    for season in SEASONS:  # names cleaned once per title, not twice per title per season (40 s on the live hub)
+        scored = [(score, row) for row, title, story in named
+                  if (score := _season_words(row, title, story, season)) > 0]
+        scored.sort(key=lambda pair: -pair[0])
+        take([row for _score, row in scored], 30)
     return list(chosen.values())[:POOL_LIMIT]
 
 
 def _season_score(card: dict[str, Any], season: str) -> int:
+    return _season_words(card, f" {_name(card.get('title'))} ", f" {_name(card.get('overview'))} ", season)
+
+
+def _season_words(card: dict[str, Any], title: str, story: str, season: str) -> int:
+    """`title` and `story` are already cleaned with _name and padded with a space each side."""
     _title, words, genres = SEASONS[season]
-    title = f" {_name(card.get('title'))} "
-    story = f" {_name(card.get('overview'))} "
     score = 0
     for word in words:
         if f" {word} " in title:

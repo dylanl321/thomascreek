@@ -19,6 +19,8 @@ import hashlib
 import json
 import logging
 import re
+import os
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -38,6 +40,7 @@ FANART = "https://webservice.fanart.tv/v3"
 TVMAZE = "https://api.tvmaze.com"
 
 INDEX_TTL_S = 7 * 86400
+SAVE_EVERY_S = 5.0
 MISS_TTL_S = 24 * 3600
 MAX_BYTES = 5 * 1024 * 1024
 USER_AGENT = "thomascreek-hub"
@@ -171,6 +174,9 @@ class Artwork:
         self._indexes: dict[str, Any] = {"at": 0, "channels": {}, "logos": {}, "tvlogos": {}}
         self._notes: dict[str, dict[str, Any]] = {}
         self._cache: dict[str, dict[str, Any]] = {}
+        self._io = threading.Lock()
+        self._dirty: set[str] = set()
+        self._flush_timer: threading.Timer | None = None
         self._load()
 
     def start(self) -> None:
@@ -201,7 +207,7 @@ class Artwork:
         if self._notes.get(key) == current:
             return
         self._notes[key] = current
-        self._save_json("notes.json", self._notes)
+        self._save_soon("notes.json")
 
     def remember_many(self, notes: dict[str, dict[str, Any]]) -> None:
         """Like remember() for many keys, written once (a whole Plex library at a time)."""
@@ -214,7 +220,7 @@ class Artwork:
                 self._notes[key] = current
                 changed = True
         if changed:
-            self._save_json("notes.json", self._notes)
+            self._save_soon("notes.json")
 
     def note(self, key: str) -> dict[str, Any]:
         return dict(self._notes.get(key) or {})
@@ -283,6 +289,8 @@ class Artwork:
             seen.add(key)
             if await self._try("logo", key):
                 logos += 1
+            if len(seen) % 200 == 0:
+                await asyncio.sleep(0)
         overlay = getattr(catalog, "_overlay", None)
         if overlay:
             for key in overlay():
@@ -293,8 +301,12 @@ class Artwork:
                     logos += 1
         posters = 0
         now = time.time()
+        walked = 0
         for items in (doc.get("guide") or {}).values():
             for item in items or []:
+                walked += 1
+                if walked % 500 == 0:
+                    await asyncio.sleep(0)  # a guide has 100,000+ programmes; let requests in between
                 start = float(item.get("start_ts") or 0)
                 end = float(item.get("end_ts") or 0)
                 if not (now - 3600 <= start <= now + 86400 or start <= now < end):
@@ -601,12 +613,42 @@ class Artwork:
         return doc
 
     def _save_json(self, name: str, doc: Any) -> None:
+        """Whole-file write (a temp file, then a rename), so a crash or a reader never sees half a file."""
         self.dir.mkdir(parents=True, exist_ok=True)
-        (self.dir / name).write_text(json.dumps(doc))
+        with self._io:
+            snap = dict(doc) if isinstance(doc, dict) else doc  # rows are replaced, never changed in place
+        tmp = self.dir / f".{name}.{os.getpid()}.{threading.get_ident()}.tmp"
+        tmp.write_text(json.dumps(snap))
+        os.replace(tmp, self.dir / name)
+
+    def _save_soon(self, name: str) -> None:
+        """Notes and the match cache change once per title while a library or guide is walked: write them at most
+        every SAVE_EVERY_S instead of once per title (each write is the whole file; Nov 19 2026 that stalled the
+        hub for seconds). Safe from any thread."""
+        with self._io:
+            self._dirty.add(name)
+            if self._flush_timer is not None:
+                return
+            timer = threading.Timer(SAVE_EVERY_S, self.flush)
+            timer.daemon = True
+            self._flush_timer = timer
+        timer.start()
+
+    def flush(self) -> None:
+        """Write whatever changed. Called by the timer, at shutdown and by tests."""
+        with self._io:
+            names, self._dirty = sorted(self._dirty), set()
+            self._flush_timer = None
+        docs = {"notes.json": self._notes, "cache.json": self._cache, "indexes.json": self._indexes}
+        for name in names:
+            try:
+                self._save_json(name, docs[name])
+            except OSError as exc:
+                log.warning("artwork: couldn't save %s (%s)", name, type(exc).__name__)
 
     def _remember_cache(self, slot: str, row: dict[str, Any]) -> None:
         self._cache[slot] = {**row, "v": MATCH_VERSION}
-        self._save_json("cache.json", self._cache)
+        self._save_soon("cache.json")
 
     @staticmethod
     def _expired(hit: dict[str, Any]) -> bool:
