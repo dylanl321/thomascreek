@@ -406,11 +406,11 @@ async def phone_progress(body: dict[str, Any], c: Caller = Depends(caller), h: H
 def _level_allows(h: Hub, c: Caller, person: str | None, row: dict[str, Any]) -> bool:
     """A child's own level (`kidratings`) on top of the kids' library: a TV-PG title a nine-year-old's level
     leaves out never plays, even from a link or an old list."""
-    from .. import kidratings
+    from .. import kidcerts, kidratings
     from .tvguide import child_ratings
 
     allowed = child_ratings(h, c, person) or kidratings.for_person(h, None)
-    return kidratings.allows(allowed, row.get("rating"))
+    return kidratings.allows_item(allowed, row, kidcerts.store(h))
 
 
 @router.get("/available")

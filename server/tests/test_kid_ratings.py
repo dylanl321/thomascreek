@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 from hub import kidratings, tvexplore
 
 from tests.test_tv_api import _library
@@ -132,3 +134,96 @@ def test_film_and_series_pages_follow_the_childs_level_and_who_is_watching(hub, 
     assert "Drama Movie" in names(dylan.client.get("/v1/tv/movies", headers=dylan.h))
     kidratings.set_level(hub, theo["id"], "teen")
     assert set(names(theo_phone.client.get("/v1/tv/movies", headers=theo_phone.h))) == {"Kids Movie", "Teen Kids Movie"}
+
+
+def test_grown_up_cartoons_in_a_kids_group_never_reach_a_child():
+    assert kidratings.denied("24/7 HAPPY TREE FRIENDS") and kidratings.denied_channel("US| Family Guy HD")
+    assert not kidratings.denied("Bluey") and not kidratings.denied("Archery for Kids")
+    rows = [{"id": "kids", "items": [{"name": "24/7 HAPPY TREE FRIENDS"}, {"name": "Bluey"}]}]
+    assert [c["name"] for c in kidratings.narrow(rows, kidratings.allowed_at("teen"))[0]["items"]] == ["Bluey"]
+
+
+class _Certs:
+    def __init__(self, known):
+        self.known = known
+
+    def cert(self, item):
+        return self.known.get(item.get("name"))
+
+
+def test_a_provider_title_is_judged_by_its_age_certification_once_known():
+    certs = _Certs({"Cars": "G", "Paw Patrol": "TV-Y", "Shrek": "PG", "Ninjago": "TV-Y7"})
+    page = {"movies": [{"id": "vod:p:1", "name": n, "rating": "7.1"} for n in ("Cars", "Shrek", "Unknown")]
+            + [{"id": "series:p:2", "name": n, "rating": "8"} for n in ("Paw Patrol", "Ninjago")]}
+    little = kidratings.narrow(page, kidratings.allowed_at("little"), certs)
+    assert [m["name"] for m in little["movies"]] == ["Cars", "Unknown", "Paw Patrol"]  # unknown: its kids' category
+    kid = kidratings.narrow(page, kidratings.allowed_at("kid"), certs)
+    assert [m["name"] for m in kid["movies"]] == ["Cars", "Shrek", "Unknown", "Paw Patrol", "Ninjago"]
+
+
+def test_certifications_are_looked_up_once_on_tmdb_and_kept_for_the_house(hub):
+    import asyncio
+
+    import httpx
+
+    from hub import kidcerts
+
+    seen = []
+
+    def answer(request):
+        seen.append(request.url.path)
+        if request.url.path == "/3/movie/920/release_dates":
+            return httpx.Response(200, json={"results": [
+                {"iso_3166_1": "DE", "release_dates": [{"certification": "0"}]},
+                {"iso_3166_1": "US", "release_dates": [{"certification": ""}, {"certification": "G"}]}]})
+        if request.url.path == "/3/search/tv":
+            return httpx.Response(200, json={"results": [
+                {"id": 77, "name": "Ninjago Reimagined", "first_air_date": "2023-01-01"},
+                {"id": 78, "name": "Ninjago", "first_air_date": "2011-01-14"}]})
+        if request.url.path == "/3/tv/78/content_ratings":
+            return httpx.Response(200, json={"results": [{"iso_3166_1": "US", "rating": "TV-Y7"}]})
+        return httpx.Response(404)
+
+    real = httpx.AsyncClient
+    hub.vault.set("tmdb.api_key", "k")
+    store = kidcerts.store(hub)
+    film, show = {"id": "vod:p:1", "name": "Cars", "tmdb": "920"}, {"id": "series:p:2", "name": "EN - Ninjago (2011)"}
+    try:
+        httpx.AsyncClient = lambda **kw: real(transport=httpx.MockTransport(answer), **kw)  # type: ignore[misc]
+
+        async def run():
+            assert store.cert(film) is None and store.cert(show) is None  # queued, judged by category for now
+            await store.task
+
+        asyncio.run(run())
+    finally:
+        httpx.AsyncClient = real  # type: ignore[misc]
+    assert store.cert(film) == "G" and store.cert(show) == "TV-Y7"
+    assert not store.pending
+    assert hub.db.kv_get(kidcerts.KV)["movie:920"]["c"] == "G"  # kept for the house
+    before = len(seen)
+    assert store.cert(film) == "G" and len(seen) == before and not store.pending
+
+
+def test_little_drops_a_pg_film_on_the_films_page_once_its_certification_is_known(hub, people):
+    from hub import kidcerts
+
+    _library(hub)
+    hub.tv_catalog.ingest(
+        vod=[{"stream_id": 101, "name": "Cars", "category_id": "4", "rating": "7.2", "tmdb": "920"},
+             {"stream_id": 102, "name": "Shrek", "category_id": "4", "rating": "7.9", "tmdb": "808"}],
+        vod_categories=[{"category_id": "4", "category_name": "Kids"}],
+    )
+    theo_phone = people["phones"]["Theo"]
+    theo = next(p for p in hub.db.people_with_role("child") if p["name"] == "Theo")
+    names = lambda r: [m["name"] for m in r.json()["movies"]]  # noqa: E731
+    first = theo_phone.client.get("/v1/tv/movies", headers=theo_phone.h)
+    assert sorted(names(first)) == ["Cars", "Shrek"]
+    store = kidcerts.store(hub)
+    store.known.update({"movie:920": {"c": "G", "t": time.time()}, "movie:808": {"c": "PG", "t": time.time()}})
+    store.version += 1
+    kidratings.set_level(hub, theo["id"], "little")
+    again = theo_phone.client.get("/v1/tv/movies", headers={**theo_phone.h, "If-None-Match": first.headers["etag"]})
+    assert again.status_code == 200 and names(again) == ["Cars"]
+    kidratings.set_level(hub, theo["id"], "kid")
+    assert sorted(names(theo_phone.client.get("/v1/tv/movies", headers=theo_phone.h))) == ["Cars", "Shrek"]
