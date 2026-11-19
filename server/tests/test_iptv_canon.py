@@ -251,3 +251,27 @@ def test_a_streaming_service_tag_is_not_part_of_the_title(hub):
     live = [item for item in items if item["kind"] == "live"]
     assert len(live) == 2
     assert playable(hub.db, kind="series", title="NF - KAOS") is not None
+
+
+async def test_a_batch_of_model_answers_writes_the_state_once(hub, monkeypatch):
+    """Each answer used to read and write the whole several-MB state on the event loop (Nov 19 2026)."""
+    from hub import iptvcanon
+    from hub.iptvcanon import KV, settle
+    db = hub.db
+    rows = []
+    for i in range(6):
+        rows += [{"stream_id": 10 * i + 1, "name": f"Film {i} ({2000 + i})"},
+                 {"stream_id": 10 * i + 2, "name": f"Film {i}"}]
+    hub.tv_catalog.ingest(vod=rows, vod_categories=[], live=[], live_categories=[], series=[], series_categories=[])
+    assert unsure(db)["total"] == 6
+    writes = []
+    real = db.kv_set
+    monkeypatch.setattr(db, "kv_set", lambda key, value: (writes.append(key), real(key, value))[1])
+
+    async def ask(_hub, pairs):
+        return {pair["id"]: i % 2 == 0 for i, pair in enumerate(pairs)}
+
+    result = await settle(hub, ask=ask)
+    assert result == {"folded": 3, "apart": 3, "left": 0}
+    assert writes.count(KV) == 1
+    assert iptvcanon.unsure(db)["total"] == 0

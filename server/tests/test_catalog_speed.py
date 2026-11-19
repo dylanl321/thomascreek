@@ -112,3 +112,20 @@ def test_a_big_house_skips_the_state_size_scan(hub, monkeypatch):
         "T", (), {"start": lambda self: started.append(args)})())
     assert iptvcanon.peek(hub.db) is first  # the last titled index, while the new one builds
     assert started
+
+
+def test_the_title_map_is_rebuilt_at_most_every_few_minutes(hub, monkeypatch):
+    """The state is written on each fold and model batch; rebuilding after each write held searches ~1 s."""
+    observe(hub.db, [{"provider": "thomas-creek", "kind": "series", "stream_id": "9", "name": "The Office"}])
+    iptvcanon._INDEX.pop(id(hub.db), None)
+    iptvcanon._TITLED.pop(id(hub.db), None)
+    monkeypatch.setattr(iptvcanon, "SMALL_STATE", 0)
+    monkeypatch.setattr(iptvcanon.threading, "Thread", lambda target, args, **_: type(
+        "T", (), {"start": lambda self: target(*args)})())
+    first = iptvcanon.peek(hub.db) or iptvcanon.peek(hub.db)  # built in the "background" on the first call
+    assert first is not None
+    observe(hub.db, [{"provider": "thomas-creek", "kind": "movie", "stream_id": "3", "name": "Up (2009)"}])
+    assert iptvcanon.peek(hub.db) is first  # just built: the state change waits
+    monkeypatch.setitem(iptvcanon._TITLED_AT, id(hub.db), iptvcanon._TITLED_AT[id(hub.db)] - 301)
+    iptvcanon.peek(hub.db)  # a few minutes on, it is rebuilt (here at once; on the hub in the background)
+    assert iptvcanon.peek(hub.db) is not first
