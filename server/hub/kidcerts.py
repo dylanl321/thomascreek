@@ -76,16 +76,21 @@ class Certs:
         self.task: asyncio.Task[None] | None = None
         self.version = 0
         self.warmed = 0.0
+        self.ids: dict[str, str] = {}  # catalog id -> cache key, from the warm scan of the kids' library
+        self.specs: dict[str, dict[str, Any]] = {}
         doc = h.db.kv_get(KV)
         if isinstance(doc, dict):
             self.known = {str(k): v for k, v in doc.items() if isinstance(v, dict)}
 
     def cert(self, item: dict[str, Any]) -> str | None:
         """The title's US age certification when known ("PG", "TV-Y7"). An unknown kids' title is queued."""
-        found = key_of(self._with_tmdb(item))
+        known_key = self.ids.get(str(item.get("id") or ""))
+        found = key_of(item)
         if found is None:
             return None
         key, spec = found
+        if known_key and known_key != key and not (item.get("tmdb") or item.get("tmdb_id")):
+            key, spec = known_key, self.specs.get(known_key, spec)  # a page card: its catalog row's TMDB id
         entry = self.known.get(key)
         fresh = entry is not None and time.time() - float(entry.get("t") or 0) < (
             HIT_TTL_S if entry.get("c") else MISS_TTL_S)
@@ -95,40 +100,45 @@ class Certs:
             self.kick()
         return str(entry["c"]) if entry and entry.get("c") else None
 
-    def _with_tmdb(self, item: dict[str, Any]) -> dict[str, Any]:
-        """A films or series page card carries no TMDB id; the catalog row behind its id may."""
-        if item.get("tmdb") or item.get("tmdb_id"):
-            return item
-        ident = str(item.get("id") or "")
-        bucket = "movies" if ident.startswith("vod:") else "series" if ident.startswith("series:") else None
-        catalog = getattr(self.h, "tv_catalog", None)
-        if bucket is None or catalog is None:
-            return item
-        try:
-            row = catalog.known_row(bucket, ident)
-        except Exception:  # noqa: BLE001 - a catalog still loading: judge by name this time
-            return item
-        tmdb = (row or {}).get("tmdb")
-        return {**item, "tmdb": tmdb} if tmdb else item
+    def blocked(self, bucket: str, allowed: set[str]) -> set[str]:
+        """Catalog ids ("vod:..." in `movies`, "series:..." in `series`) whose known certification this level
+        leaves out, so a list can skip them before it is paged."""
+        from .kidratings import CONTENT
+
+        prefix = "vod:" if bucket == "movies" else "series:"
+        out = set()
+        for ident, key in self.ids.items():
+            cert = str((self.known.get(key) or {}).get("c") or "")
+            if ident.startswith(prefix) and cert in CONTENT and cert not in allowed:
+                out.add(ident)
+        return out
 
     def warm_due(self) -> bool:
         return time.time() - self.warmed >= 6 * 3600
 
     def warm(self) -> None:
         """Every kids' film and series queued at most every 6 hours, so a level narrows a page the first time a
-        child opens it, not only after it was served once."""
+        child opens it. Read from the catalog index (SQLite), never the big snapshot; run it off the loop."""
         if not self.warm_due():
             return
         self.warmed = time.time()
         catalog = getattr(self.h, "tv_catalog", None)
-        if catalog is None:
-            return
         try:
-            doc = catalog.load()
+            if catalog is None or not catalog.index_ready():
+                self.warmed = 0.0  # try again on the next page, once the index is there
+                return
+            kids = catalog._kid_names()
             for bucket, kind in (("movies", "movie"), ("series", "series")):
-                for row in doc.get(bucket) or []:
-                    if isinstance(row, dict) and catalog._is_kids(row.get("category")):
-                        self.cert({**row, "kind": kind})
+                rows, _total, _names = catalog.index.titles(bucket, needle="", category=None, kids=kids,
+                                                            limit=100_000, offset=0, sort="name")
+                for row in rows:
+                    found = key_of({**row, "kind": kind}) if isinstance(row, dict) else None
+                    if found is None:
+                        continue
+                    key, spec = found
+                    self.ids[str(row.get("id"))] = key
+                    self.specs[key] = spec
+                    self.cert({**row, "kind": kind})
         except Exception as exc:  # noqa: BLE001 - a catalog still loading: the pages queue their own titles
             log.info("kidcerts: warm skipped (%s)", type(exc).__name__)
 
