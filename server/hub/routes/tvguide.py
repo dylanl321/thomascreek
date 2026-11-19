@@ -99,11 +99,27 @@ def _narrow(h: Hub, c: Caller, body: Any, person: str | None = None, *, kids: bo
     return kidratings.narrow(body, allowed, kidcerts.store(h)) if allowed is not None else body
 
 
-async def _ready(h: Hub) -> None:
+async def _ready(h: Hub, *, index_ok: bool = False) -> None:
+    """The catalog is there and its freshness checked. With `index_ok` (film and series pages, which read
+    catalog.db), a page doesn't wait for the snapshot's first parse after a start when the index already matches
+    it: the check runs in the background (Nov 19 2026: a first page waited 1.1 s for it)."""
+    cat = h.tv_catalog
+    if index_ok and not cat.parsed() and cat.index_ready():
+        running = getattr(cat, "_ensure_task", None)
+        if running is None or running.done():
+            cat.__dict__["_ensure_task"] = asyncio.create_task(_ensure_quietly(h))  # kept, so it is not collected
+        return
+    try:
+        await cat.ensure()
+    except TvAppError as exc:
+        raise error(exc.status, exc.code, exc.message) from None
+
+
+async def _ensure_quietly(h: Hub) -> None:
     try:
         await h.tv_catalog.ensure()
     except TvAppError as exc:
-        raise error(exc.status, exc.code, exc.message) from None
+        log.info("catalog check after start: %s", exc.code)
 
 
 @router.get("/players")
@@ -513,7 +529,7 @@ async def _title_page(request: Request, h: Hub, c: Caller, kind: str, *, q: str 
     # hub already knows are left out before paging, so pages stay full and `total` is right; the narrow after
     # the page catches the rest.
     allowed = (child_ratings(h, c, person) or kidratings.for_person(h, person)) if kids else None
-    await _ready(h)
+    await _ready(h, index_ok=True)
     lap("ready")
     args: dict[str, Any] = {"q": q, "category": category, "kids_only": kids, "limit": _limit(limit),
             "offset": max(0, offset),

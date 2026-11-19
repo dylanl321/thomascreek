@@ -199,13 +199,28 @@ class TvCatalog:
         cached = getattr(self, "_loaded", None)
         if cached is not None and cached[0] == stamp:
             return cached[1]
+        # One parse at a time: callers arriving during a parse wait for it instead of parsing the same tens of MB
+        # again (Nov 19 2026: the first page after a start parsed it on the loop while a worker was parsing it too).
+        with self.__dict__.setdefault("_load_lock", threading.Lock()):
+            cached = getattr(self, "_loaded", None)
+            if cached is not None and cached[0] == stamp:
+                return cached[1]
+            try:
+                doc = json.loads(self.path.read_text())
+            except (OSError, json.JSONDecodeError):
+                return {}
+            doc = doc if isinstance(doc, dict) else {}
+            self._loaded = (stamp, doc)
+            return doc
+
+    def parsed(self) -> bool:
+        """True when `load` would answer from the parsed copy without reading the file."""
         try:
-            doc = json.loads(self.path.read_text())
-        except (OSError, json.JSONDecodeError):
-            return {}
-        doc = doc if isinstance(doc, dict) else {}
-        self._loaded = (stamp, doc)
-        return doc
+            stat = self.path.stat()
+        except OSError:
+            return True  # no file: `load` answers {} at once
+        cached = getattr(self, "_loaded", None)
+        return cached is not None and cached[0] == (stat.st_mtime_ns, stat.st_size)
 
     def _details(self) -> dict[str, Any]:
         """Every fetched page and episode, parsed once per file change like `load` (the file grows with every
@@ -892,7 +907,8 @@ class TvCatalog:
 
     # -- fetch -----------------------------------------------------------------------------------------------------
     async def ensure(self) -> dict[str, Any]:
-        doc = self.load()
+        # The first call after a start parses the snapshot: off the loop, or every other call waits behind it.
+        doc = self.load() if self.parsed() else await asyncio.to_thread(self.load)
         now = time.time()
         lists_ok = bool(doc) and now - float(doc.get("fetched_at") or 0) < LIST_TTL_S
         guide_ok = (now - float(doc.get("guide_at") or 0) < GUIDE_TTL_S

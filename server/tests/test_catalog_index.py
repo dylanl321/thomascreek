@@ -3,6 +3,7 @@ pages as the old in-memory path, keep kids to kids' categories, and answer 304 f
 
 from __future__ import annotations
 
+import json
 import random
 
 from hub import catalogdb, tvcatalog
@@ -224,3 +225,49 @@ def test_a_kids_page_from_the_index_never_parses_the_snapshot(hub, monkeypatch):
     monkeypatch.setattr(cat, "load", lambda: (_ for _ in ()).throw(AssertionError("parsed the snapshot")))
     page = cat.movies(q=None, category=None, kids_only=True, limit=40, sort="name")
     assert page["movies"] and all(row["kids"] for row in page["movies"])
+
+
+def test_the_first_page_after_a_start_does_not_wait_for_the_snapshot(hub, people, monkeypatch):
+    """The first films page after a start waited 1.1 s in `ready` for the snapshot's first parse (Nov 19 2026).
+    With catalog.db matching the snapshot, the page answers from it and the freshness check runs behind it."""
+    from tests.test_tv_api import _library
+
+    _library(hub)
+    cat = hub.tv_catalog
+    assert cat.index_ready()
+    cat.__dict__.pop("_loaded", None)
+    assert not cat.parsed()
+    checked = []
+
+    async def ensure():
+        checked.append(True)
+        return {}
+
+    monkeypatch.setattr(cat, "load", lambda: (_ for _ in ()).throw(AssertionError("parsed the snapshot")))
+    monkeypatch.setattr(cat, "ensure", ensure)
+    dylan = people["phones"]["Dylan"]
+    got = dylan.client.get("/v1/tv/movies", headers=dylan.h, params={"limit": 5})
+    assert got.status_code == 200 and got.json()["movies"]
+    assert checked  # the check still ran, in the background
+
+
+def test_the_snapshot_is_parsed_once_however_many_ask_at_once(hub, monkeypatch):
+    import threading
+
+    cat = hub.tv_catalog
+    cat._write(_doc())
+    cat.__dict__.pop("_loaded", None)
+    real, calls = json.loads, []
+
+    def slow_loads(text, *a, **k):
+        calls.append(1)
+        threading.Event().wait(0.2)
+        return real(text, *a, **k)
+
+    monkeypatch.setattr("hub.tvcatalog.json.loads", slow_loads)
+    workers = [threading.Thread(target=cat.load) for _ in range(4)]
+    for w in workers:
+        w.start()
+    for w in workers:
+        w.join()
+    assert len(calls) == 1 and cat.parsed()
