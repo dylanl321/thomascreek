@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import sys
 import time
 from contextlib import asynccontextmanager
 from typing import Any
@@ -24,6 +25,8 @@ from .timings import HOST_EVERY_S, HostLoad, TimingMiddleware, Timings
 from .routes import sends as sends_routes
 from .routes import phonelogs, phoneproviders
 from .vault import Vault, load_master_key
+
+SWITCH_INTERVAL_S = 0.001  # see `run`
 
 log = logging.getLogger("hub")
 
@@ -237,6 +240,10 @@ def run() -> None:
     logging.getLogger("httpx").setLevel(logging.WARNING)
     # Provider list reads run in a child process, so they never hold up a request (catalogjob.py).
     os.environ.setdefault("HUB_CATALOG_CHILD", "1")
+    # The event loop gives up the GIL on every SQLite call and waits for it back while a worker thread parses the
+    # catalog; at Python's 5 ms switch interval a loop tick with a few hundred small reads took 10 to 20 s after a
+    # start (Nov 19 2026, /v1/ping/stalls). A shorter interval hands it back sooner, at a small cost to the parse.
+    sys.setswitchinterval(SWITCH_INTERVAL_S)
     _preload()
     hub = default_hub()
     cert, key = ensure_tls(hub.config)

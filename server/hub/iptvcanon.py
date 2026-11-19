@@ -122,12 +122,12 @@ def observe(db: Any, sources: list[dict[str, Any]], *, decisions: dict[str, bool
     return _public(state["items"])
 
 
-def search(db: Any, q: str = "", kind: str | None = None, *, settled: bool = False) -> dict[str, Any]:
-    """`settled`: read the last index built (`peek`) instead of rebuilding after each write of the state, for a
+def search(db: Any, q: str = "", kind: str | None = None, *, last_built: bool = False) -> dict[str, Any]:
+    """`last_built`: read the last index built (`peek`) instead of rebuilding after each write of the state, for a
     caller that runs often and can show a list a few minutes old (Explore)."""
     needle = q.strip().casefold()
     items = []
-    found = (peek(db) if settled else None) or index(db)
+    found = (settled(db) if last_built else None) or index(db)
     for item in _public(found.items)["items"]:  # the cached read: the state is several MB of JSON
         if kind and item.get("kind") != kind:
             continue
@@ -428,6 +428,23 @@ def peek(db: Any) -> Index | None:
     if start:
         threading.Thread(target=_build, args=(db,), name="iptvcanon-index", daemon=True).start()
     return last
+
+
+def settled(db: Any, wait_s: float = 180.0) -> Index | None:
+    """`peek`, waiting (in the caller's worker thread, never on the loop) for the first background build instead
+    of building a second copy beside it: two parses at once after a start starved the hub's loop for 20 s
+    (Nov 19 2026). None if no index is ready within `wait_s`."""
+    deadline = time.monotonic() + wait_s
+    found = peek(db)
+    while found is None and time.monotonic() < deadline:
+        time.sleep(0.5)
+        titled = _TITLED.get(id(db))
+        found = titled[1] if titled is not None and titled[0] is db else None
+        with _BUILD_LOCK:
+            idle = id(db) not in _BUILDING
+        if found is None and idle:
+            found = peek(db)  # the build failed or never started: start one (or build a small house inline)
+    return found
 
 
 _TITLED: dict[int, tuple[Any, Index]] = {}  # (db, index): the db is kept so a reused id never matches

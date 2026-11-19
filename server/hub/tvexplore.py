@@ -657,9 +657,11 @@ def _canonical_rows(h: Any) -> list[dict[str, Any]]:
     """Cleaned titles from the folded catalog, so Explore can see past a messy provider name. Built once per index
     (Nov 19 2026: building them on every Explore build, from a fresh index after each write of the folded state,
     starved the hub's loop for 4 to 8 s after a start); callers get their own copies."""
-    from .iptvcanon import index, peek
+    from .iptvcanon import index, settled
 
-    found = peek(h.db) or index(h.db)
+    # After a start the first index is built in the background; wait for it here (a worker thread) rather than
+    # build a second copy beside it, which doubled the start-up parse (Nov 19 2026).
+    found = settled(h.db) or index(h.db)
     cached = _CANON_ROWS.get(id(h.db))
     if cached is None or cached[0] is not found:
         cached = (found, _build_canonical_rows(h))
@@ -673,7 +675,7 @@ def _build_canonical_rows(h: Any) -> list[dict[str, Any]]:
     rows = []
     from .tvcatalog import SOURCE
 
-    for item in search(h.db, settled=True)["items"]:
+    for item in search(h.db, last_built=True)["items"]:
         if item.get("kind") not in ("movie", "series"):
             continue
         # Every provider's copy has a page now (#207). The main provider's copy opens first; a title only
