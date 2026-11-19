@@ -1092,14 +1092,27 @@ class TvCatalog:
         kids = self._is_kids(series.get("category"))
         return {**row, "kids": kids, "series_name": series.get("name") or row.get("series_name")}
 
-    def search(self, q: str, *, kids_only: bool, now: float | None = None) -> dict[str, Any]:
+    def search(self, q: str, *, kids_only: bool, now: float | None = None,
+               timing: dict[str, float] | None = None) -> dict[str, Any]:
+        """`timing` (optional) is filled with the milliseconds each part took, for the route's Server-Timing."""
         needle = q.strip().casefold()
         now = time.time() if now is None else now
-        channels = []
-        programmes = []
+        clock = time.perf_counter()
+        marks = timing if timing is not None else {}
+
+        def lap(name: str) -> None:
+            nonlocal clock
+            at = time.perf_counter()
+            marks[name] = round((at - clock) * 1000, 1)
+            clock = at
+
+        channels: list[dict[str, Any]] = []
+        programmes: list[dict[str, Any]] = []
         doc = self.load()
         overlay = self._overlay()
+        lap("load")
         notes: dict[str, dict[str, Any]] = {}
+        guide = doc.get("guide") or {}
         for row in doc.get("channels") or []:
             shown = self._present_channel(row, overlay)
             if shown is None or (kids_only and not shown["kids"]):
@@ -1108,7 +1121,9 @@ class TvCatalog:
                 card = {key: shown[key] for key in ("key", "name", "number", "group", "logo", "kids")}
                 card["logo_url"] = self._art("logo", shown["key"])
                 channels.append(card)
-            for item in (doc.get("guide") or {}).get(shown["key"]) or []:
+            if len(programmes) >= 20:
+                continue
+            for item in guide.get(shown["key"]) or []:
                 title = str(item.get("title") or "")
                 if needle in title.casefold() or needle in str(item.get("subtitle") or "").casefold():
                     view = self._with_programme_art(_programme(item, shown, now), notes)
@@ -1117,11 +1132,16 @@ class TvCatalog:
                     programmes.append(view)
                     if len(programmes) >= 20:
                         break
+        lap("guide")
         self._flush_notes(notes)
+        lap("notes")
         shows = self.series(q=q, category=None, kids_only=kids_only, limit=20)["series"]
+        lap("series")
         films = self.movies(q=q, category=None, kids_only=kids_only, limit=20)["movies"]
+        lap("movies")
         _mark_canonical(self.db, shows, "series")
         _mark_canonical(self.db, films, "movie")
+        lap("canonical")
         return {"q": q.strip(), "channels": channels[:20], "programmes": programmes[:20], "series": shows, "movies": films}
 
 

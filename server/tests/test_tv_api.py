@@ -373,7 +373,11 @@ def test_guide_series_movies_and_search_are_filtered(hub, people):
     kid = theo.client.get("/v1/tv/guide", headers=theo.h).json()
     assert [row["name"] for row in kid["channels"]] == ["Cartoon"]
 
-    by_channel = dylan.client.get("/v1/tv/library/search", headers=dylan.h, params={"q": "cnn"}).json()
+    searched = dylan.client.get("/v1/tv/library/search", headers=dylan.h, params={"q": "cnn"})
+    # Each part's time comes back, so a slow search on the live hub says where the time went.
+    assert {"load", "guide", "series", "movies", "canonical"} <= {
+        part.split(";")[0].strip() for part in searched.headers["server-timing"].split(",")}
+    by_channel = searched.json()
     assert any(row["name"] == "CNN" for row in by_channel["channels"])
     by_show = dylan.client.get("/v1/tv/library/search", headers=dylan.h, params={"q": "news"}).json()
     assert any(row["title"] == "Newsroom" for row in by_show["programmes"])
