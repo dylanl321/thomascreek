@@ -60,6 +60,9 @@ def build_app(hub: Hub | None = None, *, start_background: bool = True) -> FastA
         if zc is not None:
             await zc.async_close()
         await h.stop()
+        art = getattr(h, "artwork", None)
+        if art is not None:
+            art.flush()  # notes and matches kept since the last timed write
         if dog is not None:
             await dog.stop()
 

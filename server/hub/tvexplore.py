@@ -58,16 +58,16 @@ async def refresh(h: Any) -> None:
     except Exception as exc:  # noqa: BLE001
         log.info("rewatch: %s", type(exc).__name__)
     if not key:
-        publish(h, None, can_request=bool(h.jellyseerr.enabled))
+        await _publish_off_loop(h, None)
         return
     try:
         lists = await _tmdb(str(key))
     except Exception as exc:  # noqa: BLE001
         log.info("tmdb: %s", _safe(exc))
         if not isinstance(_cache(h).get("adult"), dict):
-            publish(h, None, can_request=bool(h.jellyseerr.enabled))
+            await _publish_off_loop(h, None)
         return
-    publish(h, lists, can_request=bool(h.jellyseerr.enabled))
+    await _publish_off_loop(h, lists)
 
 
 async def _tmdb(key: str) -> dict[str, list[dict[str, Any]]]:
@@ -284,8 +284,27 @@ def _top10(rows: dict[str, list[dict[str, Any]]]) -> list[dict[str, Any]]:
     return out if len(out) >= TOP10_MIN else []
 
 
+async def _publish_off_loop(h: Any, lists: dict[str, list[dict[str, Any]]] | None) -> None:
+    """Build the feeds in a worker thread (seconds of pure Python over the whole library), then keep them on the
+    loop, so TVs and phones are answered while it builds (hub rebuild, Nov 19 2026: it stalled every route)."""
+    built = await asyncio.to_thread(_build, h, lists, bool(h.jellyseerr.enabled))
+    _keep(h, built)
+
+
 def publish(h: Any, lists: dict[str, list[dict[str, Any]]] | None, *, can_request: bool) -> dict[str, dict[str, Any]]:
     """Build both profiles and keep them. `lists` is None when there is no TMDB key."""
+    built = _build(h, lists, can_request)
+    _keep(h, built)
+    return {"adult": built["adult"], "kids": built["kids"]}
+
+
+def _keep(h: Any, built: dict[str, Any]) -> None:
+    raw = _cache(h)
+    raw.update(built)
+    h.db.kv_set(KV, raw)
+
+
+def _build(h: Any, lists: dict[str, list[dict[str, Any]]] | None, can_request: bool) -> dict[str, Any]:
     allowed = _allowed(h)
     names = _rewatch_names(h)
     adult_library, kids_library = _library(h, False), _library(h, True)
@@ -293,13 +312,8 @@ def publish(h: Any, lists: dict[str, list[dict[str, Any]]] | None, *, can_reques
                                 rewatch=names)
     kids, links_k = build_feed(kids_library, lists, can_request=can_request, kids=True, allowed=allowed,
                                rewatch=names)
-    raw = _cache(h)
-    raw["adult"] = adult
-    raw["kids"] = kids
-    raw["links"] = {**links_k, **links_a}
-    raw["pool"] = {"adult": _build_pool(h, adult_library), "kids": _build_pool(h, kids_library)}
-    h.db.kv_set(KV, raw)
-    return {"adult": adult, "kids": kids}
+    return {"adult": adult, "kids": kids, "links": {**links_k, **links_a},
+            "pool": {"adult": _build_pool(h, adult_library), "kids": _build_pool(h, kids_library)}}
 
 
 def ask(h: Any, subject: Any, body: dict[str, Any]) -> dict[str, Any]:
