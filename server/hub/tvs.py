@@ -23,6 +23,7 @@ from .tvlineup import valid_key
 
 # A TV counts as online when it has checked in within this window (fleet report, state or config pull).
 ONLINE_S = tvfleet.ONLINE_S
+SEND_SEEN_S = 14 * 86400  # a TV not seen for two weeks is left out of a phone's list of TVs to play on
 ACTIONS = ("restart_app", "update", "open_app", "screenshot", "play") + tvcec.ACTIONS
 # Settings that stay on each TV and never come from the hub.
 LOCAL_ONLY = ("picture", "audio", "display", "sound")
@@ -41,9 +42,14 @@ class TvsError(Exception):
 
 # -- reading ---------------------------------------------------------------------------------------------------------
 
-def listing(h: Any, now: float | None = None) -> dict[str, Any]:
+def listing(h: Any, now: float | None = None, *, send: bool = False) -> dict[str, Any]:
+    """`send`: only the TVs a phone may offer to play on (approved, and seen in the last `SEND_SEEN_S`), so a
+    test install or a TV that was replaced doesn't fill the phone's Cast list."""
     now = time.time() if now is None else now
     rows = [summary(h, install_id, tv, now) for install_id, tv in h.tv_app.tvs().items() if tv.get("status") != "revoked"]
+    if send:
+        rows = [row for row in rows if row["status"] == "approved" and row["last_seen"]
+                and now - _seen(h, row["id"]) < SEND_SEEN_S]
     rows.sort(key=lambda row: (row["status"] != "approved", str(row.get("name") or "").lower()))
     latest = h.tv_app.latest() or {}
     return {"tvs": rows, "latest_version": latest.get("versionName")}
@@ -69,11 +75,17 @@ def detail(h: Any, install_id: str, now: float | None = None) -> dict[str, Any]:
     return out
 
 
+def _seen(h: Any, install_id: str, tv: dict[str, Any] | None = None) -> float:
+    fleet = tvfleet._devices(h).get(install_id) or {}
+    tv = tv if tv is not None else (h.tv_app.tvs().get(install_id) or {})
+    return max(float(fleet.get("seen") or 0), float(tv.get("state_at") or 0), float(tv.get("last_seen_at") or 0),
+               float(tv.get("last_config_at") or 0))
+
+
 def summary(h: Any, install_id: str, tv: dict[str, Any], now: float) -> dict[str, Any]:
     fleet = tvfleet._devices(h).get(install_id) or {}
     health = tv.get("health") or {}
-    seen = max(float(fleet.get("seen") or 0), float(tv.get("state_at") or 0), float(tv.get("last_seen_at") or 0),
-               float(tv.get("last_config_at") or 0))
+    seen = _seen(h, install_id, tv)
     version = fleet.get("app_version") or tv.get("app_version") or health.get("app_version")
     latest = (h.tv_app.latest() or {}).get("versionName")
     online = bool(seen and now - seen < ONLINE_S)
@@ -403,9 +415,37 @@ def _play(h: Any, install_id: str, tv: dict[str, Any], body: dict[str, Any], onl
         raise TvsError(400, "bad_request", "Say what to play: a channel_key, movie_id, episode_id or ambience_id.")
     if isinstance(body.get("title"), str) and command.get("kind") != "ambience":
         command["title"] = body["title"][:120]
+    _kids_check(h, tv, command)
     sent = h.tv_app.enqueue_command(install_id, command)
     h.bus.publish({"type": "tv_command", "data": sent}, device_id=f"tv:{install_id}")
     return {"ok": True, "via": "app", "id": sent["id"], "message": "Playing on the TV."}
+
+
+def _kids_check(h: Any, tv: dict[str, Any], command: dict[str, Any]) -> None:
+    """A kids' TV is sent only what it would show itself: a kids' channel, or a kids' film or series the
+    strictest child's level allows. A grown-up's phone can't put a grown-up title on it (Kids first)."""
+    if tv.get("profile") != "kids" or command.get("kind") == "ambience":
+        return
+    from . import kidcerts, kidratings
+
+    name = tv.get("name") or "That TV"
+    refused = TvsError(403, "kids_tv", f"{name} is a kids' TV, and this isn't on its kids' list.")
+    catalog = h.tv_catalog
+    if command["kind"] == "live":
+        channel = catalog.channel(command["channel_key"])
+        if not channel or not channel.get("kids"):
+            raise refused
+        return
+    movie = command["kind"] == "movie"
+    bucket, ref = ("movies", command.get("movie_id")) if movie else ("series", command.get("series_id"))
+    if not ref:
+        raise TvsError(403, "kids_tv", f"{name} is a kids' TV: start this episode from the TV's own kids' list.")
+    row = catalog.known_row(bucket, str(ref))
+    if row is None or not catalog._is_kids(row.get("category")):
+        raise refused
+    judged = {**row, "id": ref, "kind": "series" if bucket == "series" else "movie"}
+    if not kidratings.allows_item(kidratings.for_person(h, None), judged, kidcerts.store(h)):
+        raise refused
 
 
 def _setting(key: str, value: Any) -> Any:

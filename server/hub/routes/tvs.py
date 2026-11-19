@@ -40,9 +40,10 @@ def _err(exc: tvs.TvsError):
 
 
 @router.get("")
-async def list_tvs(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+async def list_tvs(c: Caller = Depends(caller), h: Hub = Depends(hub), send: bool = False) -> dict[str, Any]:
+    """`?send=true`: only the TVs worth offering in a phone's Cast list (approved and seen in the last 14 days)."""
     need(h, c, CAP)
-    return tvs.listing(h)
+    return tvs.listing(h, send=send)
 
 
 @router.get("/settings/schema")
