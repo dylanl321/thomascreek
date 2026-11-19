@@ -92,3 +92,14 @@ def test_a_lineup_edit_and_a_health_report_show_on_the_next_call(hub, people):
     hub.db.kv_set(KV, {})
     cleared = dylan.client.get("/v1/tv/lineup", headers=dylan.h).json()
     assert "health" not in next(row for row in cleared["channels"] if row["key"] == key)
+
+
+def test_a_list_reads_the_kids_categories_once_not_per_row(hub, people, monkeypatch):
+    """Each row's kids check read the setting again: the live series list took 25 s and more."""
+    hub.tv_catalog.ingest(series=[{"series_id": i, "name": f"Show {i}", "category_id": "1"} for i in range(1, 400)],
+                          series_categories=[{"category_id": "1", "category_name": "KIDS"}])
+    reads = []
+    real = hub.tv_catalog.kids_categories
+    hub.tv_catalog.kids_categories = lambda: reads.append(1) or real()
+    hub.tv_catalog.series(q=None, category=None, kids_only=False, limit=60)
+    assert len(reads) <= 1
