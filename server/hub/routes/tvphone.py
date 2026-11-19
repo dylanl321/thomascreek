@@ -26,7 +26,7 @@ import shutil
 import time
 from collections import OrderedDict
 from typing import Any
-from urllib.parse import quote, urljoin, urlsplit
+from urllib.parse import quote, urlencode, urljoin, urlsplit
 
 import httpx
 from fastapi import APIRouter, Depends, Request
@@ -519,7 +519,8 @@ async def phone_thumbs(episode_id: str | None = None, movie_id: str | None = Non
 
     await _ready(h)
     title_id, _row, _series = _subtitle_title(h, c, episode_id, movie_id, person)
-    return await asyncio.to_thread(playerthumbs.view, h, title_id, base="/v1/tv/phone/thumbs")
+    query = urlencode({"episode_id" if episode_id else "movie_id": title_id})
+    return await asyncio.to_thread(playerthumbs.view, h, title_id, base="/v1/tv/phone/thumbs", query=query)
 
 
 @router.get("/thumbs/{name}/{number}.jpg")

@@ -47,14 +47,15 @@ def slug(item_id: str) -> str:
     return hashlib.sha256(item_id.encode()).hexdigest()[:20]
 
 
-def view(h: Any, item_id: str, *, base: str) -> dict[str, Any]:
+def view(h: Any, item_id: str, *, base: str, query: str) -> dict[str, Any]:
     """What a player needs to draw the picture for a second of the film; `sheets` is empty when none are made.
 
     Picture `n = second // interval_s` is on sheet `n // (columns * rows)`, in cell `n % (columns * rows)`,
-    counted along the rows from the top left."""
+    counted along the rows from the top left. Each sheet's address names the title again (`query`), because the
+    file is only handed out after the same kids' rule."""
     count = _sheets(h, item_id)
     out: dict[str, Any] = {"interval_s": STEP_S, "width": WIDTH, "height": HEIGHT, "columns": COLS, "rows": ROWS,
-                           "sheets": [f"{base}/{slug(item_id)}/{n}.jpg" for n in range(1, count + 1)]}
+                           "sheets": [f"{base}/{slug(item_id)}/{n}.jpg?{query}" for n in range(1, count + 1)]}
     return out
 
 

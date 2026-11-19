@@ -407,14 +407,16 @@ def test_scrub_pictures_are_made_at_night_on_a_spare_login_and_follow_the_kids_r
 
     made = dylan.client.get(url, headers=dylan.h).json()
     assert len(made["sheets"]) == 2 and SERVER not in json.dumps(made)
-    one = dylan.client.get(made["sheets"][0], headers=dylan.h, params={"movie_id": "vod:thomas-creek:100"})
+    assert made["sheets"][0].endswith("/1.jpg?movie_id=vod%3Athomas-creek%3A100")
+    one = dylan.client.get(made["sheets"][0], headers=dylan.h)
     assert one.status_code == 200 and one.headers["content-type"] == "image/jpeg"
     assert one.content.startswith(b"\xff\xd8")
     # A sheet is only handed out for its own title, and never to a child for a grown-up's film.
-    other = dylan.client.get(made["sheets"][0], headers=dylan.h, params={"movie_id": "vod:thomas-creek:101"})
+    path = made["sheets"][0].split("?")[0]
+    other = dylan.client.get(path, headers=dylan.h, params={"movie_id": "vod:thomas-creek:101"})
     assert other.status_code == 404
     assert theo.client.get(url, headers=theo.h).status_code == 404
-    kid = theo.client.get(made["sheets"][0], headers=theo.h, params={"movie_id": "vod:thomas-creek:100"})
+    kid = theo.client.get(made["sheets"][0], headers=theo.h)
     assert kid.status_code == 404
 
 
