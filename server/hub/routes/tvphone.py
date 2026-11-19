@@ -26,7 +26,7 @@ import shutil
 import time
 from collections import OrderedDict
 from typing import Any
-from urllib.parse import quote, urljoin, urlsplit
+from urllib.parse import quote, urlencode, urljoin, urlsplit
 
 import httpx
 from fastapi import APIRouter, Depends, Request
@@ -506,6 +506,36 @@ async def phone_subtitle_file(file_id: str, episode_id: str | None = None, movie
     except playersubs.SubtitleError as exc:
         raise error(exc.status, exc.error, exc.message) from None
     return Response(text, media_type="text/vtt; charset=utf-8", headers={"Cache-Control": "private, max-age=86400"})
+
+
+@router.get("/thumbs")
+async def phone_thumbs(episode_id: str | None = None, movie_id: str | None = None, person: str | None = None,
+                       c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """The scrub bar's small pictures for a film or episode: `{"interval_s","width","height","columns","rows",
+    "sheets":[address]}`. Picture `second // interval_s` sits on sheet `n // (columns*rows)`, cell
+    `n % (columns*rows)` along the rows. `sheets` is empty when the hub has not made them (it does at night, for
+    what people are watching), and the player then shows the time alone."""
+    from .. import playerthumbs
+
+    await _ready(h)
+    title_id, _row, _series = _subtitle_title(h, c, episode_id, movie_id, person)
+    query = urlencode({"episode_id" if episode_id else "movie_id": title_id})
+    return await asyncio.to_thread(playerthumbs.view, h, title_id, base="/v1/tv/phone/thumbs", query=query)
+
+
+@router.get("/thumbs/{name}/{number}.jpg")
+async def phone_thumb_sheet(name: str, number: int, episode_id: str | None = None, movie_id: str | None = None,
+                            person: str | None = None, c: Caller = Depends(caller),
+                            h: Hub = Depends(hub)) -> FileResponse:
+    """One sheet of pictures. The player sends the title again, so the kids' rule is checked on the file too."""
+    from .. import playerthumbs
+
+    await _ready(h)
+    title_id, _row, _series = _subtitle_title(h, c, episode_id, movie_id, person)
+    path = await asyncio.to_thread(playerthumbs.sheet, h, h.tv_app.dir / "thumbs", title_id, name, number)
+    if path is None:
+        raise error(404, "not_found", "That picture isn't made yet")
+    return FileResponse(path, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=604800"})
 
 
 class QueueChange(BaseModel):
