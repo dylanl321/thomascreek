@@ -11,6 +11,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import re
 import time
 from typing import Any
 
@@ -571,7 +572,30 @@ async def library_search(q: str, response: Response, person: str | None = None, 
     response.headers["Server-Timing"] = ", ".join(f"{name};dur={ms}" for name, ms in timing.items())
     if sum(timing.values()) > 3000:
         log.info("tv.library.search slow: %s", response.headers["Server-Timing"])
-    return _narrow(h, c, found, person) if kids else found
+    return _narrow(h, c, found, person) if kids else _grown_up_search(found, q)
+
+
+_ADULT = re.compile(r"\b(?:for adults|adults? only|adult (?:vod|movies|films|channels|xxx)|xxx|18\s*\+|porn\w*"
+                    r"|erotic\w*)(?!\w)")
+_ASKS_ADULT = re.compile(r"\b(?:adults?|xxx|18\s*\+|porn\w*|erotic\w*)(?!\w)")
+
+
+def _adult_label(card: dict[str, Any]) -> bool:
+    """A card from the provider's grown-up section ("For Adults", "XXX", "18+"), by its category or group."""
+    text = " ".join(str(card.get(k) or "") for k in ("category", "group", "category_label", "group_label")).lower()
+    return bool(_ADULT.search(text))
+
+
+def _grown_up_search(found: dict[str, Any], q: str) -> dict[str, Any]:
+    """A grown-up's search leaves out the provider's "For Adults" section unless the words ask for it
+    ("adult", "xxx", "18+"): Dylan, Nov 19 2026, "Hide unless asked"."""
+    if _ASKS_ADULT.search(q.lower()):
+        return found
+    out = dict(found)
+    for key, value in found.items():
+        if isinstance(value, list):
+            out[key] = [card for card in value if not (isinstance(card, dict) and _adult_label(card))]
+    return out
 
 
 def _plex_item(item: dict[str, Any], machine: str | None) -> dict[str, Any]:
