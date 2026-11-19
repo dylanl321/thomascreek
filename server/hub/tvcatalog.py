@@ -15,6 +15,7 @@ import asyncio
 import gzip
 import io
 import json
+import re
 import logging
 import os
 import sqlite3
@@ -36,6 +37,9 @@ from .tvapp import TvAppError
 from .tvlineup import LineupError, clean_logo, public_channel
 
 log = logging.getLogger("hub.tvcatalog")
+# Category names that say they are for children ("|EN| CHILDREN/FAMILY", "DISNEY+ KIDS", "CLASSIC CARTOONS"):
+# the kids' fallback when none of the saved kids' categories is in the provider's lists.
+_KIDS_WORDS = re.compile(r"\b(kids?|children|childrens|cartoons?|pixar|junior|nick jr|toddlers?|preschool)\b")
 
 SOURCE = "thomas-creek"
 LIST_TTL_S = 6 * 3600
@@ -174,6 +178,7 @@ class TvCatalog:
         self.details_path = Path(data) / "tvapp" / "catalog-details.json"
         self.index = catalogdb.Reader(Path(data) / "tvapp" / "catalog.db")
         self._index_building = threading.Lock()
+        self._lineup_building = threading.Lock()
         self._transport = transport
         self.kids_categories: KidsFn = lambda: []
         self._lock = asyncio.Lock()
@@ -358,13 +363,35 @@ class TvCatalog:
     def _kid_names(self) -> set[str]:
         """The kids' categories, read once until the database changes. Lists ask this for every row: one read
         per row (tens of thousands for the series list) took the live hub 25 s and more."""
-        mark = (getattr(getattr(self.db, "_conn", None), "total_changes", None), id(self.kids_categories))
+        loaded = self.__dict__.get("_loaded")
+        mark = (getattr(getattr(self.db, "_conn", None), "total_changes", None), id(self.kids_categories),
+                loaded[0] if loaded else None)
         memo = self.__dict__.get("_kid_memo")
         if mark[0] is not None and memo is not None and memo[0] == mark:
             return memo[1]
         names = {str(c).strip().casefold() for c in self.kids_categories() if str(c).strip()}
+        present = self._category_names()
+        if present and not names & present:
+            # None of the saved kids' categories is in the provider's lists any more (renamed, another provider,
+            # or never picked): children got empty pages and searches (Nov 19 2026). Fall back to the provider's
+            # categories that say they are for children, until a grown-up picks them on the admin page.
+            names = {name for name in present if _KIDS_WORDS.search(name)}
         self._kid_memo = (mark, names)
         return names
+
+    def _category_names(self) -> set[str]:
+        """Every category name in the snapshot (films, series, channels), lower-cased, once per snapshot."""
+        loaded = self.__dict__.get("_loaded")
+        stamp = loaded[0] if loaded else None
+        cached = self.__dict__.get("_category_memo")
+        if cached is not None and cached[0] == stamp and stamp is not None:
+            return cached[1]  # type: ignore[no-any-return]
+        doc = self.load()
+        out = {str(row.get("category")).strip().casefold() for kind in ("movies", "series", "channels")
+               for row in doc.get(kind) or [] if isinstance(row, dict) and row.get("category")}
+        loaded = self.__dict__.get("_loaded")
+        self._category_memo = (loaded[0] if loaded else None, out)
+        return out
 
     def configured(self) -> bool:
         return all(self.vault.has(n) for n in ("iptv.xtream_server", "iptv.xtream_username", "iptv.xtream_password"))
@@ -1023,10 +1050,14 @@ class TvCatalog:
             self._lineup_cache = cache
         hit = cache.get(kids_only)
         if hit is None or hit[0] != stamp:
-            started = time.monotonic()
-            body = self._build_lineup(doc, self._overlay(), self._live_canon(), kids_only=kids_only)
-            hit = cache[kids_only] = (stamp, body)
-            log.info("live lineup built: %d channels in %.2fs", len(body["channels"]), time.monotonic() - started)
+            with self._lineup_building:  # callers run in worker threads now: one build per change, not one each
+                hit = cache.get(kids_only)
+                if hit is None or hit[0] != stamp:
+                    started = time.monotonic()
+                    body = self._build_lineup(doc, self._overlay(), self._live_canon(), kids_only=kids_only)
+                    hit = cache[kids_only] = (stamp, body)
+                    log.info("live lineup built: %d channels in %.2fs", len(body["channels"]),
+                             time.monotonic() - started)
         return hit
 
     def lineup(self, *, kids_only: bool) -> dict[str, Any] | None:
@@ -1365,18 +1396,22 @@ class TvCatalog:
         lap("series")
         films = self.movies(q=q, category=None, kids_only=kids_only, limit=20)["movies"]
         lap("movies")
-        _mark_canonical(self.db, shows, "series")
-        _mark_canonical(self.db, films, "movie")
+        from .iptvcanon import peek
+
+        found = peek(self.db)
+        lap("peek")
+        _mark_canonical(self.db, shows, "series", found)
+        _mark_canonical(self.db, films, "movie", found)
         lap("canonical")
         return {"q": q.strip(), "channels": channels[:20], "programmes": programmes[:20], "series": shows, "movies": films}
 
 
-def _mark_canonical(db: Any, rows: list[dict[str, Any]], kind: str) -> None:
+def _mark_canonical(db: Any, rows: list[dict[str, Any]], kind: str, found: Any = False) -> None:
     """Adds `canonical_id` (optional for the apps) from the folded catalog: the title this row's own id belongs
     to, else the same cleaned name. Never waits for a big catalog to be indexed; rows go without it meanwhile."""
     from .iptvcanon import parse, peek
 
-    found = peek(db)
+    found = peek(db) if found is False else found  # a caller marking several lists peeks once
     if found is None:
         return
     want = "series" if kind == "series" else "movie"
