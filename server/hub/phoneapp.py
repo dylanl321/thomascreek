@@ -9,6 +9,7 @@ GitHub link would need a GitHub sign-in on the phone; this one needs only the co
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -34,6 +35,7 @@ class PhoneApp:
         self.dir = data / "phoneapp"
         self.last_check = 0.0
         self.last_error: str | None = None
+        self._task: asyncio.Task[None] | None = None
 
     @property
     def path(self) -> Path:
@@ -44,20 +46,32 @@ class PhoneApp:
         return row if isinstance(row, dict) and self.path.is_file() else None
 
     async def ensure(self, now: float | None = None) -> dict[str, Any] | None:
-        """The build to hand out, checking GitHub at most every 10 minutes. A failed check keeps the kept build."""
+        """The build to hand out, checking GitHub at most every 10 minutes. A failed check keeps the kept build.
+
+        With a build already kept, the check runs behind the answer, so a phone asking right after the hub
+        starts gets the kept build at once instead of waiting on GitHub."""
         now = time.time() if now is None else now
-        if now - self.last_check >= CHECK_EVERY_S or self.latest() is None:
-            self.last_check = now
-            try:
-                await self._check()
-                self.last_error = None
-            except TvAppError as exc:
-                self.last_error = exc.message
-                log.warning("phoneapp: %s", exc.message)
-            except Exception as exc:  # noqa: BLE001  the kept build still works; the cause goes to the log
-                self.last_error = "GitHub didn't answer"
-                log.warning("phoneapp: check failed (%s)", type(exc).__name__)
-        return self.latest()
+        kept = self.latest()
+        if now - self.last_check < CHECK_EVERY_S and kept is not None:
+            return kept
+        self.last_check = now
+        if kept is None:
+            await self._refresh()
+            return self.latest()
+        if self._task is None or self._task.done():
+            self._task = asyncio.create_task(self._refresh())  # kept, so the task isn't collected mid-check
+        return kept
+
+    async def _refresh(self) -> None:
+        try:
+            await self._check()
+            self.last_error = None
+        except TvAppError as exc:
+            self.last_error = exc.message
+            log.warning("phoneapp: %s", exc.message)
+        except Exception as exc:  # noqa: BLE001  the kept build still works; the cause goes to the log
+            self.last_error = "GitHub didn't answer"
+            log.warning("phoneapp: check failed (%s)", type(exc).__name__)
 
     async def _check(self) -> None:
         async with self.tv._client() as c:

@@ -309,3 +309,33 @@ def test_direct_play_also_offers_the_hub_relay_on_the_same_login(hub, people, mo
     claims = hub.tokens.verify(live["relay_url"].split("/")[5], "tv-phone")
     held = next(row for row in hub.db.kv_get("iptv.sessions") if row.get("tv") == holder)
     assert claims["pl"] == f"{held['provider']}|{held['login']}"
+
+
+def test_a_kept_phone_build_is_answered_at_once_and_github_checked_behind_it(hub, people):
+    """Right after the hub starts, the first update check must not wait on GitHub when a build is already kept."""
+    import asyncio
+    import hashlib
+
+    from tests.test_tvapp import CERT_A, make_apk
+
+    apk = make_apk(CERT_A)
+    hub.vault.set("github.tv_app_token", "gh-token")
+    hub.tv_app._transport = _github_with_info(apk, {"versionCode": 4, "versionName": "0.2.1",
+                                                    "sha256": hashlib.sha256(apk).hexdigest()})
+    first = asyncio.run(hub.phone_app.ensure())
+    assert first and first["tag"] == "phone-0.2.0"
+
+    newer = make_apk(CERT_A) + b"\0"
+    hub.tv_app._transport = _github_with_info(newer, {"versionCode": 5, "versionName": "0.2.2",
+                                                      "sha256": hashlib.sha256(newer).hexdigest()}, tag="phone-0.2.2")
+    hub.phone_app.last_check = 0.0  # as after a restart
+
+    async def again() -> tuple[str, str]:
+        got = await hub.phone_app.ensure()
+        assert hub.phone_app._task is not None
+        await hub.phone_app._task
+        return got["tag"], hub.phone_app.latest()["tag"]
+
+    answered, kept = asyncio.run(again())
+    assert answered == "phone-0.2.0"  # the kept build, without waiting
+    assert kept == "phone-0.2.2"  # the check behind it found the newer one
