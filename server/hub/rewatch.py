@@ -54,6 +54,22 @@ CLASSICS = (
     "The Suite Life of Zack & Cody", "Wizards of Waverly Place", "Lizzie McGuire", "Good Luck Charlie",
 )
 
+# A child's row only shows these, never the grown-up list: the kids library still holds TV-PG sitcoms (Seinfeld,
+# Friends, Modern Family), which made Theo's "Shuffle a favorite" row on the phone walkthrough, Nov 19 2026.
+KIDS_CLASSICS = (
+    "Bluey", "SpongeBob SquarePants", "Avatar: The Last Airbender", "Phineas and Ferb", "Gravity Falls",
+    "Paw Patrol", "Peppa Pig", "Teen Titans Go!", "The Loud House", "Hey Arnold!", "Rugrats", "Arthur",
+    "Curious George", "Daniel Tiger's Neighborhood", "Scooby-Doo, Where Are You!", "Tom and Jerry",
+    "Looney Tunes", "DuckTales", "Kim Possible", "Hannah Montana", "iCarly", "The Suite Life of Zack & Cody",
+    "Wizards of Waverly Place", "Lizzie McGuire", "Good Luck Charlie", "Sesame Street", "Mickey Mouse Clubhouse",
+    "Puppy Dog Pals", "Spidey and His Amazing Friends", "Octonauts", "Paw Patrol: The Mighty Pups",
+    "The Magic School Bus", "Wild Kratts", "Pokémon", "Miraculous: Tales of Ladybug & Cat Noir",
+    "Sofia the First", "Doc McStuffins", "Blue's Clues", "Blue's Clues & You!", "Dora the Explorer",
+    "Bubble Guppies", "PJ Masks", "Gabby's Dollhouse", "Ninjago", "Lego Friends", "Odd Squad", "Hilda",
+    "The Amazing World of Gumball", "Pinkalicious & Peterrific", "Peg + Cat", "Thomas & Friends",
+    "Fireman Sam", "Ben and Holly's Little Kingdom", "Super Why!", "Wallykazam!", "Sid the Science Kid",
+)
+
 SYSTEM = (
     "You pick TV shows for a family's 'Shuffle a favourite' row: shows people happily rewatch in any order or "
     "leave on in the background. Think classic and modern sitcoms, animated comedies, long-running procedurals, "
@@ -78,8 +94,13 @@ def titles(db: Any) -> list[str]:
 
 
 def row(library: list[dict[str, Any]], names: list[str], *, day: date | None = None,
-        limit: int = ROW_LIMIT) -> list[dict[str, Any]]:
-    """Library shows on the list, one copy each, in an order that changes once a day."""
+        limit: int = ROW_LIMIT, kids: bool = False) -> list[dict[str, Any]]:
+    """Library shows on the list, one copy each, in an order that changes once a day.
+
+    For a child the list is always `KIDS_CLASSICS`, whatever names were passed, so a grown-up show the kids
+    library lets through (a TV-PG sitcom) never lands in the row."""
+    if kids:
+        names = list(KIDS_CLASSICS)
     wanted = {norm(name) for name in names if name}
     wanted.discard("")
     best: dict[str, dict[str, Any]] = {}

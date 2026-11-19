@@ -91,3 +91,15 @@ def test_shows_without_a_picture_are_left_out_of_a_full_row():
     copies = [{"kind": "series", "series_id": "series:a:1", "title": "Monk", "art_known": False, "poster_url": "/a"},
               {"kind": "series", "series_id": "series:b:1", "title": "Monk", "art_known": True, "poster_url": "/b"}]
     assert rewatch.row(copies, list(rewatch.CLASSICS))[0]["series_id"] == "series:b:1"
+
+
+def test_a_child_row_takes_only_kids_shows_even_when_a_sitcom_is_rated_for_kids():
+    # Live, Nov 19 2026: TV-PG sitcoms passed the kids library and filled Theo's row.
+    library = [
+        {"kind": "series", "series_id": f"series:a:{n}", "title": name, "poster_url": "x", "rating": "TV-PG"}
+        for n, name in enumerate(["Friends", "Seinfeld", "Modern Family", "Bob's Burgers", "Bluey", "Paw Patrol"])
+    ]
+    kid = sorted(rewatch.norm(i["title"]) for i in rewatch.row(library, list(rewatch.CLASSICS), kids=True))
+    assert kid == ["bluey", "paw patrol"]
+    grown = {rewatch.norm(i["title"]) for i in rewatch.row(library, list(rewatch.CLASSICS))}
+    assert "friends" in grown and "bluey" in grown
