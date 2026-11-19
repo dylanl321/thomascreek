@@ -1,0 +1,106 @@
+"""Films, series and guide search read a SQLite copy of the snapshot (hub rebuild phase 3). It must give the same
+pages as the old in-memory path, keep kids to kids' categories, and answer 304 for an unchanged page."""
+
+from __future__ import annotations
+
+import random
+
+from hub import catalogdb, tvcatalog
+
+
+def _doc(n: int = 300) -> dict:
+    rng = random.Random(7)
+    cats = ["Kids", "Drama", "Comedy", None]
+    words = ["Star", "Office", "Night", "Ocean", "Blue", "Zoo", "Apple"]
+    movies, series = [], []
+    for i in range(n):
+        name = f"{rng.choice(['EN - ', '', 'US| '])}{rng.choice(words)} {rng.choice(words)} {i % 37}"
+        if i % 5 == 0:
+            name += f" ({1990 + i % 30})"
+        row = {"id": f"vod:thomas-creek:{i}", "name": name, "category": rng.choice(cats),
+               "year": str(1990 + rng.randrange(30)) if i % 3 else None, "added": rng.choice([None, 1.7e9 + i])}
+        movies.append(row)
+        series.append({**row, "id": f"series:thomas-creek:{i}"})
+    channels = [{"key": f"xc:{i}", "name": f"Channel {i}", "number": i + 1, "category": "Kids" if i % 2 else "News"}
+                for i in range(6)]
+    guide = {f"xc:{i}": [{"title": f"{words[(i + j) % len(words)]} Hour", "subtitle": "", "start_ts": 1000 + j,
+                          "end_ts": 2000 + j} for j in range(10)] for i in range(6)}
+    return {"fetched_at": 1.0, "guide_format": tvcatalog.GUIDE_FORMAT, "channels": channels, "movies": movies,
+            "series": series, "guide": guide, "categories": {}}
+
+
+def _both(cat, monkeypatch, **kw):
+    fast = cat._list(**kw)
+    monkeypatch.setattr(cat, "index_ready", lambda: False)
+    slow = cat._list(**kw)
+    monkeypatch.undo()
+    return fast, slow
+
+
+def test_index_pages_match_the_snapshot_path(hub, monkeypatch):
+    cat = hub.tv_catalog
+    cat.kids_categories = lambda: ["Kids"]
+    cat._write(_doc())
+    assert cat.index_ready()
+    for kind in ("movies", "series"):
+        for sort in ("name", "year", "added"):
+            for q in (None, "star", "office 1"):
+                for kids in (False, True):
+                    for category in (None, "drama"):
+                        for offset in (0, 40):
+                            kw = dict(kind=kind, q=q, category=category, kids_only=kids, limit=25, offset=offset,
+                                      sort=sort)
+                            fast, slow = _both(cat, monkeypatch, **kw)
+                            assert fast == slow, kw
+
+
+def test_kids_never_get_other_categories(hub):
+    cat = hub.tv_catalog
+    cat.kids_categories = lambda: ["Kids"]
+    cat._write(_doc())
+    page = cat.movies(q=None, category=None, kids_only=True, limit=100, sort="name")
+    assert page["movies"] and all(row["kids"] for row in page["movies"])
+    cat.kids_categories = lambda: []
+    cat._kid_memo = None
+    assert cat.movies(q=None, category=None, kids_only=True, limit=100)["movies"] == []
+
+
+def test_search_programmes_come_from_the_index_in_guide_order(hub, monkeypatch):
+    cat = hub.tv_catalog
+    cat.kids_categories = lambda: ["Kids"]
+    cat._write(_doc())
+    fast = cat.search("ocean", kids_only=False, now=1500)
+    monkeypatch.setattr(cat, "index_ready", lambda: False)
+    slow = cat.search("ocean", kids_only=False, now=1500)
+    assert fast["programmes"] and fast == slow
+
+
+def test_a_stale_index_is_rebuilt_once_and_the_snapshot_serves_meanwhile(hub, monkeypatch):
+    cat = hub.tv_catalog
+    cat._write(_doc(20))
+    cat.index.path.unlink()
+    started = []
+    monkeypatch.setattr(cat, "_start_rebuild", lambda stamp: started.append((stamp,)))
+    assert not cat.index_ready() and not cat.index_ready()
+    assert len(started) == 1
+    assert cat.movies(q=None, category=None, kids_only=False, limit=5)["total"] == 20  # served from the snapshot
+    cat._rebuild_index(*started[0])
+    assert cat.index_ready()
+
+
+def test_reader_without_a_file_says_so(tmp_path):
+    reader = catalogdb.Reader(tmp_path / "none.db")
+    assert reader.stamp() is None
+
+
+def test_unchanged_pages_answer_304(hub, people):
+    from tests.test_tv_api import _library  # the same library as the TV API tests
+
+    _library(hub)
+    dylan = people["phones"]["Dylan"]
+    first = dylan.client.get("/v1/tv/movies", headers=dylan.h, params={"limit": 5})
+    tag = first.headers["etag"]
+    again = dylan.client.get("/v1/tv/movies", headers={**dylan.h, "If-None-Match": tag}, params={"limit": 5})
+    assert again.status_code == 304 and again.content == b""
+    other = dylan.client.get("/v1/tv/movies", headers={**dylan.h, "If-None-Match": tag}, params={"limit": 6})
+    assert other.status_code == 200 and other.headers["etag"] != tag

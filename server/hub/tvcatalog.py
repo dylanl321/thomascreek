@@ -15,8 +15,9 @@ import asyncio
 import gzip
 import io
 import json
-import os
 import logging
+import os
+import sqlite3
 import tempfile
 import threading
 import time
@@ -29,7 +30,7 @@ from urllib.parse import urlsplit, urlunsplit
 import httpx
 
 from .artwork import programme_key
-from . import iptvaddr, tvgroups, tvnames
+from . import catalogdb, iptvaddr, tvgroups, tvnames
 from .home import iso
 from .tvapp import TvAppError
 from .tvlineup import LineupError, clean_logo, public_channel
@@ -171,6 +172,8 @@ class TvCatalog:
         self.db = db
         self.path = Path(data) / "tvapp" / "catalog.json"
         self.details_path = Path(data) / "tvapp" / "catalog-details.json"
+        self.index = catalogdb.Reader(Path(data) / "tvapp" / "catalog.db")
+        self._index_building = threading.Lock()
         self._transport = transport
         self.kids_categories: KidsFn = lambda: []
         self._lock = asyncio.Lock()
@@ -231,6 +234,46 @@ class TvCatalog:
             self._loaded = ((stat.st_mtime_ns, stat.st_size), doc)
         except OSError:
             self._loaded = None
+            return
+        self._build_index(doc, _stamp_text(self._loaded[0]))
+
+    # -- the SQLite copy for paging and search (hub rebuild phase 3) -------------------------------------------------
+    def snapshot_stamp(self) -> str | None:
+        try:
+            stat = self.path.stat()
+        except OSError:
+            return None
+        return _stamp_text((stat.st_mtime_ns, stat.st_size))
+
+    def _build_index(self, doc: dict[str, Any], stamp: str) -> None:
+        with self._index_building:
+            if self.index.stamp() == stamp:
+                return
+            try:
+                catalogdb.build(self.index.path, doc, stamp)
+            except (OSError, sqlite3.Error, TypeError, ValueError) as exc:
+                log.warning("catalog index not built (%s); lists read the snapshot meanwhile", type(exc).__name__)
+
+    def index_ready(self) -> bool:
+        """True when catalog.db matches the snapshot. Otherwise one rebuild starts in a worker thread and callers
+        read the snapshot as before until it is done."""
+        stamp = self.snapshot_stamp()
+        if stamp is None:
+            return False
+        if self.index.stamp() == stamp:
+            return True
+        if self.__dict__.get("_index_asked") != stamp and not self._index_building.locked():
+            self._index_asked = stamp  # one rebuild per snapshot, however many calls ask meanwhile
+            self._start_rebuild(stamp)
+        return False
+
+    def _start_rebuild(self, stamp: str) -> None:
+        threading.Thread(target=self._rebuild_index, args=(stamp,), name="catalog-index", daemon=True).start()
+
+    def _rebuild_index(self, stamp: str) -> None:
+        doc = self.load()
+        if doc and self.snapshot_stamp() == stamp:
+            self._build_index(doc, stamp)
 
     def _write_details(self, doc: dict[str, Any]) -> None:
         _atomic_write(self.details_path, json.dumps(doc))
@@ -1181,6 +1224,16 @@ class TvCatalog:
         """One page of the list. `sort`: `name` (A to Z), `year` (newest first) or `added` (last added first; the
         provider's own order where it sends no date). `total` counts every match, for paging."""
         needle = (q or "").strip().casefold()
+        if self.index_ready():
+            try:
+                rows, total, names_found = self.index.titles(
+                    kind, needle=needle, category=category, kids=self._kid_names() if kids_only else None,
+                    limit=limit, offset=offset, sort=sort)
+            except sqlite3.Error as exc:
+                log.info("catalog index read failed (%s); reading the snapshot", type(exc).__name__)
+            else:
+                return self._page(kind, [(row, self._is_kids(row.get("category"))) for row in rows],
+                                  names_found, total, max(0, offset))
         found: list[tuple[dict[str, Any], bool]] = []
         names: set[str] = set()
         for row in self.load().get(kind) or []:  # the provider's order: the index is the "added" fallback
@@ -1204,21 +1257,24 @@ class TvCatalog:
         else:
             order = by_name
 
-        def public(i: int) -> dict[str, Any]:
-            row, kids = found[i]
+        start = max(0, offset)
+        return self._page(kind, [found[i] for i in order[start:start + limit]], sorted(names), len(found), start)
+
+    def _page(self, kind: str, rows: list[tuple[dict[str, Any], bool]], names: list[str], total: int,
+              start: int) -> dict[str, Any]:
+        def public(row: dict[str, Any], kids: bool) -> dict[str, Any]:
             item = dict(row)
             item["kids"] = kids
             item.pop("category_id", None)
             return _public_movie(item) if kind == "movies" else _public_series_row(item)
 
         label = "movies" if kind == "movies" else "series"
-        start = max(0, offset)
-        page = [public(i) for i in order[start:start + limit]]
+        page = [public(row, kids) for row, kids in rows]
         # Art only for the rows sent back, noted in one write.
         notes: dict[str, dict[str, Any]] = {}
         shown = [self._with_title_art(row, show=kind != "movies", notes=notes) for row in page]
         self._flush_notes(notes)
-        return {"categories": sorted(names), label: shown, "total": len(found), "offset": start}
+        return {"categories": names, label: shown, "total": total, "offset": start}
 
     def movie(self, movie_id: str) -> dict[str, Any] | None:
         if not movie_id.startswith("vod:"):
@@ -1262,15 +1318,18 @@ class TvCatalog:
         lap("load")
         notes: dict[str, dict[str, Any]] = {}
         guide = doc.get("guide") or {}
+        indexed = self.index_ready()
+        by_key: dict[str, dict[str, Any]] = {}
         for row in doc.get("channels") or []:
             shown = self._present_channel(row, overlay)
             if shown is None or (kids_only and not shown["kids"]):
                 continue
+            by_key[shown["key"]] = shown
             if needle in str(shown["name"]).casefold():
                 card = {key: shown[key] for key in ("key", "name", "number", "group", "logo", "kids")}
                 card["logo_url"] = self._art("logo", shown["key"])
                 channels.append(card)
-            if len(programmes) >= 20:
+            if indexed or len(programmes) >= 20:
                 continue
             for item in guide.get(shown["key"]) or []:
                 title = str(item.get("title") or "")
@@ -1281,6 +1340,21 @@ class TvCatalog:
                     programmes.append(view)
                     if len(programmes) >= 20:
                         break
+        if indexed:
+            try:
+                hits = self.index.programmes(needle)
+            except sqlite3.Error:
+                hits = []
+            for key, item in hits:
+                shown = by_key.get(key)
+                if shown is None:
+                    continue
+                view = self._with_programme_art(_programme(item, shown, now), notes)
+                view["channel_key"] = shown["key"]
+                view["channel_name"] = shown["name"]
+                programmes.append(view)
+                if len(programmes) >= 20:
+                    break
         lap("guide")
         self._flush_notes(notes)
         lap("notes")
@@ -1363,6 +1437,10 @@ def _clip(value: object, limit: int) -> str | None:
         return None
     text = str(value).strip()
     return text[:limit] or None
+
+
+def _stamp_text(stamp: tuple[int, int]) -> str:
+    return f"{stamp[0]}:{stamp[1]}"
 
 
 def _year_of(value: object) -> int | None:
