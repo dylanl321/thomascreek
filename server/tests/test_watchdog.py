@@ -92,3 +92,33 @@ def test_the_beat_is_well_under_the_sample_limit():
     from hub import watchdog
 
     assert watchdog.BEAT_S * 2 <= watchdog.SAMPLE_S
+
+
+def _spin(stop):
+    while not stop.is_set():
+        sum(range(1000))
+
+
+def test_a_stall_names_the_threads_that_were_working_and_not_the_waiting_ones(tmp_path):
+    """A loop stuck on a trivial line is starved by another thread; the sample says which one."""
+    import threading
+
+    clock = Clock()
+    dog = Watchdog(tmp_path, exit_fn=lambda: None, clock=clock)
+    dog._loop_ident = threading.get_ident()
+    stop = threading.Event()
+    busy = threading.Thread(target=_spin, args=(stop,), name="busy-one", daemon=True)
+    idle = threading.Thread(target=stop.wait, name="idle-one", daemon=True)
+    busy.start()
+    idle.start()
+    try:
+        dog.last = clock.now
+        clock.now += 5
+        dog.sample()
+    finally:
+        stop.set()
+        busy.join()
+        idle.join()
+    seen = dog.samples[0]["busy"]
+    assert "busy-one" in seen and any("_spin" in line for line in seen["busy-one"])
+    assert "idle-one" not in seen
