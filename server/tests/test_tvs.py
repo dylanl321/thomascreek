@@ -227,3 +227,38 @@ def test_phones_never_see_config_changed(hub, people):
     dylan = hub.subject_for(hub.db.device(people["phones"]["Dylan"].device_id), True)
     assert shape_event(hub, dylan, {"type": "config_changed", "data": {"install_id": None}}) is None
 
+
+
+def test_a_kids_tv_is_sent_only_kids_titles(hub, home_client, people, monkeypatch):
+    _tv(hub, home_client)
+    hub.tv_app.set_tv(TV_ID, profile="kids")
+    report(hub, TV_ID, BODY, time.time())
+    dylan = people["phones"]["Dylan"]
+    catalog = hub.tv_catalog
+    films = {"vod:1": {"id": "vod:1", "name": "Bluey Movie", "category": "Kids", "rating": "G"},
+             "vod:2": {"id": "vod:2", "name": "Heat", "category": "Action", "rating": "R"},
+             "vod:3": {"id": "vod:3", "name": "Scary Cartoon", "category": "Kids", "rating": "PG-13"}}
+    monkeypatch.setattr(catalog, "known_row", lambda bucket, ref: films.get(ref))
+    monkeypatch.setattr(catalog, "_is_kids", lambda category: category == "Kids")
+    monkeypatch.setattr(catalog, "channel", lambda key: {"key": key, "kids": key.endswith(":1")})
+
+    def send(**body):
+        return dylan.client.post(f"/v1/tvs/{TV_ID}/actions", headers=dylan.h, json={"action": "play", **body})
+
+    assert send(movie_id="vod:1").status_code == 200
+    for refused in (send(movie_id="vod:2"), send(movie_id="vod:3"), send(movie_id="vod:9"),
+                    send(channel_key="xc:thomas-creek:10"), send(episode_id="ep:5")):
+        assert refused.status_code == 403 and refused.json()["error"] == "kids_tv", refused.text
+    assert send(channel_key="xc:thomas-creek:1").status_code == 200
+
+
+def test_the_cast_list_leaves_out_test_and_old_tvs(hub, home_client, people):
+    _tv(hub, home_client)
+    dylan = people["phones"]["Dylan"]
+    assert [row["id"] for row in dylan.client.get("/v1/tvs?send=true", headers=dylan.h).json()["tvs"]] == [TV_ID]
+    tvs = hub.tv_app.tvs()
+    old = time.time() - 30 * 86400
+    tvs[TV_ID].update(state_at=old, last_seen_at=old, last_config_at=old)
+    hub.tv_app._save_tvs(tvs)
+    assert dylan.client.get("/v1/tvs?send=true", headers=dylan.h).json()["tvs"] == []
+    assert len(dylan.client.get("/v1/tvs", headers=dylan.h).json()["tvs"]) == 1

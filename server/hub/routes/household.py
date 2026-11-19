@@ -233,6 +233,17 @@ async def kids_ratings(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> di
             "can_change": c.subject.role in ("admin", "adult") and not getattr(c.subject, "tv", False)}
 
 
+@router.get("/kids/certs")
+async def kids_certs(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """Admins only: how far the hub's age certifications for kids' titles have got (`kidcerts`), to check that a
+    level really narrows. Counts and a few names only."""
+    from .. import kidcerts
+
+    if c.subject.role != "admin" or getattr(c.subject, "tv", False):
+        raise error(403, "forbidden", "Only an admin can see this")
+    return kidcerts.store(h).status()
+
+
 @router.put("/people/{person_id}/ratings")
 async def put_kid_rating(person_id: str, body: RatingLevel, c: Caller = Depends(caller),
                          h: Hub = Depends(hub)) -> dict[str, Any]:

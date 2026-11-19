@@ -254,6 +254,14 @@ def test_a_grown_ups_search_hides_the_for_adults_section_unless_asked(hub, peopl
     assert _grown_up_search(found, "night")["movies"] == []
 
 
+def test_an_admin_sees_how_far_the_certifications_have_got(hub, people):
+    dylan, theo = people["phones"]["Dylan"], people["phones"]["Theo"]
+    body = dylan.client.get("/v1/kids/certs", headers=dylan.h).json()
+    assert {"known", "pending", "mapped", "blocked", "saved"} <= set(body)
+    assert body["blocked"]["teen"] == {"movies": 0, "series": 0}
+    assert theo.client.get("/v1/kids/certs", headers=theo.h).status_code == 403
+
+
 def test_a_grown_ups_search_finds_real_films_behind_a_crowd_of_grown_up_ones(hub, people):
     """The grown-up section leaves before the top 20 is cut (Nov 19 2026: "friends" found no films at all)."""
     _library(hub)
