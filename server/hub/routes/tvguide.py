@@ -115,7 +115,13 @@ async def _ready(h: Hub, *, index_ok: bool = False) -> None:
         raise error(exc.status, exc.code, exc.message) from None
 
 
+# How long a page's background catalog check waits first. Started at once, its parse (a big json.loads holding
+# the GIL) ran beside the page's own index read and made that 1.6 s instead of 0.15 s (Nov 19 2026).
+ENSURE_AFTER_PAGE_S = 5.0
+
+
 async def _ensure_quietly(h: Hub) -> None:
+    await asyncio.sleep(ENSURE_AFTER_PAGE_S)
     try:
         await h.tv_catalog.ensure()
     except TvAppError as exc:
