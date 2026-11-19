@@ -141,6 +141,20 @@ class Reader:
             return None
         return got.get("stamp") if got.get("version") == str(VERSION) else None
 
+    def categories(self) -> set[str]:
+        """Every film and series category name (lower-cased) in the index, once per index build."""
+        conn = self._conn()
+        if conn is None:
+            raise sqlite3.OperationalError("no catalog index")
+        stamp = self.stamp()
+        cached = self.__dict__.get("_categories")
+        if cached is not None and cached[0] == stamp:
+            return set(cached[1])
+        names = {str(r[0]) for r in conn.execute(
+            "SELECT DISTINCT category_cf FROM titles WHERE category_cf IS NOT NULL AND category_cf != ''")}
+        self._categories = (stamp, frozenset(names))
+        return names
+
     def titles(self, kind: str, *, needle: str, category: str | None, kids: set[str] | None, limit: int,
                offset: int, sort: str, skip: Collection[str] | None = None,
                skip_categories: Collection[str] | None = None) -> tuple[list[dict[str, Any]], int, list[str]]:

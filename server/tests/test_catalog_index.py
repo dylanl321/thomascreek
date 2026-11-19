@@ -200,3 +200,17 @@ def test_search_can_leave_whole_categories_out_before_the_top_twenty(hub, monkey
         films = cat.search("friends", kids_only=False, skip_categories=hide)["movies"]
         assert sorted(row["id"] for row in films) == ["vod:thomas-creek:900", "vod:thomas-creek:901"], ready
         assert len(cat.search("friends", kids_only=False)["movies"]) == 20
+
+
+def test_a_kids_page_from_the_index_never_parses_the_snapshot(hub, monkeypatch):
+    """A child's first films page after a start paid 1.4 s to parse the whole snapshot for its category names
+    (Nov 19 2026). With the index ready, the kids' categories come from the index."""
+    cat = hub.tv_catalog
+    cat.kids_categories = lambda: ["Kids"]
+    cat._write(_doc())
+    assert cat.index_ready()
+    cat.__dict__.pop("_loaded", None)
+    cat._kid_memo = None
+    monkeypatch.setattr(cat, "load", lambda: (_ for _ in ()).throw(AssertionError("parsed the snapshot")))
+    page = cat.movies(q=None, category=None, kids_only=True, limit=40, sort="name")
+    assert page["movies"] and all(row["kids"] for row in page["movies"])
