@@ -78,6 +78,8 @@ class Certs:
         self.task: asyncio.Task[None] | None = None
         self.version = 0
         self.warmed = 0.0
+        self.warming = False
+        self.warm_task: asyncio.Task[None] | None = None
         self.ids: dict[str, str] = {}  # catalog id -> cache key, from the warm scan of the kids' library
         self.specs: dict[str, dict[str, Any]] = {}
         doc = h.db.kv_get(KV)
@@ -206,6 +208,20 @@ class Certs:
 
     def _save(self) -> None:
         self.h.db.kv_set(KV, self.known)
+
+
+async def warm_later(h: Any) -> None:
+    """The first warm right after the quiet start, then every 6 hours, off the loop, so no page waits for it."""
+    await asyncio.sleep(max(0.0, START_QUIET_S - (time.monotonic() - _STARTED)))
+    while True:
+        certs = store(h)
+        if certs.warm_due():
+            try:
+                await asyncio.to_thread(certs.warm)
+                certs.kick()
+            except Exception as exc:  # noqa: BLE001 - tried again on the next round or the next kids' page
+                log.info("kidcerts: warm failed (%s)", type(exc).__name__)
+        await asyncio.sleep(60 if not certs.warmed else 6 * 3600)
 
 
 def store(h: Any) -> Certs:

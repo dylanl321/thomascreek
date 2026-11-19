@@ -522,15 +522,24 @@ async def _title_page(request: Request, h: Hub, c: Caller, kind: str, *, q: str 
     fn = cat.series if kind == "series" else cat.movies
     certs = kidcerts.store(h) if allowed is not None else None
     if certs is not None and allowed is not None:
-        if certs.warm_due():
-            await asyncio.to_thread(certs.warm)  # a scan of the whole library, kept off the loop
-            certs.kick()
+        if certs.warm_due() and not certs.warming:
+            # The hub warms on its own after start (`kidcerts.warm_later`); a page only nudges it and never waits.
+            certs.warming = True
+            certs.warm_task = asyncio.create_task(_warm(certs))  # kept, so the task isn't collected mid-scan
         args["skip"] = await asyncio.to_thread(certs.blocked, kind, allowed)
     body = await asyncio.to_thread(fn, **args)
     if certs is not None and allowed is not None:
         body = kidratings.narrow(body, allowed, certs)
     headers = {"ETag": tag} if tag else {}
     return Response(json.dumps(body), media_type="application/json", headers=headers)
+
+
+async def _warm(certs: Any) -> None:
+    try:
+        await asyncio.to_thread(certs.warm)
+        certs.kick()
+    finally:
+        certs.warming = False
 
 
 @router.get("/movies/{movie_id:path}")
