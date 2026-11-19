@@ -60,9 +60,35 @@ def test_kids_never_get_other_categories(hub):
     cat._write(_doc())
     page = cat.movies(q=None, category=None, kids_only=True, limit=100, sort="name")
     assert page["movies"] and all(row["kids"] for row in page["movies"])
-    cat.kids_categories = lambda: []
+    cat.kids_categories = lambda: ["Not A Category Here"]
     cat._kid_memo = None
+    doc = _doc()
+    for row in doc["movies"]:
+        row["category"] = "Drama" if row["category"] == "Kids" else row["category"]
+    cat._write(doc)
+    # No saved kids' category is in the lists and none is named for children: nothing, never adult titles.
     assert cat.movies(q=None, category=None, kids_only=True, limit=100)["movies"] == []
+
+
+def test_kids_fall_back_to_child_named_categories_when_the_saved_ones_are_gone(hub):
+    """The saved kids' categories no longer match the provider's names (Nov 19 2026: every child's page and
+    search came back empty). Children then get the categories named for them, and nothing else."""
+    cat = hub.tv_catalog
+    doc = _doc()
+    names = ["|EN| CHILDREN/FAMILY", "DISNEY+ KIDS", "|EN| CLASSIC CARTOONS", "|EN| ACTION", "Kidnapped Thrillers"]
+    for i, row in enumerate(doc["movies"]):
+        row["category"] = names[i % len(names)]
+    cat._write(doc)
+    for saved in ([], ["Kids (old name)"]):
+        cat.kids_categories = lambda saved=saved: saved
+        cat._kid_memo = None
+        page = cat.movies(q=None, category=None, kids_only=True, limit=500, sort="name")
+        assert page["movies"]
+        assert {row["category"] for row in page["movies"]} == set(names[:3])
+    cat.kids_categories = lambda: ["|EN| CLASSIC CARTOONS"]  # a saved name that matches wins
+    cat._kid_memo = None
+    page = cat.movies(q=None, category=None, kids_only=True, limit=500, sort="name")
+    assert {row["category"] for row in page["movies"]} == {"|EN| CLASSIC CARTOONS"}
 
 
 def test_search_programmes_come_from_the_index_in_guide_order(hub, monkeypatch):
