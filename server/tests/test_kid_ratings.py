@@ -205,8 +205,10 @@ def test_certifications_are_looked_up_once_on_tmdb_and_kept_for_the_house(hub):
     assert store.cert(film) == "G" and len(seen) == before and not store.pending
 
 
-def test_little_drops_a_pg_film_on_the_films_page_once_its_certification_is_known(hub, people):
+def test_little_drops_a_pg_film_on_the_films_page_once_its_certification_is_known(hub, people, monkeypatch):
     from hub import kidcerts
+
+    monkeypatch.setattr(kidcerts, "START_QUIET_S", 0.0)
 
     _library(hub)
     hub.tv_catalog.ingest(

@@ -28,7 +28,9 @@ HIT_TTL_S = 180 * 86400
 MISS_TTL_S = 14 * 86400
 MAX_PENDING = 5000
 BATCH = 8
-SAVE_EVERY = 64
+SAVE_EVERY_S = 30.0
+START_QUIET_S = 300.0  # the hub's own start-up reads come first; the warm scan waits this long after start
+_STARTED = time.monotonic()
 US = "US"
 
 
@@ -114,6 +116,8 @@ class Certs:
         return out
 
     def warm_due(self) -> bool:
+        if time.monotonic() - _STARTED < START_QUIET_S:
+            return False
         return time.time() - self.warmed >= 6 * 3600
 
     def warm(self) -> None:
@@ -158,6 +162,7 @@ class Certs:
             self.pending.clear()  # without a TMDB key titles stay judged by their kids' category
             return
         done = 0
+        saved = time.monotonic()
         async with httpx.AsyncClient(timeout=15) as client:
             while self.pending:
                 batch = list(self.pending.items())[:BATCH]
@@ -172,9 +177,9 @@ class Certs:
                     self.known[k] = {"c": answer or "", "t": now}
                     done += 1
                 self.version += 1
-                if done >= SAVE_EVERY:
+                if done and time.monotonic() - saved >= SAVE_EVERY_S:
                     self._save()
-                    done = 0
+                    done, saved = 0, time.monotonic()
                 await asyncio.sleep(0.2)  # well under TMDB's limit, and the loop stays free
         if done:
             self._save()
