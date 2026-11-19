@@ -50,7 +50,9 @@ def test_the_phone_lists_every_tv_with_what_is_on(hub, home_client, people):
     assert row["id"] == TV_ID and row["name"] == "Living room" and row["room"] == "living_room"
     assert row["online"] is True and row["health"] == "ok" and row["status"] == "approved"
     assert row["app_version"] == "1.5.0" and row["last_error"] == "EPG timed out"
-    assert row["now_playing"] == {"kind": "live", "title": "Newsroom", "name": "CNN", "channel_key": "xc:thomas-creek:10"}
+    shown = dict(row["now_playing"])
+    assert shown.pop("poster_url")  # the programme's poster or the channel's logo, for the phone's bar
+    assert shown == {"kind": "live", "title": "Newsroom", "name": "CNN", "channel_key": "xc:thomas-creek:10"}
     assert row["model"] == "onn. 4K Streaming Box" and row["screenshot"] is None and row["settings_rev"] == 0
 
     one = dylan.client.get(f"/v1/tvs/{TV_ID}", headers=dylan.h).json()
@@ -279,3 +281,36 @@ def test_the_cast_list_shows_a_tv_paired_twice_once_and_no_emulators(hub, home_c
     listed = [row["id"] for row in dylan.client.get("/v1/tvs?send=true", headers=dylan.h).json()["tvs"]]
     assert listed == ["tv_again_000000000001"]
     assert len(dylan.client.get("/v1/tvs", headers=dylan.h).json()["tvs"]) == 4
+
+
+def test_the_phone_that_cast_something_can_pause_skip_and_stop_it(hub, home_client, people):
+    _, headers = _tv(hub, home_client)
+    home_client.post("/v1/tv/state", headers=headers, json={"foreground": True, "playing": {
+        "kind": "movie", "movie_id": "vod:thomas-creek:7", "title": "Paddington", "position_s": 600, "duration_s": 5400}})
+    dylan, theo = people["phones"]["Dylan"], people["phones"]["Theo"]
+    now = dylan.client.get("/v1/tvs?send=true", headers=dylan.h).json()["tvs"][0]["now_playing"]
+    assert now["title"] == "Paddington" and now["position_s"] == 600 and now["duration_s"] == 5400
+    assert now["poster_url"]  # the bar shows the film's poster
+    screen = _screen(hub)
+
+    def act(**body):
+        return dylan.client.post(f"/v1/tvs/{TV_ID}/actions", headers=dylan.h, json=body)
+
+    assert act(action="pause").json()["message"] == "Paused on Living room."
+    assert act(action="resume").status_code == 200
+    assert act(action="seek", position_s=630).status_code == 200
+    assert act(action="seek", position_s="soon").status_code == 400
+    assert act(action="stop").json()["message"] == "Stopped on Living room."
+    events = _drain(screen.queue)
+    presses = [e["data"] for e in events if e["type"] == "tv_remote"]
+    assert [(p["command"], p.get("position_s")) for p in presses] == [("pause", None), ("play", None), ("seek", 630)]
+    assert [e["data"]["action"] for e in events if e["type"] == "tv_command"] == ["stop"]
+    # A child can't drive the house's TVs from this list.
+    assert theo.client.post(f"/v1/tvs/{TV_ID}/actions", headers=theo.h, json={"action": "stop"}).status_code == 403
+
+    tvs = hub.tv_app.tvs()
+    gone = time.time() - 600
+    tvs[TV_ID].update(state_at=gone, last_seen_at=gone, last_config_at=gone)
+    hub.tv_app._save_tvs(tvs)
+    off = act(action="pause")
+    assert off.status_code == 409 and off.json()["message"] == "Living room is offline."

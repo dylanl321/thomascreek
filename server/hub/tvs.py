@@ -18,13 +18,16 @@ from typing import Any
 
 from . import tvwho, tvcec, tvfleet
 from .home import iso
-from .tvapp import TvAppError
+from .tvapp import TvAppError, _position
 from .tvlineup import valid_key
 
 # A TV counts as online when it has checked in within this window (fleet report, state or config pull).
 ONLINE_S = tvfleet.ONLINE_S
 SEND_SEEN_S = 14 * 86400  # a TV not seen for two weeks is left out of a phone's list of TVs to play on
-ACTIONS = ("restart_app", "update", "open_app", "screenshot", "play") + tvcec.ACTIONS
+# What a phone that cast something can do with it next: stop it (a queued command both TVs handle), pause, resume
+# or skip (a remote press on the TV's event stream).
+CONTROLS = ("stop", "pause", "resume", "seek")
+ACTIONS = ("restart_app", "update", "open_app", "screenshot", "play") + CONTROLS + tvcec.ACTIONS
 # Settings that stay on each TV and never come from the hub.
 LOCAL_ONLY = ("picture", "audio", "display", "sound")
 
@@ -123,7 +126,7 @@ def summary(h: Any, install_id: str, tv: dict[str, Any], now: float) -> dict[str
         "app_version": version,
         "update_available": bool(latest and version and latest != version),
         "foreground": bool(tv.get("foreground", True)) if online else False,
-        "now_playing": _now_playing(tv.get("playing")) if online else None,
+        "now_playing": _now_playing(h, tv.get("playing")) if online else None,
         "last_error": health.get("last_error"),
         "model": fleet.get("model") or tv.get("model"),
         "platform": fleet.get("platform") or "unknown",
@@ -249,6 +252,8 @@ async def act(h: Any, install_id: str, body: dict[str, Any], who: str | None, no
         return {"ok": True, "via": "app", "id": sent["id"], "message": "Brought Thomas Creek TV to the front."}
     if action == "update":
         return await _update(h, install_id, tv, online, who)
+    if action in CONTROLS:
+        return _control(h, install_id, tv, action, body, online)
     return _play(h, install_id, tv, body, online)
 
 
@@ -329,12 +334,22 @@ async def _screenshot_now(h: Any, install_id: str, tv: dict[str, Any], online: b
     raise problem
 
 
-def _now_playing(playing: Any) -> dict[str, Any] | None:
+def _now_playing(h: Any, playing: Any) -> dict[str, Any] | None:
+    """What a TV is showing, for the phone's "Playing on" bar: the title, where it is and how long it runs, and a
+    poster or channel logo when the hub can name one."""
     if not isinstance(playing, dict):
         return None
-    keys = ("kind", "title", "name", "number", "channel_key", "movie_id", "series_id", "episode_id", "position_s")
+    keys = ("kind", "title", "name", "number", "channel_key", "movie_id", "series_id", "episode_id", "position_s",
+            "duration_s")
     out = {key: playing.get(key) for key in keys if playing.get(key) is not None}
-    return out or None
+    if not out:
+        return None
+    from .tvcontrol import with_artwork
+
+    art = (with_artwork(h, out) or {}).get("poster_url")
+    if art:
+        out["poster_url"] = art
+    return out
 
 
 def _screenshot(h: Any, install_id: str) -> dict[str, Any] | None:
@@ -441,6 +456,31 @@ def _play(h: Any, install_id: str, tv: dict[str, Any], body: dict[str, Any], onl
     sent = h.tv_app.enqueue_command(install_id, command)
     h.bus.publish({"type": "tv_command", "data": sent}, device_id=f"tv:{install_id}")
     return {"ok": True, "via": "app", "id": sent["id"], "message": "Playing on the TV."}
+
+
+def _control(h: Any, install_id: str, tv: dict[str, Any], action: str, body: dict[str, Any],
+             online: bool) -> dict[str, Any]:
+    """Stop, pause, resume or skip what a TV is playing, for the phone that cast it. Stop is a queued command (it
+    still reaches a TV that reconnects in a moment); the others are remote presses, like the iPhone remote's."""
+    name = tv.get("name") or "The TV"
+    if not online:
+        raise TvsError(409, "offline", f"{name} is offline.")
+    if action == "stop":
+        sent = h.tv_app.enqueue_command(install_id, {"action": "stop"})
+        h.bus.publish({"type": "tv_command", "data": sent}, device_id=f"tv:{install_id}")
+        return {"ok": True, "via": "app", "id": sent["id"], "message": f"Stopped on {name}."}
+    press: dict[str, Any] = {"command": {"pause": "pause", "resume": "play", "seek": "seek"}[action]}
+    if action == "seek":
+        try:
+            press["position_s"] = _position(body.get("position_s"))
+        except TvAppError:
+            raise TvsError(400, "bad_request", "Say where to skip to, in seconds.") from None
+    from .db import new_id
+
+    press.update(id=new_id("tvr"), install_id=install_id, at=iso(time.time()))
+    h.bus.publish({"type": "tv_remote", "data": press}, device_id=f"tv:{install_id}")
+    words = {"pause": f"Paused on {name}.", "resume": f"Playing on {name}.", "seek": f"Skipped on {name}."}
+    return {"ok": True, "via": "app", "id": press["id"], "message": words[action]}
 
 
 def _kids_check(h: Any, tv: dict[str, Any], command: dict[str, Any]) -> None:

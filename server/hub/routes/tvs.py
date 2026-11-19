@@ -5,7 +5,7 @@ GET    /v1/tvs/{id}                   one TV: the same plus device health, setti
 GET    /v1/tvs/settings/schema        labels, choices and scope of every TV setting (one editor on iPhone and admin page)
 PATCH  /v1/tvs/{id}/settings          {name?, room?, profile?, settings?: {key: value|null}} -> config_changed
 POST   /v1/tvs/{id}/settings/copy     {from: <install id>} this TV takes another TV's settings, device set included
-POST   /v1/tvs/{id}/actions           {action: restart_app|update|open_app|screenshot|play|tv_power|tv_input|tv_volume|cec_check, ...}
+POST   /v1/tvs/{id}/actions           {action: restart_app|update|open_app|screenshot|play|stop|pause|resume|seek|tv_power|tv_input|tv_volume|cec_check, ...}
 GET    /v1/tvs/{id}/screenshot        the last screen picture (PNG)
 POST   /v1/tvs/{id}/watching          {person_id?} "I'm watching": no body = me, null = nobody (any person, see below)
 
@@ -88,7 +88,8 @@ async def tv_action(install_id: str, body: dict[str, Any] = Body(...), c: Caller
                     h: Hub = Depends(hub)) -> dict[str, Any]:
     """Do something on a TV. play takes channel_key, movie_id, episode_id, or ambience_id (a /v1/ambient/scenes id).
 
-    Other actions: restart_app, update, open_app, screenshot and the HDMI-CEC ones.
+    stop, pause, resume and seek (position_s) drive what was cast there. Other actions: restart_app, update,
+    open_app, screenshot and the HDMI-CEC ones.
     """
     need(h, c, CAP)
     action = str((body or {}).get("action") or "")
