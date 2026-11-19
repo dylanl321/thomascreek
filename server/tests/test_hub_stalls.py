@@ -148,3 +148,26 @@ def test_big_sdks_are_imported_before_the_hub_listens(monkeypatch):
     monkeypatch.setattr(importlib, "import_module", lambda name: seen.append(name))
     main._preload()
     assert "anthropic" in seen
+
+
+def test_explore_builds_the_clean_title_rows_once_per_folded_index(hub, monkeypatch):
+    """Explore read a fresh folded index and rebuilt every clean-title row on each feed build, which starved the
+    loop for seconds after a start. The rows are now built once per index, and each caller gets its own copies."""
+    from hub import iptvcanon
+
+    built = []
+
+    def build(h):
+        built.append(1)
+        return [{"kind": "movie", "title": "Dune", "movie_id": "vod:thomas-creek:1"}]
+
+    marker = object()
+    monkeypatch.setattr(iptvcanon, "peek", lambda db: marker)
+    monkeypatch.setattr(tvexplore, "_build_canonical_rows", build)
+    first = tvexplore._canonical_rows(hub)
+    first[0]["match_only"] = True
+    again = tvexplore._canonical_rows(hub)
+    assert len(built) == 1 and "match_only" not in again[0]
+    monkeypatch.setattr(iptvcanon, "peek", lambda db: object())  # a new index after the state changed
+    tvexplore._canonical_rows(hub)
+    assert len(built) == 2
