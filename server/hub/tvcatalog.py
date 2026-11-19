@@ -474,8 +474,11 @@ class TvCatalog:
             problem = None
             if pid not in readable:
                 problem = "skipped: no address, username or saved password for any of its logins"
-            elif last.get(pid) == "not read":
-                problem = "the last read failed (see the hub log for the reason)"
+            elif str(last.get(pid) or "").startswith("not read"):
+                why = str(last[pid])[len("not read"):].lstrip(": ")
+                problem = f"the last read failed: {why}" if why else "the last read failed (see the hub log for the reason)"
+            elif str(last.get(pid) or "").startswith("partly read"):
+                problem = str(last[pid]).split(" (kept the last copy)", 1)[0] + " (kept the last copy)"
             elif not extra:
                 problem = "not read yet"
             out.append({"provider": pid, "main": False, "channels": len(extra.get("channels") or []),
@@ -552,6 +555,10 @@ class TvCatalog:
                 async with httpx.AsyncClient(timeout=wait_s, follow_redirects=False,
                                              transport=self._transport) as client:
                     response = await client.get(f"{server}/player_api.php", params=params)
+            except httpx.TimeoutException:
+                iptvaddr.note(self.db, pid, server, False, "timed out")
+                last = "The TV provider timed out"
+                continue
             except httpx.HTTPError:
                 iptvaddr.note(self.db, pid, server, False, "couldn't be reached")
                 continue
@@ -565,7 +572,8 @@ class TvCatalog:
         raise TvAppError(502, "bad_provider", last)
 
     def ingest_extra(self, pid: str, *, live: list[Any] | None, vod: list[Any] | None, series: list[Any] | None,
-                     now: float | None = None) -> dict[str, Any]:
+                     now: float | None = None, keep: dict[str, Any] | None = None) -> dict[str, Any]:
+        """`keep` is the provider's last saved doc: a list passed as None (its read failed) keeps that copy."""
         def key(prefix: str, value: object) -> str | None:
             part = _id_part(value)
             return f"{prefix}:{pid}:{part}" if part else None
@@ -588,6 +596,10 @@ class TvCatalog:
                 if ext:
                     item["ext"] = ext
                 out.append(item)
+        if keep:
+            channels = channels if live is not None else list(keep.get("channels") or [])
+            movies = movies if vod is not None else list(keep.get("movies") or [])
+            shows = shows if series is not None else list(keep.get("series") or [])
         doc = {"provider": pid, "fetched_at": time.time() if now is None else now,
                "channels": channels, "movies": movies, "series": shows}
         path = self._extra_path(pid)
@@ -675,28 +687,40 @@ class TvCatalog:
         return self._extra_result
 
     async def refresh_extras_here(self) -> dict[str, str]:
+        """Read each other provider's three lists one at a time. A list that fails keeps its last copy, and the
+        result says which list failed and why in a few words (never an address or a login), so the providers sheet
+        can show it (Nov 19 2026: one provider never folded and nothing said why)."""
         result: dict[str, str] = {}
         logins = self._extra_logins()
+        names = {"get_live_streams": "channels", "get_vod_streams": "films", "get_series": "series"}
         for pid, lg in logins.items():
             params = {"username": lg["username"], "password": lg["password"]}
-            try:
-                got = []
-                servers = list(lg["servers"])
-                for action in ("get_live_streams", "get_vod_streams", "get_series"):
-                    used, r = await self._api(pid, servers, {**params, "action": action}, wait_s=60)
-                    if r.status_code >= 300:
-                        raise TvAppError(502, "bad_provider", f"answered {r.status_code}")
+            servers = list(lg["servers"])
+            got: list[list[Any] | None] = []
+            failed: list[str] = []
+            for action in names:
+                try:
+                    used, r = await self._api(pid, servers, {**params, "action": action}, wait_s=EXTRA_WAIT_S)
                     # Stay on the address that just answered for the rest of this read.
                     servers = [used] + [s for s in servers if s != used]
-                    part = await asyncio.to_thread(r.json)
-                    got.append(part if isinstance(part, list) else [])
-                doc = await asyncio.to_thread(self.ingest_extra, pid, live=got[0], vod=got[1], series=got[2])
-                result[pid] = f"{len(doc['channels'])} channels, {len(doc['movies'])} films, {len(doc['series'])} series"
-                log.info("provider %s: %s", pid, result[pid])
-            except (httpx.HTTPError, TvAppError, ValueError) as exc:
-                result[pid] = "not read"
-                detail = getattr(exc, "message", "") if isinstance(exc, TvAppError) else ""
-                log.info("provider %s: lists not read (%s%s)", pid, type(exc).__name__, f": {detail}" if detail else "")
+                    part = await asyncio.to_thread(_list_body, r)
+                    got.append(part)
+                except (httpx.HTTPError, TvAppError, ValueError) as exc:
+                    got.append(None)
+                    failed.append(f"{names[action]} {_read_reason(exc)}")
+            if len(failed) == len(names):
+                result[pid] = "not read: " + "; ".join(sorted(set(f.split(" ", 1)[1] for f in failed)))
+                log.info("provider %s: lists not read (%s)", pid, result[pid][10:])
+                continue
+            try:
+                doc = await asyncio.to_thread(self.ingest_extra, pid, live=got[0], vod=got[1], series=got[2],
+                                              keep=self.extra(pid) if failed else None)
+            except (OSError, ValueError) as exc:
+                result[pid] = f"not read: couldn't be saved ({type(exc).__name__})"
+                continue
+            counts = f"{len(doc['channels'])} channels, {len(doc['movies'])} films, {len(doc['series'])} series"
+            result[pid] = f"partly read: {'; '.join(failed)} (kept the last copy); {counts}" if failed else counts
+            log.info("provider %s: %s", pid, result[pid])
         self._extra_result = result
         try:
             self.db.kv_set(KV_EXTRA_RESULT, result)  # list_status reads it in the hub when a child did the read
@@ -1026,13 +1050,11 @@ class TvCatalog:
     def _live_canon(self) -> dict[str, str]:
         """Folded catalog ids by source (`provider|live|stream_id`). POST /v1/tv/tune takes these."""
         try:
-            from .iptvcanon import KV
-            state = self.db.kv_get(KV) or {}
+            from .iptvcanon import index
+            return index(self.db).by_source  # read once per change of the folded catalog, not per lineup
         except Exception as exc:  # noqa: BLE001
             log.info("lineup canonical ids: %s", exc)
             return {}
-        by_source = state.get("by_source") if isinstance(state, dict) else None
-        return by_source if isinstance(by_source, dict) else {}
 
     def market_counts(self) -> dict[str, int]:
         """Local stations the provider carries per market (tvbasic.MARKETS), worked out once per snapshot."""
@@ -1526,3 +1548,41 @@ def _with_canon(row: dict[str, Any], canon: dict[str, str]) -> None:
     found = canon.get(f"{parts[1]}|live|{parts[2]}")
     if isinstance(found, str) and found.startswith("can_"):
         row["canonical_id"] = found
+
+
+EXTRA_WAIT_S = 180.0  # a provider's full film list can take minutes to come back
+
+
+def _list_body(response: httpx.Response) -> list[Any]:
+    """A provider list, or ValueError with a short reason the providers sheet can show."""
+    if response.status_code >= 300:
+        raise ValueError(f"answered {response.status_code}")
+    try:
+        body = response.json()
+    except ValueError:
+        raise ValueError("answered something that isn't a list") from None
+    if isinstance(body, dict) and "user_info" in body:
+        raise ValueError("the provider refused the login")
+    if not isinstance(body, list):
+        raise ValueError("answered something that isn't a list")
+    return body
+
+
+def _read_reason(exc: Exception) -> str:
+    """A few words for why one list read failed. Never an address, a login or a query string."""
+    if isinstance(exc, httpx.TimeoutException):
+        return "timed out"
+    if isinstance(exc, httpx.HTTPError):
+        return "couldn't connect"
+    if isinstance(exc, TvAppError):
+        text = exc.message.casefold()
+        if "timed out" in text:
+            return "timed out"
+        if "redirect" in text:
+            return "was redirected"
+        return "couldn't connect"
+    if isinstance(exc, ValueError) and str(exc) in ("the provider refused the login",
+                                                     "answered something that isn't a list") \
+            or str(exc).startswith("answered "):
+        return str(exc)
+    return "couldn't be read"
