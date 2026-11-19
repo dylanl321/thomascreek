@@ -143,3 +143,20 @@ def test_channels_carry_a_readable_name_and_keep_the_providers(hub):
     found = cat.search("office", kids_only=False)
     card = next(c for c in found["channels"] if c["key"] == "xc:0")
     assert card["display_name"] == row["display_name"]
+
+
+def test_grown_up_cartoon_channels_in_a_kids_category_are_not_for_kids(hub):
+    """Providers file "Adult Swim" with the kids' channels. The lineup, the guide and search keep it from a child;
+    a grown-up's own kids switch on a channel still wins."""
+    cat = hub.tv_catalog
+    cat.kids_categories = lambda: ["Kids"]
+    doc = _doc()
+    doc["channels"] = [{"key": "xc:1", "name": "US| CARTOON NETWORK", "number": 1, "category": "Kids"},
+                       {"key": "xc:2", "name": "US| ADULT SWIM FHD", "number": 2, "category": "Kids"}]
+    doc["guide"] = {}
+    cat._write(doc)
+    kids = {row["key"] for row in cat.lineup(kids_only=True)["channels"]}
+    assert kids == {"xc:1"}
+    everyone = {row["key"]: row["kids"] for row in cat.lineup(kids_only=False)["channels"]}
+    assert everyone == {"xc:1": True, "xc:2": False}
+    assert not cat.channel("xc:2")["kids"]

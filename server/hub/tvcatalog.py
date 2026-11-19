@@ -31,7 +31,7 @@ from urllib.parse import urlsplit, urlunsplit
 import httpx
 
 from .artwork import programme_key
-from . import catalogdb, iptvaddr, tvgroups, tvnames
+from . import catalogdb, iptvaddr, kidratings, tvgroups, tvnames
 from .home import iso
 from .tvapp import TvAppError
 from .tvlineup import LineupError, clean_logo, public_channel
@@ -1198,7 +1198,10 @@ class TvCatalog:
             "number": number,
             "group": over.get("group") or row.get("category"),
             "logo": over.get("logo") or row.get("logo"),
-            "kids": bool(over.get("kids")) or self._is_kids(row.get("category")),
+            # A grown-up's own kids switch wins; otherwise a kids' category, minus the grown-up cartoons
+            # providers file there ("Adult Swim", "South Park").
+            "kids": bool(over.get("kids")) or (self._is_kids(row.get("category"))
+                                               and not kidratings.denied_channel(row.get("name"))),
             "catchup_days": int(row.get("catchup_days") or 0),
             "category": row.get("category"),
         }
