@@ -48,11 +48,27 @@ def listing(h: Any, now: float | None = None, *, send: bool = False) -> dict[str
     now = time.time() if now is None else now
     rows = [summary(h, install_id, tv, now) for install_id, tv in h.tv_app.tvs().items() if tv.get("status") != "revoked"]
     if send:
-        rows = [row for row in rows if row["status"] == "approved" and row["last_seen"]
-                and now - _seen(h, row["id"]) < SEND_SEEN_S]
+        rows = _sendable(h, rows, now)
     rows.sort(key=lambda row: (row["status"] != "approved", str(row.get("name") or "").lower()))
     latest = h.tv_app.latest() or {}
     return {"tvs": rows, "latest_version": latest.get("versionName")}
+
+
+def _sendable(h: Any, rows: list[dict[str, Any]], now: float) -> list[dict[str, Any]]:
+    """Approved TVs seen in the last two weeks, without emulators ("sdk_…" models, the test installs), and one row
+    for a TV paired more than once: of the rows with the same name and model, the one seen last, plus any other
+    seen in the last day (two real TVs that share a name)."""
+    seen = {row["id"]: _seen(h, row["id"]) for row in rows}
+    keep = [row for row in rows if row["status"] == "approved" and 0 < now - seen[row["id"]] < SEND_SEEN_S
+            and not str(row.get("model") or row.get("name") or "").lower().startswith("sdk_")]
+    groups: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for row in keep:
+        groups.setdefault((str(row.get("name") or "").casefold(), str(row.get("model") or "")), []).append(row)
+    out = []
+    for group in groups.values():
+        group.sort(key=lambda row: seen[row["id"]], reverse=True)
+        out += [group[0]] + [row for row in group[1:] if now - seen[row["id"]] < 86400]
+    return out
 
 
 def detail(h: Any, install_id: str, now: float | None = None) -> dict[str, Any]:
