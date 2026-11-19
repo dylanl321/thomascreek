@@ -87,6 +87,35 @@ SETTINGS: dict[str, tuple[Any, Any]] = {
 }
 
 
+def _lang(v: Any) -> str:
+    if not isinstance(v, str) or not re.fullmatch(r"[a-z]{2,3}", v):
+        raise ValueError("must be a language code like en")
+    return v
+
+
+def _count(low: int, high: int):
+    def check(v: Any) -> int:
+        if isinstance(v, bool) or not isinstance(v, int) or not low <= v <= high:
+            raise ValueError(f"must be a whole number from {low} to {high}")
+        return v
+    return check
+
+
+# The player's choices, the same on the phone, the TVs and the iPhone (they ride in `settings` with the other
+# `app.` keys; null clears one back to the app's own default). Other `app.player.` keys stay free-form.
+PLAYER: dict[str, Any] = {
+    "app.player.autoplay": _bool,            # play the next episode by itself
+    "app.player.auto_skip": _bool,           # skip intros and recaps the hub knows about
+    "app.player.subtitles": _bool,
+    "app.player.subtitle_lang": _lang,
+    "app.player.subtitle_size": _choice("small", "medium", "large"),
+    "app.player.audio_lang": _lang,
+    "app.player.data_saver": _bool,          # away from home: the lightest copy
+    "app.player.stats": _bool,               # the Stats panel (grown-ups; the apps hide it for children)
+    "app.player.still_watching": _count(0, 10),  # ask after this many episodes in a row; 0 never asks
+}
+
+
 class SettingsError(ValueError):
     def __init__(self, error: str, message: str, status: int = 400):
         super().__init__(message)
@@ -198,6 +227,11 @@ class PersonSettings:
                     clean[key] = personal(key[3:], value)
                 except TvsError as exc:
                     raise SettingsError("bad_setting", f"{key}: {exc.message}") from None
+            elif key in PLAYER:
+                try:
+                    clean[key] = None if value is None else PLAYER[key](value)
+                except ValueError as exc:
+                    raise SettingsError("bad_setting", f"{key}: {exc}") from None
             elif _APP_KEY.match(key):
                 if value is not None and len(json.dumps(value)) > 2000:
                     raise SettingsError("bad_setting", f"{key}: too large")

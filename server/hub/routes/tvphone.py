@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import logging
+import re
 import secrets
 import shutil
 import time
@@ -115,7 +116,7 @@ async def phone_play(body: dict[str, Any], response: Response, c: Caller = Depen
     if body.get("direct") is True and not getattr(c.subject, "tv", False):
         # Straight from the provider (the travel phone, Dylan's choice Nov 2026): the address carries a login,
         # so it goes only to this signed-in phone and is never logged.
-        from ..iptvplay import busy_reason, direct_all, read_twins, refresh_usage, warm_twins
+        from ..iptvplay import busy_reason, direct_all, holders, read_twins, refresh_usage, warm_twins
 
         holder = f"phone:{c.device['id']}"
         # The pool takes its own lock (hub/iptvplay.py _POOL), so the lease runs off the loop.
@@ -132,11 +133,14 @@ async def phone_play(body: dict[str, Any], response: Response, c: Caller = Depen
         warm_twins(h, key)
         url = urls[0] if urls else None
         if not url:
-            raise error(503, "busy", busy_reason(h, key))
+            raise error(503, "busy", busy_reason(h, key), holders=holders(h, key, titles=not kids_only))
         h.db.log("tv.phone.play", "ok", person_id=person, device_id=c.device["id"], target=key,
                  params={"title": row.get("name") or row.get("title"), "direct": True})
         out_direct: dict[str, Any] = {"url": url, "kind": mode, "title": row.get("name") or row.get("title"),
                                       "direct": True}
+        source = await asyncio.to_thread(_source, h, holder, out_direct["title"], row, "direct", len(urls))
+        if source:
+            out_direct["source"] = source
         alternates = urls[1:]
         relay = _relay_pass(h, c, mode, key, ext)
         if relay is not None:
@@ -155,7 +159,7 @@ async def phone_play(body: dict[str, Any], response: Response, c: Caller = Depen
         lap("resume", done=True)
         return out_direct
     # The hub relays it, on a login leased to this phone like a TV's (one stream per login).
-    from ..iptvplay import busy_reason, lease, read_twins, refresh_usage, warm_twins
+    from ..iptvplay import busy_reason, holders, lease, read_twins, refresh_usage, warm_twins
 
     holder = f"phone:{c.device['id']}"
     held = await asyncio.to_thread(lease, h, key, holder)
@@ -168,7 +172,7 @@ async def phone_play(body: dict[str, Any], response: Response, c: Caller = Depen
         lap("retry")
     warm_twins(h, key)
     if held is None:
-        raise error(503, "busy", busy_reason(h, key))
+        raise error(503, "busy", busy_reason(h, key), holders=holders(h, key, titles=not kids_only))
     token, exp = h.tokens.issue_scoped({"aud": AUD, "k": mode, "s": _stream_id(key), "x": ext,
                                         "sid": secrets.token_urlsafe(9), "dev": c.device["id"],
                                         "pl": f"{held['provider']}|{held['login']}"}, TTL_S)
@@ -178,9 +182,21 @@ async def phone_play(body: dict[str, Any], response: Response, c: Caller = Depen
     path = f"/v1/tv/phone/live/{token}/index.m3u8" if mode == "live" else f"/v1/tv/phone/file/{token}"
     out: dict[str, Any] = {"url": path, "kind": mode, "title": title, "expires_at": exp}
     _cast_fields(out, mode, ext, token, cast=body.get("cast") is True)
+    source = await asyncio.to_thread(_source, h, holder, title, row, "relay", None)
+    if source:
+        out["source"] = source
     _resume(h, person, body, mode, key, row, out)
     lap("resume", done=True)
     return out
+
+
+def _source(h: Hub, holder: str, title: Any, row: dict[str, Any], route: str,
+            addresses: int | None) -> dict[str, Any] | None:
+    """The `source` of a play answer (see iptvplay.source_view), and what this holder plays for a busy answer."""
+    from ..iptvplay import note_title, source_view
+
+    note_title(h, holder, str(title) if title else None, bool(row.get("kids")))
+    return source_view(h, holder, route=route, addresses=addresses)
 
 
 class _Laps:
@@ -865,3 +881,46 @@ async def phone_cast_report(body: CastReport, c: Caller = Depends(caller), h: Hu
              params={"kind": body.kind, "state": body.state, "code": body.code, "reason": body.reason[:200],
                      "attempt": body.attempt, "receiver": body.receiver})
     return {"ok": True}
+
+
+# -- the player's "Stats" panel -------------------------------------------------------------------------------
+
+_STAT_KEY = re.compile(r"^[a-z0-9_.]{1,40}$")
+MAX_STATS = 40
+
+
+class StreamReport(BaseModel):
+    kind: str = Field(default="", max_length=12)
+    id: str = Field(default="", max_length=120)
+    note: str = Field(default="", max_length=200)
+    stats: dict[str, Any] = Field(default_factory=dict)
+
+
+def clean_stats(stats: dict[str, Any]) -> dict[str, Any]:
+    """The numbers and short words of a report, and nothing that could be an address: a provider address carries
+    its login, so a value with `://`, an `@` or a query string is dropped, not kept in the log."""
+    out: dict[str, Any] = {}
+    for key, value in stats.items():
+        if len(out) >= MAX_STATS or not isinstance(key, str) or not _STAT_KEY.match(key):
+            continue
+        if isinstance(value, bool) or isinstance(value, int):
+            out[key] = value
+        elif isinstance(value, float):
+            out[key] = round(value, 3)
+        elif isinstance(value, str) and len(value) <= 120 and not any(mark in value for mark in ("://", "@", "?", "&")):
+            out[key] = value
+    return out
+
+
+@router.post("/report")
+async def phone_report(body: StreamReport, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """"Send to hub" on the player's Stats panel: what a grown-up's player measured (route, codec, bitrate, buffer,
+    dropped frames, start times), kept in the activity log under their phone so a bad stream can be found later.
+    Grown-ups only; a child's player has no Stats panel."""
+    _media(h, c)
+    if c.subject.role not in ("admin", "adult"):
+        raise error(403, "forbidden", "Only a grown-up can send player stats")
+    stats = clean_stats(body.stats)
+    h.db.log("tv.phone.report", "ok", person_id=c.subject.person_id, device_id=c.device["id"],
+             target=body.id or None, params={"kind": body.kind, "note": body.note, "stats": stats})
+    return {"ok": True, "kept": len(stats)}
