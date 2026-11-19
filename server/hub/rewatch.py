@@ -8,6 +8,7 @@ library. A press on one of these cards starts a shuffle of the whole show (`play
 
 from __future__ import annotations
 
+import functools
 import json
 import logging
 import random
@@ -79,6 +80,7 @@ SYSTEM = (
 )
 
 
+@functools.lru_cache(maxsize=65536)  # every library show is compared on each Explore build
 def norm(name: str) -> str:
     """A show name compared loosely: no tags, case, punctuation, a leading "the", or a year."""
     text = clean_title(name)["name"].casefold().replace("&", " and ")

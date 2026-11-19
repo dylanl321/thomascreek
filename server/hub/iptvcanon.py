@@ -122,10 +122,13 @@ def observe(db: Any, sources: list[dict[str, Any]], *, decisions: dict[str, bool
     return _public(state["items"])
 
 
-def search(db: Any, q: str = "", kind: str | None = None) -> dict[str, Any]:
+def search(db: Any, q: str = "", kind: str | None = None, *, settled: bool = False) -> dict[str, Any]:
+    """`settled`: read the last index built (`peek`) instead of rebuilding after each write of the state, for a
+    caller that runs often and can show a list a few minutes old (Explore)."""
     needle = q.strip().casefold()
     items = []
-    for item in _public(index(db).items)["items"]:  # the cached read: the state is several MB of JSON
+    found = (peek(db) if settled else None) or index(db)
+    for item in _public(found.items)["items"]:  # the cached read: the state is several MB of JSON
         if kind and item.get("kind") != kind:
             continue
         if needle and needle not in str(item.get("title") or "").casefold() and not any(
