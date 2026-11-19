@@ -35,6 +35,7 @@ ROUTES: dict[str, tuple[str, dict[str, str]]] = {
     "tv_players": ("/v1/tv/players", {}),
     "tv_series": ("/v1/tv/series", {}),
     "tv_movies": ("/v1/tv/movies", {}),
+    "kids_ratings": ("/v1/kids/ratings", {}),
 }
 
 

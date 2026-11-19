@@ -22,6 +22,7 @@ final class BodyTests: XCTestCase {
         "tv_series": { try self.decoder.decode(TVSeriesPage.self, from: $0) },
         "tv_movies": { try self.decoder.decode(TVMoviePage.self, from: $0) },
         "devices_join": { try self.decoder.decode(JoinCode.self, from: $0) },
+        "kids_ratings": { try self.decoder.decode(KidRatings.self, from: $0) },
     ]
 
     private func fixtures() throws -> [URL] {

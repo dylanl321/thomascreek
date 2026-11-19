@@ -223,6 +223,7 @@ struct DestinationView: View {
         case .intercom: IntercomView()
         case .guestPasses: GuestPassesView()
         case .bedtimes: BedtimesView()
+        case .kidRatings: KidRatingsView()
         case .feedback: FeedbackListView()
         case .weather: WeatherView()
         case .weatherAlert(let id): WeatherAlertView(alertID: id)
