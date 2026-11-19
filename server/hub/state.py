@@ -197,6 +197,8 @@ class Hub:
         self._home_nets = [ipaddress.ip_network(n, strict=False) for n in config.hub.home_networks]
         self._proxies = [ipaddress.ip_network(n, strict=False) for n in config.hub.trusted_proxies]
         self._web_nets = [ipaddress.ip_network(n, strict=False) for n in config.hub.web_networks]
+        self.timings: Any = None  # hub.timings.Timings, set by main.build_app
+        self.host_load: Any = None  # hub.timings.HostLoad
         self.started_at = time.time()
 
     @property

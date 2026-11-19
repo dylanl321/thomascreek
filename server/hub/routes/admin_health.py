@@ -223,6 +223,33 @@ def hub_rows(h: Hub) -> str:
     return "".join(f"<div class=row><div>{e(k)}</div><div class=dim>{e(v)}</div></div>" for k, v in rows)
 
 
+def speed_html(h: Hub) -> str:
+    """The slowest routes over the last hour and how busy the NAS is: route templates and numbers only."""
+    t, host = getattr(h, "timings", None), getattr(h, "host_load", None)
+    if t is None:
+        return ""
+    every = t.summary(window_s=3600)
+    hh = host.hour() if host is not None else {}
+    load = "NAS load: measuring"
+    if hh:
+        load = (f"NAS CPU {hh['busy_avg_pct']:.0f}% busy on average (peak {hh['busy_max_pct']:.0f}%), "
+                f"{hh['iowait_avg_pct']:.0f}% waiting on disk; the hub uses {hh['hub_cpu_avg_pct']:.0f}% "
+                f"of one thread (peak {hh['hub_cpu_max_pct']:.0f}%), last {hh['minutes']} min")
+    lines = []
+    for r in every[:12]:
+        slow = f" · <b>{r['over_1s']} over 1 s</b>" if r["over_1s"] else ""
+        lines.append(f"<div class=row><div><code>{e(r['method'])} {e(r['route'])}</code></div>"
+                     f"<div class=dim style='white-space:nowrap'>p50 {r['p50_ms']:.0f} ms · p95 {r['p95_ms']:.0f} ms"
+                     f" · max {r['max_ms']:.0f} ms · {r['n']} calls{slow}</div></div>")
+    n_slow = sum(r["over_1s"] for r in every)
+    pill = f"<span class=pill-{'warn' if n_slow else 'ok'}>{n_slow} answers over 1 s</span>"
+    empty = "<div class=row><div class=dim>No calls yet</div></div>"
+    return f"""<div class=card style="margin-top:10px"><details class=key>
+<summary><span>Speed · last hour</span>{pill}</summary>
+<div class=kbody><div class=dim>{e(load)}. Time until each answer starts, measured on the hub.</div>
+{''.join(lines) or empty}</div></details></div>"""
+
+
 def ai_html(h: Hub) -> str:
     try:
         s = h.brain.summary()

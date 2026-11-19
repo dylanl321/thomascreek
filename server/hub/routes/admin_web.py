@@ -1154,6 +1154,7 @@ or text files named after a key (for example trek.api_key.txt). Each goes to the
 <div class=row><div>TLS pin</div><div class=dim><code>{e(pin or '')}</code></div></div>
 <div class=row><div>This sign-in</div><form method=post action=/admin/logout>
 <input type=hidden name=csrf value={csrf}><button class=ghost>Sign out</button></form></div></div>
+{admin_health.speed_html(h)}
 {admin_health.warnings_html(h)}
 {sections}"""
     savebar = ""
