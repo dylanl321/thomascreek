@@ -222,7 +222,7 @@ def build_feed(library: list[dict[str, Any]], lists: dict[str, list[dict[str, An
                can_request: bool, kids: bool, allowed: set[str],
                rewatch: list[str] | None = None) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
     """Turn a library and optional TMDB lists into the public feed. Nothing here touches the network."""
-    shuffle_row = _rewatch_cards(library, rewatch)
+    shuffle_row = _rewatch_cards(library, rewatch, kids=kids)
     if not lists:
         items = [_library_card(row) for row in _recent(library)]
         packed = _pack("library", items)
@@ -251,11 +251,14 @@ def build_feed(library: list[dict[str, Any]], lists: dict[str, list[dict[str, An
     return _dedupe(rows), links
 
 
-def _rewatch_cards(library: list[dict[str, Any]], names: list[str] | None) -> list[dict[str, Any]]:
-    """Comfort shows the house can play, as cards whose press starts a shuffle of the whole show."""
+def _rewatch_cards(library: list[dict[str, Any]], names: list[str] | None, *,
+                   kids: bool = False) -> list[dict[str, Any]]:
+    """Comfort shows the house can play, as cards whose press starts a shuffle of the whole show.
+
+    A child's row takes only the kids' list (`rewatch.KIDS_CLASSICS`)."""
     from .rewatch import CLASSICS, row
     cards = []
-    for item in row(library, list(names) if names else list(CLASSICS)):
+    for item in row(library, list(names) if names else list(CLASSICS), kids=kids):
         card = _view(item, reason="rewatch", badges=[])
         card["play"] = "shuffle"
         cards.append(card)
