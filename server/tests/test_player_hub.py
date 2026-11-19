@@ -97,3 +97,51 @@ def test_stats_report_is_kept_without_addresses_and_only_from_grown_ups(hub, peo
     assert SERVER not in logged and PASSWORD not in logged and "household" not in logged
     no = theo.client.post("/v1/tv/phone/report", headers=theo.h, json={"stats": {"route": "relay"}})
     assert no.status_code == 403 and no.json()["error"] == "forbidden"
+
+
+def _two_episodes(hub, series="series:thomas-creek:50"):
+    hub.tv_catalog.store_series({
+        "info": {"name": "Cartoon Show"},
+        "episodes": {"0": [{"id": "899", "episode_num": 1, "title": "Special"}],
+                     "1": [{"id": "900", "episode_num": 1, "title": "Pilot"},
+                           {"id": "901", "episode_num": 2, "title": "Second"}],
+                     "2": [{"id": "910", "episode_num": 1, "title": "Back again"}]},
+    }, series)
+
+
+def test_an_episode_answer_names_the_next_episode(hub, people):
+    _library(hub)
+    _login(hub)
+    _two_episodes(hub)
+    dylan = people["phones"]["Dylan"]
+
+    def play(eid, **extra):
+        r = dylan.client.post("/v1/tv/phone/play", headers=dylan.h, json={"episode_id": eid, "player": "exo", **extra})
+        assert r.status_code == 200, r.text
+        return r.json()
+
+    first = play("ep:thomas-creek:900")
+    assert (first["season"], first["number"], first["series_name"]) == (1, 1, "Cartoon Show")
+    assert first["next"]["episode_id"] == "ep:thomas-creek:901" and first["next"]["title"] == "Second"
+    assert (first["next"]["season"], first["next"]["number"]) == (1, 2)
+    assert first["next"]["series_id"] == "series:thomas-creek:50"
+    # The last of a season leads into the next season; the last of the series has no next; a special is never next.
+    assert play("ep:thomas-creek:901", direct=True)["next"]["episode_id"] == "ep:thomas-creek:910"
+    assert "next" not in play("ep:thomas-creek:910")
+    assert SERVER not in json.dumps(first["next"]) and PASSWORD not in json.dumps(first["next"])
+    # A film has none of it.
+    assert not {"next", "season", "number"} & set(_play(dylan).json())
+
+
+def test_a_child_is_only_offered_a_kids_next_episode(hub, people):
+    from hub.playernext import next_episode
+
+    _library(hub)
+    _login(hub)
+    cat = hub.tv_catalog
+    _two_episodes(hub)                               # "Cartoon Show" is in Kids
+    assert next_episode(cat, "ep:thomas-creek:900", kids_only=True)["episode_id"] == "ep:thomas-creek:901"
+    _two_episodes(hub, "series:thomas-creek:51")     # the same ids stored under "Drama Show"
+    assert next_episode(cat, "ep:thomas-creek:900", kids_only=False)["episode_id"] == "ep:thomas-creek:901"
+    assert next_episode(cat, "ep:thomas-creek:900", kids_only=True) is None
+    assert next_episode(cat, "ep:thomas-creek:nope") is None

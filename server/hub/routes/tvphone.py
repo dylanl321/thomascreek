@@ -156,6 +156,7 @@ async def phone_play(body: dict[str, Any], response: Response, c: Caller = Depen
             # The same stream on the provider's backup addresses (same login), to try in order when `url` won't play.
             out_direct["alternates"] = alternates
         _resume(h, person, body, mode, key, row, out_direct)
+        await _episode(h, mode, key, row, out_direct, kids_only)
         lap("resume", done=True)
         return out_direct
     # The hub relays it, on a login leased to this phone like a TV's (one stream per login).
@@ -186,6 +187,7 @@ async def phone_play(body: dict[str, Any], response: Response, c: Caller = Depen
     if source:
         out["source"] = source
     _resume(h, person, body, mode, key, row, out)
+    await _episode(h, mode, key, row, out, kids_only)
     lap("resume", done=True)
     return out
 
@@ -279,6 +281,27 @@ def _resume(h: Hub, person: str | None, body: dict[str, Any], mode: str, key: st
     out["duration_s"] = row.get("duration_s") if isinstance(row.get("duration_s"), (int, float)) else None
     if mode == "episode":
         out["series_id"] = row.get("series_id")
+
+
+async def _episode(h: Hub, mode: str, key: str, row: dict[str, Any], out: dict[str, Any], kids_only: bool) -> None:
+    """Which episode this is and the one after it (optional `season`, `number`, `next`), for the player's title
+    line and its "Next episode" card. The screens draw `next`; they do not work out the order."""
+    if mode != "episode":
+        return
+    from ..playernext import next_episode
+
+    for field in ("season", "number"):
+        if isinstance(row.get(field), int):
+            out[field] = row[field]
+    if row.get("series_name"):
+        out["series_name"] = row["series_name"]
+    try:
+        nxt = await asyncio.to_thread(next_episode, h.tv_catalog, key, kids_only=kids_only)
+    except Exception as exc:  # noqa: BLE001 - the episode still plays without its "next"
+        note("tv.phone.play: finding the next episode", exc)
+        return
+    if nxt:
+        out["next"] = nxt
 
 
 def _seconds(value: object) -> int | None:
