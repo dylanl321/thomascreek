@@ -254,18 +254,14 @@ def split(db: Any, item_id: str, provider: str, stream_id: str) -> dict[str, Any
 def playable(db: Any, *, kind: str, title: str, year: int | None = None, tmdb: str | None = None) -> dict[str, Any] | None:
     """The best source for a title, or nothing when the catalog has not folded it in."""
     want = "series" if kind == "series" else "movie"
-    parsed = parse(title, year, titles=True)
+    found = index(db)
     best = None
     if tmdb:
-        item_id = (_state(db).get("by_tmdb") or {}).get(f"{want}:{tmdb}")
-        best = next((item for item in _items(db) if item["id"] == item_id), None)
+        item_id = found.by_tmdb.get(f"{want}:{tmdb}")
+        best = found.by_id.get(item_id) if item_id else None
     if best is None:
-        for item in _items(db):
-            if item.get("kind") != want:
-                continue
-            if parse(str(item.get("title") or ""), titles=True).key == parsed.key and (year is None or item.get("year") in (None, year)):
-                best = item
-                break
+        key = parse(title, year, titles=True).key
+        best = next((item for item in found.by_title(want, key) if year is None or item.get("year") in (None, year)), None)
     if best is None:
         return None
     # The ref opens the title's page, which the main provider's catalog has, so its copy comes first; other
@@ -276,6 +272,61 @@ def playable(db: Any, *, kind: str, title: str, year: int | None = None, tmdb: s
     if chosen is None:
         return None
     return {"canonical_id": best["id"], "ref": chosen.get("ref"), "provider": chosen.get("provider")}
+
+
+class Index:
+    """The folded catalog for reading, built once per change of the saved state. The state holds every title in
+    the house (tens of thousands, several MB of JSON): reading and scanning it on every play and every search result
+    took seconds per request and timed out phone search. Readers must not change what it returns."""
+
+    def __init__(self, state: dict[str, Any]) -> None:
+        self.items = [item for item in (state.get("items") or [])
+                      if isinstance(item, dict) and item.get("id") and item["id"] != "__unsure__"]
+        self.by_id = {item["id"]: item for item in self.items}
+        self.by_tmdb = {str(k): str(v) for k, v in (state.get("by_tmdb") or {}).items()} \
+            if isinstance(state.get("by_tmdb"), dict) else {}
+        self.by_ref: dict[str, dict[str, Any]] = {}
+        for item in self.items:
+            for source in item.get("sources") or []:
+                if isinstance(source, dict) and source.get("ref"):
+                    self.by_ref.setdefault(str(source["ref"]), item)
+        self._titles: dict[tuple[str, str], list[dict[str, Any]]] | None = None
+
+    def by_title(self, kind: str, key: str) -> list[dict[str, Any]]:
+        """Titles of this kind whose cleaned name has this key, in saved order. Parsed once, on first use."""
+        if self._titles is None:
+            titles: dict[tuple[str, str], list[dict[str, Any]]] = {}
+            for item in self.items:
+                if item.get("kind") in ("movie", "series"):
+                    parsed = parse(str(item.get("title") or ""), titles=True).key
+                    titles.setdefault((str(item["kind"]), parsed), []).append(item)
+            self._titles = titles
+        return self._titles.get((kind, key)) or []
+
+
+_INDEX: dict[int, tuple[Any, Index]] = {}
+
+
+def _stamp(db: Any) -> Any:
+    """When the state was last written, and its size (two writes in the same instant still differ in size)."""
+    if hasattr(db, "one"):
+        try:
+            row = db.one("SELECT updated_at, length(value) AS size FROM hub_kv WHERE key=?", [KV])
+        except Exception:  # noqa: BLE001 - a fake or closed database just means no cache
+            return None
+        return (float(row["updated_at"]), int(row["size"])) if row else ("none",)
+    return None
+
+
+def index(db: Any) -> Index:
+    """`Index` of the saved state, rebuilt only when the state was written again (its stamp changes)."""
+    stamp = _stamp(db)
+    cached = _INDEX.get(id(db))
+    if cached is not None and stamp is not None and cached[0] == stamp:
+        return cached[1]
+    built = Index(_state(db))
+    _INDEX[id(db)] = (stamp, built)
+    return built
 
 
 _INFO_FIELDS = ("name", "year", "category", "genre", "rating", "tmdb", "plot", "duration_s")
