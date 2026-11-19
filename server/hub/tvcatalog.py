@@ -1065,7 +1065,7 @@ class TvCatalog:
                 continue
             if tvnames.is_divider(shown.get("name")):
                 continue  # the provider's "###### ARABIC ######" section headers are not channels
-            public = {key: shown[key] for key in ("key", "name", "number", "group", "logo", "kids")}
+            public = {key: shown[key] for key in ("key", "name", "display_name", "number", "group", "logo", "kids")}
             if shown.get("catchup_days"):
                 public["catchup_days"] = shown["catchup_days"]
             public["logo_url"] = self._art("logo", shown["key"])
@@ -1161,6 +1161,9 @@ class TvCatalog:
         return {
             "key": row["key"],
             "name": over.get("name") or row.get("name"),
+            # Optional, for the screens: a name set on the guide editor as typed, else the provider's cleaned
+            # ("US| THE OFFICE FHD" as "The Office"). `name` stays as before.
+            "display_name": over.get("name") or tvnames.channel_name(row.get("name")),
             "number": number,
             "group": over.get("group") or row.get("category"),
             "logo": over.get("logo") or row.get("logo"),
@@ -1326,7 +1329,7 @@ class TvCatalog:
                 continue
             by_key[shown["key"]] = shown
             if needle in str(shown["name"]).casefold():
-                card = {key: shown[key] for key in ("key", "name", "number", "group", "logo", "kids")}
+                card = {key: shown[key] for key in ("key", "name", "display_name", "number", "group", "logo", "kids")}
                 card["logo_url"] = self._art("logo", shown["key"])
                 channels.append(card)
             if indexed or len(programmes) >= 20:
