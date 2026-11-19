@@ -208,3 +208,46 @@ def test_segments_are_empty_without_an_answer_and_never_for_a_child_on_an_adult_
     assert dylan.client.get("/v1/tv/phone/segments?episode_id=ep:thomas-creek:nope", headers=dylan.h).status_code == 404
     _two_episodes(hub, "series:thomas-creek:51")   # now a "Drama Show" episode
     assert theo.client.get(url, headers=theo.h).status_code == 404
+
+
+def test_play_next_queue_follows_the_person_and_keeps_to_kids_titles_for_a_child(hub, people):
+    _library(hub)
+    _two_episodes(hub)
+    dylan, avery, theo = (people["phones"][n] for n in ("Dylan", "Avery", "Theo"))
+
+    def change(phone, **body):
+        r = phone.client.post("/v1/tv/phone/queue", headers=phone.h, json=body)
+        assert r.status_code == 200, r.text
+        return [i["id"] for i in r.json()["items"]]
+
+    assert dylan.client.get("/v1/tv/phone/queue", headers=dylan.h).json() == {"items": []}
+    assert change(dylan, add="vod:thomas-creek:100") == ["vod:thomas-creek:100"]
+    assert change(dylan, add="ep:thomas-creek:901") == ["vod:thomas-creek:100", "ep:thomas-creek:901"]
+    assert change(dylan, add="vod:thomas-creek:101", first=True)[0] == "vod:thomas-creek:101"
+    # Adding again moves it; order only reorders what is there.
+    again = change(dylan, add="vod:thomas-creek:100")
+    assert again == ["vod:thomas-creek:101", "ep:thomas-creek:901", "vod:thomas-creek:100"]
+    assert change(dylan, order=["vod:thomas-creek:100", "vod:thomas-creek:999"])[0] == "vod:thomas-creek:100"
+    items = dylan.client.get("/v1/tv/phone/queue", headers=dylan.h).json()["items"]
+    episode = next(i for i in items if i["kind"] == "episode")
+    assert (episode["title"], episode["subtitle"]) == ("Second", "Cartoon Show")
+    assert (episode["season"], episode["number"]) == (1, 2)
+    assert next(i for i in items if i["id"] == "vod:thomas-creek:101")["title"] == "Kids Movie"
+    assert SERVER not in json.dumps(items) and PASSWORD not in json.dumps(items)
+    # Each person has their own.
+    assert avery.client.get("/v1/tv/phone/queue", headers=avery.h).json() == {"items": []}
+    assert change(dylan, remove="ep:thomas-creek:901") == ["vod:thomas-creek:100", "vod:thomas-creek:101"]
+    # Something not in the library can't be queued.
+    bad = dylan.client.post("/v1/tv/phone/queue", headers=dylan.h, json={"add": "vod:thomas-creek:999"})
+    assert bad.status_code == 404
+    # A child can queue a kids' film, never an adult one.
+    assert change(theo, add="vod:thomas-creek:101") == ["vod:thomas-creek:101"]
+    no = theo.client.post("/v1/tv/phone/queue", headers=theo.h, json={"add": "vod:thomas-creek:100"})
+    assert no.status_code == 404
+    # An adult title that got into a child's queue another way is never shown to the child.
+    from hub import playerqueue
+    owner = next(k for k, v in hub.db.kv_get(playerqueue.KV).items() if v == ["vod:thomas-creek:101"])
+    playerqueue.change(hub, owner, add="vod:thomas-creek:100")
+    seen = theo.client.get("/v1/tv/phone/queue", headers=theo.h).json()["items"]
+    assert [i["id"] for i in seen] == ["vod:thomas-creek:101"]
+    assert change(dylan, clear=True) == []
