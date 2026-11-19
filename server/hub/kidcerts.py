@@ -115,6 +115,26 @@ class Certs:
                 out.add(ident)
         return out
 
+    def status(self) -> dict[str, Any]:
+        """Counts for the admin check (`GET /v1/kids/certs`): what is known, mapped, waiting and left out per level."""
+        from .kidratings import LEVELS, allowed_at
+
+        hits = sum(1 for v in self.known.values() if v.get("c"))
+        mapped_known = sum(1 for k in self.ids.values() if k in self.known)
+        by_cert: dict[str, int] = {}
+        for k in set(self.ids.values()):
+            cert = str((self.known.get(k) or {}).get("c") or "")
+            by_cert[cert or "none"] = by_cert.get(cert or "none", 0) + 1
+        return {
+            "known": len(self.known), "with_certification": hits, "pending": len(self.pending),
+            "mapped": len(self.ids), "mapped_known": mapped_known, "by_certification": by_cert,
+            "warmed_at": self.warmed or None, "warm_due": self.warm_due(),
+            "looking_up": self.task is not None and not self.task.done(),
+            "blocked": {name: {b: len(self.blocked(b, allowed_at(name))) for b in ("movies", "series")}
+                        for name, _label, _adds in LEVELS},
+            "saved": len((self.h.db.kv_get(KV) or {})),
+        }
+
     def warm_due(self) -> bool:
         if time.monotonic() - _STARTED < START_QUIET_S:
             return False
