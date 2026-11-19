@@ -137,3 +137,14 @@ def test_artwork_notes_are_written_once_not_per_title(hub, monkeypatch):
     assert not list(art.dir.glob(".*.tmp"))
     if art._flush_timer is not None:
         art._flush_timer.cancel()
+
+
+def test_big_sdks_are_imported_before_the_hub_listens(monkeypatch):
+    import importlib
+
+    from hub import main
+
+    seen = []
+    monkeypatch.setattr(importlib, "import_module", lambda name: seen.append(name))
+    main._preload()
+    assert "anthropic" in seen
