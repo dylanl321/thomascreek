@@ -312,14 +312,24 @@ _INDEX: dict[int, tuple[Any, Index]] = {}
 
 
 def _stamp(db: Any) -> Any:
-    """When the state was last written, and its size (two writes in the same instant still differ in size)."""
+    """When the state was last written. Only `updated_at` (microseconds) is read: `length(value)` made SQLite read
+    every page of the several-MB state on every call, several times per play (Nov 19 2026)."""
     if hasattr(db, "one"):
         try:
-            row = db.one("SELECT updated_at, length(value) AS size FROM hub_kv WHERE key=?", [KV])
+            row = db.one("SELECT updated_at FROM hub_kv WHERE key=?", [KV])
         except Exception:  # noqa: BLE001 - a fake or closed database just means no cache
             return None
-        return (float(row["updated_at"]), int(row["size"])) if row else ("none",)
+        return (float(row["updated_at"]),) if row else ("none",)
     return None
+
+
+def _size(db: Any) -> int:
+    """The saved state's size; read only when no index was built yet (it scans the whole value)."""
+    try:
+        row = db.one("SELECT length(value) AS size FROM hub_kv WHERE key=?", [KV])
+    except Exception:  # noqa: BLE001
+        return 0
+    return int(row["size"]) if row else 0
 
 
 def index(db: Any) -> Index:
@@ -353,7 +363,7 @@ def peek(db: Any) -> Index | None:
     fresh = cached is not None and stamp is not None and cached[0] == stamp and cached[1]._titles is not None
     if fresh:
         return cached[1]  # type: ignore[index]
-    size = stamp[1] if isinstance(stamp, tuple) and len(stamp) == 2 else 0
+    size = _size(db) if hasattr(db, "one") else 0  # once per change of the state, not per call
     if size < SMALL_STATE:
         found = index(db)
         found.by_title("movie", "")

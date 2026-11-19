@@ -389,6 +389,10 @@ class DB:
         self._conn = sqlite3.connect(self._path, check_same_thread=False, isolation_level=None)
         self._conn.row_factory = sqlite3.Row
         self._lock = threading.RLock()
+        # Reads use a connection of their own per thread (WAL lets them run while another connection writes), so
+        # a request's small read no longer waits for a worker thread's big write or read on the shared
+        # connection (Nov 19 2026: the live hub stalled 3 to 7 s on `kv_get` and `people` behind them).
+        self._readers = threading.local()
         with self._lock:
             self._conn.execute("PRAGMA journal_mode=WAL")
             self._conn.execute("PRAGMA foreign_keys=ON")
@@ -465,11 +469,33 @@ class DB:
         with self._lock:
             return self._conn.execute(sql, tuple(args))
 
+    def _reader(self) -> sqlite3.Connection | None:
+        """This thread's read connection, or None for an in-memory database (it has only the one connection) and
+        while this thread is inside a transaction on the shared connection (it must read its own writes)."""
+        if self._path == ":memory:" or self._conn.in_transaction:
+            return None
+        conn = getattr(self._readers, "conn", None)
+        if conn is None:
+            try:
+                conn = sqlite3.connect(self._path, check_same_thread=False, isolation_level=None, timeout=30)
+                conn.row_factory = sqlite3.Row
+                conn.execute("PRAGMA query_only=ON")
+            except sqlite3.Error:
+                return None
+            self._readers.conn = conn
+        return conn
+
     def one(self, sql: str, args: Iterable[Any] = ()) -> dict[str, Any] | None:
+        reader = self._reader()
+        if reader is not None:
+            return _row(reader.execute(sql, tuple(args)).fetchone())
         with self._lock:
             return _row(self._conn.execute(sql, tuple(args)).fetchone())
 
     def all(self, sql: str, args: Iterable[Any] = ()) -> list[dict[str, Any]]:
+        reader = self._reader()
+        if reader is not None:
+            return [_row(r) for r in reader.execute(sql, tuple(args)).fetchall()]  # type: ignore[misc]
         with self._lock:
             return [_row(r) for r in self._conn.execute(sql, tuple(args)).fetchall()]  # type: ignore[misc]
 
