@@ -7,7 +7,9 @@ login or a stream address.
 
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 import time
 from typing import Any
 
@@ -27,6 +29,7 @@ from .deps import Caller, caller, error, hub, need
 from .media import _filter, _watch_cap
 from ..faults import note
 
+log = logging.getLogger("hub.tvguide")
 router = APIRouter(prefix="/v1/tv", tags=["tv"])
 
 
@@ -459,13 +462,22 @@ async def one_movie(movie_id: str, c: Caller = Depends(caller), h: Hub = Depends
 
 
 @router.get("/library/search")
-async def library_search(q: str, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
-    """Channels, programmes in the cached guide, series and movies matching these words."""
+async def library_search(q: str, response: Response, c: Caller = Depends(caller),
+                         h: Hub = Depends(hub)) -> dict[str, Any]:
+    """Channels, programmes in the cached guide, series and movies matching these words.
+
+    The work runs off the event loop (it reads the whole library), so a search never holds up other calls, and
+    `Server-Timing` says how long each part took."""
     kids = _media(h, c)
     if len(q.strip()) < 2:
         raise error(400, "bad_request", "Type at least two letters")
     await _ready(h)
-    return h.tv_catalog.search(q, kids_only=kids)
+    timing: dict[str, float] = {}
+    found = await asyncio.to_thread(h.tv_catalog.search, q, kids_only=kids, timing=timing)
+    response.headers["Server-Timing"] = ", ".join(f"{name};dur={ms}" for name, ms in timing.items())
+    if sum(timing.values()) > 3000:
+        log.info("tv.library.search slow: %s", response.headers["Server-Timing"])
+    return found
 
 
 def _plex_item(item: dict[str, Any], machine: str | None) -> dict[str, Any]:
