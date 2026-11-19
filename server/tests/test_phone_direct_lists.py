@@ -69,3 +69,13 @@ def test_a_child_cant_play_an_unknown_episode_by_naming_its_series(hub, people):
             "episode_id": "ep:thomas-creek:950", "series_id": "series:thomas-creek:51",
             "player": "exo", "direct": True})
     assert r.status_code == 404 and not api.called
+
+
+def test_a_film_length_comes_from_the_clock_when_the_seconds_are_wrong():
+    from hub.tvcatalog import _duration
+
+    assert _duration("6060") == 6060
+    assert _duration("60", "01:41:00") == 6060
+    assert _duration("1", None) is None
+    assert _duration(None, "45:00") == 2700
+    assert _duration("abc", "") is None
