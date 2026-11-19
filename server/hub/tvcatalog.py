@@ -609,7 +609,7 @@ class TvCatalog:
                     "id": eid, "season": season_no, "number": _num(ep.get("episode_num")),
                     "title": _clip(ep.get("title"), 120) or f"Episode {ep.get('episode_num') or ''}".strip(),
                     "plot": _clip(meta.get("plot"), 400), "still": _art(meta.get("movie_image")),
-                    "duration_s": _duration(meta.get("duration_secs")),
+                    "duration_s": _duration(meta.get("duration_secs"), meta.get("duration")),
                 }
                 shown.append(item)
                 details["episodes"][eid] = {
@@ -642,7 +642,7 @@ class TvCatalog:
             "backdrop": _first_art(info.get("backdrop_path")),
             "plot": _clip(info.get("plot"), 600), "genre": _clip(info.get("genre"), 80),
             "year": _clip(info.get("releasedate") or info.get("year"), 20),
-            "duration_s": _duration(info.get("duration_secs")),
+            "duration_s": _duration(info.get("duration_secs"), info.get("duration")),
             "category": known.get("category"), "kids": self._is_kids(known.get("category")),
             "fetched_at": time.time(),
         }
@@ -1139,12 +1139,23 @@ def _num(value: object) -> int | None:
     return number if 0 <= number <= 99999 else None
 
 
-def _duration(value: object) -> int | None:
+def _duration(value: object, clock: object = None) -> int | None:
+    """Seconds, from `duration_secs` or the panel's "01:41:00". Some panels send a minute count or a placeholder
+    in `duration_secs` (films read "1 min"), so under two minutes the clock text wins, and without one it's unknown."""
     try:
         seconds = int(float(value))  # type: ignore[arg-type]
     except (TypeError, ValueError):
+        seconds = 0
+    parts = str(clock or "").strip().split(":")
+    if 2 <= len(parts) <= 3 and all(p.isdigit() for p in parts):
+        from_clock = 0
+        for p in parts if len(parts) == 3 else ["0", *parts]:
+            from_clock = from_clock * 60 + int(p)
+        if seconds < 120 and from_clock >= 120:
+            seconds = from_clock
+    if seconds < 120:
         return None
-    return seconds if 0 < seconds <= 24 * 3600 else None
+    return seconds if seconds <= 24 * 3600 else None
 
 
 def _clip(value: object, limit: int) -> str | None:

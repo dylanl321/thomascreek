@@ -66,6 +66,11 @@ here behind an endpoint.
   session. TVs resolve that redirect themselves so the hub bearer never reaches the provider. The one other
   route is the Android travel phone's `/v1/tv/phone/play` with `direct: true` (Dylan, Nov 2026): the address
   goes only to that signed-in phone, is never logged, and its login is leased like a TV's.
+- A grown-up's own phone (admin or adult, never a TV, a child or a kids' device) may read film and series lists,
+  pages and episodes straight from the provider (Dylan, Nov 19 2026: "fine for our highly controlled list of
+  devices connected to the home"). It gets the logins from `GET /v1/tv/phone/logins`, keeps them in memory
+  only, never logs them, and still plays through the lease pool (`/play`). Watching as a child, it reads through
+  the hub as before.
 - One IPTV login carries one stream. Every player (TV, phone, relayed or direct) takes its login from the lease
   pool in `hub/iptvplay.py` (`lease`, `tune`); a lease lives while the holder shows it is playing and is freed
   `IDLE_S` after that stops, or at once on stop. Never open a provider stream outside that pool.

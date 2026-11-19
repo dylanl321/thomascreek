@@ -1,6 +1,7 @@
 """Watch a TV-library title on the phone itself.
 
-The provider login never leaves the hub. The phone gets a short pass (a signed token that names the
+The provider login stays on the hub, except for a grown-up's own phone: `/logins` (Dylan, Nov 19 2026) and a
+`direct` play. Otherwise the phone gets a short pass (a signed token that names the
 title, not the address) and the hub fetches the stream for it:
 
 - films and episodes: `/v1/tv/phone/file/{pass}`, a byte-range proxy of the provider file;
@@ -82,6 +83,15 @@ async def phone_play(body: dict[str, Any], c: Caller = Depends(caller), h: Hub =
         row, mode = cat.movie(key), "movie"
     elif kind == "episode_id":
         row, mode = cat.episode(key), "episode"
+        sid = str(body.get("series_id") or "")
+        if row is None and not kids_only and sid.startswith("series:") and cat.known_row("series", sid) is not None:
+            # A grown-up's phone read this series straight from the provider (`/logins`), so the hub may not have
+            # its episodes yet: read the series once, then the episode is known like any other.
+            try:
+                await cat.fetch_series(sid)
+            except TvAppError as exc:
+                note("tv.phone.play: reading the series for an episode", exc)
+            row = cat.episode(key)
     else:
         row, mode = cat.channel(key), "live"
     if row is None or (kids_only and not row.get("kids")):
@@ -208,6 +218,42 @@ def _seconds(value: object) -> int | None:
         return None
     seconds = int(value)
     return seconds if 0 < seconds <= 24 * 3600 else None
+
+
+@router.get("/logins")
+async def phone_logins(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """The provider logins, so a grown-up's phone reads film and series lists and pages straight from the provider
+    (Dylan, Nov 19 2026: "fine for our highly controlled list of devices connected to the home").
+
+    Only for a signed-in admin's or adult's own phone: never a TV, a child, a guest or a kids' device; those keep
+    reading through the hub, which filters for kids. One login per provider (the one the hub reads its catalog
+    with), its addresses best first. `id` is the provider part of the hub's ids (`vod:<id>:<stream>`,
+    `series:<id>:<series>`, `ep:<id>:<episode>`), so the phone keeps using the hub's ids for play, Continue
+    watching and My list; streams still lease a login through `/play`. The answer carries passwords: it is never
+    logged or cached by the hub, and the phone keeps it in memory only."""
+    if getattr(c.subject, "tv", False) or c.subject.is_child_like or c.subject.role not in ("admin", "adult"):
+        raise error(403, "forbidden", "Only a grown-up's phone reads the provider directly. The hub's lists work.")
+    cat = h.tv_catalog
+    found: list[dict[str, Any]] = []
+    from ..iptvplay import logins, provider_names
+
+    names = provider_names(h)
+    for pid in dict.fromkeys(str(lg["provider"]) for lg in logins(h)):
+        try:
+            got, servers, user, password = cat._login_for(f"vod:{pid}:0")
+        except TvAppError:
+            continue
+        if not servers or not user or not password:
+            continue
+        if any(p["id"] == got for p in found):
+            continue
+        found.append({"id": got, "name": names.get(got) or got,
+                      "server": servers[0], "servers": servers, "username": user, "password": password})
+    h.db.log("tv.phone.providers", "ok", person_id=c.subject.person_id, device_id=c.device["id"],
+             params={"providers": len(found)})
+    if not found:
+        raise error(503, "no_provider", "The hub has no TV provider login yet. The hub's lists still work.")
+    return {"providers": found}
 
 
 @router.get("/update")
