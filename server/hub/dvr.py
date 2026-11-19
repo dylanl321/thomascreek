@@ -349,6 +349,7 @@ class Dvr:
         """Drop the oldest finished recordings until the folder is under the quota."""
         rows = self.recordings()
         done = sorted((row for row in rows if row["status"] == "done"), key=lambda row: row.get("capture_end") or 0)
+        dropped = False
         while sum(self._size(row) for row in rows) > self.quota_bytes and done:
             oldest = done.pop(0)
             path = self._file(oldest["id"])
@@ -356,7 +357,11 @@ class Dvr:
                 path.unlink()
             shutil.rmtree(path.parent, ignore_errors=True)
             rows = [row for row in rows if row["id"] != oldest["id"]]
-        self._save(rows)
+            dropped = True
+        if dropped:
+            # Only when something went: this ran every 5 s on the loop and each write could wait seconds for
+            # the database (Nov 19 2026, /v1/ping/stalls).
+            self._save(rows)
 
     # -- stream address ----------------------------------------------------------------------------------------
     def live_url(self, stream_key: str) -> str:

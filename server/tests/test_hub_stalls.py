@@ -200,3 +200,41 @@ def test_explore_waits_for_the_first_title_index_instead_of_building_a_second(hu
         iptvcanon._TITLED.pop(id(hub.db), None)
         with iptvcanon._BUILD_LOCK:
             iptvcanon._BUILDING.discard(id(hub.db))
+
+
+def test_lineups_and_plays_read_the_last_folded_index_while_a_new_one_builds(hub, monkeypatch):
+    """Each fold rewrote the state, and the next lineup or play rebuilt the whole index inline: lineups took 8 to
+    10 s from abroad (Nov 19 2026). After a write, `recent` answers from the last index and rebuilds behind it."""
+    import threading
+    import time as _time
+
+    from hub import iptvcanon
+
+    hub.db.kv_set(iptvcanon.KV, {"items": [{"id": "c1", "kind": "live", "sources": [{"ref": "live:a:1"}]}]})
+    iptvcanon._INDEX.pop(id(hub.db), None)
+    first = iptvcanon.recent(hub.db)  # nothing built yet: built here
+    _time.sleep(0.01)
+    hub.db.kv_set(iptvcanon.KV, {"items": [{"id": "c2", "kind": "live", "sources": [{"ref": "live:a:2"}]}]})
+    gate = threading.Event()
+    real = iptvcanon.Index
+
+    def slow_index(state):
+        gate.wait(5)
+        return real(state)
+
+    monkeypatch.setattr(iptvcanon, "Index", slow_index)
+    started = _time.perf_counter()
+    again = iptvcanon.recent(hub.db)
+    assert again is first and _time.perf_counter() - started < 0.5  # answered from the last index
+    gate.set()
+    deadline = _time.monotonic() + 5
+    while iptvcanon.recent(hub.db) is first and _time.monotonic() < deadline:
+        _time.sleep(0.05)
+    assert iptvcanon.recent(hub.db) is not first  # the rebuild landed
+
+
+def test_dvr_cleanup_writes_only_when_it_dropped_something(hub, monkeypatch):
+    saved = []
+    monkeypatch.setattr(hub.dvr, "_save", lambda rows: saved.append(rows))
+    hub.dvr.cleanup()
+    assert saved == []

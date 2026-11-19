@@ -1161,8 +1161,8 @@ class TvCatalog:
     def _live_canon(self) -> dict[str, str]:
         """Folded catalog ids by source (`provider|live|stream_id`). POST /v1/tv/tune takes these."""
         try:
-            from .iptvcanon import index
-            return index(self.db).by_source  # read once per change of the folded catalog, not per lineup
+            from .iptvcanon import recent
+            return recent(self.db).by_source  # the last index; a changed one is rebuilt behind the lineup
         except Exception as exc:  # noqa: BLE001
             log.info("lineup canonical ids: %s", exc)
             return {}
