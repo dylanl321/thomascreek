@@ -7,8 +7,10 @@ path. The provider address is only the redirect for that one TV.
 from __future__ import annotations
 
 import asyncio
+import functools
 import logging
 import re
+import threading
 import time
 from datetime import datetime, timezone
 from typing import Any
@@ -19,6 +21,19 @@ from .db import new_id
 from .home import iso
 
 log = logging.getLogger("hub.iptvplay")
+
+# Every change to the lease pool (KV_SESSIONS) reads the list, changes it and writes it back. Those steps run as
+# one under this lock, so a play may run in a worker thread (off the hub's loop) without two players ever taking
+# the same login (hub rebuild phase 4, Nov 19 2026). Re-entrant: lease() calls _release_tv() and so on.
+_POOL = threading.RLock()
+
+
+def _pooled(fn: Any) -> Any:
+    @functools.wraps(fn)
+    def run(*args: Any, **kwargs: Any) -> Any:
+        with _POOL:
+            return fn(*args, **kwargs)
+    return run
 
 KV_LOGINS = "iptv.logins"
 KV_USAGE = "iptv.usage"
@@ -289,6 +304,7 @@ def remove_login(h: Any, provider: str, login: str) -> bool:
     return True
 
 
+@_pooled
 def tune(h: Any, canonical_id: str, tv_id: str, *, avoid: set[str] | None = None, now: float | None = None) -> dict[str, Any]:
     """Give this TV one stream. The previous session for that TV is released."""
     now = time.time() if now is None else now
@@ -317,6 +333,7 @@ def tune(h: Any, canonical_id: str, tv_id: str, *, avoid: set[str] | None = None
     return {"ok": True, "session": session, "canonical_id": canonical_id, "stream": stream}
 
 
+@_pooled
 def lease(h: Any, ref: str, holder: str, *, avoid: set[str] | None = None,
           now: float | None = None) -> dict[str, Any] | None:
     """Reserve one login for `holder` (a TV's install id, or `phone:<device id>`) to play `ref`.
@@ -353,6 +370,7 @@ def direct(h: Any, ref: str, holder: str, *, now: float | None = None) -> str | 
     return found[0] if found else None
 
 
+@_pooled
 def direct_all(h: Any, ref: str, holder: str, *, now: float | None = None) -> list[str]:
     """`direct`, then the same stream on each of the provider's backup addresses (same login), best first.
     The phone tries them in order when one doesn't play. Empty when every login is busy. Never logged."""
@@ -481,6 +499,7 @@ async def fail_checked(h: Any, session: str, tv_id: str, now: float | None = Non
     return fail(h, session, tv_id, now)
 
 
+@_pooled
 def fail(h: Any, session: str, tv_id: str, now: float | None = None) -> dict[str, Any]:
     """The picture did not start, or it dropped. Try the next login."""
     now = time.time() if now is None else now
@@ -492,10 +511,12 @@ def fail(h: Any, session: str, tv_id: str, now: float | None = None) -> dict[str
     return tune(h, str(current.get("canonical_id") or ""), tv_id, avoid=_failed(h, now), now=now)
 
 
+@_pooled
 def release_tv(h: Any, tv_id: str) -> None:
     _release_tv(h, tv_id)
 
 
+@_pooled
 def touch(h: Any, tv_id: str, now: float | None = None) -> None:
     """A heartbeat keeps this TV's slot."""
     now = time.time() if now is None else now
@@ -509,6 +530,7 @@ def touch(h: Any, tv_id: str, now: float | None = None) -> None:
         h.db.kv_set(KV_SESSIONS, sessions)
 
 
+@_pooled
 def target(h: Any, session: str, tv_id: str, *, server: str | None = None) -> str | None:
     """The provider address for this session. Callers must not log it.
 
@@ -821,16 +843,19 @@ def _failed(h: Any, now: float) -> set[str]:
     return {key for key, until in fails.items() if float(until or 0) > now}
 
 
+@_pooled
 def _release_idle(h: Any, now: float) -> None:
     sessions = [row for row in _sessions(h) if now - float(row.get("seen") or row.get("since") or 0) < IDLE_S]
     if len(sessions) != len(_sessions(h)):
         h.db.kv_set(KV_SESSIONS, sessions)
 
 
+@_pooled
 def _release_tv(h: Any, tv_id: str) -> None:
     h.db.kv_set(KV_SESSIONS, [row for row in _sessions(h) if row.get("tv") != tv_id])
 
 
+@_pooled
 def _drop(h: Any, session: str) -> None:
     h.db.kv_set(KV_SESSIONS, [row for row in _sessions(h) if row.get("session") != session])
 
