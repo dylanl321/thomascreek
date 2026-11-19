@@ -37,6 +37,7 @@ POST   /v1/tv/commands/ack               bearer, {ids}
 
 from __future__ import annotations
 
+import asyncio
 import gzip
 import hashlib
 import json
@@ -651,22 +652,31 @@ async def tv_lineup(request: Request, c: Caller = Depends(caller), h: Hub = Depe
         raise error(403, "forbidden", "Not available", ask_parent=c.subject.is_child_like)
     started = time.monotonic()
     kids = c.subject.is_child_like
-    stamp = h.tv_catalog.lineup_stamp(kids)
-    if stamp is not None:
-        # The encoded reply is kept per lineup and health change: building, hashing and packing 17k rows
-        # took seconds a call. A changed lineup or a new play report makes a new one.
-        from ..channelhealth import KV as HEALTH_KV
-        key = ("lineup", stamp, h.db.kv_stamp(HEALTH_KV))
-        replies: dict[bool, tuple[Any, _Encoded]] = h.tv_catalog.replies
-        reply = replies.get(kids)
-        if reply is None or reply[0] != key:
-            lineup = h.tv_catalog.lineup(kids_only=kids) or {"version": 0, "channels": []}
-            h.source_health.annotate(lineup.get("channels") or [])
-            reply = replies[kids] = (key, _encoded(lineup))
-        return _send(request, reply[1], started)
+    # Off the event loop: a changed catalog, edit or canonical map rebuilds 17k rows (seconds), which held every
+    # other call on the hub (4.7 s stall on the live hub after a start, Nov 19 2026).
+    encoded = await asyncio.to_thread(_lineup_reply, h, kids)
+    if encoded is not None:
+        return _send(request, encoded, started)
     lineup = h.tv_app.public_lineup(kids_only=kids)
     h.source_health.annotate(lineup.get("channels") or [])
     return _cached(request, lineup)
+
+
+def _lineup_reply(h: Hub, kids: bool) -> _Encoded | None:
+    """The encoded lineup, kept per lineup and health change: building, hashing and packing 17k rows took
+    seconds a call. A changed lineup or a new play report makes a new one. None before the catalog exists."""
+    stamp = h.tv_catalog.lineup_stamp(kids)
+    if stamp is None:
+        return None
+    from ..channelhealth import KV as HEALTH_KV
+    key = ("lineup", stamp, h.db.kv_stamp(HEALTH_KV))
+    replies: dict[bool, tuple[Any, _Encoded]] = h.tv_catalog.replies
+    reply = replies.get(kids)
+    if reply is None or reply[0] != key:
+        lineup = h.tv_catalog.lineup(kids_only=kids) or {"version": 0, "channels": []}
+        h.source_health.annotate(lineup.get("channels") or [])
+        reply = replies[kids] = (key, _encoded(lineup))
+    return reply[1]
 
 
 @tv_router.get("/basic")
@@ -698,7 +708,7 @@ async def tv_basic(request: Request, c: Caller = Depends(caller), h: Hub = Depen
         except Exception as exc:  # noqa: BLE001  the lineup falls back to no home market
             note("basic lineup: house location", exc)
             home = None
-    body = h.tv_catalog.basic(home) or {"version": 0, "market": None, "channels": []}
+    body = await asyncio.to_thread(h.tv_catalog.basic, home) or {"version": 0, "market": None, "channels": []}
     return _cached(request, body)
 
 
@@ -713,7 +723,7 @@ async def tv_markets(q: str | None = None, lat: float | None = None, lon: float 
 
     if not (h.policy.has(c.subject, "media.all") or h.policy.has(c.subject, "media.own_tv")):
         raise error(403, "forbidden", "Not available", ask_parent=c.subject.is_child_like)
-    counts = h.tv_catalog.market_counts()
+    counts = await asyncio.to_thread(h.tv_catalog.market_counts)  # a first call per snapshot reads every channel
     out = []
     word = (q or "").strip().casefold()
     for name, mlat, mlon, _pattern in tvbasic.MARKETS:
@@ -734,7 +744,7 @@ async def tv_groups(request: Request, c: Caller = Depends(caller), h: Hub = Depe
     if not (h.policy.has(c.subject, "media.all") or h.policy.has(c.subject, "media.own_tv")):
         raise error(403, "forbidden", "Not available", ask_parent=c.subject.is_child_like)
     started = time.monotonic()
-    body = h.tv_catalog.groups(kids_only=c.subject.is_child_like)
+    body = await asyncio.to_thread(h.tv_catalog.groups, kids_only=c.subject.is_child_like)  # may build the lineup
     return _cached(request, body, started)
 
 
