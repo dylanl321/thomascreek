@@ -54,13 +54,19 @@ def listing(h: Any, now: float | None = None, *, send: bool = False) -> dict[str
     return {"tvs": rows, "latest_version": latest.get("versionName")}
 
 
+def _emulator(row: dict[str, Any]) -> bool:
+    """An Android emulator ("sdk_google_atv64_arm64") or an Apple simulator, whose model is just the Mac's CPU."""
+    model = str(row.get("model") or row.get("name") or "").lower()
+    return model.startswith("sdk_") or model in ("arm64", "x86_64", "i386")
+
+
 def _sendable(h: Any, rows: list[dict[str, Any]], now: float) -> list[dict[str, Any]]:
-    """Approved TVs seen in the last two weeks, without emulators ("sdk_…" models, the test installs), and one row
+    """Approved TVs seen in the last two weeks, without emulators and simulators (the test installs), and one row
     for a TV paired more than once: of the rows with the same name and model, the one seen last, plus any other
     seen in the last day (two real TVs that share a name)."""
     seen = {row["id"]: _seen(h, row["id"]) for row in rows}
     keep = [row for row in rows if row["status"] == "approved" and 0 < now - seen[row["id"]] < SEND_SEEN_S
-            and not str(row.get("model") or row.get("name") or "").lower().startswith("sdk_")]
+            and not _emulator(row)]
     groups: dict[tuple[str, str], list[dict[str, Any]]] = {}
     for row in keep:
         groups.setdefault((str(row.get("name") or "").casefold(), str(row.get("model") or "")), []).append(row)
