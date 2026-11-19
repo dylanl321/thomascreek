@@ -15,6 +15,7 @@ from fastapi.exceptions import HTTPException, RequestValidationError
 from fastapi.responses import JSONResponse, Response
 
 from . import __version__
+from . import kidcerts  # noqa: F401 - imported at start so its quiet window counts from the hub's start
 from .config import Config, data_dir, load_config, master_key_path
 from .db import DB
 from .routes import mcp as mcp_routes
