@@ -76,3 +76,20 @@ def test_search_never_waits_for_a_big_catalog_to_be_indexed(hub, monkeypatch):
     assert started  # the index was built off the request
     _mark_canonical(hub.db, rows, "series")
     assert rows[0]["canonical_id"] == _holding(hub, "series:thomas-creek:9")["id"]
+
+
+def test_search_never_parses_titles_of_an_index_a_play_built(hub, monkeypatch):
+    """A play or copies lookup builds the index without its title map; search must not then parse every title
+    itself (2.2 to 2.5 s per search on the live hub, Nov 19 2026). It uses the last index with titles instead."""
+    observe(hub.db, [{"provider": "thomas-creek", "kind": "series", "stream_id": "9", "name": "The Office"}])
+    monkeypatch.setattr(iptvcanon, "SMALL_STATE", 0)
+    iptvcanon._INDEX.pop(id(hub.db), None)
+    iptvcanon._TITLED.pop(id(hub.db), None)
+    started = []
+    monkeypatch.setattr(iptvcanon.threading, "Thread", lambda target, args, **_: type(
+        "T", (), {"start": lambda self: started.append(args)})())  # the background build never runs here
+    plain = index(hub.db)  # as a play would
+    assert plain._titles is None
+    assert iptvcanon.peek(hub.db) is None  # nothing titled yet: rows go without canonical_id
+    assert plain._titles is None  # and the search did not parse the titles itself
+    assert started
