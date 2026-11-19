@@ -60,3 +60,19 @@ def test_many_lookups_on_a_big_catalog_stay_fast(hub):
         assert _holding(hub, f"vod:alpha:{i}") is not None
     # Before, each of these scanned and re-parsed every title: several seconds for 40 on this size.
     assert time.perf_counter() - start < 1.0
+
+
+def test_search_never_waits_for_a_big_catalog_to_be_indexed(hub, monkeypatch):
+    observe(hub.db, [{"provider": "thomas-creek", "kind": "series", "stream_id": "9", "name": "The Office"}])
+    monkeypatch.setattr(iptvcanon, "SMALL_STATE", 0)  # treat this catalog as the big live one
+    iptvcanon._INDEX.pop(id(hub.db), None)
+    started = []
+    monkeypatch.setattr(iptvcanon.threading, "Thread", lambda target, args, **_: type(
+        "T", (), {"start": lambda self: started.append(target(*args))})())
+    rows = [{"id": "series:thomas-creek:9", "name": "The Office"}]
+    from hub.tvcatalog import _mark_canonical
+
+    _mark_canonical(hub.db, rows, "series")
+    assert started  # the index was built off the request
+    _mark_canonical(hub.db, rows, "series")
+    assert rows[0]["canonical_id"] == _holding(hub, "series:thomas-creek:9")["id"]

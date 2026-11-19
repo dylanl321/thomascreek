@@ -1146,12 +1146,21 @@ class TvCatalog:
 
 
 def _mark_canonical(db: Any, rows: list[dict[str, Any]], kind: str) -> None:
-    from .iptvcanon import playable
+    """Adds `canonical_id` (optional for the apps) from the folded catalog: the title this row's own id belongs
+    to, else the same cleaned name. Never waits for a big catalog to be indexed; rows go without it meanwhile."""
+    from .iptvcanon import parse, peek
 
+    found = peek(db)
+    if found is None:
+        return
+    want = "series" if kind == "series" else "movie"
     for row in rows:
-        found = playable(db, kind=kind, title=str(row.get("name") or ""), year=None)
-        if found and found.get("canonical_id"):
-            row["canonical_id"] = found["canonical_id"]
+        item = found.by_ref.get(str(row.get("id") or ""))
+        if item is None or item.get("kind") != want:
+            key = parse(str(row.get("name") or ""), None, titles=True).key
+            item = next(iter(found.by_title(want, key)), None)
+        if item is not None and item.get("id"):
+            row["canonical_id"] = item["id"]
 
 
 def _categories(rows: list[dict[str, Any]] | None) -> dict[str, str]:
