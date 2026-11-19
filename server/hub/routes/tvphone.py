@@ -400,6 +400,32 @@ async def phone_progress(body: dict[str, Any], c: Caller = Depends(caller), h: H
     return {"ok": True, "position_s": position}
 
 
+@router.get("/available")
+async def phone_available(movie_id: str | None = None, episode_id: str | None = None,
+                          channel_key: str | None = None, person: str | None = None,
+                          c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """Whether Play would start now and from how many copies, for a details page, without taking a login.
+    {"state": "ready" | "busy", "copies", "providers", "reason" when busy}. A child's title only for a child."""
+    if getattr(c.subject, "tv", False):
+        kids_only = _media(h, c)
+    else:
+        kids_only = watcher(h, c, person)[1]
+    await _ready(h)
+    cat = h.tv_catalog
+    key = movie_id or episode_id or channel_key
+    if not key:
+        raise error(400, "bad_params", "Say which film, episode or channel")
+    row = cat.movie(key) if movie_id else cat.episode(key) if episode_id else cat.channel(key)
+    if row is None and movie_id and hasattr(cat, "extra_movie"):
+        row = cat.extra_movie(key)
+    if row is None or (kids_only and not row.get("kids")):
+        raise error(404, "not_found", "That isn't in the library")
+    from ..playnow import availability
+
+    holder = str(c.subject.tv_id) if getattr(c.subject, "tv", False) else f"phone:{c.device['id']}"
+    return availability(h, key, holder)
+
+
 @router.get("/resume")
 async def phone_resume(movie_id: str | None = None, episode_id: str | None = None, person: str | None = None,
                        c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
