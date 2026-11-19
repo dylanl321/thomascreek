@@ -132,6 +132,16 @@ def test_unchanged_pages_answer_304(hub, people):
     assert other.status_code == 200 and other.headers["etag"] != tag
 
 
+def test_a_page_says_where_its_time_went(hub, people):
+    from tests.test_tv_api import _library
+
+    _library(hub)
+    dylan = people["phones"]["Dylan"]
+    timing = dylan.client.get("/v1/tv/movies", headers=dylan.h, params={"limit": 5}).headers["server-timing"]
+    steps = {part.split(";")[0].strip() for part in timing.split(",")}
+    assert {"ready", "tag", "page", "json", "total"} <= steps
+
+
 def test_channels_carry_a_readable_name_and_keep_the_providers(hub):
     cat = hub.tv_catalog
     doc = _doc(5)
