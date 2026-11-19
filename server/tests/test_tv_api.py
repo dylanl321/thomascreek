@@ -378,7 +378,7 @@ def test_guide_series_movies_and_search_are_filtered(hub, people):
     assert {"load", "guide", "series", "movies", "canonical"} <= {
         part.split(";")[0].strip() for part in searched.headers["server-timing"].split(",")}
     by_channel = searched.json()
-    assert any(row["name"] == "CNN" for row in by_channel["channels"])
+    assert any(row["name"] == "CNN" and row["display_name"] == "CNN" for row in by_channel["channels"])
     by_show = dylan.client.get("/v1/tv/library/search", headers=dylan.h, params={"q": "news"}).json()
     assert any(row["title"] == "Newsroom" for row in by_show["programmes"])
     assert theo.client.get("/v1/tv/library/search", headers=theo.h, params={"q": "drama"}).json()["movies"] == []

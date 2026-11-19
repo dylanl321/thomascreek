@@ -474,6 +474,8 @@ async def library_search(q: str, response: Response, c: Caller = Depends(caller)
     await _ready(h)
     timing: dict[str, float] = {}
     found = await asyncio.to_thread(h.tv_catalog.search, q, kids_only=kids, timing=timing)
+    for card in found.get("channels") or []:
+        card.setdefault("display_name", tvnames.channel_name(card.get("name")))  # optional; "name" stays the provider's
     response.headers["Server-Timing"] = ", ".join(f"{name};dur={ms}" for name, ms in timing.items())
     if sum(timing.values()) > 3000:
         log.info("tv.library.search slow: %s", response.headers["Server-Timing"])

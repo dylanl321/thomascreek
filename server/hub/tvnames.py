@@ -254,3 +254,69 @@ def names(doc: dict[str, Any], *, kids_only: bool, is_kids: Any) -> dict[str, An
     body["version"] = hashlib.sha1(json.dumps(body, sort_keys=True).encode()).hexdigest()[:16]
     body["fields"] = ["name", "year", "quality", "service", "episode"]
     return body
+
+
+# -- channel names ---------------------------------------------------------------------------------------------
+# A provider writes "US| THE OFFICE FHD", "UK: BBC One HD", "|EN| ESPN 2 4K", "DE: ZDF ◉". People read "The Office",
+# "BBC One", "ESPN 2", "ZDF". Films and series go through `title`, which suits those ("DE: ZDF" would become
+# "De: Zdf"), so channels get their own, gentler cleaner: only known lead tags, only trailing quality or feed tags.
+_CH_CODES = (r"EN|ENG|US|USA|UK|GB|CA|AU|NZ|IE|FR|DE|AT|CH|ES|IT|PT|NL|BE|KR|JP|TR|IN|AR|MX|BR|SE|DK|NO|FI|PL"
+             r"|LAT|LATAM|EU|INT|MULTI|SPT|VIP|24/7")
+_CH_LEAD = re.compile(rf"^\s*(?:\|\s*[A-Z0-9+/]{{1,6}}\s*\||\[\s*[A-Z0-9+/]{{1,6}}\s*\]|(?:{_CH_CODES})\s*[:|\-–—])\s*",
+                      re.I)
+_CH_TAIL = re.compile(r"(?:\s+|\s*[|\-]\s*)(?:F?HD|UHD|SD|4K|8K|HEVC|H\.?26[45]|\d{2,3}\s?FPS|RAW|BACKUP|VIP|ALT|"
+                      r"\(?(?:FHD|HD|UHD|SD|4K|RAW|BACKUP)\)?)\s*$", re.I)
+_CH_SYMBOLS = re.compile(r"[^\w+)!?.]+$")
+_COMMON = {"THE", "AND", "ONE", "TWO", "SIX", "TEN", "NEW", "OLD", "FOX", "BIG", "RED", "SKY", "BOX", "GOD", "ART",
+           "CAR", "DAY", "FUN", "JOY", "KID", "MAX", "NOW", "OUT", "TOP", "ALL", "HOT", "PET", "WAR", "FOOD", "LIVE",
+           "OF", "IN", "ON", "TO", "AT", "BY", "OR", "MY", "GO", "UP", "NO", "SO"}
+
+
+_CALL_SIGN = re.compile(r"[KW][A-Z]{2,3}(?:-(?:TV|DT|LD|CD))?")
+
+
+def channel_name(raw: object) -> str:
+    """A live channel's name as people read it. Anything it can't make sense of comes back as given."""
+    return _channel_name(str(raw or "").strip())
+
+
+@functools.lru_cache(maxsize=65536)
+def _channel_name(text: str) -> str:
+    original = text
+    text = _SPACE.sub(" ", _plain(text)).strip()
+    for _ in range(3):  # "|US| USA: ESPN" carries two
+        stripped = _CH_LEAD.sub("", text, count=1)
+        if stripped == text or not stripped.strip():
+            break
+        text = stripped
+    for _ in range(4):  # "THE OFFICE AU FHD RAW"
+        stripped = _CH_TAIL.sub("", text)
+        if stripped == text or not stripped.strip():
+            break
+        text = stripped
+    if is_divider(text):
+        return original
+    text = _CH_SYMBOLS.sub("", text).strip()
+    if not text:
+        return original
+    letters = [ch for ch in text if ch.isalpha()]
+    if letters and not any(ch.islower() for ch in letters):
+        text = " ".join(_channel_word(word, index) for index, word in enumerate(text.split(" ")))
+    return text[:_MAX]
+
+
+def _channel_word(word: str, index: int) -> str:
+    bare = word.strip("()[]&,.:!?")
+    if bare in _UPPER or bare.rstrip("+") in _UPPER:
+        return word
+    if bare in _PROPER:
+        return word.replace(bare, _PROPER[bare])
+    letters = [ch for ch in bare if ch.isalpha()]
+    if word.startswith("(") or _CALL_SIGN.fullmatch(bare):
+        return word  # a US call sign: (WABC), KTLA
+    short = len(bare) <= 3 and bare not in _COMMON
+    if not letters or short or any(ch.isdigit() for ch in bare) or not any(ch in "AEIOUY" for ch in bare):
+        return word  # an acronym or a number: ZDF, CNN, AU, 5USA
+    if index and word.lower() in _SMALL:
+        return word.lower()
+    return word[:1].upper() + word[1:].lower()
