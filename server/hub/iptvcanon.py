@@ -349,6 +349,7 @@ def index(db: Any) -> Index:
 
 # A state this small is indexed on the spot; a bigger one (the live house: several MB) in the background.
 SMALL_STATE = 2_000_000
+SMALL_ITEMS = 5_000  # a titled index this big marks the house as big: later rebuilds run in the background
 _BUILDING: set[int] = set()
 _BUILD_LOCK = threading.Lock()
 
@@ -366,7 +367,12 @@ def peek(db: Any) -> Index | None:
     if cached is not None and stamp is not None and cached[0] == stamp and cached[1]._titles is not None:
         _TITLED[id(db)] = (db, cached[1])
         return cached[1]
-    size = _size(db) if hasattr(db, "one") else 0
+    titled = _TITLED.get(id(db))
+    last = titled[1] if titled is not None and titled[0] is db else None
+    # A house known to be big skips the size check: `length(value)` reads the whole several-MB state, and the
+    # state is written often enough that this ran on most searches (0.6 to 0.9 s, Nov 19 2026).
+    big = last is not None and len(last.items) >= SMALL_ITEMS
+    size = SMALL_STATE if big else (_size(db) if hasattr(db, "one") else 0)
     if size < SMALL_STATE:
         found = index(db)
         found.by_title("movie", "")
@@ -378,8 +384,7 @@ def peek(db: Any) -> Index | None:
             _BUILDING.add(id(db))
     if start:
         threading.Thread(target=_build, args=(db,), name="iptvcanon-index", daemon=True).start()
-    titled = _TITLED.get(id(db))
-    return titled[1] if titled is not None and titled[0] is db else None
+    return last
 
 
 _TITLED: dict[int, tuple[Any, Index]] = {}  # (db, index): the db is kept so a reused id never matches

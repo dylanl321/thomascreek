@@ -93,3 +93,22 @@ def test_search_never_parses_titles_of_an_index_a_play_built(hub, monkeypatch):
     assert iptvcanon.peek(hub.db) is None  # nothing titled yet: rows go without canonical_id
     assert plain._titles is None  # and the search did not parse the titles itself
     assert started
+
+
+def test_a_big_house_skips_the_state_size_scan(hub, monkeypatch):
+    """Once a big titled index exists, a changed state rebuilds in the background without `length(value)`, which
+    reads the whole several-MB state (0.6 to 0.9 s per search on the live hub, Nov 19 2026)."""
+    observe(hub.db, [{"provider": "thomas-creek", "kind": "series", "stream_id": "9", "name": "The Office"}])
+    iptvcanon._INDEX.pop(id(hub.db), None)
+    iptvcanon._TITLED.pop(id(hub.db), None)
+    first = iptvcanon.peek(hub.db)  # small: built on the spot
+    assert first is not None and first._titles is not None
+    monkeypatch.setattr(iptvcanon, "SMALL_ITEMS", 1)
+    observe(hub.db, [{"provider": "thomas-creek", "kind": "series", "stream_id": "9", "name": "The Office"},
+                     {"provider": "thomas-creek", "kind": "movie", "stream_id": "3", "name": "Up (2009)"}])
+    monkeypatch.setattr(iptvcanon, "_size", lambda db: (_ for _ in ()).throw(AssertionError("size scanned")))
+    started = []
+    monkeypatch.setattr(iptvcanon.threading, "Thread", lambda target, args, **_: type(
+        "T", (), {"start": lambda self: started.append(args)})())
+    assert iptvcanon.peek(hub.db) is first  # the last titled index, while the new one builds
+    assert started
