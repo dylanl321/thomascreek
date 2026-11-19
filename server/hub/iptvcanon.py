@@ -24,7 +24,8 @@ KV_OVERRIDES = "tv.catalog.overrides"
 KV_USAGE = "tv.catalog.ai.usage"
 KV_ASKED = "tv.catalog.ai.asked"
 # Bump when the matching rules change, so the next refresh compares every row again.
-FINGERPRINT_VERSION = 4
+FINGERPRINT_VERSION = 5  # 5: dated titles keep their date; crowded groups split (Nov 19 2026)
+SAME_PROVIDER_MAX = 8
 
 
 MAIN_PROVIDER = "thomas-creek"
@@ -580,7 +581,33 @@ def _group(rows: list[dict[str, Any]], fresh: list[dict[str, Any]], previous: di
                 continue
             made.setdefault(find(i), []).append(row)
         groups.extend(made.values())
-    return groups, unsure_rows
+    return _crowded(groups, held), unsure_rows
+
+
+def _crowded(groups: list[list[dict[str, Any]]], held: set[str]) -> list[list[dict[str, Any]]]:
+    """A provider that lists one name many times is listing different things under it (Nov 19 2026: 79 "WWE
+    SmackDown" episodes filed as films became one title, so Play opened any of them). Groups that would land on
+    the same title id are counted per provider; past SAME_PROVIDER_MAX copies from one provider, without a TMDB or
+    IMDb id or an admin merge, each of that provider's copies stays its own title."""
+    counts: dict[tuple[str, str], int] = {}
+    target: list[str] = []
+    for group in groups:
+        lead = group[0]
+        tid = _new_id(lead["kind"], lead) if lead["kind"] != "live" else ""
+        target.append(tid)
+        for row in group:
+            counts[(tid, row["provider"])] = counts.get((tid, row["provider"]), 0) + 1
+    out: list[list[dict[str, Any]]] = []
+    for tid, group in zip(target, groups, strict=True):
+        keep, apart = [], []
+        for row in group:
+            hard = row["ids"].get("tmdb") or row["ids"].get("imdb")
+            if tid and counts[(tid, row["provider"])] > SAME_PROVIDER_MAX and not hard and row["key"] not in held:
+                apart.append([{**row, "apart": True}])
+            else:
+                keep.append(row)
+        out.extend(([keep] if keep else []) + apart)
+    return out
 
 
 def _glue(groups: list[list[dict[str, Any]]], overrides: dict[str, Any]) -> list[list[dict[str, Any]]]:
@@ -720,6 +747,8 @@ def _new_id(kind: str, row: dict[str, Any], keyed: bool = False) -> str:
     if hard and keyed:
         hard = f"{hard}|{row['parsed'].key}"
     identity = f"{kind}|{hard}" if hard else f"{kind}|{row['parsed'].key}|{row['parsed'].year}|{row['parsed'].variant}|{row['parsed'].timeshift}|{row['parsed'].region}"
+    if row.get("apart"):
+        identity += "|" + str(row["key"])  # one of a crowded provider's copies, kept as its own title
     return "can_" + hashlib.sha256(identity.encode()).hexdigest()[:16]
 
 

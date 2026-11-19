@@ -57,7 +57,12 @@ def accounts(h: Any, now: float | None = None) -> dict[str, Any]:
             "canonical_id": row.get("canonical_id"),
             "since": iso(row.get("since")),
         })
-    return {"logins": rows, "sessions": playing}
+    catalog = getattr(h, "tv_catalog", None)
+    try:
+        lists = catalog.list_status() if catalog is not None and hasattr(catalog, "list_status") else []
+    except Exception:  # noqa: BLE001 - the login rows still answer
+        lists = []
+    return {"logins": rows, "sessions": playing, "lists": lists}
 
 
 def add_login(h: Any, provider: str, server: str, login: str, username: str, password: str) -> str:

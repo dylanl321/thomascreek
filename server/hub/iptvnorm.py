@@ -24,7 +24,7 @@ _QUALITY = (
 )
 _DROP_WORDS = re.compile(r"\b(?:hevc|h\.?265|h\.?264|hdr|x264|x265)\b", re.I)
 _BRACKETS = re.compile(r"[\[\(\{][^\]\)\}]*[\]\)\}]")
-_PREFIX = re.compile(r"^(?:(?P<tag>US|UK|CA|AU|EN|ES|FR|DE|IT|PT|NL))\s*[\|:/\-]\s*", re.I)
+_PREFIX = re.compile(r"^(?:(?P<tag>USA|US|UK|GB|CA|AU|EN|ES|FR|DE|IT|PT|NL))\s*[\|:/\-]\s*", re.I)
 # Streaming-service tags some providers put before film and series titles ("NF - Kaos", "D+ - Moana 2").
 _SERVICE = re.compile(
     r"^\s*[\[(|]?\s*(?:NF|NETFLIX|D\+|DSNP|DISNEY\+?|AMZ|AMZN|PRIME|HBO|HMAX|HBOMAX|ATV\+?|ATVP|APPLE\s?TV\+?|HULU|PCOK|PEACOCK"
@@ -33,7 +33,7 @@ _TIMESHIFT = re.compile(r"(?:\+|plus\s*)1\b", re.I)
 _YEAR = re.compile(r"\b(?:19|20)\d{2}\b")
 _PUNCT = re.compile(r"[^\w\s+]", re.UNICODE)
 _SPACE = re.compile(r"\s+")
-_REGIONS = {"us": "US", "uk": "UK", "ca": "CA", "au": "AU"}
+_REGIONS = {"us": "US", "usa": "US", "uk": "UK", "gb": "UK", "ca": "CA", "au": "AU"}
 _LANGS = {"en": "en", "es": "es", "fr": "fr", "de": "de", "it": "it", "pt": "pt", "nl": "nl"}
 _VARIANTS = {"deportes", "east", "west", "pacific", "mountain", "central"}
 _NUMBERS = {"one": "1", "two": "2", "three": "3", "four": "4", "five": "5"}
@@ -75,6 +75,15 @@ def parse(name: str, year: object = None, language: str | None = None, titles: b
         if tag in _LANGS and lang is None:
             lang = _LANGS[tag]
         text = text[found.end():]
+    # A dated show filed as a film ("WWE Raw (26/08/2024)"): the date tells one episode from the next, so it stays
+    # as the variant and two dates never fold into one title (Nov 19 2026: 27 Raw episodes were one "film").
+    dated = None
+    found_date = _DATE.search(text)
+    if found_date:
+        day, month, year4 = _date_parts(found_date)
+        if day and month:
+            dated = f"{year4:04d}-{month:02d}-{day:02d}"
+            text = text[:found_date.start()] + " " + text[found_date.end():]
     quality = None
     for pattern, label in _QUALITY:
         if quality is None and pattern.search(text):
@@ -93,7 +102,7 @@ def parse(name: str, year: object = None, language: str | None = None, titles: b
         region = paren_region.group(1).upper()
         text = paren_region.re.sub(" ", text, count=1)
     words = [word for word in _PUNCT.sub(" ", text).split() if word]
-    variant = None
+    variant = dated
     kept = []
     for word in words:
         low = word.casefold()
@@ -109,7 +118,25 @@ def parse(name: str, year: object = None, language: str | None = None, titles: b
         kept.append(word)
     display = _SPACE.sub(" ", " ".join(kept)).strip() or (name or "").strip()
     key = display.casefold()
+    if dated and found_date:
+        display = f"{display} ({found_date.group(0)})"  # the episode's own date, so each card says which one
     return Parsed(key, display, variant, region, lang, timeshift, quality, parsed_year)
+
+
+_DATE = re.compile(r"\b(?:(\d{1,2})[/.](\d{1,2})[/.]((?:19|20)\d{2})|((?:19|20)\d{2})-(\d{1,2})-(\d{1,2}))\b")
+
+
+def _date_parts(found: re.Match[str]) -> tuple[int, int, int]:
+    """(day, month, year) of a dd/mm/yyyy or yyyy-mm-dd date, or zeros when it isn't a real date."""
+    if found.group(1):
+        day, month, year = int(found.group(1)), int(found.group(2)), int(found.group(3))
+        if month > 12 and day <= 12:
+            day, month = month, day  # an mm/dd/yyyy date
+    else:
+        year, month, day = int(found.group(4)), int(found.group(5)), int(found.group(6))
+    if not (1 <= month <= 12 and 1 <= day <= 31):
+        return 0, 0, year
+    return day, month, year
 
 
 def logo_key(url: object) -> str | None:
