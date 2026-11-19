@@ -216,8 +216,10 @@ def _result(r: dict[str, Any]) -> dict[str, Any]:
             "request_id": rid, "plex_id": str((r.get("mediaInfo") or {}).get("ratingKey") or "") or None}
 
 
-async def _allowed_for_child(h: Hub, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    ok = set(h.config.child_policy.ratings)
+async def _allowed_for_child(h: Hub, items: list[dict[str, Any]], c: Caller | None = None) -> list[dict[str, Any]]:
+    from ..kidratings import for_subject
+
+    ok = for_subject(h, c.subject) if c is not None else set(h.config.child_policy.ratings)
     sem = asyncio.Semaphore(6)
 
     async def rate(i: dict[str, Any]) -> dict[str, Any] | None:
@@ -299,7 +301,7 @@ async def discover(q: str = "", c: Caller = Depends(caller), h: Hub = Depends(hu
         raise error(503, "unavailable", str(exc)) from None
     items = [_result(r) for r in rows if r.get("title") or r.get("name")]
     if _childlike(c):
-        items = await _allowed_for_child(h, items)
+        items = await _allowed_for_child(h, items, c)
     return {"items": items[:30], "query": q}
 
 
@@ -313,7 +315,7 @@ async def title(media_id: str, c: Caller = Depends(caller), h: Hub = Depends(hub
     except AdapterError as exc:
         raise error(404 if "404" in str(exc) else 503, "not_found", "Couldn't find that title") from None
     rating = h.jellyseerr.content_rating(kind, d)
-    if _childlike(c) and rating not in h.config.child_policy.ratings:
+    if _childlike(c) and rating not in _level(h, c):
         raise error(404, "not_found", "Not available", ask_parent=True)
     mi = d.get("mediaInfo") or {}
     state, rid = _avail(mi)
@@ -346,7 +348,7 @@ async def ask(body: AskBody, c: Caller = Depends(caller), h: Hub = Depends(hub))
         d = await h.jellyseerr.details(kind, tmdb, fresh=True)
     except AdapterError as exc:
         raise error(503, "unavailable", str(exc)) from None
-    if _childlike(c) and h.jellyseerr.content_rating(kind, d) not in h.config.child_policy.ratings:
+    if _childlike(c) and h.jellyseerr.content_rating(kind, d) not in _level(h, c):
         raise error(403, "forbidden", "That one needs a grown-up", ask_parent=True)
     state, rid = _avail(d.get("mediaInfo"))
     if state == "ready":
@@ -455,3 +457,10 @@ async def push_ready(h: Hub) -> int:
                          "AND status='approved'", [i["id"]])
     h.db.kv_set(NOTIFIED, sorted(seen_set, key=lambda x: int(x) if x.isdigit() else 0)[-500:])
     return sent
+
+
+def _level(h: Hub, c: Caller) -> set[str]:
+    """This child's own level (`kidratings`)."""
+    from ..kidratings import for_subject
+
+    return for_subject(h, c.subject)

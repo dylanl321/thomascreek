@@ -27,7 +27,9 @@ STREAM_AUD = "plex-stream"
 def _rating_ok(h: Hub, c: Caller, item: dict[str, Any]) -> bool:
     if c.subject.role in ("admin", "adult", "tablet"):
         return True
-    return item.get("rating") in h.config.child_policy.ratings
+    from ..kidratings import for_subject
+
+    return item.get("rating") in for_subject(h, c.subject)
 
 
 def _filter(h: Hub, c: Caller, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -83,7 +85,11 @@ async def library(rated: bool = False, kind: str | None = None, limit: int = 200
     except AdapterError as exc:
         raise error(503, "unavailable", str(exc)) from None
     if rated or c.subject.role not in ("admin", "adult", "tablet"):
-        items = [i for i in items if i.get("rating") in h.config.child_policy.ratings]
+        from ..kidratings import for_subject
+
+        allowed = for_subject(h, c.subject) if c.subject.role not in ("admin", "adult", "tablet") else set(
+            h.config.child_policy.ratings)
+        items = [i for i in items if i.get("rating") in allowed]
     return {"items": items}
 
 

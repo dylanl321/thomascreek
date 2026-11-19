@@ -56,6 +56,35 @@ def watcher(h: Hub, c: Caller, person: str | None) -> tuple[str | None, bool]:
     return str(found["id"]), True
 
 
+def child_ratings(h: Hub, c: Caller, person: str | None = None) -> set[str] | None:
+    """The ratings this caller may see when it is a child or watches as one (`kidratings`), or None for a
+    grown-up. A kids' TV or a child's screen with nobody named gets the strictest child's level."""
+    from .. import kidratings
+
+    subject = c.subject
+    child = None
+    if person:
+        found = next((p for p in household(h.db) if p["id"] == person), None)
+        if found is not None and found.get("role") == "child":
+            child = str(found["id"])
+    if child is None and subject.role == "child":
+        child = subject.person_id
+    kids_tv = getattr(subject, "tv", False) and tvexplore._profile(h, subject) == "kids"
+    if child is None and not (getattr(subject, "is_child_like", False) or kids_tv):
+        return None
+    return kidratings.for_person(h, child)
+
+
+def _narrow(h: Hub, c: Caller, body: Any, person: str | None = None, *, kids: bool = True) -> Any:
+    """Takes out what this child's level doesn't allow (a grown-up's answer is left as it is)."""
+    from .. import kidratings
+
+    allowed = child_ratings(h, c, person) if kids else None
+    if allowed is None and kids:
+        allowed = kidratings.for_person(h, None)
+    return kidratings.narrow(body, allowed) if allowed is not None else body
+
+
 async def _ready(h: Hub) -> None:
     try:
         await h.tv_catalog.ensure()
@@ -166,7 +195,9 @@ async def explore(profile: str | None = None, person: str | None = None, c: Call
         watching, narrowed = watcher(h, c, person)
         kids = kids or narrowed
         who = who_key(person=watching)
-    return _polished(tvpicks.personal_feed(h, "kids" if kids else "adult", who))
+        person = watching
+    body = tvpicks.personal_feed(h, "kids" if kids else "adult", who)
+    return _polished(_narrow(h, c, body, person, kids=True) if kids else body)
 
 
 @router.get("/watchers")
@@ -200,7 +231,8 @@ async def ask_to_watch(body: AskBody, c: Caller = Depends(caller), h: Hub = Depe
         watching, kids = watcher(h, c, body.person)
         who = who_key(person=watching)
     await _ready(h)
-    return _polished(await tvask.ask(h, body.text, kids=kids, who=who))
+    answer = await tvask.ask(h, body.text, kids=kids, who=who)
+    return _polished(_narrow(h, c, answer, body.person or c.subject.person_id) if kids else answer)
 
 
 @router.get("/pick")
@@ -215,7 +247,8 @@ async def pick_for_me(person: str | None = None, skip: str | None = None, c: Cal
         watching, kids = watcher(h, c, person)
         who = who_key(person=watching)
     skipped = [k for k in (skip or "").split(",") if k][:50]
-    return _polished(tvask.pick(h, kids=kids, who=who, skip=skipped))
+    picked = tvask.pick(h, kids=kids, who=who, skip=skipped)
+    return _polished(_narrow(h, c, picked, person or c.subject.person_id) if kids else picked)
 
 
 @router.post("/explore/request")
@@ -479,7 +512,7 @@ async def library_search(q: str, response: Response, c: Caller = Depends(caller)
     response.headers["Server-Timing"] = ", ".join(f"{name};dur={ms}" for name, ms in timing.items())
     if sum(timing.values()) > 3000:
         log.info("tv.library.search slow: %s", response.headers["Server-Timing"])
-    return found
+    return _narrow(h, c, found) if kids else found
 
 
 def _plex_item(item: dict[str, Any], machine: str | None) -> dict[str, Any]:
@@ -524,8 +557,12 @@ def _limit(limit: int) -> int:
 
 def _known(h: Hub, kind: str, item_id: str, kids_only: bool) -> None:
     # Any provider's film or series: the main list, or the light list of the provider the id names.
+    from .. import kidratings
+
     row = h.tv_catalog.known_row(kind, item_id)
     if row is None or (kids_only and not h.tv_catalog._is_kids(row.get("category"))):
+        raise error(404, "not_found", "That isn't in the library")
+    if kids_only and not kidratings.allows(kidratings.for_person(h, None), row.get("rating")):
         raise error(404, "not_found", "That isn't in the library")
 
 
@@ -534,8 +571,12 @@ PLEX_FILE_AUD = "tv-plex-file"
 PLEX_FILE_TTL_S = 8 * 3600
 
 
-def _plex_ok(h: Hub, c: Caller, rating: object) -> bool:
-    return c.subject.role in ("admin", "adult", "tablet") or rating in h.config.child_policy.ratings
+def _plex_ok(h: Hub, c: Caller, rating: object, person: str | None = None) -> bool:
+    if c.subject.role in ("admin", "adult", "tablet") and not person:
+        return True
+    from .. import kidratings
+
+    return str(rating or "") in (child_ratings(h, c, person) or kidratings.for_person(h, None))
 
 
 @router.get("/plex/library")
@@ -587,7 +628,7 @@ async def tv_plex_play(item_id: str, person: str | None = None, c: Caller = Depe
     phone watching as a child (`person`, as on /explore) only gets that child's ratings."""
     _watch_cap(h, c)
     _plex_id(item_id)
-    narrowed = False
+    narrowed, _watching = False, None
     if person and not getattr(c.subject, "tv", False):
         _watching, narrowed = watcher(h, c, person)
     try:
@@ -597,7 +638,7 @@ async def tv_plex_play(item_id: str, person: str | None = None, c: Caller = Depe
         raise error(503, "unavailable", str(exc)) from None
     allowed = _plex_ok(h, c, item.get("rating")) if item else False
     if narrowed and item is not None:
-        allowed = item.get("rating") in h.config.child_policy.ratings
+        allowed = _plex_ok(h, c, item.get("rating"), _watching)
     if item is None or media is None or not allowed or item.get("kind") not in ("movie", "episode"):
         raise error(404, "not_found", "That isn't in the library")
     token, _exp = h.tokens.issue_scoped({"aud": PLEX_FILE_AUD, "part": media["part_key"], "dev": c.device["id"]}, PLEX_FILE_TTL_S)

@@ -1033,7 +1033,9 @@ def _profile(h: Any, subject: Any) -> str:
 
 
 def _allowed(h: Any) -> set[str]:
-    return {str(item) for item in (h.config.child_policy.ratings or [])}
+    from .kidratings import house_allowed
+
+    return house_allowed(h)  # the loosest child level: each child's view is narrowed when served
 
 
 def _norm(title: str) -> str:

@@ -210,6 +210,46 @@ async def extend_bedtime(person_id: str, body: Extend, c: Caller = Depends(calle
     return {"extended_until": iso(until), **(h.household.bedtime(p) or {})}
 
 
+# -- Kids' ratings (hub/kidratings.py) -------------------------------------------
+class RatingLevel(BaseModel):
+    level: Literal["little", "kid", "older", "teen"]
+
+
+def _may_set_ratings(c: Caller) -> None:
+    if c.subject.role not in ("admin", "adult") or getattr(c.subject, "tv", False):
+        raise error(403, "forbidden", "Only a grown-up can change what a child may watch")
+
+
+@router.get("/kids/ratings")
+async def kids_ratings(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """Each child's level with the ratings it allows, and the levels to choose from. A child sees only its own."""
+    from .. import kidratings
+
+    kids = kidratings.children(h)
+    if c.subject.role not in ("admin", "adult"):
+        kids = [p for p in kids if p["id"] == c.subject.person_id]
+    return {"kids": [kidratings.view(h, p) for p in kids],
+            "levels": [{"id": name, "label": label} for name, label, _adds in kidratings.LEVELS],
+            "can_change": c.subject.role in ("admin", "adult") and not getattr(c.subject, "tv", False)}
+
+
+@router.put("/people/{person_id}/ratings")
+async def put_kid_rating(person_id: str, body: RatingLevel, c: Caller = Depends(caller),
+                         h: Hub = Depends(hub)) -> dict[str, Any]:
+    """A grown-up sets how grown-up a title this child may watch. Every row, search and play follow it at once."""
+    from .. import kidratings
+
+    _may_set_ratings(c)
+    p = h.db.person(person_id)
+    if p is None or p["role"] != "child":
+        raise error(404, "not_found", "Ratings are set for children only")
+    before = kidratings.level_of(h, p)
+    kidratings.set_level(h, p["id"], body.level, by=c.subject.person_id)
+    h.db.log("kids.ratings", "ok", person_id=c.subject.person_id, device_id=c.subject.device_id, target=p["id"],
+             params={"from": before, "to": body.level})
+    return kidratings.view(h, p)
+
+
 # -- Live Activity tokens ------------------------------------------------------
 class LiveToken(BaseModel):
     push_to_start_token: str | None = Field(default=None, max_length=400)
