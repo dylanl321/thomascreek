@@ -230,3 +230,22 @@ def test_little_drops_a_pg_film_on_the_films_page_once_its_certification_is_know
     assert store.blocked("movies", kidratings.allowed_at("kid")) == set()
     kidratings.set_level(hub, theo["id"], "kid")
     assert sorted(names(theo_phone.client.get("/v1/tv/movies", headers=theo_phone.h))) == ["Cars", "Shrek"]
+
+
+def test_a_grown_ups_search_hides_the_for_adults_section_unless_asked(hub, people):
+    _library(hub)
+    hub.tv_catalog.ingest(
+        vod=[{"stream_id": 201, "name": "Night Movie", "category_id": "9"},
+             {"stream_id": 202, "name": "Night Movie Drama", "category_id": "3"}],
+        vod_categories=[{"category_id": "3", "category_name": "Drama"},
+                        {"category_id": "9", "category_name": "|EN| FOR ADULTS"}],
+    )
+    dylan = people["phones"]["Dylan"]
+    search = lambda q: [m["name"] for m in dylan.client.get(  # noqa: E731
+        "/v1/tv/library/search", headers=dylan.h, params={"q": q}).json()["movies"]]
+    assert search("night movie") == ["Night Movie Drama"]
+    from hub.routes.tvguide import _grown_up_search
+
+    found = {"movies": [{"name": "Night Movie", "category": "|EN| FOR ADULTS"}], "total": 1}
+    assert _grown_up_search(found, "adult night") == found  # asked for: kept
+    assert _grown_up_search(found, "night")["movies"] == []
