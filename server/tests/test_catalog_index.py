@@ -160,3 +160,21 @@ def test_grown_up_cartoon_channels_in_a_kids_category_are_not_for_kids(hub):
     everyone = {row["key"]: row["kids"] for row in cat.lineup(kids_only=False)["channels"]}
     assert everyone == {"xc:1": True, "xc:2": False}
     assert not cat.channel("xc:2")["kids"]
+
+
+def test_skipped_titles_leave_the_page_and_the_total(hub, monkeypatch):
+    """A child's level leaves titles out before paging, so a page stays full and `total` counts what is left."""
+    cat = hub.tv_catalog
+    cat.kids_categories = lambda: ["Kids"]
+    cat._write(_doc())
+    full = cat.movies(q=None, category=None, kids_only=True, limit=500, sort="name")
+    ids = [row["id"] for row in full["movies"]]
+    skip = set(ids[::3])
+    for kw in (dict(kind="movies", q=None, category=None, kids_only=True, limit=10, offset=0, sort="name"),
+               dict(kind="movies", q="star", category=None, kids_only=True, limit=10, offset=5, sort="year")):
+        fast, slow = _both(cat, monkeypatch, skip=skip, **kw)
+        assert fast == slow, kw
+        assert not {row["id"] for row in fast["movies"]} & skip
+    page = cat.movies(q=None, category=None, kids_only=True, limit=10, sort="name", skip=skip)
+    assert page["total"] == len(ids) - len(skip)
+    assert len(page["movies"]) == 10

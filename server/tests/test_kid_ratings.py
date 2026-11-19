@@ -225,6 +225,7 @@ def test_little_drops_a_pg_film_on_the_films_page_once_its_certification_is_know
     kidratings.set_level(hub, theo["id"], "little")
     again = theo_phone.client.get("/v1/tv/movies", headers={**theo_phone.h, "If-None-Match": first.headers["etag"]})
     assert again.status_code == 200 and names(again) == ["Cars"]
+    assert again.json()["total"] == 1  # left out before paging, so the count is right too
     shrek = next(i for i, k in store.ids.items() if k == "movie:808")
     assert store.blocked("movies", kidratings.allowed_at("little")) == {shrek}  # for paging before the cut
     assert store.blocked("movies", kidratings.allowed_at("kid")) == set()

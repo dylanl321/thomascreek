@@ -500,8 +500,9 @@ async def _title_page(request: Request, h: Hub, c: Caller, kind: str, *, q: str 
     from .. import kidcerts, kidratings
 
     kids, person = _kids_for(h, c, person)
-    # A child's page holds only what that child's level allows (`kidratings`). A page may hold fewer than
-    # `limit` cards then; `total` stays the kids' library's.
+    # A child's page holds only what that child's level allows (`kidratings`). Titles whose certification the
+    # hub already knows are left out before paging, so pages stay full and `total` is right; the narrow after
+    # the page catches the rest.
     allowed = (child_ratings(h, c, person) or kidratings.for_person(h, person)) if kids else None
     await _ready(h)
     args: dict[str, Any] = {"q": q, "category": category, "kids_only": kids, "limit": _limit(limit),
@@ -519,12 +520,14 @@ async def _title_page(request: Request, h: Hub, c: Caller, kind: str, *, q: str 
             return Response(status_code=304, headers={"ETag": tag})
     # SQLite does the scan (phase 3) without holding the loop; the snapshot fallback runs here too.
     fn = cat.series if kind == "series" else cat.movies
-    body = await asyncio.to_thread(fn, **args)
-    if allowed is not None:
-        certs = kidcerts.store(h)
+    certs = kidcerts.store(h) if allowed is not None else None
+    if certs is not None and allowed is not None:
         if certs.warm_due():
             await asyncio.to_thread(certs.warm)  # a scan of the whole library, kept off the loop
             certs.kick()
+        args["skip"] = await asyncio.to_thread(certs.blocked, kind, allowed)
+    body = await asyncio.to_thread(fn, **args)
+    if certs is not None and allowed is not None:
         body = kidratings.narrow(body, allowed, certs)
     headers = {"ETag": tag} if tag else {}
     return Response(json.dumps(body), media_type="application/json", headers=headers)

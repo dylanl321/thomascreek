@@ -22,6 +22,7 @@ import os
 import sqlite3
 import threading
 import time
+from collections.abc import Collection
 from pathlib import Path
 from typing import Any
 
@@ -141,9 +142,11 @@ class Reader:
         return got.get("stamp") if got.get("version") == str(VERSION) else None
 
     def titles(self, kind: str, *, needle: str, category: str | None, kids: set[str] | None, limit: int,
-               offset: int, sort: str) -> tuple[list[dict[str, Any]], int, list[str]]:
+               offset: int, sort: str,
+               skip: Collection[str] | None = None) -> tuple[list[dict[str, Any]], int, list[str]]:
         """(rows of this page, total matches, category names among the matches). `kids` limits the rows to those
-        categories (lower-cased); None means every row."""
+        categories (lower-cased); None means every row. `skip` is title ids left out before paging (a child's
+        level), so `total` and the pages stay right."""
         conn = self._conn()
         if conn is None:
             raise sqlite3.OperationalError("no catalog index")
@@ -159,6 +162,9 @@ class Reader:
                 return [], 0, []
             where.append(f"category_cf IN ({','.join('?' * len(kids))})")
             args.extend(sorted(kids))
+        if skip:
+            where.append("json_extract(row, '$.id') NOT IN (SELECT value FROM json_each(?))")
+            args.append(json.dumps(sorted(skip)))
         clause = " AND ".join(where)
         total = conn.execute(f"SELECT count(*) FROM titles WHERE {clause}", args).fetchone()[0]  # noqa: S608
         names = [r[0] for r in conn.execute(

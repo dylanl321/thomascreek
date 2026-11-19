@@ -17,8 +17,11 @@ from __future__ import annotations
 
 import asyncio
 import collections
+import concurrent.futures.thread
 import logging
 import os
+import queue
+import selectors
 import sys
 import threading
 import time
@@ -33,6 +36,8 @@ KEEP = 5
 SAMPLE_S = 3.0
 SAMPLES = 40
 EXIT_CODE = 70
+# A thread whose innermost frame is one of these is waiting, not working.
+_IDLE = tuple(m.__file__ or "" for m in (threading, queue, selectors, concurrent.futures.thread))
 
 
 def _frames(frame, limit: int = 25) -> list[str]:
@@ -103,7 +108,22 @@ class Watchdog:
         if frame is None:
             return
         self._sampled_at = self._clock()
-        self.samples.append({"at": time.time(), "stalled_s": round(stalled, 1), "stack": _frames(frame, 30)})
+        self.samples.append({"at": time.time(), "stalled_s": round(stalled, 1), "stack": _frames(frame, 30),
+                             "busy": self._busy_threads()})
+
+    def _busy_threads(self) -> dict[str, list[str]]:
+        """The other threads that are doing work right now (not waiting), innermost frames only. A loop stuck on a
+        trivial line is starved of the GIL by one of these (Nov 19: a start-up parse of the catalog)."""
+        names = {t.ident: t.name for t in threading.enumerate()}
+        out: dict[str, list[str]] = {}
+        for ident, frame in sys._current_frames().items():
+            if ident in (self._loop_ident, threading.get_ident()):
+                continue
+            lines = _frames(frame, 8)
+            if not lines or any(lines[-1].startswith(idle) for idle in _IDLE):
+                continue
+            out[f"{names.get(ident, ident)}"] = lines
+        return out
 
     def check(self) -> bool:
         """True when the loop is stuck: the note is written and the process exits."""
