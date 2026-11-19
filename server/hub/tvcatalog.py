@@ -419,6 +419,40 @@ class TvCatalog:
                             "servers": list(lg.get("servers") or [server])}
         return out
 
+    def list_status(self) -> list[dict[str, Any]]:
+        """For each provider: how many channels, films and series the hub read from it, when, and why not when a
+        read failed or the provider was skipped (Nov 19 2026: one provider never folded with anything, and nothing
+        said why). Counts and times only; never a login or an address."""
+        from types import SimpleNamespace
+
+        from . import iptvplay
+
+        doc = self.load() or {}
+        out = [{"provider": SOURCE, "main": True, "channels": len(doc.get("channels") or []),
+                "films": len(doc.get("movies") or []), "series": len(doc.get("series") or []),
+                "read_at": doc.get("fetched_at"), "problem": None}]
+        readable = self._extra_logins()
+        last = self.__dict__.get("_extra_result") or {}
+        shim = SimpleNamespace(config=SimpleNamespace(iptv=None), vault=self.vault, db=self.db)
+        seen = {SOURCE}
+        for lg in iptvplay.logins(shim):
+            pid = str(lg.get("provider") or "")
+            if not pid or pid in seen:
+                continue
+            seen.add(pid)
+            extra = self.extra(pid) if pid in readable else {}
+            problem = None
+            if pid not in readable:
+                problem = "skipped: no address, username or saved password for any of its logins"
+            elif last.get(pid) == "not read":
+                problem = "the last read failed (see the hub log for the reason)"
+            elif not extra:
+                problem = "not read yet"
+            out.append({"provider": pid, "main": False, "channels": len(extra.get("channels") or []),
+                        "films": len(extra.get("movies") or []), "series": len(extra.get("series") or []),
+                        "read_at": extra.get("fetched_at"), "problem": problem})
+        return out
+
     def _extra_path(self, pid: str) -> Path:
         safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in pid)[:60]
         return self.path.parent / f"extra-{safe}.json"
@@ -618,7 +652,9 @@ class TvCatalog:
                 log.info("provider %s: %s", pid, result[pid])
             except (httpx.HTTPError, TvAppError, ValueError) as exc:
                 result[pid] = "not read"
-                log.info("provider %s: lists not read (%s)", pid, type(exc).__name__)
+                detail = getattr(exc, "message", "") if isinstance(exc, TvAppError) else ""
+                log.info("provider %s: lists not read (%s%s)", pid, type(exc).__name__, f": {detail}" if detail else "")
+        self._extra_result = result
         if logins:
             await asyncio.to_thread(self.fold)
         return result
