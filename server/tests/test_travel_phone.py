@@ -291,3 +291,21 @@ def test_the_newest_phone_release_wins_whatever_order_github_lists_them():
     from hub.phoneapp import _release_order
     listed = [{"tag_name": t} for t in ("phone-0.9.0", "phone-0.3.0", "phone-0.10.0", "phone-0.1.0-test")]
     assert max(listed, key=_release_order)["tag_name"] == "phone-0.10.0"
+
+
+def test_direct_play_also_offers_the_hub_relay_on_the_same_login(hub, people, monkeypatch):
+    """Abroad the provider may turn the phone's own address away: the hub's relay is the last thing to try."""
+    _library(hub)
+    _login(hub)
+    monkeypatch.setattr(hub.config.hub, "remote_url", "https://hub.example/")
+    dylan = people["phones"]["Dylan"]
+    live = dylan.client.post("/v1/tv/phone/play", headers=dylan.h,
+                             json={"channel_key": "xc:thomas-creek:10", "player": "exo", "direct": True}).json()
+    assert live["relay_url"].startswith("/v1/tv/phone/live/") and live["relay_url"].endswith("/index.m3u8")
+    assert live["alternates"][-1] == "https://hub.example" + live["relay_url"]
+    assert SERVER not in live["relay_url"]
+    holder = f"phone:{dylan.device_id}"
+    assert len([row for row in hub.db.kv_get("iptv.sessions") or [] if row.get("tv") == holder]) == 1
+    claims = hub.tokens.verify(live["relay_url"].split("/")[5], "tv-phone")
+    held = next(row for row in hub.db.kv_get("iptv.sessions") if row.get("tv") == holder)
+    assert claims["pl"] == f"{held['provider']}|{held['login']}"
