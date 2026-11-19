@@ -245,6 +245,7 @@ def test_the_first_page_after_a_start_does_not_wait_for_the_snapshot(hub, people
 
     monkeypatch.setattr(cat, "load", lambda: (_ for _ in ()).throw(AssertionError("parsed the snapshot")))
     monkeypatch.setattr(cat, "ensure", ensure)
+    monkeypatch.setattr("hub.routes.tvguide.ENSURE_AFTER_PAGE_S", 0.0)  # live, it waits until the page is out
     dylan = people["phones"]["Dylan"]
     got = dylan.client.get("/v1/tv/movies", headers=dylan.h, params={"limit": 5})
     assert got.status_code == 200 and got.json()["movies"]
