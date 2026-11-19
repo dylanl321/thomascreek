@@ -213,6 +213,18 @@ def default_hub(config: Config | None = None) -> Hub:
     return Hub(cfg, vault, db)
 
 
+def _preload() -> None:
+    """Import the big SDKs before the hub listens. Imported lazily on first use, `anthropic` took 40 s on the live
+    hub (Nov 19 2026, busy CPU), holding the loop and every request with it. Missing ones are fine (tests, dev)."""
+    import importlib
+
+    for name in ("anthropic", "websockets", "aiomqtt", "zeroconf.asyncio"):
+        try:
+            importlib.import_module(name)
+        except Exception:  # noqa: BLE001 - the feature that needs it says so when used
+            pass
+
+
 def run() -> None:
     import uvicorn
 
@@ -225,6 +237,7 @@ def run() -> None:
     logging.getLogger("httpx").setLevel(logging.WARNING)
     # Provider list reads run in a child process, so they never hold up a request (catalogjob.py).
     os.environ.setdefault("HUB_CATALOG_CHILD", "1")
+    _preload()
     hub = default_hub()
     cert, key = ensure_tls(hub.config)
     app = build_app(hub)

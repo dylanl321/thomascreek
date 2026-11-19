@@ -104,3 +104,16 @@ def test_unchanged_pages_answer_304(hub, people):
     assert again.status_code == 304 and again.content == b""
     other = dylan.client.get("/v1/tv/movies", headers={**dylan.h, "If-None-Match": tag}, params={"limit": 6})
     assert other.status_code == 200 and other.headers["etag"] != tag
+
+
+def test_channels_carry_a_readable_name_and_keep_the_providers(hub):
+    cat = hub.tv_catalog
+    doc = _doc(5)
+    doc["channels"][0]["name"] = "US| THE OFFICE FHD"
+    cat._write(doc)
+    row = next(r for r in cat.lineup(kids_only=False)["channels"] if r["key"] == "xc:0")
+    assert row["name"] == "US| THE OFFICE FHD"
+    assert row["display_name"] and row["display_name"] != row["name"]
+    found = cat.search("office", kids_only=False)
+    card = next(c for c in found["channels"] if c["key"] == "xc:0")
+    assert card["display_name"] == row["display_name"]
