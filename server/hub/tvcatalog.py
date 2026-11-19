@@ -129,6 +129,38 @@ def _text(parent: ET.Element, name: str) -> str | None:
 
 
 _FOLD_LOCK = threading.Lock()
+KV_EXTRA_RESULT = "tvcatalog.extra_result"
+
+
+def _atomic_write(path: Path, text: str) -> None:
+    """Write next to the file, then rename over it: the hub and the provider-read child never see half a file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    tmp.write_text(text)
+    tmp.replace(path)
+
+
+class _file_lock:
+    """An exclusive lock on a file, held across processes (fcntl), released on exit."""
+
+    def __init__(self, path: Path):
+        self.path = path
+        self._fh: Any = None
+
+    def __enter__(self) -> "_file_lock":
+        try:
+            import fcntl
+
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            self._fh = open(self.path, "a")  # noqa: SIM115 - closed in __exit__
+            fcntl.flock(self._fh, fcntl.LOCK_EX)
+        except (ImportError, OSError):
+            self._fh = None
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        if self._fh is not None:
+            self._fh.close()
 
 
 class TvCatalog:
@@ -191,8 +223,7 @@ class TvCatalog:
         return doc
 
     def _write(self, doc: dict[str, Any]) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(json.dumps(doc))
+        _atomic_write(self.path, json.dumps(doc))
         try:
             # Keep the snapshot just written as the parsed copy: parsing tens of MB again on the next read
             # blocked the hub for seconds.
@@ -202,8 +233,7 @@ class TvCatalog:
             self._loaded = None
 
     def _write_details(self, doc: dict[str, Any]) -> None:
-        self.details_path.parent.mkdir(parents=True, exist_ok=True)
-        self.details_path.write_text(json.dumps(doc))
+        _atomic_write(self.details_path, json.dumps(doc))
         stat = self.details_path.stat()
         self._details_loaded = ((stat.st_mtime_ns, stat.st_size), doc)
 
@@ -432,7 +462,7 @@ class TvCatalog:
                 "films": len(doc.get("movies") or []), "series": len(doc.get("series") or []),
                 "read_at": doc.get("fetched_at"), "problem": None}]
         readable = self._extra_logins()
-        last = self.__dict__.get("_extra_result") or {}
+        last = self.__dict__.get("_extra_result") or self.db.kv_get(KV_EXTRA_RESULT) or {}
         shim = SimpleNamespace(config=SimpleNamespace(iptv=None), vault=self.vault, db=self.db)
         seen = {SOURCE}
         for lg in iptvplay.logins(shim):
@@ -571,7 +601,8 @@ class TvCatalog:
         """Fold every provider's titles into the one catalog. All providers go in one call: a source left out
         of a call is treated as gone."""
         with _FOLD_LOCK:  # one fold at a time: the main refresh and the other providers' read can overlap
-            self._fold(doc)
+            with _file_lock(self.path.parent / "fold.lock"):  # also across the hub and its provider-read child
+                self._fold(doc)
 
     def _fold(self, doc: dict[str, Any] | None) -> None:
         try:
@@ -631,7 +662,19 @@ class TvCatalog:
             pass
 
     async def refresh_extras(self) -> dict[str, str]:
-        """Read every other provider's lists. One provider failing keeps its last list and doesn't stop the rest."""
+        """Read every other provider's lists. One provider failing keeps its last list and doesn't stop the rest.
+        Under `hub serve` the reading runs in a child process (catalogjob.py) so it never stalls a request."""
+        from . import catalogjob
+
+        if not catalogjob.enabled():
+            return await self.refresh_extras_here()
+        if not self._extra_logins():
+            return {}
+        got = await catalogjob.run("extras")
+        self._extra_result = got.get("extras") or {}
+        return self._extra_result
+
+    async def refresh_extras_here(self) -> dict[str, str]:
         result: dict[str, str] = {}
         logins = self._extra_logins()
         for pid, lg in logins.items():
@@ -655,6 +698,10 @@ class TvCatalog:
                 detail = getattr(exc, "message", "") if isinstance(exc, TvAppError) else ""
                 log.info("provider %s: lists not read (%s%s)", pid, type(exc).__name__, f": {detail}" if detail else "")
         self._extra_result = result
+        try:
+            self.db.kv_set(KV_EXTRA_RESULT, result)  # list_status reads it in the hub when a child did the read
+        except Exception:  # noqa: BLE001
+            pass
         if logins:
             await asyncio.to_thread(self.fold)
         return result
@@ -757,6 +804,28 @@ class TvCatalog:
         return self.load()
 
     async def refresh(self) -> dict[str, Any]:
+        """Read the main provider's lists and guide, then every other provider's, then settle unsure matches.
+        Under `hub serve` the reading runs in a child process (catalogjob.py); the hub answers from the last
+        snapshot meanwhile and parses the new one off the loop when the child is done."""
+        from . import catalogjob
+
+        if not catalogjob.enabled():
+            return await self.refresh_here()
+        async with self._lock:
+            got = await catalogjob.run("refresh")
+        self._extra_result = got.get("extras") or {}
+        doc = await asyncio.to_thread(self.load)
+        await self._settle()
+        return doc
+
+    async def _settle(self) -> None:
+        if self.settle is not None:
+            try:
+                await self.settle()
+            except Exception as exc:  # noqa: BLE001
+                log.info("catalog match: %s", type(exc).__name__)
+
+    async def refresh_here(self, *, settle: bool = True) -> dict[str, Any]:
         async with self._lock:
             servers, user, password = self._main_login()
             params = {"username": user, "password": password}
@@ -804,12 +873,9 @@ class TvCatalog:
             finally:
                 if isinstance(xmltv, Path):
                     xmltv.unlink(missing_ok=True)
-        await self.refresh_extras()
-        if self.settle is not None:
-            try:
-                await self.settle()
-            except Exception as exc:  # noqa: BLE001
-                log.info("catalog match: %s", type(exc).__name__)
+        await self.refresh_extras_here()
+        if settle:
+            await self._settle()
         return doc
 
     async def fetch_series(self, series_id: str) -> dict[str, Any]:
