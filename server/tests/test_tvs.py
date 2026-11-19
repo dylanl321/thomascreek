@@ -273,8 +273,9 @@ def test_the_cast_list_shows_a_tv_paired_twice_once_and_no_emulators(hub, home_c
     tvs["tv_again_000000000001"] = {**base, "name": "Apple TV", "model": "AppleTV14,1", "last_seen_at": now - 60}
     tvs["tv_emulator_00000001"] = {**base, "name": "sdk_google_atv64_arm64", "model": "sdk_google_atv64_arm64",
                                    "last_seen_at": now - 60}
+    tvs["tv_simulator_0000001"] = {**base, "name": "Apple TV", "model": "arm64", "last_seen_at": now - 60}
     hub.tv_app._save_tvs(tvs)
     dylan = people["phones"]["Dylan"]
     listed = [row["id"] for row in dylan.client.get("/v1/tvs?send=true", headers=dylan.h).json()["tvs"]]
     assert listed == ["tv_again_000000000001"]
-    assert len(dylan.client.get("/v1/tvs", headers=dylan.h).json()["tvs"]) == 3
+    assert len(dylan.client.get("/v1/tvs", headers=dylan.h).json()["tvs"]) == 4
