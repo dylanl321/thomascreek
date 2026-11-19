@@ -24,6 +24,7 @@ KV = "tv.rewatch.titles"
 ASK_EVERY_S = 30 * 86400
 RETRY_S = 86400
 ROW_LIMIT = 30
+FULL_ENOUGH = 6  # shows with pictures that make a row without the picture-less ones
 MAX_TITLES = 400
 
 # Plain fallback: shows people famously rewatch. Order does not matter; the row is shuffled daily.
@@ -92,13 +93,22 @@ def row(library: list[dict[str, Any]], names: list[str], *, day: date | None = N
             best[key] = item
     picked = sorted(best.values(), key=lambda item: norm(str(item["title"])))
     random.Random((day or date.today()).toordinal()).shuffle(picked)
-    return picked[:limit]
+    # A show with no known picture is a blank grey tile (phone walkthrough, Nov 19 2026): those go last, and are
+    # left out once the row has enough shows with pictures.
+    shown = [item for item in picked if _art(item)]
+    if len(shown) < FULL_ENOUGH:
+        shown += [item for item in picked if not _art(item)]
+    return shown[:limit]
+
+
+def _art(item: dict[str, Any]) -> bool:
+    return bool(item["art_known"]) if "art_known" in item else bool(item.get("poster_url"))
 
 
 def _score(item: dict[str, Any]) -> tuple[int, int, int]:
     """Prefer a copy the feed really shows, with a picture, then a clean name without provider tags."""
     raw = str(item.get("title") or "")
-    return (0 if item.get("match_only") else 1, 1 if item.get("poster_url") else 0, 1 if clean_title(raw)["name"] == raw else 0)
+    return (0 if item.get("match_only") else 1, 1 if _art(item) else 0, 1 if clean_title(raw)["name"] == raw else 0)
 
 
 async def refresh_titles(h: Any, *, ask: Any = None, now: float | None = None) -> bool:
