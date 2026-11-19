@@ -59,4 +59,4 @@ def test_a_play_says_how_long_each_step_took(hub, people):
                               json={"movie_id": "vod:thomas-creek:101", "player": "exo", "direct": direct})
         assert r.status_code == 200
         steps = [part.split(";")[0] for part in r.headers["Server-Timing"].split(", ")]
-        assert steps == ["ready", "row", "usage", "lease", "resume", "total"]  # total: every answer (hub.timings)
+        assert steps == ["ready", "row", "lease", "resume", "total"]  # total: every answer (hub.timings)
