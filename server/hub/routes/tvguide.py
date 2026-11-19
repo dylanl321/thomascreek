@@ -489,9 +489,18 @@ async def library_search(q: str, response: Response, c: Caller = Depends(caller)
     kids = _media(h, c)
     if len(q.strip()) < 2:
         raise error(400, "bad_request", "Type at least two letters")
-    await _ready(h)
     timing: dict[str, float] = {}
-    found = await asyncio.to_thread(h.tv_catalog.search, q, kids_only=kids, timing=timing)
+    asked = time.perf_counter()
+    await _ready(h)
+    timing["ready"] = round((time.perf_counter() - asked) * 1000, 1)
+    queued = time.perf_counter()
+
+    def run() -> dict[str, Any]:
+        # How long the search waited for a worker thread: the part of `total` no other lap covered (Nov 19 2026).
+        timing["wait"] = round((time.perf_counter() - queued) * 1000, 1)
+        return h.tv_catalog.search(q, kids_only=kids, timing=timing)
+
+    found = await asyncio.to_thread(run)
     for card in found.get("channels") or []:
         card.setdefault("display_name", tvnames.channel_name(card.get("name")))  # optional; "name" stays the provider's
     response.headers["Server-Timing"] = ", ".join(f"{name};dur={ms}" for name, ms in timing.items())
