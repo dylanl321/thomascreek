@@ -113,3 +113,22 @@ def test_a_grown_ups_phone_searching_as_a_child_gets_only_that_childs_titles(hub
     # Naming a grown-up (or nobody known) never widens or changes a grown-up's own search.
     grown = hub.db.people_with_role("adult")[0]
     assert {m["name"] for m in search("movie", person=grown["id"])["movies"]} == {"Drama Movie", "Kids Movie"}
+
+
+def test_film_and_series_pages_follow_the_childs_level_and_who_is_watching(hub, people):
+    _library(hub)
+    hub.tv_catalog.ingest(
+        vod=[{"stream_id": 101, "name": "Kids Movie", "category_id": "4", "rating": "G"},
+             {"stream_id": 102, "name": "Teen Kids Movie", "category_id": "4", "rating": "PG-13"},
+             {"stream_id": 100, "name": "Drama Movie", "category_id": "3"}],
+        vod_categories=[{"category_id": "3", "category_name": "Drama"}, {"category_id": "4", "category_name": "Kids"}],
+    )
+    dylan, theo_phone = people["phones"]["Dylan"], people["phones"]["Theo"]
+    theo = next(p for p in hub.db.people_with_role("child") if p["name"] == "Theo")
+    names = lambda r: [m["name"] for m in r.json()["movies"]]  # noqa: E731
+    assert names(theo_phone.client.get("/v1/tv/movies", headers=theo_phone.h)) == ["Kids Movie"]
+    as_theo = dylan.client.get("/v1/tv/movies", headers=dylan.h, params={"person": theo["id"]})
+    assert names(as_theo) == ["Kids Movie"]
+    assert "Drama Movie" in names(dylan.client.get("/v1/tv/movies", headers=dylan.h))
+    kidratings.set_level(hub, theo["id"], "teen")
+    assert set(names(theo_phone.client.get("/v1/tv/movies", headers=theo_phone.h))) == {"Kids Movie", "Teen Kids Movie"}
