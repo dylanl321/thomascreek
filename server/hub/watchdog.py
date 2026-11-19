@@ -2,7 +2,7 @@
 
 On Nov 19 the hub stopped taking connections (even on the home network) until it was restarted by hand, and the
 cause was lost with the container's log. Docker's health check marks such a container unhealthy but does not
-restart it. This watchdog runs in its own thread: the event loop ticks a heartbeat every few seconds, and when the
+restart it. This watchdog runs in its own thread: the event loop ticks a heartbeat every second, and when the
 loop has not ticked for `STALL_S` the watchdog writes every thread's stack (file, line and function only, no
 values) to `<data>/hangs/`, logs it, and exits the process so the container restarts (`restart: unless-stopped`).
 
@@ -27,7 +27,7 @@ from pathlib import Path
 
 log = logging.getLogger("hub.watchdog")
 
-BEAT_S = 5.0
+BEAT_S = 1.0  # well under SAMPLE_S, so an idle loop between beats is not mistaken for a stall
 STALL_S = 120.0  # longer than the slowest known step on the loop (a cold catalog parse took about 15 s)
 KEEP = 5
 SAMPLE_S = 3.0

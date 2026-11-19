@@ -85,3 +85,10 @@ def test_stalls_are_read_from_home_only(home_client, away_client):
     assert res.status_code == 200
     assert res.json()["stalls"] == []
     assert away_client.get("/v1/ping/stalls").status_code == 403
+
+
+def test_the_beat_is_well_under_the_sample_limit():
+    """The loop ticks every BEAT_S: a gap shorter than that is the loop idling between beats, not a stall."""
+    from hub import watchdog
+
+    assert watchdog.BEAT_S * 2 <= watchdog.SAMPLE_S

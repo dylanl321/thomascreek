@@ -266,8 +266,18 @@ class TvCatalog:
     def _is_kids(self, category: str | None) -> bool:
         if not category:
             return False
+        return category.strip().casefold() in self._kid_names()
+
+    def _kid_names(self) -> set[str]:
+        """The kids' categories, read once until the database changes. Lists ask this for every row: one read
+        per row (tens of thousands for the series list) took the live hub 25 s and more."""
+        mark = (getattr(getattr(self.db, "_conn", None), "total_changes", None), id(self.kids_categories))
+        memo = self.__dict__.get("_kid_memo")
+        if mark[0] is not None and memo is not None and memo[0] == mark:
+            return memo[1]
         names = {str(c).strip().casefold() for c in self.kids_categories() if str(c).strip()}
-        return category.strip().casefold() in names
+        self._kid_memo = (mark, names)
+        return names
 
     def configured(self) -> bool:
         return all(self.vault.has(n) for n in ("iptv.xtream_server", "iptv.xtream_username", "iptv.xtream_password"))
