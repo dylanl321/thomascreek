@@ -98,3 +98,18 @@ def test_the_admin_people_page_changes_a_childs_level(hub, people, home_client):
     bad = home_client.post("/admin/people/ratings", data=grown)
     assert "children only" in bad.text
     assert home_client.post("/admin/people/ratings", data={"person": theo["id"], "level": "teen"}).status_code == 403
+
+
+def test_a_grown_ups_phone_searching_as_a_child_gets_only_that_childs_titles(hub, people):
+    _library(hub)
+    dylan = people["phones"]["Dylan"]
+    theo = next(p for p in hub.db.people_with_role("child") if p["name"] == "Theo")
+    search = lambda q, **kw: dylan.client.get(  # noqa: E731
+        "/v1/tv/library/search", headers=dylan.h, params={"q": q, **kw}).json()
+    assert {m["name"] for m in search("movie")["movies"]} == {"Drama Movie", "Kids Movie"}
+    as_theo = search("movie", person=theo["id"])
+    assert [m["name"] for m in as_theo["movies"]] == ["Kids Movie"]
+    assert all(c["name"] != "CNN" for c in search("cnn", person=theo["id"])["channels"])
+    # Naming a grown-up (or nobody known) never widens or changes a grown-up's own search.
+    grown = hub.db.people_with_role("adult")[0]
+    assert {m["name"] for m in search("movie", person=grown["id"])["movies"]} == {"Drama Movie", "Kids Movie"}
