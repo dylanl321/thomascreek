@@ -220,6 +220,8 @@ def run() -> None:
     # httpx logs every request's full address at INFO, query string included: an IPTV password or an API key
     # passed as ?key= would land in the container log.
     logging.getLogger("httpx").setLevel(logging.WARNING)
+    # Provider list reads run in a child process, so they never hold up a request (catalogjob.py).
+    os.environ.setdefault("HUB_CATALOG_CHILD", "1")
     hub = default_hub()
     cert, key = ensure_tls(hub.config)
     app = build_app(hub)
