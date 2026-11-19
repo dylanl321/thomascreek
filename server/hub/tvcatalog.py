@@ -23,6 +23,7 @@ import tempfile
 import threading
 import time
 import xml.etree.ElementTree as ET
+from collections.abc import Collection
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
@@ -1249,23 +1250,27 @@ class TvCatalog:
         return {"from": iso(start), "to": iso(end), "channels": wanted[:200]}
 
     def movies(self, *, q: str | None, category: str | None, kids_only: bool, limit: int, offset: int = 0,
-               sort: str = "name") -> dict[str, Any]:
-        return self._list("movies", q=q, category=category, kids_only=kids_only, limit=limit, offset=offset, sort=sort)
+               sort: str = "name", skip: Collection[str] | None = None) -> dict[str, Any]:
+        return self._list("movies", q=q, category=category, kids_only=kids_only, limit=limit, offset=offset, sort=sort,
+                          skip=skip)
 
     def series(self, *, q: str | None, category: str | None, kids_only: bool, limit: int, offset: int = 0,
-               sort: str = "name") -> dict[str, Any]:
-        return self._list("series", q=q, category=category, kids_only=kids_only, limit=limit, offset=offset, sort=sort)
+               sort: str = "name", skip: Collection[str] | None = None) -> dict[str, Any]:
+        return self._list("series", q=q, category=category, kids_only=kids_only, limit=limit, offset=offset, sort=sort,
+                          skip=skip)
 
     def _list(self, kind: str, *, q: str | None, category: str | None, kids_only: bool, limit: int, offset: int = 0,
-              sort: str = "name") -> dict[str, Any]:
+              sort: str = "name", skip: Collection[str] | None = None) -> dict[str, Any]:
         """One page of the list. `sort`: `name` (A to Z), `year` (newest first) or `added` (last added first; the
-        provider's own order where it sends no date). `total` counts every match, for paging."""
+        provider's own order where it sends no date). `total` counts every match, for paging. `skip` is title ids
+        left out before paging (those a child's level leaves out)."""
+        skip = set(skip or ())
         needle = (q or "").strip().casefold()
         if self.index_ready():
             try:
                 rows, total, names_found = self.index.titles(
                     kind, needle=needle, category=category, kids=self._kid_names() if kids_only else None,
-                    limit=limit, offset=offset, sort=sort)
+                    limit=limit, offset=offset, sort=sort, skip=skip)
             except sqlite3.Error as exc:
                 log.info("catalog index read failed (%s); reading the snapshot", type(exc).__name__)
             else:
@@ -1280,6 +1285,8 @@ class TvCatalog:
             if category and (row.get("category") or "").casefold() != category.casefold():
                 continue
             if needle and needle not in str(row.get("name") or "").casefold():
+                continue
+            if skip and row.get("id") in skip:
                 continue
             if row.get("category"):
                 names.add(row["category"])
