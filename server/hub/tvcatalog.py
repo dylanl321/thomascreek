@@ -174,6 +174,7 @@ class TvCatalog:
         self.details_path = Path(data) / "tvapp" / "catalog-details.json"
         self.index = catalogdb.Reader(Path(data) / "tvapp" / "catalog.db")
         self._index_building = threading.Lock()
+        self._lineup_building = threading.Lock()
         self._transport = transport
         self.kids_categories: KidsFn = lambda: []
         self._lock = asyncio.Lock()
@@ -1023,10 +1024,14 @@ class TvCatalog:
             self._lineup_cache = cache
         hit = cache.get(kids_only)
         if hit is None or hit[0] != stamp:
-            started = time.monotonic()
-            body = self._build_lineup(doc, self._overlay(), self._live_canon(), kids_only=kids_only)
-            hit = cache[kids_only] = (stamp, body)
-            log.info("live lineup built: %d channels in %.2fs", len(body["channels"]), time.monotonic() - started)
+            with self._lineup_building:  # callers run in worker threads now: one build per change, not one each
+                hit = cache.get(kids_only)
+                if hit is None or hit[0] != stamp:
+                    started = time.monotonic()
+                    body = self._build_lineup(doc, self._overlay(), self._live_canon(), kids_only=kids_only)
+                    hit = cache[kids_only] = (stamp, body)
+                    log.info("live lineup built: %d channels in %.2fs", len(body["channels"]),
+                             time.monotonic() - started)
         return hit
 
     def lineup(self, *, kids_only: bool) -> dict[str, Any] | None:
