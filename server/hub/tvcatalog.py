@@ -380,6 +380,11 @@ class TvCatalog:
         self._kid_memo = (mark, names)
         return names
 
+    def categories_matching(self, pattern: re.Pattern[str]) -> set[str]:
+        """The snapshot's category names (lower-cased) this pattern finds, once per snapshot; for
+        `skip_categories`."""
+        return {name for name in self._category_names() if pattern.search(name)}
+
     def _category_names(self) -> set[str]:
         """Every category name in the snapshot (films, series, channels), lower-cased, once per snapshot."""
         loaded = self.__dict__.get("_loaded")
@@ -1250,27 +1255,32 @@ class TvCatalog:
         return {"from": iso(start), "to": iso(end), "channels": wanted[:200]}
 
     def movies(self, *, q: str | None, category: str | None, kids_only: bool, limit: int, offset: int = 0,
-               sort: str = "name", skip: Collection[str] | None = None) -> dict[str, Any]:
+               sort: str = "name", skip: Collection[str] | None = None,
+               skip_categories: Collection[str] | None = None) -> dict[str, Any]:
         return self._list("movies", q=q, category=category, kids_only=kids_only, limit=limit, offset=offset, sort=sort,
-                          skip=skip)
+                          skip=skip, skip_categories=skip_categories)
 
     def series(self, *, q: str | None, category: str | None, kids_only: bool, limit: int, offset: int = 0,
-               sort: str = "name", skip: Collection[str] | None = None) -> dict[str, Any]:
+               sort: str = "name", skip: Collection[str] | None = None,
+               skip_categories: Collection[str] | None = None) -> dict[str, Any]:
         return self._list("series", q=q, category=category, kids_only=kids_only, limit=limit, offset=offset, sort=sort,
-                          skip=skip)
+                          skip=skip, skip_categories=skip_categories)
 
     def _list(self, kind: str, *, q: str | None, category: str | None, kids_only: bool, limit: int, offset: int = 0,
-              sort: str = "name", skip: Collection[str] | None = None) -> dict[str, Any]:
+              sort: str = "name", skip: Collection[str] | None = None,
+              skip_categories: Collection[str] | None = None) -> dict[str, Any]:
         """One page of the list. `sort`: `name` (A to Z), `year` (newest first) or `added` (last added first; the
         provider's own order where it sends no date). `total` counts every match, for paging. `skip` is title ids
-        left out before paging (those a child's level leaves out)."""
+        left out before paging (those a child's level leaves out); `skip_categories` (lower-cased) the same for
+        whole categories (the provider's grown-up section in a search that didn't ask for it)."""
         skip = set(skip or ())
+        hidden = {name.casefold() for name in skip_categories or ()}
         needle = (q or "").strip().casefold()
         if self.index_ready():
             try:
                 rows, total, names_found = self.index.titles(
                     kind, needle=needle, category=category, kids=self._kid_names() if kids_only else None,
-                    limit=limit, offset=offset, sort=sort, skip=skip)
+                    limit=limit, offset=offset, sort=sort, skip=skip, skip_categories=hidden)
             except sqlite3.Error as exc:
                 log.info("catalog index read failed (%s); reading the snapshot", type(exc).__name__)
             else:
@@ -1287,6 +1297,8 @@ class TvCatalog:
             if needle and needle not in str(row.get("name") or "").casefold():
                 continue
             if skip and row.get("id") in skip:
+                continue
+            if hidden and str(row.get("category") or "").casefold() in hidden:
                 continue
             if row.get("category"):
                 names.add(row["category"])
@@ -1342,8 +1354,10 @@ class TvCatalog:
         return {**row, "kids": kids, "series_name": series.get("name") or row.get("series_name")}
 
     def search(self, q: str, *, kids_only: bool, now: float | None = None,
-               timing: dict[str, float] | None = None) -> dict[str, Any]:
-        """`timing` (optional) is filled with the milliseconds each part took, for the route's Server-Timing."""
+               timing: dict[str, float] | None = None,
+               skip_categories: Collection[str] | None = None) -> dict[str, Any]:
+        """`timing` (optional) is filled with the milliseconds each part took, for the route's Server-Timing.
+        `skip_categories` (any case) leaves those film and series categories out before the top 20 is cut."""
         needle = q.strip().casefold()
         now = time.time() if now is None else now
         clock = time.perf_counter()
@@ -1402,9 +1416,10 @@ class TvCatalog:
         lap("guide")
         self._flush_notes(notes)
         lap("notes")
-        shows = self.series(q=q, category=None, kids_only=kids_only, limit=20)["series"]
+        hide = skip_categories
+        shows = self.series(q=q, category=None, kids_only=kids_only, limit=20, skip_categories=hide)["series"]
         lap("series")
-        films = self.movies(q=q, category=None, kids_only=kids_only, limit=20)["movies"]
+        films = self.movies(q=q, category=None, kids_only=kids_only, limit=20, skip_categories=hide)["movies"]
         lap("movies")
         from .iptvcanon import peek
 
