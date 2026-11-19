@@ -513,13 +513,21 @@ async def one_movie(movie_id: str, c: Caller = Depends(caller), h: Hub = Depends
 
 
 @router.get("/library/search")
-async def library_search(q: str, response: Response, c: Caller = Depends(caller),
+async def library_search(q: str, response: Response, person: str | None = None, c: Caller = Depends(caller),
                          h: Hub = Depends(hub)) -> dict[str, Any]:
     """Channels, programmes in the cached guide, series and movies matching these words.
+
+    `person` (optional) is who is watching: a grown-up's phone watching as a child searches only that child's
+    titles, at that child's level. Naming someone only ever narrows the answer.
 
     The work runs off the event loop (it reads the whole library), so a search never holds up other calls, and
     `Server-Timing` says how long each part took."""
     kids = _media(h, c)
+    watching = next((p for p in household(h.db) if p["id"] == person), None) if person else None
+    if watching is not None and watching.get("role") == "child":
+        kids = True
+    else:
+        person = None
     if len(q.strip()) < 2:
         raise error(400, "bad_request", "Type at least two letters")
     timing: dict[str, float] = {}
@@ -539,7 +547,7 @@ async def library_search(q: str, response: Response, c: Caller = Depends(caller)
     response.headers["Server-Timing"] = ", ".join(f"{name};dur={ms}" for name, ms in timing.items())
     if sum(timing.values()) > 3000:
         log.info("tv.library.search slow: %s", response.headers["Server-Timing"])
-    return _narrow(h, c, found) if kids else found
+    return _narrow(h, c, found, person) if kids else found
 
 
 def _plex_item(item: dict[str, Any], machine: str | None) -> dict[str, Any]:
