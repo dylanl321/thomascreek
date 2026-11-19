@@ -15,6 +15,7 @@ import asyncio
 import gzip
 import io
 import json
+import re
 import logging
 import os
 import sqlite3
@@ -36,6 +37,9 @@ from .tvapp import TvAppError
 from .tvlineup import LineupError, clean_logo, public_channel
 
 log = logging.getLogger("hub.tvcatalog")
+# Category names that say they are for children ("|EN| CHILDREN/FAMILY", "DISNEY+ KIDS", "CLASSIC CARTOONS"):
+# the kids' fallback when none of the saved kids' categories is in the provider's lists.
+_KIDS_WORDS = re.compile(r"\b(kids?|children|childrens|cartoons?|pixar|junior|nick jr|toddlers?|preschool)\b")
 
 SOURCE = "thomas-creek"
 LIST_TTL_S = 6 * 3600
@@ -359,13 +363,35 @@ class TvCatalog:
     def _kid_names(self) -> set[str]:
         """The kids' categories, read once until the database changes. Lists ask this for every row: one read
         per row (tens of thousands for the series list) took the live hub 25 s and more."""
-        mark = (getattr(getattr(self.db, "_conn", None), "total_changes", None), id(self.kids_categories))
+        loaded = self.__dict__.get("_loaded")
+        mark = (getattr(getattr(self.db, "_conn", None), "total_changes", None), id(self.kids_categories),
+                loaded[0] if loaded else None)
         memo = self.__dict__.get("_kid_memo")
         if mark[0] is not None and memo is not None and memo[0] == mark:
             return memo[1]
         names = {str(c).strip().casefold() for c in self.kids_categories() if str(c).strip()}
+        present = self._category_names()
+        if present and not names & present:
+            # None of the saved kids' categories is in the provider's lists any more (renamed, another provider,
+            # or never picked): children got empty pages and searches (Nov 19 2026). Fall back to the provider's
+            # categories that say they are for children, until a grown-up picks them on the admin page.
+            names = {name for name in present if _KIDS_WORDS.search(name)}
         self._kid_memo = (mark, names)
         return names
+
+    def _category_names(self) -> set[str]:
+        """Every category name in the snapshot (films, series, channels), lower-cased, once per snapshot."""
+        loaded = self.__dict__.get("_loaded")
+        stamp = loaded[0] if loaded else None
+        cached = self.__dict__.get("_category_memo")
+        if cached is not None and cached[0] == stamp and stamp is not None:
+            return cached[1]  # type: ignore[no-any-return]
+        doc = self.load()
+        out = {str(row.get("category")).strip().casefold() for kind in ("movies", "series", "channels")
+               for row in doc.get(kind) or [] if isinstance(row, dict) and row.get("category")}
+        loaded = self.__dict__.get("_loaded")
+        self._category_memo = (loaded[0] if loaded else None, out)
+        return out
 
     def configured(self) -> bool:
         return all(self.vault.has(n) for n in ("iptv.xtream_server", "iptv.xtream_username", "iptv.xtream_password"))
