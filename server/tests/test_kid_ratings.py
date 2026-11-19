@@ -260,3 +260,18 @@ def test_an_admin_sees_how_far_the_certifications_have_got(hub, people):
     assert {"known", "pending", "mapped", "blocked", "saved"} <= set(body)
     assert body["blocked"]["teen"] == {"movies": 0, "series": 0}
     assert theo.client.get("/v1/kids/certs", headers=theo.h).status_code == 403
+
+
+def test_a_grown_ups_search_finds_real_films_behind_a_crowd_of_grown_up_ones(hub, people):
+    """The grown-up section leaves before the top 20 is cut (Nov 19 2026: "friends" found no films at all)."""
+    _library(hub)
+    hub.tv_catalog.ingest(
+        vod=[{"stream_id": 300 + i, "name": f"Friends {i:02d}", "category_id": "9"} for i in range(25)]
+        + [{"stream_id": 400, "name": "Friends With Benefits", "category_id": "3"}],
+        vod_categories=[{"category_id": "3", "category_name": "Drama"},
+                        {"category_id": "9", "category_name": "|EN| FOR ADULTS"}],
+    )
+    dylan = people["phones"]["Dylan"]
+    search = lambda q: [m["name"] for m in dylan.client.get(  # noqa: E731
+        "/v1/tv/library/search", headers=dylan.h, params={"q": q}).json()["movies"]]
+    assert search("friends") == ["Friends With Benefits"]

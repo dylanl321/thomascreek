@@ -178,3 +178,25 @@ def test_skipped_titles_leave_the_page_and_the_total(hub, monkeypatch):
     page = cat.movies(q=None, category=None, kids_only=True, limit=10, sort="name", skip=skip)
     assert page["total"] == len(ids) - len(skip)
     assert len(page["movies"]) == 10
+
+
+def test_search_can_leave_whole_categories_out_before_the_top_twenty(hub, monkeypatch):
+    """A grown-up's "friends" search came back with no films: the top 20 were all from the provider's grown-up
+    section, which the route then hid. Leaving the section out before the cut keeps the real matches."""
+    import re
+
+    cat = hub.tv_catalog
+    cat.kids_categories = lambda: ["Kids"]
+    doc = _doc(0)
+    doc["movies"] = ([{"id": f"vod:thomas-creek:{i}", "name": f"Friends {i:02d}", "category": "|EN| FOR ADULTS"}
+                      for i in range(30)]
+                     + [{"id": "vod:thomas-creek:900", "name": "Friends With Benefits", "category": "Comedy"},
+                        {"id": "vod:thomas-creek:901", "name": "Friends Forever", "category": None}])
+    cat._write(doc)
+    hide = cat.categories_matching(re.compile(r"\bfor adults\b"))
+    assert hide == {"|en| for adults"}
+    for ready in (True, False):
+        monkeypatch.setattr(cat, "index_ready", lambda ready=ready: ready)
+        films = cat.search("friends", kids_only=False, skip_categories=hide)["movies"]
+        assert sorted(row["id"] for row in films) == ["vod:thomas-creek:900", "vod:thomas-creek:901"], ready
+        assert len(cat.search("friends", kids_only=False)["movies"]) == 20
