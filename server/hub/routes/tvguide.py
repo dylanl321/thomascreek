@@ -499,12 +499,22 @@ async def _title_page(request: Request, h: Hub, c: Caller, kind: str, *, q: str 
                       limit: int, offset: int, sort: str, person: str | None = None) -> Any:
     from .. import kidcerts, kidratings
 
+    laps: list[str] = []
+    began = last = time.perf_counter()
+
+    def lap(name: str) -> None:
+        nonlocal last
+        now = time.perf_counter()
+        laps.append(f"{name};dur={(now - last) * 1000:.0f}")
+        last = now
+
     kids, person = _kids_for(h, c, person)
     # A child's page holds only what that child's level allows (`kidratings`). Titles whose certification the
     # hub already knows are left out before paging, so pages stay full and `total` is right; the narrow after
     # the page catches the rest.
     allowed = (child_ratings(h, c, person) or kidratings.for_person(h, person)) if kids else None
     await _ready(h)
+    lap("ready")
     args: dict[str, Any] = {"q": q, "category": category, "kids_only": kids, "limit": _limit(limit),
             "offset": max(0, offset),
             "sort": _sort(sort)}
@@ -518,6 +528,7 @@ async def _title_page(request: Request, h: Hub, c: Caller, kind: str, *, q: str 
         tag = 'W/"' + hashlib.sha256(seed.encode()).hexdigest()[:20] + '"'
         if request.headers.get("if-none-match") == tag:
             return Response(status_code=304, headers={"ETag": tag})
+    lap("tag")
     # SQLite does the scan (phase 3) without holding the loop; the snapshot fallback runs here too.
     fn = cat.series if kind == "series" else cat.movies
     certs = kidcerts.store(h) if allowed is not None else None
@@ -527,11 +538,24 @@ async def _title_page(request: Request, h: Hub, c: Caller, kind: str, *, q: str 
             certs.warming = True
             certs.warm_task = asyncio.create_task(_warm(certs))  # kept, so the task isn't collected mid-scan
         args["skip"] = await asyncio.to_thread(certs.blocked, kind, allowed)
-    body = await asyncio.to_thread(fn, **args)
+        lap("skip")
+    inner: dict[str, float] = {}
+    body = await asyncio.to_thread(fn, **args, timing=inner)
+    lap("page")
+    laps.extend(f"{name};dur={ms:.0f}" for name, ms in inner.items())
     if certs is not None and allowed is not None:
         body = kidratings.narrow(body, allowed, certs)
-    headers = {"ETag": tag} if tag else {}
-    return Response(json.dumps(body), media_type="application/json", headers=headers)
+        lap("narrow")
+    text = json.dumps(body)
+    lap("json")
+    # Each step's milliseconds, so a slow first page after a start says where the time went (Nov 19 2026: a
+    # child's first films page took 2.6 s with no loop stall).
+    headers = {"Server-Timing": ", ".join(laps)}
+    if tag:
+        headers["ETag"] = tag
+    if time.perf_counter() - began > 1.0:
+        log.info("tv.%s page slow: %s", kind, headers["Server-Timing"])
+    return Response(text, media_type="application/json", headers=headers)
 
 
 async def _warm(certs: Any) -> None:

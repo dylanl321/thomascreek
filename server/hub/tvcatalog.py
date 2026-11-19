@@ -1271,23 +1271,28 @@ class TvCatalog:
 
     def movies(self, *, q: str | None, category: str | None, kids_only: bool, limit: int, offset: int = 0,
                sort: str = "name", skip: Collection[str] | None = None,
-               skip_categories: Collection[str] | None = None) -> dict[str, Any]:
+               skip_categories: Collection[str] | None = None,
+               timing: dict[str, float] | None = None) -> dict[str, Any]:
         return self._list("movies", q=q, category=category, kids_only=kids_only, limit=limit, offset=offset, sort=sort,
-                          skip=skip, skip_categories=skip_categories)
+                          skip=skip, skip_categories=skip_categories, timing=timing)
 
     def series(self, *, q: str | None, category: str | None, kids_only: bool, limit: int, offset: int = 0,
                sort: str = "name", skip: Collection[str] | None = None,
-               skip_categories: Collection[str] | None = None) -> dict[str, Any]:
+               skip_categories: Collection[str] | None = None,
+               timing: dict[str, float] | None = None) -> dict[str, Any]:
         return self._list("series", q=q, category=category, kids_only=kids_only, limit=limit, offset=offset, sort=sort,
-                          skip=skip, skip_categories=skip_categories)
+                          skip=skip, skip_categories=skip_categories, timing=timing)
 
     def _list(self, kind: str, *, q: str | None, category: str | None, kids_only: bool, limit: int, offset: int = 0,
               sort: str = "name", skip: Collection[str] | None = None,
-              skip_categories: Collection[str] | None = None) -> dict[str, Any]:
+              skip_categories: Collection[str] | None = None,
+              timing: dict[str, float] | None = None) -> dict[str, Any]:
         """One page of the list. `sort`: `name` (A to Z), `year` (newest first) or `added` (last added first; the
         provider's own order where it sends no date). `total` counts every match, for paging. `skip` is title ids
         left out before paging (those a child's level leaves out); `skip_categories` (lower-cased) the same for
-        whole categories (the provider's grown-up section in a search that didn't ask for it)."""
+        whole categories (the provider's grown-up section in a search that didn't ask for it). `timing`
+        (optional) gets the milliseconds of the read (`rows`) and of turning the page into public rows (`art`)."""
+        began = time.perf_counter()
         skip = set(skip or ())
         hidden = {name.casefold() for name in skip_categories or ()}
         needle = (q or "").strip().casefold()
@@ -1299,8 +1304,13 @@ class TvCatalog:
             except sqlite3.Error as exc:
                 log.info("catalog index read failed (%s); reading the snapshot", type(exc).__name__)
             else:
-                return self._page(kind, [(row, self._is_kids(row.get("category"))) for row in rows],
+                if timing is not None:
+                    timing["rows"] = round((time.perf_counter() - began) * 1000, 1)
+                page = self._page(kind, [(row, self._is_kids(row.get("category"))) for row in rows],
                                   names_found, total, max(0, offset))
+                if timing is not None:
+                    timing["art"] = round((time.perf_counter() - began) * 1000 - timing["rows"], 1)
+                return page
         found: list[tuple[dict[str, Any], bool]] = []
         names: set[str] = set()
         for row in self.load().get(kind) or []:  # the provider's order: the index is the "added" fallback
