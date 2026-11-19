@@ -107,7 +107,7 @@ async def _ready(h: Hub, *, index_ok: bool = False) -> None:
     if index_ok and not cat.parsed() and cat.index_ready():
         running = getattr(cat, "_ensure_task", None)
         if running is None or running.done():
-            setattr(cat, "_ensure_task", asyncio.create_task(_ensure_quietly(h)))  # kept, so it isn't collected
+            cat.__dict__["_ensure_task"] = asyncio.create_task(_ensure_quietly(h))  # kept, so it is not collected
         return
     try:
         await cat.ensure()
