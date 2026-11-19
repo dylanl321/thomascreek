@@ -7,6 +7,7 @@ said so. Anything less stays two titles.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -198,9 +199,19 @@ def _open_pairs(rows: list[Any], items: dict[str, dict[str, Any]], by_source: di
 
 def merge(db: Any, ids: list[str]) -> dict[str, Any]:
     items = {item["id"]: item for item in _items(db)}
+    overrides = _overrides(db)
+    keep = _merge_into(items, overrides, ids)
+    if keep is None:
+        return {}
+    _save_items(db, list(items.values()), overrides)
+    return {"ok": True, "id": keep}
+
+
+def _merge_into(items: dict[str, dict[str, Any]], overrides: dict[str, Any], ids: list[str]) -> str | None:
+    """Folds these titles into the first one, in `items` and `overrides` (saved by the caller). The kept id."""
     chosen = [items[item_id] for item_id in ids if item_id in items]
     if len(chosen) < 2:
-        return {}
+        return None
     keep = chosen[0]
     keys = []
     for other in chosen:
@@ -210,14 +221,37 @@ def merge(db: Any, ids: list[str]) -> dict[str, Any]:
         keep["sources"] = _dedupe_sources(list(keep.get("sources") or []) + list(other.get("sources") or []))
         items.pop(other["id"], None)
     items[keep["id"]] = keep
-    overrides = _overrides(db)
     merges = list(overrides.get("merge") or [])
     bundle = sorted(set(keys))
     if bundle not in merges:
         merges.append(bundle)
     overrides["merge"] = merges
-    _save_items(db, list(items.values()), overrides)
-    return {"ok": True, "id": keep["id"]}
+    return str(keep["id"])
+
+
+def _apply(db: Any, batch: list[dict[str, Any]], decisions: dict[str, Any]) -> tuple[int, int]:
+    """The model's answers for one batch, read and saved once (folded, kept apart). Before, each answer read and
+    wrote the whole several-MB state, about 50 times a batch, on the event loop (Nov 19 2026)."""
+    items = {item["id"]: item for item in _items(db)}
+    overrides = _overrides(db)
+    cache = dict(_ai(db))
+    folded = apart = 0
+    apart_ids: set[str] = set()
+    for row in batch:
+        same = decisions.get(row["id"])
+        if same is True and _merge_into(items, overrides, [row["left_id"], row["right_id"]]):
+            folded += 1
+        elif same is False and row.get("id"):
+            cache[row["id"]] = False
+            apart_ids.add(row["id"])
+            apart += 1
+    if apart_ids:
+        db.kv_set(KV_AI, cache)
+    if folded or apart_ids:
+        state = _state(db)
+        state["unsure"] = [r for r in state.get("unsure") or [] if isinstance(r, dict) and r.get("id") not in apart_ids]
+        _save_items(db, list(items.values()), overrides, state=state)
+    return folded, apart
 
 
 def split(db: Any, item_id: str, provider: str, stream_id: str) -> dict[str, Any]:
@@ -378,6 +412,12 @@ def peek(db: Any) -> Index | None:
         found.by_title("movie", "")
         _TITLED[id(db)] = (db, found)
         return found
+    built_at = _TITLED_AT.get(id(db))
+    if last is not None and built_at is not None and time.monotonic() - built_at < REBUILD_EVERY_S:
+        # The state is written often (each fold and each batch of model answers). Rebuilding the title map
+        # after every write parsed several MB while holding the interpreter lock, which held the search itself
+        # for about 1 s each time (Nov 19 2026). Canonical ids are optional and change slowly: once in a while.
+        return last
     with _BUILD_LOCK:
         start = id(db) not in _BUILDING
         if start:
@@ -388,6 +428,8 @@ def peek(db: Any) -> Index | None:
 
 
 _TITLED: dict[int, tuple[Any, Index]] = {}  # (db, index): the db is kept so a reused id never matches
+_TITLED_AT: dict[int, float] = {}  # when that index was built (monotonic)
+REBUILD_EVERY_S = 300.0
 
 
 def _build(db: Any) -> None:
@@ -396,6 +438,7 @@ def _build(db: Any) -> None:
         found = index(db)
         found.by_title("movie", "")
         _TITLED[id(db)] = (db, found)
+        _TITLED_AT[id(db)] = time.monotonic()
         log.info("iptvcanon: title index ready in %.1f s", time.perf_counter() - started)
     except Exception:  # noqa: BLE001 - search then simply goes without canonical ids
         log.exception("iptvcanon: title index failed")
@@ -486,11 +529,14 @@ async def settle(hub: Any, *, ask: Any = None, now: float | None = None, force: 
     ask = ask or ask_model
     raw = db.kv_get(KV_ASKED)
     asked = {k: v for k, v in raw.items() if now - float(v or 0) < ASK_AGAIN_S} if isinstance(raw, dict) else {}
-    waiting = [row for row in unsure(db, limit=None)["unsure"] if force or row["id"] not in asked]
+    # The reading and writing of the state runs off the event loop (several MB of JSON each way).
+    pending = (await asyncio.to_thread(unsure, db, None))["unsure"]
+    waiting = [row for row in pending if force or row["id"] not in asked]
     folded = apart = 0
     catalog = getattr(hub, "tv_catalog", None)
     for start in range(0, len(waiting), BATCH):
-        batch = [_with_context(db, catalog, row) for row in waiting[start:start + BATCH]]
+        batch = await asyncio.to_thread(lambda part: [_with_context(db, catalog, row) for row in part],
+                                        waiting[start:start + BATCH])
         decisions = await ask(hub, batch)
         for row in batch:
             asked[row["id"]] = now
@@ -499,15 +545,13 @@ async def settle(hub: Any, *, ask: Any = None, now: float | None = None, force: 
             if _used_today(db) >= _cap(hub):
                 break
             continue
-        for row in batch:
-            same = decisions.get(row["id"])
-            if same is True and merge(db, [row["left_id"], row["right_id"]]):
-                folded += 1
-            elif same is False and keep_apart(db, row["id"]):
-                apart += 1
+        got = await asyncio.to_thread(_apply, db, batch, decisions)
+        folded += got[0]
+        apart += got[1]
     if folded or apart:
         log.info("catalog match: model folded %d, kept apart %d", folded, apart)
-    return {"folded": folded, "apart": apart, "left": len(unsure(db, limit=None)["unsure"])}
+    left = (await asyncio.to_thread(unsure, db, None))["unsure"]
+    return {"folded": folded, "apart": apart, "left": len(left)}
 
 
 def _cap(hub: Any) -> int:
@@ -848,8 +892,9 @@ def _overrides(db: Any) -> dict[str, Any]:
     return raw if isinstance(raw, dict) else {}
 
 
-def _save_items(db: Any, items: list[dict[str, Any]], overrides: dict[str, Any]) -> None:
-    state = _state(db)
+def _save_items(db: Any, items: list[dict[str, Any]], overrides: dict[str, Any],
+                state: dict[str, Any] | None = None) -> None:
+    state = _state(db) if state is None else state
     by_source = {}
     for item in items:
         if item.get("id") == "__unsure__":
