@@ -355,18 +355,22 @@ _BUILD_LOCK = threading.Lock()
 
 def peek(db: Any) -> Index | None:
     """The index with its title map, without making the caller wait for a rebuild of a big catalog: the last one
-    built (even if the state changed since), or None before the first. A rebuild then runs in the background.
-    Search uses this to add `canonical_id`, which the apps treat as optional (Nov 19 2026: rebuilding inside
-    search took 27 to 47 s on the live hub and timed the phone out)."""
+    with titles built (even if the state changed since), or None before the first. A rebuild then runs in the
+    background. Search uses this to add `canonical_id`, which the apps treat as optional (Nov 19 2026: rebuilding
+    inside search took 27 to 47 s on the live hub and timed the phone out).
+
+    Only an index whose titles are already parsed is handed back: plays and copies build the index without them,
+    and handing that one back made the search parse every title itself (2.2 to 2.5 s per search, Nov 19 2026)."""
     stamp = _stamp(db)
     cached = _INDEX.get(id(db))
-    fresh = cached is not None and stamp is not None and cached[0] == stamp and cached[1]._titles is not None
-    if fresh:
-        return cached[1]  # type: ignore[index]
-    size = _size(db) if hasattr(db, "one") else 0  # once per change of the state, not per call
+    if cached is not None and stamp is not None and cached[0] == stamp and cached[1]._titles is not None:
+        _TITLED[id(db)] = (db, cached[1])
+        return cached[1]
+    size = _size(db) if hasattr(db, "one") else 0
     if size < SMALL_STATE:
         found = index(db)
         found.by_title("movie", "")
+        _TITLED[id(db)] = (db, found)
         return found
     with _BUILD_LOCK:
         start = id(db) not in _BUILDING
@@ -374,13 +378,19 @@ def peek(db: Any) -> Index | None:
             _BUILDING.add(id(db))
     if start:
         threading.Thread(target=_build, args=(db,), name="iptvcanon-index", daemon=True).start()
-    return cached[1] if cached is not None else None
+    titled = _TITLED.get(id(db))
+    return titled[1] if titled is not None and titled[0] is db else None
+
+
+_TITLED: dict[int, tuple[Any, Index]] = {}  # (db, index): the db is kept so a reused id never matches
 
 
 def _build(db: Any) -> None:
     try:
         started = time.perf_counter()
-        index(db).by_title("movie", "")
+        found = index(db)
+        found.by_title("movie", "")
+        _TITLED[id(db)] = (db, found)
         log.info("iptvcanon: title index ready in %.1f s", time.perf_counter() - started)
     except Exception:  # noqa: BLE001 - search then simply goes without canonical ids
         log.exception("iptvcanon: title index failed")
