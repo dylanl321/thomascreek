@@ -442,6 +442,59 @@ async def phone_progress(body: dict[str, Any], c: Caller = Depends(caller), h: H
     return {"ok": True, "position_s": position}
 
 
+class QueueChange(BaseModel):
+    add: str | None = Field(default=None, max_length=120)
+    first: bool = False
+    remove: str | None = Field(default=None, max_length=120)
+    order: list[str] | None = Field(default=None, max_length=50)
+    clear: bool = False
+    person: str | None = Field(default=None, max_length=64)
+
+
+def _queue_of(h: Hub, c: Caller, person: str | None) -> tuple[str, Any]:
+    """Whose queue this is, and the rule for what they may see in it."""
+    who, kids_only = watcher(h, c, person)
+    owner = who_key(person=who) or f"phone:{c.device['id']}"
+
+    def allowed(row: dict[str, Any]) -> bool:
+        return not kids_only or (bool(row.get("kids")) and _level_allows(h, c, who, row))
+    return owner, allowed
+
+
+@router.get("/queue")
+async def phone_queue(person: str | None = None, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """The person's "Play next" queue: `{"items":[{"id","kind":"movie"|"episode","title","subtitle"?,"season"?,
+    "number"?,"series_id"?,"image_url"?,"duration_s"?}]}`. It follows the person to every screen; a grown-up's
+    phone watching as a child (`person`) reads the child's queue, with kids' titles only."""
+    from .. import playerqueue
+
+    owner, allowed = _queue_of(h, c, person[:64] if person else None)
+    await _ready(h)
+    items = await asyncio.to_thread(lambda: playerqueue.present(h.tv_catalog, playerqueue.ids(h, owner), allowed))
+    return {"items": items}
+
+
+@router.post("/queue")
+async def phone_queue_change(body: QueueChange, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+    """One change: `{"add": id, "first"?: true}` (play next, or at the end), `{"remove": id}`, `{"order":[ids]}`
+    or `{"clear": true}`. Answers the new queue like the GET. A title the caller may not see can't be added."""
+    from .. import playerqueue
+
+    owner, allowed = _queue_of(h, c, body.person)
+    await _ready(h)
+    cat = h.tv_catalog
+    if body.add:
+        row = cat.episode(body.add) if body.add.startswith("ep:") else cat.movie(body.add)
+        if row is None or not allowed(row):
+            raise error(404, "not_found", "That isn't in the library")
+
+    def work() -> list[dict[str, Any]]:
+        kept = playerqueue.change(h, owner, add=body.add, first=body.first, remove=body.remove, order=body.order,
+                                  clear=body.clear)
+        return playerqueue.present(cat, kept, allowed)
+    return {"items": await asyncio.to_thread(work)}
+
+
 @router.get("/segments")
 async def phone_segments(episode_id: str | None = None, movie_id: str | None = None, duration_s: int | None = None,
                          person: str | None = None, c: Caller = Depends(caller),
