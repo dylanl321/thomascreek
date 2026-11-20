@@ -1237,14 +1237,14 @@ Phone:
 
 ### Watching on the phone (`hub/routes/tvphone.py`)
 
-`POST /v1/tv/phone/play` with one of `{"movie_id"}`, `{"episode_id"}` or `{"channel_key"}`. Same bearer and kids rule as the guide (a child or guest only gets kids' titles; anything else is 404). The answer is `{"url","kind","title","expires_at"}`, where `url` is a hub path with a 6-hour pass in it. The provider login never leaves the hub, and the pass only names the title.
+`POST /v1/tv/phone/play` with one of `{"movie_id"}`, `{"episode_id"}` or `{"channel_key"}`. Same bearer and kids rule as the guide (a child or guest only gets kids' titles; anything else is 404). The answer is `{"url","kind","title","expires_at"}`, where `url` is a hub path with a 6-hour pass in it. The provider login never leaves the hub, and the pass only names the title. The exception is `direct: true` from a grown-up's own phone (Android phone, iPhone or iPad; an admin or adult, never a child, a guest or a kids' device): the answer is then the provider's own address on a login leased to that phone, with `"direct": true`. Anyone else who sends `direct` gets the relayed answer above.
 
 Films and episodes also answer `resume_s` (where this person stopped on any screen, or null), `duration_s` when the catalog knows it, and `series_id` for an episode. Send `start_s` to start from a given second instead ("Continue on iPhone" from a TV's Now playing); it comes back as `resume_s`.
 
 - `POST /v1/tv/phone/progress` `{"movie_id"|"episode_id", "position_s", "duration_s"?}` every minute and when the player closes. Kept for the caller's person exactly like a TV heartbeat, so it shows in their Continue watching on every TV. Same kids rule as `/play` (404), 400 without `position_s`.
 - `GET /v1/tv/phone/resume?movie_id=|episode_id=` → `{"position_s","duration_s","at"}`. A phone gets its person's place. A TV may call it too, with `person=` like `/v1/tv/upnext`. `position_s` is null when there is nothing to resume (under 30 seconds in, or within a minute of the end).
 
-- Films and episodes: `GET /v1/tv/phone/file/{pass}`, a byte-range proxy of the provider file. Only mp4, m4v and mov play on the phone; anything else answers 409 `tv_only` ("This one only plays on a TV"). Episodes need the series opened once (`GET /v1/tv/series/{id}`), as on the TV.
+- Films and episodes: `GET /v1/tv/phone/file/{pass}`, a byte-range proxy of the provider file. Only mp4, m4v and mov play on the phone; anything else answers 409 `tv_only` ("This one only plays on a TV"). A phone whose player opens every file type says so with `"player": "exo"` (Android phone, Media3) or `"player": "ks"` (the iPhone and iPad media app) on `/play`, and is not refused. Episodes need the series opened once (`GET /v1/tv/series/{id}`), as on the TV.
 - Channels: `GET /v1/tv/phone/live/{pass}/index.m3u8`. The hub reads the provider's HLS and points every line at `/v1/tv/phone/live/{pass}/p/{n}.m3u8` or `/s/{n}`. The provider's own addresses stay in the hub's memory. Reloads use the redirected playlist, not the login address.
 - Plex titles keep using `GET /v1/media/{id}/stream`.
 
