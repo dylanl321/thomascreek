@@ -88,8 +88,8 @@ async def phone_play(body: dict[str, Any], response: Response, c: Caller = Depen
     `person` (optional) is who is watching on a grown-up's phone: one of the children, so only kids' titles play
     and the place is kept for them (see tvguide.watcher).
 
-    `Server-Timing` says how long each step took (ready, row, lease, retry when nothing was free,
-    resume), so a slow start is found."""
+    `Server-Timing` says how long each step took (ready, row, lease, retry when nothing was free, source,
+    resume, next), so a slow start is found; answers over a second keep theirs on /v1/ping/timings."""
     lap = _Laps(response)
     if getattr(c.subject, "tv", False):
         kids_only, person = _media(h, c), c.subject.person_id
@@ -155,6 +155,7 @@ async def phone_play(body: dict[str, Any], response: Response, c: Caller = Depen
         source = await asyncio.to_thread(_source, h, holder, out_direct["title"], row, "direct", len(urls))
         if source:
             out_direct["source"] = source
+        lap("source")
         alternates = urls[1:]
         relay = _relay_pass(h, c, mode, key, ext)
         if relay is not None:
@@ -170,8 +171,9 @@ async def phone_play(body: dict[str, Any], response: Response, c: Caller = Depen
             # The same stream on the provider's backup addresses (same login), to try in order when `url` won't play.
             out_direct["alternates"] = alternates
         _resume(h, person, body, mode, key, row, out_direct)
+        lap("resume")
         await _episode(h, mode, key, row, out_direct, kids_only)
-        lap("resume", done=True)
+        lap("next", done=True)
         return out_direct
     # The hub relays it, on a login leased to this phone like a TV's (one stream per login).
     from ..iptvplay import busy_reason, holders, lease, read_twins, refresh_usage, warm_twins
@@ -200,9 +202,11 @@ async def phone_play(body: dict[str, Any], response: Response, c: Caller = Depen
     source = await asyncio.to_thread(_source, h, holder, title, row, "relay", None)
     if source:
         out["source"] = source
+    lap("source")
     _resume(h, person, body, mode, key, row, out)
+    lap("resume")
     await _episode(h, mode, key, row, out, kids_only)
-    lap("resume", done=True)
+    lap("next", done=True)
     return out
 
 

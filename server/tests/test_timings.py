@@ -61,3 +61,14 @@ def test_host_load_splits_busy_from_disk_wait(tmp_path):
     assert out["load"] == [13.4, 13.6, 14.0]
     assert out["hub_cpu_pct"] == 20.0  # 2 s of CPU in 10 s
     assert host.hour()["busy_avg_pct"] == 20.0
+
+
+def test_slow_answers_keep_their_step_names_and_times_only():
+    t = Timings(clock=lambda: 1000.0)
+    t.record("POST", "/v1/tv/phone/play", 20, 200, "ready;dur=1, lease;dur=15")
+    t.record("POST", "/v1/tv/phone/play", SLOW_MS + 400, 200,
+             'ready;dur=1, lease;dur=1300, bad;desc="http://x"')
+    slow = t.slow()
+    assert len(slow) == 1
+    assert slow[0]["route"] == "/v1/tv/phone/play" and slow[0]["steps"] == {"ready": 1.0, "lease": 1300.0}
+    assert "http" not in str(slow)

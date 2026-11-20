@@ -123,7 +123,8 @@ def build_app(hub: Hub | None = None, *, start_background: bool = True) -> FastA
     @app.get("/v1/ping/timings", tags=["meta"])
     async def ping_timings(request: Request, window: int | None = None) -> dict[str, Any]:
         """Home network only, no sign-in: p50, p95 and the slowest answer per route (route templates only, never an
-        address or an id), and how busy the NAS and the hub are. `window` = only the last that many seconds."""
+        address or an id), and how busy the NAS and the hub are. `window` = only the last that many seconds. `slow`:
+        the last answers over a second with their own steps (Server-Timing names and milliseconds)."""
         from .routes.deps import caller_ip, error
 
         if not hub.is_home(caller_ip(request, hub)):
@@ -132,7 +133,7 @@ def build_app(hub: Hub | None = None, *, start_background: bool = True) -> FastA
         host: HostLoad = app.state.host_load
         return {"since": round(t.since), "version": __version__, "build": os.environ.get("HUB_BUILD"),
                 "host": host.last(), "host_hour": host.hour(),
-                "routes": t.summary(window_s=float(window) if window else None)}
+                "routes": t.summary(window_s=float(window) if window else None), "slow": t.slow()}
 
     @app.get("/v1/hello", tags=["meta"])
     async def hello() -> dict[str, Any]:
