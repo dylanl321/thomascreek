@@ -68,10 +68,10 @@ def test_a_short_stall_keeps_where_the_loop_thread_was(tmp_path):
     dog = Watchdog(tmp_path, exit_fn=lambda: None, clock=clock)
     dog._loop_ident = threading.get_ident()
     dog.last = clock.now
-    clock.now += 1
+    clock.now += 0.5
     dog.sample()
     assert not dog.samples
-    clock.now += 4
+    clock.now += 4.5
     dog.sample()
     dog.sample()  # once per few seconds of one stall
     assert len(dog.samples) == 1

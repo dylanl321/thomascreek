@@ -2,15 +2,15 @@
 
 On Nov 19 the hub stopped taking connections (even on the home network) until it was restarted by hand, and the
 cause was lost with the container's log. Docker's health check marks such a container unhealthy but does not
-restart it. This watchdog runs in its own thread: the event loop ticks a heartbeat every second, and when the
+restart it. This watchdog runs in its own thread: the event loop ticks a heartbeat every half second, and when the
 loop has not ticked for `STALL_S` the watchdog writes every thread's stack (file, line and function only, no
 values) to `<data>/hangs/`, logs it, and exits the process so the container restarts (`restart: unless-stopped`).
 
 The next start logs the newest note as a WARNING, so it shows in the admin page's recent problems.
 
-Shorter stalls are sampled too: when the loop has not ticked for `SAMPLE_S`, the loop thread's stack is kept (at
-most once per `SAMPLE_S` of one stall) in a short in-memory list, which a caller on the home network reads at
-`/v1/ping/stalls` while the hub is answering again. That names what blocks the hub for seconds at a time.
+Shorter stalls are sampled too: when the loop has not ticked for `SAMPLE_S` (half a second late or more), the loop
+thread's stack is kept (at most once per `SAMPLE_S` of one stall) in a short in-memory list, which a caller on the
+home network reads at `/v1/ping/stalls` while the hub is answering again. That names what blocks the hub.
 """
 
 from __future__ import annotations
@@ -30,10 +30,13 @@ from pathlib import Path
 
 log = logging.getLogger("hub.watchdog")
 
-BEAT_S = 1.0  # well under SAMPLE_S, so an idle loop between beats is not mistaken for a stall
+BEAT_S = 0.5  # well under SAMPLE_S, so an idle loop between beats is not mistaken for a stall
 STALL_S = 120.0  # longer than the slowest known step on the loop (a cold catalog parse took about 15 s)
 KEEP = 5
-SAMPLE_S = 3.0
+# A stall this long is sampled. The loop beats every BEAT_S, so 1 s means it was held half a second or more:
+# blocks of 0.5 to 3 s went unseen while phone plays took 2 to 6 s (Nov 20 2026).
+SAMPLE_S = 1.0
+POLL_S = 0.25
 SAMPLES = 40
 EXIT_CODE = 70
 # A thread whose innermost frame is one of these is waiting, not working.
@@ -92,7 +95,7 @@ class Watchdog:
 
     # -- the watching thread ---------------------------------------------------------------------------------------
     def _watch(self) -> None:
-        while not self._stop.wait(min(self.beat_s, 1.0)):
+        while not self._stop.wait(min(self.beat_s, POLL_S)):
             self.sample()
             if self.check():
                 return

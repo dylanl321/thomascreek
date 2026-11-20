@@ -395,6 +395,10 @@ class DB:
         self._readers = threading.local()
         with self._lock:
             self._conn.execute("PRAGMA journal_mode=WAL")
+            # In WAL mode NORMAL is SQLite's own advice: the database is never corrupted, and only the last commits
+            # before a power cut can be lost. FULL synced the disk on every commit, and a play makes several
+            # (lease, title, log) while the NAS is busy (Nov 20 2026).
+            self._conn.execute("PRAGMA synchronous=NORMAL")
             self._conn.execute("PRAGMA foreign_keys=ON")
             for stmt in SCHEMA:
                 self._conn.execute(stmt)
