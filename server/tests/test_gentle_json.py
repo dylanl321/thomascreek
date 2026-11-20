@@ -153,3 +153,25 @@ def test_a_read_does_not_wait_for_another_threads_transaction(tmp_path):
     assert time.monotonic() - started < 1
     done.set()
     writer.join()
+
+
+def test_setting_stamps_live_apart_from_the_values(tmp_path):
+    """A stamp is read from its own small table: in hub_kv it sits after the value, and reading it walked a
+    several-MB value's pages (0.3 s per read of the folded catalog's stamp, Nov 20 2026)."""
+    from hub.db import DB
+
+    path = tmp_path / "hub.db"
+    db = DB(path)
+    assert db.kv_stamp("big") is None
+    db.kv_set_text("big", json.dumps({"items": ["x" * 100] * 1000}))
+    first = db.kv_stamp("big")
+    assert first is not None
+    time.sleep(0.01)
+    db.kv_set("big", {"items": []})
+    assert db.kv_stamp("big") > first
+    assert db.kv_get("big") == {"items": []}
+    db.kv_delete("big")
+    assert db.kv_stamp("big") is None and db.kv_get("big") is None
+    # A row saved before the stamps table existed gets its stamp when the hub starts.
+    db.execute("INSERT INTO hub_kv (key, value, updated_at) VALUES ('old', '1', 42.0)")
+    assert DB(path).kv_stamp("old") == 42.0

@@ -255,6 +255,14 @@ SCHEMA = [
         value TEXT NOT NULL,
         updated_at REAL NOT NULL
     )""",
+    # When each hub_kv row last changed, kept apart from the value. In hub_kv `updated_at` sits after `value`, so
+    # SQLite walked the whole overflow chain of a several-MB value to read it: 0.3 s per stamp of the folded
+    # catalog, read four to six times per episode play (Nov 20 2026). `kv_set_text` writes both in one transaction.
+    """
+    CREATE TABLE IF NOT EXISTS hub_kv_stamps (
+        key TEXT PRIMARY KEY,
+        updated_at REAL NOT NULL
+    )""",
     # One row per series, film or episode page the hub read from a provider (hub/tvcatalog.py `_details`). It was
     # one JSON file rewritten whole for every page, which held the interpreter for seconds per episode play.
     """
@@ -422,6 +430,9 @@ class DB:
                 if col not in have:
                     self._conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}")
             self._move_watch_history()
+            # Stamps for rows written before the stamps table existed (read once; later writes keep it).
+            self._conn.execute("INSERT OR IGNORE INTO hub_kv_stamps (key, updated_at) SELECT key, updated_at "
+                               "FROM hub_kv WHERE key NOT IN (SELECT key FROM hub_kv_stamps)")
 
     def _move_watch_history(self) -> None:
         """Carry the old "tv.watch" document into watch_history once, then drop it. Runs inside __init__'s lock."""
@@ -444,6 +455,7 @@ class DB:
                                 WATCH_UPSERT,
                                 [str(bucket), kind, str(key), json.dumps(item), float(item.get("last") or 0)])
             self._conn.execute("DELETE FROM hub_kv WHERE key='tv.watch'")
+            self._conn.execute("DELETE FROM hub_kv_stamps WHERE key='tv.watch'")
             self._conn.execute("COMMIT")
         except Exception:
             self._conn.execute("ROLLBACK")
@@ -564,8 +576,8 @@ class DB:
         return json.loads(row["value"]) if row else None
 
     def kv_stamp(self, key: str) -> float | None:
-        """When a setting last changed, without reading its value (some hold large maps)."""
-        row = self.one("SELECT updated_at FROM hub_kv WHERE key=?", [key])
+        """When a setting last changed, without reading its value (some hold large maps): from hub_kv_stamps."""
+        row = self.one("SELECT updated_at FROM hub_kv_stamps WHERE key=?", [key])
         return float(row["updated_at"]) if row else None
 
     def kv_set(self, key: str, value: Any) -> None:
@@ -573,8 +585,27 @@ class DB:
 
     def kv_set_text(self, key: str, text: str) -> None:
         """`kv_set` with the value already written as JSON (a big one is written gently, see `gentlejson.dumps`)."""
-        self.execute("INSERT INTO hub_kv (key, value, updated_at) VALUES (?,?,?) ON CONFLICT(key) DO UPDATE SET "
-                     "value=excluded.value, updated_at=excluded.updated_at", [key, text, time.time()])
+        now = time.time()
+        with self._lock:
+            own = not self._conn.in_transaction
+            if own:
+                self._conn.execute("BEGIN")
+            try:
+                self.execute("INSERT INTO hub_kv (key, value, updated_at) VALUES (?,?,?) ON CONFLICT(key) DO UPDATE "
+                             "SET value=excluded.value, updated_at=excluded.updated_at", [key, text, now])
+                self.execute("INSERT INTO hub_kv_stamps (key, updated_at) VALUES (?,?) ON CONFLICT(key) DO UPDATE "
+                             "SET updated_at=excluded.updated_at", [key, now])
+                if own:
+                    self._conn.execute("COMMIT")
+            except Exception:
+                if own:
+                    self._conn.execute("ROLLBACK")
+                raise
+
+    def kv_delete(self, key: str) -> None:
+        with self._lock:
+            self.execute("DELETE FROM hub_kv WHERE key=?", [key])
+            self.execute("DELETE FROM hub_kv_stamps WHERE key=?", [key])
 
     # -- people ----------------------------------------------------------
     def person(self, person_id: str | None) -> dict[str, Any] | None:
