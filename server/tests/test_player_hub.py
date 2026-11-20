@@ -529,3 +529,17 @@ def test_a_kids_tv_is_only_offered_kids_titles_next_and_in_its_queue(hub, home_c
     # The same ids under "Drama Show": the kids' TV is refused the episode, so it learns no "next".
     _two_episodes(hub, "series:thomas-creek:51")
     assert home_client.get(url, headers=tv).status_code == 404
+
+
+def test_next_episode_sees_an_episode_added_after_the_first_lookup():
+    from types import SimpleNamespace
+
+    from hub.playernext import next_episode
+
+    doc = {"episodes": {"ep:a:1": {"id": "ep:a:1", "series_id": "series:a:9", "season": 1, "number": 1}}}
+    cat = SimpleNamespace(_details=lambda: doc, _details_loaded=((1, 1), doc), _art=lambda *_a: None,
+                          episode=lambda _i: {"kids": True})
+    assert next_episode(cat, "ep:a:1") is None
+    doc["episodes"]["ep:a:2"] = {"id": "ep:a:2", "series_id": "series:a:9", "season": 1, "number": 2}
+    cat._details_loaded = ((2, 2), doc)  # a write changes the file's stamp
+    assert next_episode(cat, "ep:a:1")["episode_id"] == "ep:a:2"

@@ -6,7 +6,27 @@ season, and a kids-only caller is only offered a kids' episode. Screens draw `ne
 from __future__ import annotations
 
 import re
+import threading
 from typing import Any
+
+# Episodes by series, built once per version of the catalog's episode pages (the details file's stamp, which every
+# write changes; writers change the dict in place). Finding the next one walked every episode the hub ever read,
+# on each episode play (Nov 20 2026).
+_BY_SERIES: dict[str, Any] = {"mark": None, "map": {}}
+_LOCK = threading.Lock()
+
+
+def _series_episodes(cat: Any, episodes: dict[str, Any], series_id: str) -> list[dict[str, Any]]:
+    loaded = getattr(cat, "__dict__", {}).get("_details_loaded")
+    mark = (id(episodes), len(episodes), loaded[0] if isinstance(loaded, tuple) and loaded else None)
+    with _LOCK:
+        if _BY_SERIES["mark"] != mark or mark[2] is None:
+            by: dict[str, list[dict[str, Any]]] = {}
+            for ep in episodes.values():
+                if isinstance(ep, dict) and ep.get("series_id") and ep.get("id"):
+                    by.setdefault(str(ep["series_id"]), []).append(ep)
+            _BY_SERIES["mark"], _BY_SERIES["map"] = mark, by
+        return list(_BY_SERIES["map"].get(str(series_id)) or [])
 
 
 def _order(ep: dict[str, Any]) -> tuple[int, int]:
@@ -42,9 +62,8 @@ def next_episode(cat: Any, episode_id: str, *, kids_only: bool = False) -> dict[
         return None
     series_id = current["series_id"]
     here = _order(current)
-    later = [ep for ep in episodes.values()
-             if isinstance(ep, dict) and ep.get("series_id") == series_id and ep.get("id")
-             and _order(ep) > here and (ep.get("season") != 0 or current.get("season") == 0)]
+    later = [ep for ep in _series_episodes(cat, episodes, series_id)
+             if _order(ep) > here and (ep.get("season") != 0 or current.get("season") == 0)]
     if not later:
         return None
     nxt = min(later, key=_order)

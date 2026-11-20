@@ -16,12 +16,15 @@ from __future__ import annotations
 
 import collections
 import os
+import re
 import threading
 import time
 from typing import Any, Callable
 
 KEEP = 500
 SLOW_MS = 1000.0
+SLOW_KEEP = 40
+_PART = re.compile(r"^([A-Za-z][\w.-]{0,40});dur=(\d+(?:\.\d+)?)$")
 HOST_EVERY_S = 10.0
 
 
@@ -40,11 +43,18 @@ class Timings:
         self._rows: dict[str, collections.deque[tuple[float, float, int]]] = {}
         self._count: collections.Counter[str] = collections.Counter()
         self._slow: collections.Counter[str] = collections.Counter()
+        # The step times (`Server-Timing` names and milliseconds, never a value) of the last slow answers, so a
+        # slow route says which of its steps was slow without a log (Nov 20 2026, phone plays over a second).
+        self._slow_parts: collections.deque[dict[str, Any]] = collections.deque(maxlen=SLOW_KEEP)
         self.since = clock()
 
-    def record(self, method: str, route: str, ms: float, status: int) -> None:
+    def record(self, method: str, route: str, ms: float, status: int, parts: str | None = None) -> None:
         key = f"{method} {route}"
+        steps = _steps(parts) if parts and ms >= SLOW_MS else None
         with self._lock:
+            if steps:
+                self._slow_parts.append({"at": round(self._clock()), "method": method, "route": route,
+                                         "ms": round(ms), "steps": steps})
             rows = self._rows.get(key)
             if rows is None:
                 rows = self._rows[key] = collections.deque(maxlen=self.keep)
@@ -77,6 +87,22 @@ class Timings:
         return out
 
 
+    def slow(self) -> list[dict[str, Any]]:
+        """The last slow answers that named their steps, newest first."""
+        with self._lock:
+            return list(self._slow_parts)[::-1]
+
+
+def _steps(header: str) -> dict[str, float]:
+    """`a;dur=12, b;dur=900` -> {a: 12, b: 900}. Only a step's name and its time are kept."""
+    out: dict[str, float] = {}
+    for part in header.split(","):
+        found = _PART.match(part.strip())
+        if found:
+            out[found.group(1)] = float(found.group(2))
+    return out
+
+
 def _route_of(scope: dict[str, Any]) -> str:
     route = scope.get("route")
     path = getattr(route, "path", None) or getattr(route, "path_format", None)
@@ -107,15 +133,17 @@ class TimingMiddleware:
                 status = int(message.get("status") or 0)
                 headers = list(message.get("headers") or [])
                 total = f"total;dur={ms:.0f}".encode()
+                parts: str | None = None
                 for i, (k, v) in enumerate(headers):
                     if k.lower() == b"server-timing":
+                        parts = v.decode("latin-1")
                         headers[i] = (k, v + b", " + total)
                         break
                 else:
                     headers.append((b"server-timing", total))
                 message = {**message, "headers": headers}
                 try:
-                    self.timings.record(scope.get("method", "GET"), _route_of(scope), ms, status)
+                    self.timings.record(scope.get("method", "GET"), _route_of(scope), ms, status, parts)
                 except Exception:  # noqa: BLE001 - timing must never break an answer
                     pass
             await send(message)
