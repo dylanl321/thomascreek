@@ -508,6 +508,24 @@ async def phone_subtitle_file(file_id: str, episode_id: str | None = None, movie
     return Response(text, media_type="text/vtt; charset=utf-8", headers={"Cache-Control": "private, max-age=86400"})
 
 
+@router.get("/next")
+async def phone_next(episode_id: str, person: str | None = None, c: Caller = Depends(caller),
+                     h: Hub = Depends(hub)) -> dict[str, Any]:
+    """The episode after `episode_id`, for a player that did not start through `/play` (the TVs):
+    `{"next": {episode_id, series_id, title, season?, number?, still_url?}}`, or `{}` at the end of the series.
+    The same pick and the same kids' rule as `next` on a play answer."""
+    from ..playernext import next_episode
+
+    await _ready(h)
+    title_id, _row, _series = _subtitle_title(h, c, episode_id, None, person)
+    if getattr(c.subject, "tv", False):
+        kids_only = _media(h, c)
+    else:
+        kids_only = watcher(h, c, person[:64] if person else None)[1]
+    nxt = await asyncio.to_thread(next_episode, h.tv_catalog, title_id, kids_only=kids_only)
+    return {"next": nxt} if nxt else {}
+
+
 @router.get("/thumbs")
 async def phone_thumbs(episode_id: str | None = None, movie_id: str | None = None, person: str | None = None,
                        c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
@@ -549,8 +567,13 @@ class QueueChange(BaseModel):
 
 def _queue_of(h: Hub, c: Caller, person: str | None) -> tuple[str, Any]:
     """Whose queue this is, and the rule for what they may see in it."""
-    who, kids_only = watcher(h, c, person)
-    owner = who_key(person=who) or f"phone:{c.device['id']}"
+    if getattr(c.subject, "tv", False):
+        # A TV: the queue of whoever is watching it, or the TV's own when nobody is picked.
+        kids_only, who = _media(h, c), c.subject.person_id
+        owner = who_key(person=who, tv=str(c.subject.tv_id)) or "tv"
+    else:
+        who, kids_only = watcher(h, c, person)
+        owner = who_key(person=who) or f"phone:{c.device['id']}"
 
     def allowed(row: dict[str, Any]) -> bool:
         return not kids_only or (bool(row.get("kids")) and _level_allows(h, c, who, row))
