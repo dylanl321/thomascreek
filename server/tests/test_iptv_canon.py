@@ -275,3 +275,29 @@ async def test_a_batch_of_model_answers_writes_the_state_once(hub, monkeypatch):
     assert result == {"folded": 3, "apart": 3, "left": 0}
     assert writes.count(KV) == 1
     assert iptvcanon.unsure(db)["total"] == 0
+
+
+async def test_the_matcher_reads_the_saved_state_once_a_batch_not_once_a_pair(hub, monkeypatch):
+    """The live state is several MB; each parse held the interpreter lock 3 to 4 s and the matcher parsed it once
+    per waiting pair (Nov 20 2026)."""
+    from hub import iptvcanon
+    hub.tv_catalog.ingest(vod=[
+        {"stream_id": 1, "name": "Heist (2001)", "category_id": "1"},
+        {"stream_id": 2, "name": "Heist", "category_id": "2"},
+        {"stream_id": 3, "name": "Seven Samurai", "year": "1954"}, {"stream_id": 4, "name": "Seven Samurai"},
+        {"stream_id": 5, "name": "Dancer In The Dark", "year": "2000"}, {"stream_id": 6, "name": "Dancer in the Dark"},
+    ], vod_categories=[{"category_id": "1", "category_name": "Movies"}, {"category_id": "2", "category_name": "4K"}],
+        live=[], live_categories=[], series=[], series_categories=[])
+    iptvcanon.index(hub.db)
+    parses = []
+    real = iptvcanon._state
+    monkeypatch.setattr(iptvcanon, "_state", lambda db: parses.append(1) or real(db))
+    seen: list = []
+
+    async def ask(_hub, pairs):
+        seen.extend(pairs)
+        return {}
+
+    await iptvcanon.settle(hub, ask=ask, force=True)
+    assert len(seen) == 3 and all(pair.get("left_info") for pair in seen)
+    assert parses == []

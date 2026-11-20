@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from fastapi import APIRouter, Depends
@@ -24,7 +25,7 @@ async def catalog(q: str = "", kind: str | None = None, c: Caller = Depends(call
 @router.get("/unsure")
 async def catalog_unsure(c: Caller = Depends(caller), h=Depends(hub)) -> dict[str, Any]:
     need(h, c, "systems")
-    return unsure(h.db)
+    return await asyncio.to_thread(unsure, h.db)
 
 
 @router.post("/merge")
@@ -33,7 +34,7 @@ async def catalog_merge(body: dict[str, Any], c: Caller = Depends(caller), h=Dep
     ids = body.get("ids")
     if not isinstance(ids, list) or len(ids) < 2:
         raise error(400, "bad_request", "Name the two titles to fold together.")
-    result = merge(h.db, [str(item) for item in ids])
+    result = await asyncio.to_thread(merge, h.db, [str(item) for item in ids])
     if not result:
         raise error(404, "not_found", "That title isn't in the catalog.")
     return result
@@ -47,7 +48,7 @@ async def catalog_split(body: dict[str, Any], c: Caller = Depends(caller), h=Dep
     stream_id = str(body.get("stream_id") or "")
     if not item_id or not provider or not stream_id:
         raise error(400, "bad_request", "Name the title and the copy to separate.")
-    result = split(h.db, item_id, provider, stream_id)
+    result = await asyncio.to_thread(split, h.db, item_id, provider, stream_id)
     if not result:
         raise error(404, "not_found", "That title isn't in the catalog.")
     return result

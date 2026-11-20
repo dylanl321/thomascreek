@@ -158,10 +158,11 @@ def copies(db: Any) -> dict[str, Any]:
 
 
 def unsure(db: Any, limit: int | None = 20) -> dict[str, Any]:
-    """Pairs still waiting for an answer. A pair already folded, kept apart or gone is left out."""
-    state = _state(db)
-    items = {item["id"]: item for item in _items(db)}
-    rows = _open_pairs(list(state.get("unsure") or []), items, dict(state.get("by_source") or {}), _ai(db))
+    """Pairs still waiting for an answer. A pair already folded, kept apart or gone is left out. Read from the
+    cached index: parsing the several-MB state here, twice per call, held the interpreter lock 3 to 4 s while the
+    matcher ran (Nov 20 2026)."""
+    found = index(db)
+    rows = _open_pairs(list(found.unsure), found.by_id, found.by_source, _ai(db))
     return {"unsure": rows[:limit] if limit else rows, "total": len(rows)}
 
 
@@ -331,6 +332,7 @@ class Index:
             for source in item.get("sources") or []:
                 if isinstance(source, dict) and source.get("ref"):
                     self.by_ref.setdefault(str(source["ref"]), item)
+        self.unsure: list[dict[str, Any]] = [row for row in (state.get("unsure") or []) if isinstance(row, dict)]
         self._titles: dict[tuple[str, str], list[dict[str, Any]]] | None = None
 
     def by_title(self, kind: str, key: str) -> list[dict[str, Any]]:
@@ -587,8 +589,7 @@ async def settle(hub: Any, *, ask: Any = None, now: float | None = None, force: 
     folded = apart = 0
     catalog = getattr(hub, "tv_catalog", None)
     for start in range(0, len(waiting), BATCH):
-        batch = await asyncio.to_thread(lambda part: [_with_context(db, catalog, row) for row in part],
-                                        waiting[start:start + BATCH])
+        batch = await asyncio.to_thread(_with_contexts, db, catalog, waiting[start:start + BATCH])
         decisions = await ask(hub, batch)
         for row in batch:
             asked[row["id"]] = now
@@ -611,14 +612,35 @@ def _cap(hub: Any) -> int:
     return int(cfg.daily_tokens) if cfg else 20000
 
 
-def _with_context(db: Any, catalog: Any, row: dict[str, Any]) -> dict[str, Any]:
-    items = {item["id"]: item for item in _items(db)}
+def _with_contexts(db: Any, catalog: Any, batch: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """`_with_context` for a batch, reading the folded titles and the catalog once. Each pair used to parse the
+    whole several-MB state and rebuild the catalog maps: 25 parses a batch, each holding the interpreter lock for
+    seconds (Nov 20 2026)."""
+    items = index(db).by_id
     doc = catalog.load() if catalog is not None else {}
     details = catalog._details() if catalog is not None and hasattr(catalog, "_details") else {}
-    bucket = "series" if row.get("kind") == "series" else "movies" if row.get("kind") == "movie" else "channels"
-    ref_key = "key" if bucket == "channels" else "id"
-    rows = {str(r.get(ref_key)): r for r in doc.get(bucket) or [] if isinstance(r, dict)}
-    more = (details.get(bucket) or {}) if isinstance(details, dict) else {}
+    maps: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {}
+    out = []
+    for row in batch:
+        bucket = _catalog_bucket(row)
+        if bucket not in maps:
+            ref_key = "key" if bucket == "channels" else "id"
+            maps[bucket] = ({str(r.get(ref_key)): r for r in doc.get(bucket) or [] if isinstance(r, dict)},
+                            (details.get(bucket) or {}) if isinstance(details, dict) else {})
+        out.append(_context(items, *maps[bucket], row))
+    return out
+
+
+def _catalog_bucket(row: dict[str, Any]) -> str:
+    return "series" if row.get("kind") == "series" else "movies" if row.get("kind") == "movie" else "channels"
+
+
+def _with_context(db: Any, catalog: Any, row: dict[str, Any]) -> dict[str, Any]:
+    return _with_contexts(db, catalog, [row])[0]
+
+
+def _context(items: dict[str, dict[str, Any]], rows: dict[str, Any], more: dict[str, Any],
+             row: dict[str, Any]) -> dict[str, Any]:
 
     def info(item_id: str) -> tuple[list[dict[str, Any]], set[str]]:
         out, providers = [], set()
