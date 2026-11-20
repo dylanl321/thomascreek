@@ -465,3 +465,29 @@ def test_the_night_job_gives_way_the_moment_someone_plays(hub, people, monkeypat
     seen["hub"] = hub
     assert asyncio.run(playerthumbs.make(hub, folder, "vod:thomas-creek:100")) == "failed"
     assert playerthumbs.wanted(hub) == [] and iptvplay.accounts(hub)["sessions"] == []
+
+
+def test_queue_and_next_episode_show_clean_names_not_the_providers():
+    from hub import playerqueue
+    from hub.playernext import episode_name
+
+    assert episode_name("EN - Cartoon Show (2009) - S01E02 - Second", 2) == "Second"
+    assert episode_name("Cartoon Show S01 E03", 3) == "Episode 3"
+    assert episode_name("Second") == "Second"
+    assert episode_name(None) == "Episode"
+
+    class Cat:
+        def episode(self, key):
+            return {"title": "EN - Cartoon Show (2009) - S01E02 - Second", "series_id": "series:p:5", "season": 1,
+                    "number": 2, "series_name": "EN - Cartoon Show (2009)"}
+
+        def movie(self, key):
+            return {"name": "NF - Kids Movie (2023)", "year": 2023}
+
+        def _art(self, kind, key):
+            return f"/v1/tv/art/{kind}/x" if kind == "poster" and key else None
+
+    episode, film = playerqueue.present(Cat(), ["ep:p:9", "vod:p:1"], lambda row: True)
+    assert (episode["title"], episode["subtitle"]) == ("Second", "Cartoon Show")
+    assert episode["image_url"] == "/v1/tv/art/poster/x"      # no still: the series' poster
+    assert film["title"] == "Kids Movie"

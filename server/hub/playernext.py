@@ -5,6 +5,7 @@ season, and a kids-only caller is only offered a kids' episode. Screens draw `ne
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 
@@ -12,6 +13,24 @@ def _order(ep: dict[str, Any]) -> tuple[int, int]:
     def whole(value: object) -> int:
         return int(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else 10**6
     return whole(ep.get("season")), whole(ep.get("number"))
+
+
+_MARK = re.compile(r"\bS\d{1,2}\s*[.\-]?\s*E\d{1,4}\b[\s\-\u2013:.)\]]*", re.I)
+
+
+def episode_name(raw: object, number: object = None) -> str:
+    """An episode's own name from what the provider calls it: "EN - Show (2009) - S01E02 - Second" is "Second".
+    A name with no episode mark is cleaned like a title; one with nothing after the mark is "Episode 2"."""
+    from .tvnames import title
+
+    text = str(raw or "").strip()
+    mark = _MARK.search(text)
+    if mark:
+        rest = text[mark.end():].strip()
+        if rest:
+            return rest[:120]
+        return f"Episode {number}" if isinstance(number, int) else "Episode"
+    return str(title(text).get("name") or text or "Episode")[:120]
 
 
 def next_episode(cat: Any, episode_id: str, *, kids_only: bool = False) -> dict[str, Any] | None:
@@ -32,7 +51,7 @@ def next_episode(cat: Any, episode_id: str, *, kids_only: bool = False) -> dict[
     if kids_only and not (cat.episode(str(nxt["id"])) or {}).get("kids"):
         return None
     out: dict[str, Any] = {"episode_id": nxt["id"], "series_id": series_id,
-                           "title": nxt.get("title") or "Next episode"}
+                           "title": episode_name(nxt.get("title"), nxt.get("number"))}
     for field in ("season", "number"):
         if isinstance(nxt.get(field), int):
             out[field] = nxt[field]
