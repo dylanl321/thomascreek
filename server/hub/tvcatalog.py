@@ -227,28 +227,58 @@ class TvCatalog:
         return cached is not None and cached[0] == (stat.st_mtime_ns, stat.st_size)
 
     def _details(self) -> dict[str, Any]:
-        """Every fetched page and episode, parsed once per file change like `load` (the file grows with every
-        series opened, and play, Continue watching and art read it on each call). Writers change it and then
-        `_write_details` it, which changes the file and so the stamp."""
-        try:
-            stat = self.details_path.stat()
-        except OSError:
-            return {"series": {}, "movies": {}, "episodes": {}}
-        stamp = (stat.st_mtime_ns, stat.st_size)
-        cached = getattr(self, "_details_loaded", None)
-        if cached is not None and cached[0] == stamp:
-            return cached[1]
+        """Every fetched page and episode: {"series", "movies", "episodes"}, each id -> page. Read once from the
+        database (the `tv_details` table) and kept; `_save_details` adds pages as a new document and saves only
+        those rows. Callers read it and must not change it.
+
+        Before Nov 20 2026 this was one JSON file rewritten whole for every page opened, which held the interpreter
+        for seconds on each episode play; the file is moved into the table once and kept as it was."""
+        cached = self.__dict__.get("_details_doc")
+        if cached is not None:
+            return cached
+        with self.__dict__.setdefault("_details_lock", threading.Lock()):
+            cached = self.__dict__.get("_details_doc")
+            if cached is not None:
+                return cached
+            doc: dict[str, Any] = {"series": {}, "movies": {}, "episodes": {}}
+            stored = hasattr(self.db, "details_rows")
+            rows = self.db.details_rows() if stored else []
+            for n, (bucket, key, text) in enumerate(rows, 1):
+                try:
+                    doc.setdefault(bucket, {})[key] = json.loads(text)
+                except ValueError:
+                    continue
+                if not n % 256:
+                    time.sleep(0)  # let the loop run between pages
+            if not rows:
+                old = self._details_file()
+                if old:
+                    doc = old
+                    if stored:
+                        self.db.details_put([(bucket, str(key), json.dumps(page))
+                                             for bucket, pages in old.items() if isinstance(pages, dict)
+                                             for key, page in pages.items()])
+            self._keep_details(doc)
+            return doc
+
+    def _details_file(self) -> dict[str, Any] | None:
+        """The old details file, read once to move it into the database."""
         try:
             doc = gentlejson.loads(self.details_path.read_text())
-        except (OSError, json.JSONDecodeError):
-            return {"series": {}, "movies": {}, "episodes": {}}
+        except (OSError, ValueError):
+            return None
         if not isinstance(doc, dict):
-            return {"series": {}, "movies": {}, "episodes": {}}
-        doc.setdefault("series", {})
-        doc.setdefault("movies", {})
-        doc.setdefault("episodes", {})
-        self._details_loaded = (stamp, doc)
+            return None
+        for bucket in ("series", "movies", "episodes"):
+            if not isinstance(doc.get(bucket), dict):
+                doc[bucket] = {}
         return doc
+
+    def _keep_details(self, doc: dict[str, Any]) -> None:
+        self._details_doc = doc
+        self._details_version = self.__dict__.get("_details_version", 0) + 1
+        # What playernext.py keys its episode index on: changes with every save.
+        self._details_loaded = (("db", self._details_version), doc)
 
     def _write(self, doc: dict[str, Any]) -> None:
         _atomic_write(self.path, json.dumps(doc))
@@ -299,13 +329,6 @@ class TvCatalog:
         doc = self.load()
         if doc and self.snapshot_stamp() == stamp:
             self._build_index(doc, stamp)
-
-    def _write_details(self, doc: dict[str, Any]) -> None:
-        # Written a page at a time (gentlejson): one `json.dumps` of the whole file holds the interpreter lock, so
-        # the loop stood still while a worker wrote it.
-        _atomic_write(self.details_path, gentlejson.dumps(doc))
-        stat = self.details_path.stat()
-        self._details_loaded = ((stat.st_mtime_ns, stat.st_size), doc)
 
     def _overlay(self) -> dict[str, dict[str, Any]]:
         raw = self.db.kv_get("tvapp.lineup") or {}
@@ -909,20 +932,25 @@ class TvCatalog:
         return self._present_movie(record)
 
     def _save_details(self, **added: dict[str, Any]) -> None:
-        """Add pages to the details file as a new document: readers iterating the one they hold (next episode, new for
-        you, art) never see it change under them, so the write can run off the loop. Writing the whole file held the
-        loop for each series or film page opened (Nov 20 2026: phone plays waited a second or more behind it)."""
+        """Add pages as a new document, saving only their rows: readers iterating the one they hold (next episode, new
+        for you, art) never see it change under them. Writing the whole file for each page opened held the loop and
+        then the interpreter for seconds (Nov 20 2026: phone episode plays took 4 to 6 s)."""
         with self.__dict__.setdefault("_store_lock", threading.Lock()):
             current = self._details()
             doc = dict(current)
             for bucket, rows in added.items():
                 doc[bucket] = {**(current.get(bucket) or {}), **rows}
-            self._write_details(doc)
+            if hasattr(self.db, "details_put"):
+                self.db.details_put([(bucket, str(key), json.dumps(page))
+                                     for bucket, rows in added.items() for key, page in rows.items()])
+            self._keep_details(doc)
 
     # -- fetch -----------------------------------------------------------------------------------------------------
     async def ensure(self) -> dict[str, Any]:
         # The first call after a start parses the snapshot: off the loop, or every other call waits behind it.
         doc = self.load() if self.parsed() else await asyncio.to_thread(self.load)
+        if "_details_doc" not in self.__dict__:
+            await asyncio.to_thread(self._details)  # the saved pages too, the first time
         now = time.time()
         lists_ok = bool(doc) and now - float(doc.get("fetched_at") or 0) < LIST_TTL_S
         guide_ok = (now - float(doc.get("guide_at") or 0) < GUIDE_TTL_S
