@@ -16,6 +16,7 @@ magical, not just work: nothing blank, no dead taps, the right thing already on 
 | Hub | `server/` | The one brain. Holds every secret, every list and every decision about what a person sees. |
 | iPhone and iPad app | `ios/` | Remote, planner and window onto the same home the TVs show. |
 | TV apps | `dylanl321/thomascreek-tv` | Android TV and Apple TV. They draw what the hub sends and play it. |
+| Media app for phones and tablets | `dylanl321/thomascreek-tv` | Android phone (`phone/`) and iPhone and iPad (`iphone/`), kept in step with each other. The same library away from home. |
 
 ## The rules
 
@@ -46,6 +47,16 @@ magical, not just work: nothing blank, no dead taps, the right thing already on 
     page. A log line never carries a key, token, password or a provider address (they carry credentials).
     This repository is public: no team ids, bundle ids tied to a person, or first names in sample data.
 
+## Three products, each kept in step
+
+The home app (`ios/` here), the media app for phones and tablets (Android phone and iPhone, in the TV
+repository) and the TV app (Android TV and Apple TV). The two TV apps move together, and so do the two phone
+apps: the TV repository's `AGENTS.md` has both rules ("Change one TV, check the other", "Change one phone, check
+the other") and a check that enforces them. The home app keeps the house, the remote, Send to TV and guide
+editing, and hands watching on the phone over to the media app; do not grow a second media app inside it.
+A hub route a phone uses works the same for the Android phone and the iPhone: no platform checks, only who
+the caller is.
+
 ## One feature, one path
 
 1. **Hub**: the endpoint or field, with tests in `server/tests`. Deployed before an app reads it.
@@ -64,8 +75,10 @@ here behind an endpoint.
 
 - A provider stream address is handed out only through `/v1/tv/stream/<session>`, to the TV that holds the
   session. TVs resolve that redirect themselves so the hub bearer never reaches the provider. The one other
-  route is the Android travel phone's `/v1/tv/phone/play` with `direct: true` (Dylan, Nov 2026): the address
-  goes only to that signed-in phone, is never logged, and its login is leased like a TV's.
+  route is `/v1/tv/phone/play` with `direct: true` on a grown-up's own phone: the Android travel phone (Dylan,
+  Nov 2026) and the iPhone and iPad media app (Dylan, Nov 20 2026). The address goes only to that signed-in
+  admin's or adult's phone, is never logged, and its login is leased like a TV's. A child, a guest or a kids'
+  device that asks for `direct` is relayed by the hub instead and never sees the address.
 - A grown-up's own phone (admin or adult, never a TV, a child or a kids' device) may read film and series lists,
   pages and episodes straight from the provider (Dylan, Nov 19 2026: "fine for our highly controlled list of
   devices connected to the home"). It gets the logins from `GET /v1/tv/phone/logins`, keeps them in memory

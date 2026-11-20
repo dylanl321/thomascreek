@@ -109,6 +109,36 @@ def test_direct_play_keeps_the_kids_rule(hub, people):
     assert no.status_code == 404 and SERVER not in no.text
 
 
+def test_a_child_never_gets_the_provider_address(hub, people):
+    """A child asking for `direct` still plays, relayed by the hub: the provider address carries a login, and that
+    goes to a grown-up's phone only (the rule `/logins` already keeps). Any player value, any platform."""
+    _library(hub)
+    _login(hub)
+    theo = people["phones"]["Theo"]
+    for player in ("exo", "ks"):
+        got = theo.client.post("/v1/tv/phone/play", headers=theo.h,
+                               json={"movie_id": "vod:thomas-creek:101", "player": player, "direct": True})
+        assert got.status_code == 200, got.text
+        assert SERVER not in got.text and PASSWORD not in got.text
+        body = got.json()
+        assert body["url"].startswith("/v1/tv/phone/file/") and not body.get("direct") and "alternates" not in body
+        theo.client.post("/v1/tv/phone/hold", headers=theo.h, json={"stop": True})
+
+
+def test_a_grown_up_on_an_iphone_plays_direct(hub, people):
+    """The iPhone and iPad media app (`player: "ks"`) gets the same direct play as the Android phone
+    (Dylan, Nov 20 2026), on a login leased to that phone."""
+    _library(hub)
+    _login(hub)
+    dylan = people["phones"]["Dylan"]
+    got = dylan.client.post("/v1/tv/phone/play", headers=dylan.h,
+                            json={"movie_id": "vod:thomas-creek:101", "player": "ks", "direct": True})
+    assert got.status_code == 200, got.text
+    body = got.json()
+    assert body["direct"] is True and body["url"].startswith(SERVER)
+    assert [row for row in hub.db.kv_get("iptv.sessions") or [] if row.get("tv") == f"phone:{dylan.device_id}"]
+
+
 def test_one_login_one_stream_across_phones(hub, people):
     """Relayed or direct, a phone holds the login while it plays; a second player waits until it is freed."""
     _library(hub)

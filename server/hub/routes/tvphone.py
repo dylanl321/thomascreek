@@ -64,6 +64,14 @@ def _stream_id(key: str) -> str:
     return part
 
 
+def _grown_up_phone(c: Caller) -> bool:
+    """Whose device may hold a provider address or login: an admin's or adult's own phone. Never a TV, a child,
+    a guest or a kids' device (the rule `/logins` keeps). Watching as a child on that phone doesn't change it:
+    the address still only reaches the grown-up's phone."""
+    s = c.subject
+    return not getattr(s, "tv", False) and not s.is_child_like and s.role in ("admin", "adult")
+
+
 @router.post("/play")
 async def phone_play(body: dict[str, Any], response: Response, c: Caller = Depends(caller),
                      h: Hub = Depends(hub)) -> dict[str, Any]:
@@ -73,8 +81,9 @@ async def phone_play(body: dict[str, Any], response: Response, c: Caller = Depen
     files only a TV opened before are allowed too. `player: "ks"` says the same for the iPhone and iPad media
     app. Without either, the MP4 rule of Apple's own player holds.
 
-    `direct: true` (optional, the Android travel phone) answers the provider's own address instead of a hub
-    pass: a free login is held for this phone like a TV's, kept by `/hold` and freed by `/hold {"stop":true}`.
+    `direct: true` (optional, a grown-up's Android phone, iPhone or iPad) answers the provider's own address
+    instead of a hub pass: a free login is held for this phone like a TV's, kept by `/hold` and freed by
+    `/hold {"stop":true}`. A child, a guest or a kids' device that asks gets the relayed answer instead.
 
     `person` (optional) is who is watching on a grown-up's phone: one of the children, so only kids' titles play
     and the place is kept for them (see tvguide.watcher).
@@ -117,9 +126,10 @@ async def phone_play(body: dict[str, Any], response: Response, c: Caller = Depen
     allowed = EXO_TYPES if body.get("player") in FULL_PLAYERS else PHONE_TYPES
     if mode != "live" and ext not in allowed:
         raise error(409, "tv_only", "This one only plays on a TV")
-    if body.get("direct") is True and not getattr(c.subject, "tv", False):
-        # Straight from the provider (the travel phone, Dylan's choice Nov 2026): the address carries a login,
-        # so it goes only to this signed-in phone and is never logged.
+    if body.get("direct") is True and _grown_up_phone(c):
+        # Straight from the provider (the Android travel phone, Dylan's choice Nov 2026; a grown-up's iPhone and
+        # iPad too, Nov 20 2026): the address carries a login, so it goes only to this signed-in grown-up's
+        # phone and is never logged. A child, a guest or a kids' device asking for it is relayed instead, below.
         from ..iptvplay import busy_reason, direct_all, holders, read_twins, refresh_usage, warm_twins
 
         holder = f"phone:{c.device['id']}"
@@ -326,7 +336,7 @@ async def phone_logins(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> di
     `series:<id>:<series>`, `ep:<id>:<episode>`), so the phone keeps using the hub's ids for play, Continue
     watching and My list; streams still lease a login through `/play`. The answer carries passwords: it is never
     logged or cached by the hub, and the phone keeps it in memory only."""
-    if getattr(c.subject, "tv", False) or c.subject.is_child_like or c.subject.role not in ("admin", "adult"):
+    if not _grown_up_phone(c):
         raise error(403, "forbidden", "Only a grown-up's phone reads the provider directly. The hub's lists work.")
     cat = h.tv_catalog
     found: list[dict[str, Any]] = []

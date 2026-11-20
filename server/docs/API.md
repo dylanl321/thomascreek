@@ -1237,7 +1237,7 @@ Phone:
 
 ### Watching on the phone (`hub/routes/tvphone.py`)
 
-`POST /v1/tv/phone/play` with one of `{"movie_id"}`, `{"episode_id"}` or `{"channel_key"}`. Same bearer and kids rule as the guide (a child or guest only gets kids' titles; anything else is 404). The answer is `{"url","kind","title","expires_at"}`, where `url` is a hub path with a 6-hour pass in it. The provider login never leaves the hub, and the pass only names the title.
+`POST /v1/tv/phone/play` with one of `{"movie_id"}`, `{"episode_id"}` or `{"channel_key"}`. Same bearer and kids rule as the guide (a child or guest only gets kids' titles; anything else is 404). The answer is `{"url","kind","title","expires_at"}`, where `url` is a hub path with a 6-hour pass in it. The provider login never leaves the hub, and the pass only names the title. The exception is `direct: true` from a grown-up's own phone (Android phone, iPhone or iPad; an admin or adult, never a child, a guest or a kids' device): the answer is then the provider's own address on a login leased to that phone, with `"direct": true`. Anyone else who sends `direct` gets the relayed answer above.
 
 Films and episodes also answer `resume_s` (where this person stopped on any screen, or null), `duration_s` when the catalog knows it, and `series_id` for an episode. Send `start_s` to start from a given second instead ("Continue on iPhone" from a TV's Now playing); it comes back as `resume_s`.
 
