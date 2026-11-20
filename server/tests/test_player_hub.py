@@ -491,3 +491,41 @@ def test_queue_and_next_episode_show_clean_names_not_the_providers():
     assert (episode["title"], episode["subtitle"]) == ("Second", "Cartoon Show")
     assert episode["image_url"] == "/v1/tv/art/poster/x"      # no still: the series' poster
     assert film["title"] == "Kids Movie"
+
+
+def test_a_tv_reads_the_next_episode_and_keeps_a_queue_like_a_phone(hub, home_client, people):
+    from tests.test_tv_who import _tv
+
+    _library(hub)
+    _two_episodes(hub)
+    tv = _tv(hub, home_client)
+    got = home_client.get("/v1/tv/phone/next?episode_id=ep:thomas-creek:900", headers=tv)
+    assert got.status_code == 200, got.text
+    assert got.json()["next"]["episode_id"] == "ep:thomas-creek:901"
+    assert home_client.get("/v1/tv/phone/next?episode_id=ep:thomas-creek:910", headers=tv).json() == {}
+    assert home_client.get("/v1/tv/phone/next?episode_id=ep:thomas-creek:nope", headers=tv).status_code == 404
+    # With nobody picked the TV has its own queue, apart from any person's.
+    added = home_client.post("/v1/tv/phone/queue", headers=tv, json={"add": "vod:thomas-creek:100"})
+    assert added.status_code == 200, added.text
+    assert [i["id"] for i in added.json()["items"]] == ["vod:thomas-creek:100"]
+    dylan = people["phones"]["Dylan"]
+    assert dylan.client.get("/v1/tv/phone/queue", headers=dylan.h).json() == {"items": []}
+    # A phone reads the next episode the same way.
+    assert dylan.client.get("/v1/tv/phone/next?episode_id=ep:thomas-creek:900",
+                            headers=dylan.h).json()["next"]["title"] == "Second"
+
+
+def test_a_kids_tv_is_only_offered_kids_titles_next_and_in_its_queue(hub, home_client, people):
+    from tests.test_tv_who import _tv
+
+    _library(hub)
+    _two_episodes(hub)
+    tv = _tv(hub, home_client, profile="kids")
+    url = "/v1/tv/phone/next?episode_id=ep:thomas-creek:900"
+    # "Cartoon Show" is in Kids: its next episode is offered. An adult film can't be queued from a kids' TV.
+    assert home_client.get(url, headers=tv).json()["next"]["episode_id"] == "ep:thomas-creek:901"
+    assert home_client.post("/v1/tv/phone/queue", headers=tv, json={"add": "vod:thomas-creek:100"}).status_code != 200
+    assert home_client.post("/v1/tv/phone/queue", headers=tv, json={"add": "vod:thomas-creek:101"}).status_code == 200
+    # The same ids under "Drama Show": the kids' TV is refused the episode, so it learns no "next".
+    _two_episodes(hub, "series:thomas-creek:51")
+    assert home_client.get(url, headers=tv).status_code == 404
