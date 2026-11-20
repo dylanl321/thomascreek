@@ -45,6 +45,20 @@ def _pooled(fn: Any) -> Any:
 STEPS: contextvars.ContextVar[dict[str, float] | None] = contextvars.ContextVar("iptvplay_steps", default=None)
 
 
+def collect(steps: dict[str, float]) -> Any:
+    """Start collecting this play's lease steps (and its database waits) in `steps`; returns the reset token."""
+    from .db import LOCK_WAITS
+
+    return STEPS.set(steps), LOCK_WAITS.set(steps)
+
+
+def stop_collecting(tokens: Any) -> None:
+    from .db import LOCK_WAITS
+
+    STEPS.reset(tokens[0])
+    LOCK_WAITS.reset(tokens[1])
+
+
 def _step(name: str, since: float) -> float:
     """Add the milliseconds since `since` to step `name` (when a caller is collecting); the time now."""
     now = time.perf_counter()
@@ -382,8 +396,9 @@ def lease(h: Any, ref: str, holder: str, *, avoid: set[str] | None = None,
     _release_idle(h, now)
     clock = _step("idle", clock)
     _kind, provider, _stream = _split_ref(ref)
-    item = _holding(h, ref) or _episode(h, ref) or {"id": ref, "sources": [{"provider": provider, "ref": ref,
-                                                                              "quality": None}]}
+    item = _holding(h, ref)
+    clock = _step("fold", clock)
+    item = item or _episode(h, ref) or {"id": ref, "sources": [{"provider": provider, "ref": ref, "quality": None}]}
     clock = _step("item", clock)
     mine = {_key(row) for row in _sessions(h) if row.get("tv") == holder}
     _release_tv(h, holder)
@@ -875,17 +890,21 @@ def _episode(h: Any, ref: str) -> dict[str, Any] | None:
     if not ref.startswith("ep:"):
         return None
     catalog = getattr(h, "tv_catalog", None)
+    clock = time.perf_counter()
     try:
         known = catalog.episode(ref) if catalog is not None else None
     except Exception:  # noqa: BLE001 - a catalog read must not stop playback
         known = None
+    clock = _step("ep.row", clock)
     if not known:
         return None
     _kind, provider, _stream = _split_ref(ref)
     sources = [{"provider": provider, "ref": ref, "quality": None,
                 "name": _series_name(h, str(known.get("series_id") or ""))}]
+    clock = _step("ep.name", clock)
     sources += [{"provider": _split_ref(twin)[1], "ref": twin, "quality": None, "name": name}
                 for twin, name in _named_twins(h, known)]
+    _step("ep.twins", clock)
     return {"id": ref, "sources": sources}
 
 

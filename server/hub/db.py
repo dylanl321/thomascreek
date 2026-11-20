@@ -6,6 +6,7 @@ SQLite file on the NAS dataset with WAL mode is plenty and is easy to snapshot.
 
 from __future__ import annotations
 
+import contextvars
 import json
 import sqlite3
 import threading
@@ -390,6 +391,11 @@ def _row(row: sqlite3.Row | None) -> dict[str, Any] | None:
     return out
 
 
+# A caller that wants to know how long its writes waited for the shared connection sets a dict here (the play
+# route does, for its Server-Timing); `execute` adds each wait to "db_wait", in milliseconds.
+LOCK_WAITS: contextvars.ContextVar[dict[str, float] | None] = contextvars.ContextVar("db_lock_waits", default=None)
+
+
 class DB:
     def __init__(self, path: Path | str):
         self._path = str(path)
@@ -497,7 +503,12 @@ class DB:
 
     # -- low level -------------------------------------------------------
     def execute(self, sql: str, args: Iterable[Any] = ()) -> sqlite3.Cursor:
+        started = time.perf_counter()
         with self._lock:
+            waited = time.perf_counter() - started
+            found = LOCK_WAITS.get()
+            if found is not None:
+                found["db_wait"] = round(found.get("db_wait", 0.0) + waited * 1000, 1)
             return self._conn.execute(sql, tuple(args))
 
     def _reader(self) -> sqlite3.Connection | None:
