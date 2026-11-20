@@ -23,6 +23,9 @@ final class BodyTests: XCTestCase {
         "tv_movies": { try self.decoder.decode(TVMoviePage.self, from: $0) },
         "devices_join": { try self.decoder.decode(JoinCode.self, from: $0) },
         "kids_ratings": { try self.decoder.decode(KidRatings.self, from: $0) },
+        "tv_phone_next": { try self.decoder.decode(PlayNextReply.self, from: $0) },
+        "tv_phone_queue": { try self.decoder.decode(PlayQueue.self, from: $0) },
+        "tv_phone_segments": { try self.decoder.decode(PlaySegments.self, from: $0) },
     ]
 
     private func fixtures() throws -> [URL] {
@@ -54,6 +57,23 @@ final class BodyTests: XCTestCase {
         for name in decoders.keys where !names.contains(name) {
             XCTFail("\(name) has a decode test but no fixture")
         }
+    }
+
+    func testThePlayerBodiesKeepWhatTheScreenNeeds() throws {
+        func data(_ name: String) throws -> Data {
+            try Data(contentsOf: try XCTUnwrap(try fixtures().first { $0.lastPathComponent == name + ".json" }))
+        }
+        let next = try XCTUnwrap(try decoder.decode(PlayNextReply.self, from: data("tv_phone_next")).next)
+        XCTAssertTrue(next.episodeId.hasPrefix("ep:"))
+        XCTAssertEqual(next.line, "S1 E2 · Next")
+        let items = try XCTUnwrap(try decoder.decode(PlayQueue.self, from: data("tv_phone_queue")).items)
+        XCTAssertEqual(items.count, 2)
+        XCTAssertFalse(items[0].isEpisode)
+        XCTAssertEqual(items[1].line, "Cartoon Show · S1 E2")
+        // The last episode of a series, and a hub that knows no sections
+        XCTAssertNil(try decoder.decode(PlayNextReply.self, from: Data("{}".utf8)).next)
+        let parts = try decoder.decode(PlaySegments.self, from: Data(#"{"segments":[{"kind":"intro","start_s":12.5,"end_s":70}]}"#.utf8))
+        XCTAssertEqual(parts.segments?.first?.label, "Skip intro")
     }
 
     func testTheFeedKeepsWhatAScreenNeeds() throws {

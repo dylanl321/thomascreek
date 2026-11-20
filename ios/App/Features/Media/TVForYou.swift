@@ -228,26 +228,113 @@ enum PhonePlayback {
     }
 
     static func canPlay(_ request: TVPlayRequest) -> Bool { request.kind != "catchup" }
+
+    // The hub's next episode, the person's "Play next" queue and the Skip sections. Nil: the hub did not answer
+    // (or is an older hub), and the player simply goes without.
+
+    static func next(after episodeId: String?) async -> PlayNextEpisode? {
+        guard let episodeId, !episodeId.isEmpty else { return nil }
+        let reply = try? await HubClient.shared.get("/v1/tv/phone/next", ["episode_id": episodeId], as: PlayNextReply.self)
+        return reply?.next
+    }
+
+    static func queue() async -> [PlayQueueItem]? {
+        let reply = try? await HubClient.shared.get("/v1/tv/phone/queue", as: PlayQueue.self)
+        return reply.map { $0.items ?? [] }
+    }
+
+    /// One change (`add` with `first`, `remove`, `clear`); the new queue, or nil when the hub refused it.
+    static func changeQueue(_ body: [String: Any]) async -> [PlayQueueItem]? {
+        let reply = try? await HubClient.shared.post("/v1/tv/phone/queue", body, as: PlayQueue.self)
+        return reply.map { $0.items ?? [] }
+    }
+
+    static func segments(_ request: TVPlayRequest, duration: Double) async -> [PlaySegment] {
+        var query: [String: String] = [:]
+        if request.kind == "episode" { query["episode_id"] = request.episodeId ?? "" } else { query["movie_id"] = request.movieId ?? "" }
+        if duration.isFinite, duration > 0 { query["duration_s"] = String(Int(duration)) }
+        let reply = try? await HubClient.shared.get("/v1/tv/phone/segments", query, as: PlaySegments.self)
+        return reply?.segments ?? []
+    }
+}
+
+/// "Play next" and "Add to queue" for a film's page or an episode row: the queue is the person's, on the hub.
+@MainActor
+func addToPlayQueue(_ id: String, title: String, first: Bool, store: HomeStore) {
+    Task { @MainActor in
+        var body: [String: Any] = ["add": id]
+        if first { body["first"] = true }
+        if await PhonePlayback.changeQueue(body) != nil {
+            store.show(first ? "Plays next" : "Added to your queue", title)
+        } else {
+            store.show("That couldn't be queued", "Try again in a moment.", isError: true)
+        }
+    }
 }
 
 struct PhoneError: Error { var message: String }
 
 /// Full screen, with the system controls (AirPlay and picture in picture included). Starts where the person
-/// stopped, reports every minute and on close, and can hand the show to a house TV from the same second.
+/// stopped, reports every minute and on close, and can hand the show to a house TV from the same second. For a
+/// library film or episode the hub adds: Skip for the recap, intro and credits it knows, the next episode, and the
+/// person's "Play next" queue, which plays before the next episode.
 struct PhonePlayerView: View {
     var session: PhoneSession
     @Environment(\.dismiss) private var dismiss
     @Environment(HomeStore.self) private var store
+    /// What plays now when it is no longer what the player was opened with (the next episode, a queued title).
+    @State private var followed: PhoneSession?
     @State private var player: AVPlayer?
     @State private var ticker: Any?
+    @State private var clock: Any?
     @State private var choosingTV = false
+    @State private var position: Double = 0
+    @State private var length: Double = 0
+    @State private var segments: [PlaySegment] = []
+    @State private var segmentsAsked = false
+    @State private var next: PlayNextEpisode?
+    @State private var queue: [PlayQueueItem] = []
+    @State private var nextDismissed = false
+    @State private var startedByItself = 0
+    @State private var stillAsking = false
+    @State private var showingQueue = false
+    @State private var problem: String?
+    @State private var run = 0
 
-    private var title: String { session.request.title }
+    private enum Following {
+        case queued(PlayQueueItem)
+        case episode(PlayNextEpisode)
+    }
+
+    private var now: PhoneSession { followed ?? session }
+    private var title: String { now.request.title }
+    private var playingId: String {
+        (now.request.kind == "episode" ? now.request.episodeId : now.request.movieId) ?? ""
+    }
+
+    /// What plays when this one ends: the front of the queue, else the hub's next episode.
+    private var upNext: Following? {
+        guard now.reports else { return nil }
+        if let item = queue.first(where: { $0.id != playingId }) { return .queued(item) }
+        return next.map { .episode($0) }
+    }
+
+    /// The recap, intro or credits the picture is in. No "Skip credits" when something plays next: its card is there.
+    private var skippable: PlaySegment? {
+        segments.first { position >= $0.startS && position < $0.endS - 1 && !($0.kind == "credits" && upNext != nil) }
+    }
+
+    /// The "next" card: from the credits the hub knows, else the last 20 seconds.
+    private var nextCardUp: Bool {
+        guard upNext != nil, !nextDismissed, !stillAsking, length > 0 else { return false }
+        let credits = segments.last { $0.kind == "credits" && $0.startS < length }?.startS
+        return position >= (credits ?? length - 20)
+    }
 
     var body: some View {
         ZStack(alignment: .top) {
             Color.black.ignoresSafeArea()
-            if let player { VideoPlayer(player: player).ignoresSafeArea() } else { ProgressView().tint(.white) }
+            if let player { VideoPlayer(player: player).ignoresSafeArea() } else if problem == nil { ProgressView().tint(.white) }
             HStack {
                 Button { dismiss() } label: {
                     Image(systemName: "xmark").font(.headline).foregroundStyle(.white).padding(12)
@@ -255,7 +342,13 @@ struct PhonePlayerView: View {
                 }
                 .accessibilityLabel("Close \(title)")
                 Spacer()
-                if session.request.kind != "catchup", session.request.plexId == nil {
+                if now.reports {
+                    Button { startedByItself = 0; showingQueue = true } label: {
+                        Label("Up next", systemImage: "list.bullet").font(.subheadline.weight(.semibold)).foregroundStyle(.white)
+                            .padding(.horizontal, 14).frame(minHeight: 44).background(.ultraThinMaterial, in: Capsule())
+                    }
+                }
+                if now.request.kind != "catchup", now.request.plexId == nil {
                     Button { choosingTV = true } label: {
                         Label("Play on a TV", systemImage: "tv").font(.subheadline.weight(.semibold)).foregroundStyle(.white)
                             .padding(.horizontal, 14).frame(minHeight: 44).background(.ultraThinMaterial, in: Capsule())
@@ -263,37 +356,264 @@ struct PhonePlayerView: View {
                 }
             }
             .padding(16)
+            corner
+            if stillAsking { stillWatching }
+            if let problem { failed(problem) }
         }
-        .onAppear(perform: start)
-        .onDisappear(perform: stop)
+        .onAppear(perform: begin)
+        .onDisappear(perform: halt)
+        .onReceive(NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime)) { note in
+            if let item = note.object as? AVPlayerItem, item === player?.currentItem { ended() }
+        }
         .confirmationDialog("Play on a TV", isPresented: $choosingTV, titleVisibility: .visible) {
-            ForEach(store.houseTVs.filter { !($0.profile == "kids" && session.request.kids == false) }) { tv in
+            ForEach(store.houseTVs.filter { !($0.profile == "kids" && now.request.kids == false) }) { tv in
                 Button(tv.name) { moveTo(tv) }
             }
             Button("Cancel", role: .cancel) {}
         } message: { Text("\(title) starts there from this second.") }
+        .sheet(isPresented: $showingQueue) { queueSheet }
         .task { if store.houseTVs.isEmpty { await store.loadHouseTVs() } }
     }
 
-    private func start() {
-        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
-        let p = AVPlayer(url: session.url)
-        player = p
-        if let resume = session.resumeS, resume > 0 {
-            p.seek(to: CMTime(seconds: resume, preferredTimescale: 1), toleranceBefore: .zero, toleranceAfter: .positiveInfinity)
+    // MARK: Skip and what is next
+
+    /// Above the system's time bar, on the right: Skip, or the card for what plays next.
+    @ViewBuilder private var corner: some View {
+        VStack(alignment: .trailing, spacing: 8) {
+            if nextCardUp, let item = upNext {
+                HStack(spacing: 8) {
+                    Button { nextDismissed = true } label: {
+                        Text("Not now").font(.subheadline.weight(.semibold)).foregroundStyle(.white)
+                            .padding(.horizontal, 14).frame(minHeight: 44).background(.ultraThinMaterial, in: Capsule())
+                    }
+                    Button { follow(item, byItself: false) } label: {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(heading(item)).font(.caption.weight(.semibold)).foregroundStyle(.black.opacity(0.7))
+                            Text(name(item)).font(.subheadline.weight(.semibold)).foregroundStyle(.black).lineLimit(1)
+                        }
+                        .padding(.horizontal, 16).frame(minHeight: 48).background(.white, in: RoundedRectangle(cornerRadius: 14))
+                    }
+                    .accessibilityLabel("Play \(name(item)) now")
+                }
+            } else if let part = skippable {
+                Button { skip(part) } label: {
+                    Label(part.label, systemImage: "forward.end.fill").font(.subheadline.weight(.semibold)).foregroundStyle(.black)
+                        .padding(.horizontal, 16).frame(minHeight: 44).background(.white, in: Capsule())
+                }
+            }
         }
-        p.play()
-        guard session.reports else { return }
-        ticker = p.addPeriodicTimeObserver(forInterval: CMTime(seconds: 60, preferredTimescale: 1), queue: .main) { _ in
-            report(p)
+        .padding(.trailing, 16).padding(.bottom, 110)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+    }
+
+    private func heading(_ item: Following) -> String {
+        if case .queued = item { return "From your queue" }
+        return "Next episode"
+    }
+
+    private func name(_ item: Following) -> String {
+        switch item {
+        case .queued(let q): return q.isEpisode ? [q.line, q.title].compactMap { $0 }.joined(separator: " · ") : q.title
+        case .episode(let e): return e.line
         }
     }
 
-    private func stop() {
+    private var stillWatching: some View {
+        VStack(spacing: 14) {
+            Text("Still watching?").font(.title2.weight(.bold)).foregroundStyle(.white)
+            if let item = upNext { Text(name(item)).font(.subheadline).foregroundStyle(.white.opacity(0.75)).lineLimit(1) }
+            HStack(spacing: 10) {
+                Button("Stop") { dismiss() }.buttonStyle(.bordered).tint(.white)
+                Button("Keep watching") {
+                    stillAsking = false
+                    if let item = upNext { follow(item, byItself: false) }
+                }
+                .buttonStyle(.borderedProminent)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.black.opacity(0.75).ignoresSafeArea())
+    }
+
+    private func failed(_ message: String) -> some View {
+        VStack(spacing: 12) {
+            Text("That didn't start").font(.headline).foregroundStyle(.white)
+            Text(message).font(.subheadline).foregroundStyle(.white.opacity(0.75)).multilineTextAlignment(.center)
+            Button("Close") { dismiss() }.buttonStyle(.borderedProminent)
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// The person's queue and the next episode. A tap plays that one now; a swipe takes a title out.
+    private var queueSheet: some View {
+        NavigationStack {
+            List {
+                if queue.isEmpty && next == nil {
+                    Text("Nothing is queued. Play next and Add to queue on a film or an episode put it here, from any screen.")
+                        .font(.subheadline).foregroundStyle(.secondary)
+                }
+                if !queue.isEmpty {
+                    Section("Your queue") {
+                        ForEach(queue) { item in
+                            Button { showingQueue = false; follow(.queued(item), byItself: false) } label: {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(item.title).font(.subheadline.weight(.semibold)).foregroundStyle(.primary)
+                                    if let line = item.line { Text(line).font(.caption).foregroundStyle(.secondary) }
+                                }
+                            }
+                        }
+                        .onDelete { rows in
+                            let ids = rows.map { queue[$0].id }
+                            queue.remove(atOffsets: rows)
+                            Task { @MainActor in
+                                for id in ids { if let left = await PhonePlayback.changeQueue(["remove": id]) { queue = left } }
+                            }
+                        }
+                    }
+                }
+                if let next {
+                    Section("Next episode") {
+                        Button { showingQueue = false; follow(.episode(next), byItself: false) } label: {
+                            Text(next.line).font(.subheadline.weight(.semibold)).foregroundStyle(.primary)
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Up next")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Close") { showingQueue = false } }
+                if !queue.isEmpty {
+                    ToolbarItem(placement: .destructiveAction) {
+                        Button("Clear") {
+                            queue = []
+                            Task { @MainActor in if let left = await PhonePlayback.changeQueue(["clear": true]) { queue = left } }
+                        }
+                    }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    // MARK: Playing
+
+    private func begin() {
+        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
+        let playing = now
+        let p = AVPlayer(url: playing.url)
+        player = p
+        run += 1
+        position = 0
+        length = 0
+        segments = []
+        segmentsAsked = false
+        next = nil
+        nextDismissed = false
+        stillAsking = false
+        problem = nil
+        if let resume = playing.resumeS, resume > 0 {
+            p.seek(to: CMTime(seconds: resume, preferredTimescale: 1), toleranceBefore: .zero, toleranceAfter: .positiveInfinity)
+        }
+        p.play()
+        guard playing.reports else { return }
+        ticker = p.addPeriodicTimeObserver(forInterval: CMTime(seconds: 60, preferredTimescale: 1), queue: .main) { _ in
+            report(p)
+        }
+        clock = p.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.5, preferredTimescale: 10), queue: .main) { time in
+            tick(p, time.seconds)
+        }
+        loadHub()
+    }
+
+    private func tick(_ p: AVPlayer, _ seconds: Double) {
+        guard seconds.isFinite else { return }
+        position = seconds
+        if let total = p.currentItem?.duration.seconds, total.isFinite, total > 0 { length = total }
+        if !segmentsAsked, length > 0 {
+            segmentsAsked = true
+            loadSegments()
+        }
+        // A pause means someone is there: the "Still watching?" count starts again
+        if p.timeControlStatus == .paused, length > 0, seconds < length - 2 { startedByItself = 0 }
+    }
+
+    /// The hub's next episode and the queue. What plays now leaves the queue.
+    private func loadHub() {
+        let mine = run, id = playingId
+        let episode = now.request.kind == "episode" ? now.request.episodeId : nil
+        Task { @MainActor in
+            let following = await PhonePlayback.next(after: episode)
+            var rows = await PhonePlayback.queue()
+            if let held = rows, held.contains(where: { $0.id == id }) {
+                rows = await PhonePlayback.changeQueue(["remove": id]) ?? held.filter { $0.id != id }
+            }
+            guard mine == run else { return }
+            next = following
+            if let rows { queue = rows }
+        }
+    }
+
+    /// Asked once, when the player knows the length (the hub checks the sections against it).
+    private func loadSegments() {
+        let mine = run, request = now.request, total = length
+        Task { @MainActor in
+            let parts = await PhonePlayback.segments(request, duration: total)
+            guard mine == run else { return }
+            segments = parts
+        }
+    }
+
+    private func skip(_ part: PlaySegment) {
+        startedByItself = 0
+        let target = length > 0 ? min(part.endS, length - 2) : part.endS
+        player?.seek(to: CMTime(seconds: target, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
+    }
+
+    /// The film or episode ended: the queue's front or the next episode starts, unless "Not now" was pressed.
+    private func ended() {
+        guard !nextDismissed, !stillAsking, let item = upNext else { return }
+        // Three in a row with nobody pressing anything: ask before playing on
+        if startedByItself >= 3 {
+            stillAsking = true
+            return
+        }
+        follow(item, byItself: true)
+    }
+
+    private func follow(_ item: Following, byItself: Bool) {
+        let request: TVPlayRequest
+        switch item {
+        case .queued(let q):
+            queue.removeAll { $0.id == q.id }
+            request = q.isEpisode
+                ? TVPlayRequest(title: name(item), kind: "episode", seriesId: q.seriesId, episodeId: q.id)
+                : TVPlayRequest(title: q.title, kind: "movie", movieId: q.id)
+        case .episode(let e):
+            request = TVPlayRequest(title: e.line, kind: "episode", seriesId: e.seriesId ?? now.request.seriesId,
+                                    episodeId: e.episodeId, kids: now.request.kids)
+        }
+        halt()
+        startedByItself = byItself ? startedByItself + 1 : 0
+        Task { @MainActor in
+            switch await PhonePlayback.start(request) {
+            case .success(let started):
+                followed = started
+                begin()
+            case .failure(let error):
+                problem = error.message
+            }
+        }
+    }
+
+    private func halt() {
         guard let p = player else { return }
-        if session.reports { report(p) }
+        if now.reports { report(p) }
         if let ticker { p.removeTimeObserver(ticker) }
+        if let clock { p.removeTimeObserver(clock) }
         ticker = nil
+        clock = nil
         p.pause()
         player = nil
     }
@@ -302,13 +622,13 @@ struct PhonePlayerView: View {
         let position = p.currentTime().seconds
         let duration = p.currentItem?.duration.seconds
         guard position.isFinite else { return }
-        let request = session.request
+        let request = now.request
         Task { await PhonePlayback.report(request, position: position, duration: duration) }
     }
 
     private func moveTo(_ tv: TVPlayer) {
-        var request = session.request
-        if session.reports, let seconds = player?.currentTime().seconds, seconds.isFinite, seconds > 0 { request.resumeS = seconds }
+        var request = now.request
+        if now.reports, let seconds = player?.currentTime().seconds, seconds.isFinite, seconds > 0 { request.resumeS = seconds }
         store.perform("tv.play", target: tv.id, params: request.tvParams, done: "Playing on \(tv.name)")
         dismiss()
     }

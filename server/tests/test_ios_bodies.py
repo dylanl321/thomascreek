@@ -36,6 +36,10 @@ ROUTES: dict[str, tuple[str, dict[str, str]]] = {
     "tv_series": ("/v1/tv/series", {}),
     "tv_movies": ("/v1/tv/movies", {}),
     "kids_ratings": ("/v1/kids/ratings", {}),
+    # The player on this iPhone: the hub's next episode, the person's "Play next" queue and the Skip sections.
+    "tv_phone_next": ("/v1/tv/phone/next", {"episode_id": "ep:thomas-creek:900"}),
+    "tv_phone_queue": ("/v1/tv/phone/queue", {}),
+    "tv_phone_segments": ("/v1/tv/phone/segments", {"episode_id": "ep:thomas-creek:900", "duration_s": "1200"}),
 }
 
 
@@ -80,6 +84,8 @@ def _bodies(people, hub, home_client, monkeypatch) -> dict[str, Any]:
     ph = people["phones"]["Dylan"]
     remember(hub.db, "adult", {"series_id": "series:thomas-creek:50", "episode_id": "ep:thomas-creek:900",
                                "title": "Pilot", "position_s": 80}, person=people["dylan"]["id"])
+    for queued in ("vod:thomas-creek:101", "ep:thomas-creek:901"):
+        assert ph.client.post("/v1/tv/phone/queue", headers=ph.h, json={"add": queued}).status_code == 200
     out = {}
     for name, (path, query) in ROUTES.items():
         r = ph.client.get(path, params=query, headers=ph.h)
