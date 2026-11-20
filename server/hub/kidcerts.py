@@ -104,6 +104,14 @@ class Certs:
             self.kick()
         return str(entry["c"]) if entry and entry.get("c") else None
 
+    def can_look_up(self) -> bool:
+        """Whether titles can be looked up at all (a TMDB key is in the vault)."""
+        vault = getattr(self.h, "vault", None)
+        try:
+            return bool(vault is not None and vault.has(SECRET) and vault.get(SECRET))
+        except Exception:  # noqa: BLE001 - a vault that can't answer: nothing can be looked up
+            return False
+
     def blocked(self, bucket: str, allowed: set[str]) -> set[str]:
         """Catalog ids ("vod:..." in `movies`, "series:..." in `series`) whose known certification this level
         leaves out, so a list can skip them before it is paged."""

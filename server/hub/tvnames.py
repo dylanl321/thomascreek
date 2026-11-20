@@ -16,7 +16,7 @@ from typing import Any
 
 # Lead tags: "EN - ", "NF - ", "SPT - ", "WC – ", "|EN| ", "[MULTI] ", "EN | ". Only known tags, so "FBI - ..." stays.
 _TAGS = (r"EN|ENG|US|UK|GB|CA|AU|FR|DE|ES|IT|PT|NL|KR|JP|TR|IN|AR|MULTI|SUB|SPT|WC|VOD|4K|UHD|FHD|HD"
-         r"|NF|NETFLIX|D\+|DSNP|DISNEY\+|AMZ|AMZN|PRIME|HBO|HMAX|ATV\+?|ATVP|HULU|PCOK|PMNT|P\+")
+         r"|NF|NETFLIX|A\+|SD/CAM|HDCAM|CAM|SD|D\+|DSNP|DISNEY\+|AMZ|AMZN|PRIME|HBO|HMAX|ATV\+?|ATVP|HULU|PCOK|PMNT|P\+")
 _LEAD = re.compile(rf"^\s*(?:\|\s*(?:{_TAGS})\s*\||\[\s*(?:{_TAGS})\s*\]|(?:{_TAGS})\s*(?:[-\u2013\u2014|]))\s*(?=\S)", re.I)
 _SERVICES = {
     "NF": "Netflix", "NETFLIX": "Netflix", "D+": "Disney+", "DSNP": "Disney+", "DISNEY+": "Disney+",
@@ -261,7 +261,7 @@ def names(doc: dict[str, Any], *, kids_only: bool, is_kids: Any) -> dict[str, An
 # "BBC One", "ESPN 2", "ZDF". Films and series go through `title`, which suits those ("DE: ZDF" would become
 # "De: Zdf"), so channels get their own, gentler cleaner: only known lead tags, only trailing quality or feed tags.
 _CH_CODES = (r"EN|ENG|US|USA|UK|GB|CA|AU|NZ|IE|FR|DE|AT|CH|ES|IT|PT|NL|BE|KR|JP|TR|IN|AR|MX|BR|SE|DK|NO|FI|PL"
-             r"|LAT|LATAM|EU|INT|MULTI|SPT|VIP|24/7")
+             r"|LAT|LATAM|EU|INT|MULTI|SPT|VIP|24/7|4K|UHD|FHD|HD|PRIME|NF|NETFLIX|D\+|DSNP|HBO|HMAX|AMZ|AMZN|A\+|ATV\+?|P\+|PMNT|PCOK|HULU")
 _CH_LEAD = re.compile(rf"^\s*(?:\|\s*[A-Z0-9+/]{{1,6}}\s*\||\[\s*[A-Z0-9+/]{{1,6}}\s*\]|(?:{_CH_CODES})\s*[:|\-–—])\s*",
                       re.I)
 _CH_TAIL = re.compile(r"(?:\s+|\s*[|\-]\s*)(?:F?HD|UHD|SD|4K|8K|HEVC|H\.?26[45]|\d{2,3}\s?FPS|RAW|BACKUP|VIP|ALT|"

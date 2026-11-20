@@ -14,8 +14,9 @@ The levels build on each other, so a level adds ratings and never takes one away
 
 The kids' library and feeds are still built once for every child, from the loosest level any child has
 (`house_allowed`). A child's own view is narrowed when it is served. A title whose rating isn't a content
-rating (no rating, or a provider's star score) is judged by its US certification from TMDB once the hub has
-looked it up (`kidcerts`), and until then as before: by the kids' categories the hub trusts.
+rating (no rating, or a provider's star score) is judged by its US certification from TMDB (`kidcerts`). Until the
+hub knows it, and when TMDB has none, a child doesn't get it (Nov 20 2026); only a hub without a TMDB key still
+trusts the provider's kids' categories.
 
 Some grown-up cartoons sit in a provider's kids' groups ("24/7 HAPPY TREE FRIENDS"). `denied` names them; they
 never reach a child, whatever group or rating they carry.
@@ -135,7 +136,21 @@ def allows_item(allowed: set[str], item: dict[str, Any], certs: Any = None) -> b
     if rating in CONTENT:
         return rating in allowed
     cert = certs.cert(item) if certs is not None else None
+    if cert is None and certs is not None and _unknown_denied(item, certs):
+        return False
     return allows(allowed, cert)
+
+
+def _unknown_denied(item: dict[str, Any], certs: Any) -> bool:
+    """A provider film or series whose age certification isn't known yet (still being looked up, or TMDB has none)
+    does not reach a child. Trusting the provider's kids' groups let grown-up animation through ("Exploding
+    Kittens", "Dan Da Dan" in Theo's "Because you watched Tom and Jerry", Nov 20 2026). Without a TMDB key nothing
+    can be looked up, so the kids' groups are still trusted then."""
+    from .kidcerts import kind_of
+
+    if kind_of(item) is None:
+        return False  # a channel, a video, a recording: judged by its own rating and the kids' groups
+    return bool(getattr(certs, "can_look_up", lambda: False)())
 
 
 def narrow(body: Any, allowed: set[str], certs: Any = None) -> Any:
