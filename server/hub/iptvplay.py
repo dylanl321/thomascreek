@@ -724,17 +724,23 @@ def logins(h: Any) -> list[dict[str, Any]]:
 
 def _pick(h: Any, item: dict[str, Any], avoid: set[str], now: float,
           mine: set[str] | None = None) -> dict[str, Any] | None:
+    sources = item.get("sources") or []
+    # A copy in another language (a Turkish dub) plays only for a title that has no English copy at all. A folded
+    # show lists its episodes from whichever copy came first, so the asked-for episode can itself be the dub
+    # (Nov 20 2026: Community S1 E5 played in Turkish though it has an EN copy). With the English copies busy the
+    # person gets the usual "all logins busy" answer, not a surprise dub.
+    house = [source for source in sources if not foreign(source.get("name"))]
+    return _pick_from(h, house or sources, avoid, now, mine)
+
+
+def _pick_from(h: Any, sources: list[dict[str, Any]], avoid: set[str], now: float,
+               mine: set[str] | None) -> dict[str, Any] | None:
     usage = _usage(h)
     sessions = _sessions(h)
     pool = logins(h)
     best = None
     best_key = None
-    sources = item.get("sources") or []
-    # Asked for a dubbed copy on purpose (the first source is the one asked for): then language doesn't count.
-    asked_foreign = bool(sources) and foreign(sources[0].get("name"))
     for source in sources:
-        if not asked_foreign and foreign(source.get("name")):
-            continue
         for login in pool:
             if login["provider"] != source.get("provider"):
                 continue
