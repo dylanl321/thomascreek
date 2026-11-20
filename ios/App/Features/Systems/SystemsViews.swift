@@ -383,9 +383,11 @@ private struct ActivityRowLink: ViewModifier {
 /// Making it asks for Face ID; the hub keeps only a hash and lets it work once, for 10 minutes.
 struct JoinCodeSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
     let person: Person
     @State private var made: JoinCode?
     @State private var problem: String?
+    @State private var noTctv: String?
 
     var body: some View {
         NavigationStack {
@@ -399,9 +401,11 @@ struct JoinCodeSheet: View {
                     Text("It will be \(made.person.name)'s. Works once, for 10 minutes.")
                         .font(.footnote).foregroundStyle(Theme.dim).multilineTextAlignment(.center)
                     Text(made.code).font(.system(.body, design: .monospaced)).textSelection(.enabled)
-                    if made.downloadUrl != nil {
-                        ShareLink(item: made.qr) { Label("Share the join link", systemImage: "square.and.arrow.up") }
-                    }
+                    // TCTV on this same iPhone cannot scan its own screen: hand it the link.
+                    Button { openInTctv(made) } label: { Label("Open in TCTV on this iPhone", systemImage: "play.tv") }
+                        .buttonStyle(.borderedProminent)
+                    if let noTctv { Text(noTctv).font(.footnote).foregroundStyle(Theme.warn).multilineTextAlignment(.center) }
+                    ShareLink(item: made.qr) { Label("Share the join link", systemImage: "square.and.arrow.up") }
                 } else if let problem {
                     Text(problem).foregroundStyle(Theme.warn).multilineTextAlignment(.center)
                     Button("Try again") { Task { await make() } }.buttonStyle(.borderedProminent)
@@ -414,6 +418,19 @@ struct JoinCodeSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { Button("Done") { dismiss() } }
             .task { await make() }
+        }
+    }
+
+    /// `tctv://join?hub=…&code=…`: the media app's own link scheme (this app owns `thomascreek://`).
+    private func openInTctv(_ made: JoinCode) {
+        var link = URLComponents()
+        link.scheme = "tctv"
+        link.host = "join"
+        link.queryItems = [URLQueryItem(name: "hub", value: made.hub), URLQueryItem(name: "code", value: made.code)]
+        guard let url = link.url else { return }
+        noTctv = nil
+        openURL(url) { opened in
+            if !opened { noTctv = "TCTV isn't on this iPhone yet. Install it from TestFlight, then tap again." }
         }
     }
 
