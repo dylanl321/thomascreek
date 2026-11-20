@@ -58,3 +58,32 @@ def test_the_folded_index_is_rebuilt_at_most_every_few_minutes(hub, monkeypatch)
     db.kv_set(iptvcanon.KV, {"items": [{"id": "movie:b", "kind": "movie", "title": "B", "sources": []}]})
     assert iptvcanon.recent(db) is first  # written again moments later: the last index keeps answering
     assert "movie:b" in iptvcanon.index(db).by_id  # a caller that must see the write still does
+
+
+def test_the_gentle_writer_gives_the_same_text_as_json_dumps():
+    docs = [
+        {},
+        {"items": [], "by_source": {}},
+        {"items": [{"id": f"can_{n}", "title": f"Tiçle \"{n}\"", "sources": [{"provider": "a", "stream_id": n}]}
+                   for n in range(700)],
+         "by_source": {f"a|movie|{n}": f"can_{n}" for n in range(700)},
+         "n": 3, "f": 1.5, "none": None, "flag": True, "s": "x\ny"},
+        [1, 2, 3],
+        "plain",
+        {1: "int key"},
+    ]
+    for doc in docs:
+        assert gentlejson.dumps(doc) == json.dumps(doc)
+
+
+def test_the_fold_state_is_saved_with_the_gentle_writer(tmp_path, monkeypatch):
+    from hub.db import DB
+
+    db = DB(tmp_path / "hub.db")
+    written = []
+    real = gentlejson.dumps
+    monkeypatch.setattr(gentlejson, "dumps", lambda value: written.append(value) or real(value))
+    iptvcanon._save_items(db, [{"id": "can_1", "kind": "movie", "title": "Up", "sources": [
+        {"provider": "a", "stream_id": "1"}]}], {})
+    assert written and written[0]["by_source"] == {"a|movie|1": "can_1"}
+    assert iptvcanon._state(db)["items"][0]["id"] == "can_1"

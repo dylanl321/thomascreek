@@ -119,7 +119,7 @@ def observe(db: Any, sources: list[dict[str, Any]], *, decisions: dict[str, bool
         "unsure": _open_pairs(unsure_rows + kept, items, previous, cache)[:500],
         "by_tmdb": _tmdb_index(list(by_key.values()), previous),
     }
-    db.kv_set(KV, state)
+    _put_state(db, state)
     return _public(state["items"])
 
 
@@ -183,7 +183,7 @@ def keep_apart(db: Any, pair_id: str) -> bool:
     db.kv_set(KV_AI, cache)
     state = _state(db)
     state["unsure"] = [row for row in state.get("unsure") or [] if isinstance(row, dict) and row.get("id") != pair_id]
-    db.kv_set(KV, state)
+    _put_state(db, state)
     return True
 
 
@@ -958,23 +958,33 @@ def _items(db: Any) -> list[dict[str, Any]]:
     return [item for item in (_state(db).get("items") or []) if isinstance(item, dict) and item.get("id") and item["id"] != "__unsure__"]
 
 
-def _state_gently(db: Any) -> dict[str, Any]:
-    """`_state` for the index, read without holding the interpreter lock for the whole parse (`gentlejson`)."""
+def _state(db: Any) -> dict[str, Any]:
+    """The saved fold state (several MB), read without holding the interpreter lock for the whole parse
+    (`gentlejson`). A fake database without `one` gets the plain read."""
     if not hasattr(db, "one"):
-        return _state(db)
+        raw = db.kv_get(KV) or {}
+        return raw if isinstance(raw, dict) else {}
     try:
         row = db.one("SELECT value FROM hub_kv WHERE key=?", [KV])
     except Exception:  # noqa: BLE001 - a fake database: the plain read
-        return _state(db)
+        raw = db.kv_get(KV) or {}
+        return raw if isinstance(raw, dict) else {}
     if not row:
         return {}
-    raw = gentlejson.loads(row["value"]) if isinstance(row["value"], str) else _state(db)
+    value = row["value"]
+    raw = gentlejson.loads(value) if isinstance(value, str) else (db.kv_get(KV) or {})
     return raw if isinstance(raw, dict) else {}
 
 
-def _state(db: Any) -> dict[str, Any]:
-    raw = db.kv_get(KV) or {}
-    return raw if isinstance(raw, dict) else {}
+_state_gently = _state
+
+
+def _put_state(db: Any, state: dict[str, Any]) -> None:
+    """Save the fold state, written gently (`gentlejson.dumps`) where the database takes ready JSON."""
+    if hasattr(db, "kv_set_text"):
+        db.kv_set_text(KV, gentlejson.dumps(state))
+    else:
+        db.kv_set(KV, state)
 
 
 def _ai(db: Any) -> dict[str, Any]:
@@ -998,7 +1008,7 @@ def _save_items(db: Any, items: list[dict[str, Any]], overrides: dict[str, Any],
             by_source[source_key(source["provider"], item.get("kind") or "live", source["stream_id"])] = item["id"]
     state["items"] = items
     state["by_source"] = by_source
-    db.kv_set(KV, state)
+    _put_state(db, state)
     db.kv_set(KV_OVERRIDES, overrides)
 
 

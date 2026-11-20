@@ -524,8 +524,12 @@ class DB:
         return float(row["updated_at"]) if row else None
 
     def kv_set(self, key: str, value: Any) -> None:
+        self.kv_set_text(key, json.dumps(value))
+
+    def kv_set_text(self, key: str, text: str) -> None:
+        """`kv_set` with the value already written as JSON (a big one is written gently, see `gentlejson.dumps`)."""
         self.execute("INSERT INTO hub_kv (key, value, updated_at) VALUES (?,?,?) ON CONFLICT(key) DO UPDATE SET "
-                     "value=excluded.value, updated_at=excluded.updated_at", [key, json.dumps(value), time.time()])
+                     "value=excluded.value, updated_at=excluded.updated_at", [key, text, time.time()])
 
     # -- people ----------------------------------------------------------
     def person(self, person_id: str | None) -> dict[str, Any] | None:

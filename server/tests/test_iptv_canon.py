@@ -265,8 +265,8 @@ async def test_a_batch_of_model_answers_writes_the_state_once(hub, monkeypatch):
     hub.tv_catalog.ingest(vod=rows, vod_categories=[], live=[], live_categories=[], series=[], series_categories=[])
     assert unsure(db)["total"] == 6
     writes = []
-    real = db.kv_set
-    monkeypatch.setattr(db, "kv_set", lambda key, value: (writes.append(key), real(key, value))[1])
+    real = db.kv_set_text
+    monkeypatch.setattr(db, "kv_set_text", lambda key, text: (writes.append(key), real(key, text))[1])
 
     async def ask(_hub, pairs):
         return {pair["id"]: i % 2 == 0 for i, pair in enumerate(pairs)}
