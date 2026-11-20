@@ -9,6 +9,7 @@ gets an empty shelf, not a guess.
 from __future__ import annotations
 
 import logging
+import re
 import time
 from typing import Any
 
@@ -141,17 +142,36 @@ def _ready(h: Any, kids: bool) -> list[dict[str, Any]]:
 
 def _row(row_id: str, items: list[dict[str, Any]], seen: set[str]) -> dict[str, Any] | None:
     fresh = []
+    shows: set[str] = set()
     for item in items:
         key = item.get("episode_id") or item.get("movie_id") or item.get("recording_id") or item.get("channel_key") or item.get("title")
         if not key or key in seen:
             continue
+        show = _show_key(item)
+        if show and show in shows:
+            continue  # the same show again in this row, from another provider's copy (Nov 20 2026)
         seen.add(str(key))
+        if show:
+            shows.add(show)
         fresh.append(item)
         if len(fresh) >= ROW_LIMIT:
             break
     if not fresh:
         return None
     return {"id": row_id, "title": TITLES[row_id], "items": fresh}
+
+
+def _show_key(item: dict[str, Any]) -> str | None:
+    """One key per show (episodes) or film, by its cleaned name: the same title folded from several providers
+    has several ids, and Continue watching listed Community twice."""
+    if item.get("kind") == "episode":
+        name = item.get("subtitle")
+    elif item.get("kind") == "movie":
+        name = item.get("title")
+    else:
+        return None
+    words = " ".join(re.sub(r"[^a-z0-9]+", " ", str(name or "").casefold()).split())
+    return f"{item['kind']}:{words}" if words else None
 
 
 def _continue(h: Any, history: dict[str, Any], kids: bool) -> list[dict[str, Any]]:

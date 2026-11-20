@@ -90,12 +90,22 @@ def groups(channels: Iterable[dict[str, Any]], home: str = "US") -> dict[str, An
             by_group[raw] = entry
         entry["count"] += 1
     countries: dict[str, dict[str, Any]] = {}
-    for entry in by_group.values():
+    shown: dict[tuple[str, str], dict[str, Any]] = {}
+    for entry in sorted(by_group.values(), key=lambda e: -e["count"]):
         code = entry["country"] or "OTHER"
         box = countries.setdefault(code, {"code": code, "name": entry["country_name"] or "More channels",
                                           "count": 0, "groups": []})
         box["count"] += entry["count"]
-        box["groups"].append({k: entry[k] for k in ("group", "label", "kind", "count")})
+        same = shown.get((code, entry["label"].casefold()))
+        if same is not None:
+            # Several provider groups that read the same ("|US| TV", "US TV HD" are both "TV"): one entry, with
+            # every group it stands for in `groups` (optional; older screens open the biggest one). Nov 20 2026.
+            same["count"] += entry["count"]
+            same.setdefault("groups", [same["group"]]).append(entry["group"])
+            continue
+        public = {k: entry[k] for k in ("group", "label", "kind", "count")}
+        shown[(code, entry["label"].casefold())] = public
+        box["groups"].append(public)
     for box in countries.values():
         box["groups"].sort(key=lambda g: (KIND_ORDER.index(g["kind"]), -g["count"], g["label"].casefold()))
     order = sorted(countries.values(),

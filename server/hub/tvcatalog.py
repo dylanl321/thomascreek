@@ -1428,7 +1428,8 @@ class TvCatalog:
             if shown is None or (kids_only and not shown["kids"]):
                 continue
             by_key[shown["key"]] = shown
-            if needle in str(shown["name"]).casefold():
+            if needle in str(shown["name"]).casefold() and not tvnames.is_divider(shown["name"]):
+                # A provider's "###### SLOVENIA ######" row is a heading, not a channel (Nov 20 2026).
                 card = {key: shown[key] for key in ("key", "name", "display_name", "number", "group", "logo", "kids")}
                 card["logo_url"] = self._art("logo", shown["key"])
                 channels.append(card)
@@ -1473,7 +1474,41 @@ class TvCatalog:
         _mark_canonical(self.db, shows, "series", found)
         _mark_canonical(self.db, films, "movie", found)
         lap("canonical")
+        shows, films = _one_each(shows), _one_each(films)
         return {"q": q.strip(), "channels": channels[:20], "programmes": programmes[:20], "series": shows, "movies": films}
+
+
+def _one_each(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Search results with one row per title, each with an optional `display_name` (the provider's prefixes and
+    tags taken off: "SD/CAM - Wicked (2024)" -> "Wicked"). Two providers' copies of one film (the same folded
+    title, or the same clean name where one copy has no year) came back twice (Nov 20 2026); the first, best
+    ranked one stays, and takes the year if only the other copy had it."""
+    out: list[dict[str, Any]] = []
+    by_title: dict[str, dict[str, Any]] = {}
+    by_fold: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        name, year = tvnames.polish(row.get("name"))
+        row.setdefault("display_name", name)
+        clean = " ".join(re.sub(r"[^a-z0-9]+", " ", name.casefold()).split())
+        year = year or _year_of(row.get("year"))
+        fold = str(row.get("canonical_id") or "")
+        twin = by_fold.get(fold) if fold else None
+        if twin is None and clean:
+            twin = by_title.get(clean)
+            if twin is not None:
+                theirs = _year_of(twin.get("year")) or tvnames.polish(twin.get("name"))[1]
+                if theirs and year and theirs != year:
+                    twin = None  # a remake with the same name: both stay
+        if twin is not None:
+            if not twin.get("year") and year:
+                twin["year"] = year
+            continue
+        out.append(row)
+        if fold:
+            by_fold[fold] = row
+        if clean:
+            by_title.setdefault(clean, row)
+    return out
 
 
 def _mark_canonical(db: Any, rows: list[dict[str, Any]], kind: str, found: Any = False) -> None:

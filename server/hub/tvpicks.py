@@ -238,9 +238,18 @@ def seen(h: Any, history: dict[str, Any], pool: list[dict[str, Any]]) -> list[di
             genres = genres or found.get("genre")
         if not title:
             continue
-        out.append({"key": ident, "kind": kind, "title": str(title), "genres": genres_of(genres),
+        out.append({"key": ident, "kind": kind, "title": _clean_title(title), "genres": genres_of(genres),
                     "n": int(row.get("n") or 1), "last": float(row.get("last") or 0)})
     return out
+
+
+def _clean_title(raw: object) -> str:
+    """The title people read in "Because you watched X": the provider's prefix, tags and year taken off
+    ("EN - Community (2009) (US)" -> "Community"), Nov 20 2026."""
+    from .tvnames import polish
+
+    name, _year = polish(raw)
+    return name or str(raw)
 
 
 def _catalog_rows(h: Any) -> dict[str, dict[str, Any]]:
