@@ -265,7 +265,7 @@ def test_the_snapshot_is_parsed_once_however_many_ask_at_once(hub, monkeypatch):
         threading.Event().wait(0.2)
         return real(text, *a, **k)
 
-    monkeypatch.setattr("hub.tvcatalog.json.loads", slow_loads)
+    monkeypatch.setattr("hub.tvcatalog.gentlejson.loads", slow_loads)
     workers = [threading.Thread(target=cat.load) for _ in range(4)]
     for w in workers:
         w.start()

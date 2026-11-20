@@ -32,7 +32,7 @@ from urllib.parse import urlsplit, urlunsplit
 import httpx
 
 from .artwork import programme_key
-from . import catalogdb, iptvaddr, kidratings, tvgroups, tvnames
+from . import catalogdb, gentlejson, iptvaddr, kidratings, tvgroups, tvnames
 from .home import iso
 from .tvapp import TvAppError
 from .tvlineup import LineupError, clean_logo, public_channel
@@ -206,11 +206,15 @@ class TvCatalog:
             if cached is not None and cached[0] == stamp:
                 return cached[1]
             try:
-                doc = json.loads(self.path.read_text())
+                # Read a channel, a film, a guide row at a time: one `json.loads` of tens of MB held the
+                # interpreter lock for seconds on the NAS (Nov 20 2026).
+                text = self.path.read_text()
+                doc = gentlejson.loads(text)
             except (OSError, json.JSONDecodeError):
                 return {}
             doc = doc if isinstance(doc, dict) else {}
             self._loaded = (stamp, doc)
+            gentlejson.settle(len(text))
             return doc
 
     def parsed(self) -> bool:

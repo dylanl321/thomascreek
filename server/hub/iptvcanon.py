@@ -15,6 +15,7 @@ import threading
 import time
 from typing import Any
 
+from . import gentlejson
 from .iptvnorm import AUTO_MERGE, UNSURE, Parsed, logo_key, parse, score
 
 log = logging.getLogger("hub.iptvcanon")
@@ -378,8 +379,10 @@ def index(db: Any) -> Index:
     if cached is not None and stamp is not None and cached[0] == stamp:
         return cached[1]
     started = time.perf_counter()
-    built = Index(_state(db))
+    built = Index(_state_gently(db))
     _INDEX[id(db)] = (stamp, built)
+    _BUILT_AT[id(db)] = time.monotonic()
+    gentlejson.settle(_size(db) if len(built.items) > 5000 else 0)
     took = time.perf_counter() - started
     if took > 1:
         log.info("iptvcanon: read %d folded titles in %.1f s", len(built.items), took)
@@ -395,7 +398,7 @@ def recent(db: Any) -> Index:
     cached = _INDEX.get(id(db))
     if cached is None or stamp is None:
         return index(db)
-    if cached[0] != stamp:
+    if cached[0] != stamp and time.monotonic() - _BUILT_AT.get(id(db), 0.0) >= REFRESH_EVERY_S:
         with _BUILD_LOCK:
             start = id(db) not in _REFRESHING
             if start:
@@ -406,6 +409,10 @@ def recent(db: Any) -> Index:
 
 
 _REFRESHING: set[int] = set()
+_BUILT_AT: dict[int, float] = {}
+# `recent` rebuilds at most this often. The provider lists are folded again every few minutes (event channels
+# rename themselves), and each rebuild reads the whole state; folded ids change slowly (Nov 20 2026).
+REFRESH_EVERY_S = 300.0
 
 
 def _refresh(db: Any) -> None:
@@ -949,6 +956,20 @@ def _dedupe_sources(sources: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def _items(db: Any) -> list[dict[str, Any]]:
     return [item for item in (_state(db).get("items") or []) if isinstance(item, dict) and item.get("id") and item["id"] != "__unsure__"]
+
+
+def _state_gently(db: Any) -> dict[str, Any]:
+    """`_state` for the index, read without holding the interpreter lock for the whole parse (`gentlejson`)."""
+    if not hasattr(db, "one"):
+        return _state(db)
+    try:
+        row = db.one("SELECT value FROM hub_kv WHERE key=?", [KV])
+    except Exception:  # noqa: BLE001 - a fake database: the plain read
+        return _state(db)
+    if not row:
+        return {}
+    raw = gentlejson.loads(row["value"]) if isinstance(row["value"], str) else _state(db)
+    return raw if isinstance(raw, dict) else {}
 
 
 def _state(db: Any) -> dict[str, Any]:
