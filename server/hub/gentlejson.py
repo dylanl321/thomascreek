@@ -15,6 +15,7 @@ import time
 from typing import Any
 
 _DEC = json.JSONDecoder()
+_ENC = json.JSONEncoder()
 _WS = re.compile(r"[ \t\n\r]*")
 _YIELD_EVERY = 256  # elements between explicit yields; each element is a short C call
 
@@ -56,6 +57,36 @@ def _loads(text: str) -> Any:
         _close(text, i, "}")
         _end(text, i + 1)
         return out
+
+
+def dumps(value: Any) -> str:
+    """The same text as `json.dumps(value)`, written a top-level member and a nested element at a time so other
+    threads get the lock between elements. Saving the title fold state with one `json.dumps` held the lock for
+    seconds on the NAS while a phone waited to play (Nov 20 2026)."""
+    if not isinstance(value, dict) or not all(isinstance(key, str) for key in value):
+        return json.dumps(value)
+    parts = []
+    for key, member in value.items():
+        parts.append(_ENC.encode(key) + ": " + _dump_member(member))
+    return "{" + ", ".join(parts) + "}"
+
+
+def _dump_member(value: Any) -> str:
+    if isinstance(value, list):
+        out = []
+        for n, element in enumerate(value, 1):
+            out.append(_ENC.encode(element))
+            if not n % _YIELD_EVERY:
+                time.sleep(0)
+        return "[" + ", ".join(out) + "]"
+    if isinstance(value, dict) and all(isinstance(key, str) for key in value):
+        out = []
+        for n, (key, element) in enumerate(value.items(), 1):
+            out.append(_ENC.encode(key) + ": " + _ENC.encode(element))
+            if not n % _YIELD_EVERY:
+                time.sleep(0)
+        return "{" + ", ".join(out) + "}"
+    return _ENC.encode(value)
 
 
 BIG = 1_000_000  # characters: a document this size or more is worth freezing after it is read
