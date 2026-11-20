@@ -40,6 +40,7 @@ from .deps import Caller, caller, error, hub
 from ..upnext import remember, resume_at, who_key
 from .tvguide import _media, _ready, watcher
 from ..faults import note
+from ..iptvplay import STEPS
 
 log = logging.getLogger("hub.tvphone")
 
@@ -134,8 +135,14 @@ async def phone_play(body: dict[str, Any], response: Response, c: Caller = Depen
 
         holder = f"phone:{c.device['id']}"
         # The pool takes its own lock (hub/iptvplay.py _POOL), so the lease runs off the loop.
-        urls = await asyncio.to_thread(direct_all, h, key, holder)
+        steps: dict[str, float] = {}
+        mark = STEPS.set(steps)
+        try:
+            urls = await asyncio.to_thread(direct_all, h, key, holder)
+        finally:
+            STEPS.reset(mark)
         lap("lease")
+        lap.detail("lease", steps)
         if not urls:
             # Only when no login looked free: ask the provider for its live counts (an old count may be stale),
             # then the other providers' copies of an episode.
@@ -179,8 +186,14 @@ async def phone_play(body: dict[str, Any], response: Response, c: Caller = Depen
     from ..iptvplay import busy_reason, holders, lease, read_twins, refresh_usage, warm_twins
 
     holder = f"phone:{c.device['id']}"
-    held = await asyncio.to_thread(lease, h, key, holder)
+    steps = {}
+    mark = STEPS.set(steps)
+    try:
+        held = await asyncio.to_thread(lease, h, key, holder)
+    finally:
+        STEPS.reset(mark)
     lap("lease")
+    lap.detail("lease", steps)
     if held is None:
         await refresh_usage(h, key)  # only when no login looked free (see the direct path)
         held = await asyncio.to_thread(lease, h, key, holder)
@@ -225,6 +238,11 @@ class _Laps:
     def __init__(self, response: Response) -> None:
         self.response, self.start = response, time.perf_counter()
         self.last, self.parts = self.start, []  # type: ignore[var-annotated]
+
+    def detail(self, prefix: str, steps: dict[str, float] | None) -> None:
+        """Sub-steps of the step just taken (`lease.pick;dur=…`), measured inside it; they don't move the clock."""
+        for name, ms in (steps or {}).items():
+            self.parts.append(f"{prefix}.{name};dur={ms:.0f}")
 
     def __call__(self, name: str, *, done: bool = False) -> None:
         now = time.perf_counter()
