@@ -239,7 +239,7 @@ class TvCatalog:
         if cached is not None and cached[0] == stamp:
             return cached[1]
         try:
-            doc = json.loads(self.details_path.read_text())
+            doc = gentlejson.loads(self.details_path.read_text())
         except (OSError, json.JSONDecodeError):
             return {"series": {}, "movies": {}, "episodes": {}}
         if not isinstance(doc, dict):
@@ -301,7 +301,9 @@ class TvCatalog:
             self._build_index(doc, stamp)
 
     def _write_details(self, doc: dict[str, Any]) -> None:
-        _atomic_write(self.details_path, json.dumps(doc))
+        # Written a page at a time (gentlejson): one `json.dumps` of the whole file holds the interpreter lock, so
+        # the loop stood still while a worker wrote it.
+        _atomic_write(self.details_path, gentlejson.dumps(doc))
         stat = self.details_path.stat()
         self._details_loaded = ((stat.st_mtime_ns, stat.st_size), doc)
 
@@ -847,7 +849,7 @@ class TvCatalog:
         kids = self._is_kids(known.get("category"))
         provider = provider_of(series_id) or SOURCE
         seasons = []
-        details = self._details()
+        added: dict[str, Any] = {}
         for season_key, episodes in episodes_in.items():
             if not isinstance(episodes, list):
                 continue
@@ -870,7 +872,7 @@ class TvCatalog:
                     "duration_s": _duration(meta.get("duration_secs"), meta.get("duration")),
                 }
                 shown.append(item)
-                details["episodes"][eid] = {
+                added[eid] = {
                     "id": eid, "series_id": series_id, "title": item["title"], "kids": kids,
                     "series_name": known.get("name"), "season": season_no, "number": item["number"],
                     "ext": _ext(ep.get("container_extension")), "fetched_at": time.time(),
@@ -887,8 +889,7 @@ class TvCatalog:
             "year": _clip(info.get("releaseDate") or info.get("year"), 20),
             "category": known.get("category"), "kids": kids, "seasons": seasons, "fetched_at": time.time(),
         }
-        details["series"][series_id] = record
-        self._write_details(details)
+        self._save_details(series={series_id: record}, episodes=added)
         return self._present_series(record)
 
     def store_movie(self, payload: dict[str, Any], movie_id: str) -> dict[str, Any]:
@@ -904,10 +905,19 @@ class TvCatalog:
             "category": known.get("category"), "kids": self._is_kids(known.get("category")),
             "fetched_at": time.time(),
         }
-        details = self._details()
-        details["movies"][movie_id] = record
-        self._write_details(details)
+        self._save_details(movies={movie_id: record})
         return self._present_movie(record)
+
+    def _save_details(self, **added: dict[str, Any]) -> None:
+        """Add pages to the details file as a new document: readers iterating the one they hold (next episode, new for
+        you, art) never see it change under them, so the write can run off the loop. Writing the whole file held the
+        loop for each series or film page opened (Nov 20 2026: phone plays waited a second or more behind it)."""
+        with self.__dict__.setdefault("_store_lock", threading.Lock()):
+            current = self._details()
+            doc = dict(current)
+            for bucket, rows in added.items():
+                doc[bucket] = {**(current.get(bucket) or {}), **rows}
+            self._write_details(doc)
 
     # -- fetch -----------------------------------------------------------------------------------------------------
     async def ensure(self) -> dict[str, Any]:
@@ -1029,7 +1039,7 @@ class TvCatalog:
             raise TvAppError(502, "bad_provider", "The TV provider didn't send that series") from None
         if not isinstance(payload, dict):
             raise TvAppError(404, "not_found", "That series isn't in the library")
-        return self.store_series(payload, series_id)
+        return await asyncio.to_thread(self.store_series, payload, series_id)
 
     async def fetch_movie(self, movie_id: str) -> dict[str, Any]:
         cached = self._details()["movies"].get(movie_id)
@@ -1047,7 +1057,7 @@ class TvCatalog:
             raise TvAppError(502, "bad_provider", "The TV provider didn't send that movie") from None
         if not isinstance(payload, dict):
             raise TvAppError(404, "not_found", "That movie isn't in the library")
-        return self.store_movie(payload, movie_id)
+        return await asyncio.to_thread(self.store_movie, payload, movie_id)
 
     # -- reads -----------------------------------------------------------------------------------------------------
     def summary(self) -> dict[str, Any]:

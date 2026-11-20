@@ -543,3 +543,17 @@ def test_next_episode_sees_an_episode_added_after_the_first_lookup():
     doc["episodes"]["ep:a:2"] = {"id": "ep:a:2", "series_id": "series:a:9", "season": 1, "number": 2}
     cat._details_loaded = ((2, 2), doc)  # a write changes the file's stamp
     assert next_episode(cat, "ep:a:1")["episode_id"] == "ep:a:2"
+
+
+def test_a_page_written_while_another_is_read_leaves_the_readers_copy_alone(hub):
+    cat = hub.tv_catalog
+    cat.store_series({"info": {"name": "One"}, "episodes": {"1": [
+        {"id": "1", "episode_num": 1, "title": "A", "container_extension": "mp4"}]}}, "series:thomas-creek:1")
+    held = cat._details()["episodes"]
+    before = dict(held)
+    cat.store_series({"info": {"name": "Two"}, "episodes": {"1": [
+        {"id": "2", "episode_num": 1, "title": "B", "container_extension": "mp4"}]}}, "series:thomas-creek:2")
+    assert held == before  # a reader iterating its copy never sees it change
+    now = cat._details()
+    assert "ep:thomas-creek:1" in now["episodes"] and "ep:thomas-creek:2" in now["episodes"]
+    assert set(now["series"]) >= {"series:thomas-creek:1", "series:thomas-creek:2"}
