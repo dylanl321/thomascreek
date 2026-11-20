@@ -944,7 +944,8 @@ async def read_twins(h: Any, ref: str, *, budget_s: float = 4.0) -> int:
         await asyncio.wait_for(asyncio.gather(*(one(s) for s in others[:3])), timeout=budget_s)
     except asyncio.TimeoutError:
         log.info("iptv: other copies of a show took over %.0f s", budget_s)
-    return len(_twins(h, known))
+    # Off the loop: it reads every copy's page and the fold, and the loop stood still on it (Nov 20 2026).
+    return len(await asyncio.to_thread(_twins, h, known))
 
 
 def _mark_failed(h: Any, row: dict[str, Any], now: float) -> None:

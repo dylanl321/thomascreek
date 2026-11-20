@@ -557,3 +557,16 @@ def test_a_page_written_while_another_is_read_leaves_the_readers_copy_alone(hub)
     now = cat._details()
     assert "ep:thomas-creek:1" in now["episodes"] and "ep:thomas-creek:2" in now["episodes"]
     assert set(now["series"]) >= {"series:thomas-creek:1", "series:thomas-creek:2"}
+
+
+def test_next_episode_follows_the_series_page_and_skips_specials(hub):
+    from hub.playernext import next_episode
+
+    def ep(i, n):
+        return {"id": str(i), "episode_num": n, "title": f"E{n}", "container_extension": "mp4"}
+
+    hub.tv_catalog.store_series({"info": {"name": "Show"}, "episodes": {
+        "0": [ep(90, 1)], "1": [ep(12, 2), ep(11, 1)], "2": [ep(21, 1)]}}, "series:thomas-creek:7")
+    assert next_episode(hub.tv_catalog, "ep:thomas-creek:11")["episode_id"] == "ep:thomas-creek:12"
+    assert next_episode(hub.tv_catalog, "ep:thomas-creek:12")["episode_id"] == "ep:thomas-creek:21"
+    assert next_episode(hub.tv_catalog, "ep:thomas-creek:21") is None  # a special never follows a season
