@@ -7,7 +7,7 @@ from __future__ import annotations
 import asyncio
 
 from hub.iptvcanon import observe
-from hub.iptvplay import _episode, busy_reason, lease, note_usage, read_twins
+from hub.iptvplay import _episode, busy_reason, lease, note_usage, read_twins, release_tv
 
 
 def _show(hub):
@@ -98,8 +98,19 @@ def test_a_dubbed_copy_of_the_show_is_never_played_instead(hub):
     first = lease(hub, "ep:thomas-creek:501", "phone:dev1")
     assert first and first["provider"] == "thomas-creek"  # English, though the dubbed copy has 5 free logins
     assert lease(hub, "ep:thomas-creek:501", "phone:dev2") is None  # busy, not a surprise dub
-    # Asked for the dubbed copy itself: it plays.
-    assert lease(hub, "ep:beta:7001", "phone:dev3")["provider"] == "beta"
+    # The page listed the dubbed copy's episode (it came first in the fold): the English twin is asked for, and
+    # while it is busy nothing plays rather than the dub.
+    assert lease(hub, "ep:beta:7001", "phone:dev3") is None
+    release_tv(hub, "phone:dev1")
+    assert lease(hub, "ep:beta:7001", "phone:dev3")["provider"] == "thomas-creek"
+
+
+def test_a_show_with_only_a_dubbed_copy_still_plays(hub):
+    observe(hub.db, [{"provider": "beta", "kind": "series", "stream_id": "44", "name": "Monk (TR)", "tmdb": "1695",
+                      "ref": "series:beta:44"}])
+    _show_logins(hub, beta_slots="5")
+    hub.tv_catalog.store_series(_page({(1, 1): "7001"}, "mp4"), "series:beta:44")
+    assert lease(hub, "ep:beta:7001", "phone:dev1")["provider"] == "beta"
 
 
 def _show_logins(hub, *, beta_slots: str) -> None:
