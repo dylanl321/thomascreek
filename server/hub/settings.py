@@ -154,7 +154,7 @@ class PersonSettings:
 
     def forget(self, pid: str) -> None:
         self.hub.db.execute("DELETE FROM person_settings WHERE person_id=?", [pid])
-        self.hub.db.execute("DELETE FROM hub_kv WHERE key=?", [f"settings_version:{pid}"])
+        self.hub.db.kv_delete(f"settings_version:{pid}")
 
     # -- reading ------------------------------------------------------------
     def get(self, s: Subject) -> dict[str, Any]:

@@ -355,12 +355,12 @@ _INDEX: dict[int, tuple[Any, Index]] = {}
 def _stamp(db: Any) -> Any:
     """When the state was last written. Only `updated_at` (microseconds) is read: `length(value)` made SQLite read
     every page of the several-MB state on every call, several times per play (Nov 19 2026)."""
-    if hasattr(db, "one"):
+    if hasattr(db, "kv_stamp") and hasattr(db, "one"):
         try:
-            row = db.one("SELECT updated_at FROM hub_kv WHERE key=?", [KV])
+            stamp = db.kv_stamp(KV)  # its own small table: see hub/db.py hub_kv_stamps
         except Exception:  # noqa: BLE001 - a fake or closed database just means no cache
             return None
-        return (float(row["updated_at"]),) if row else ("none",)
+        return (float(stamp),) if stamp is not None else ("none",)
     return None
 
 
