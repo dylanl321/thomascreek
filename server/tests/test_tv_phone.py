@@ -59,6 +59,37 @@ def test_mkv_is_tv_only(hub, people, monkeypatch):
     assert no.status_code == 409 and no.json()["error"] == "tv_only"
 
 
+def test_iphone_media_app_plays_mkv(hub, people, monkeypatch):
+    """`player: "ks"` (the iPhone and iPad media app) opens every file type, like the Android phone's `exo`."""
+    _library(hub)
+    _login(hub)
+    real = hub.tv_catalog.movie
+    monkeypatch.setattr(hub.tv_catalog, "movie", lambda key: {**real(key), "ext": "mkv"})
+    dylan = people["phones"]["Dylan"]
+    with respx.mock(assert_all_called=False) as mock:
+        mock.get(f"{SERVER}/movie/household/{PASSWORD}/101.mkv").mock(
+            return_value=httpx.Response(200, content=b"mkv", headers={"content-length": "3"}))
+        play = dylan.client.post("/v1/tv/phone/play", headers=dylan.h,
+                                 json={"movie_id": "vod:thomas-creek:101", "player": "ks"})
+        assert play.status_code == 200, play.text
+        assert PASSWORD not in play.text and "iptv.example" not in play.text
+        assert dylan.client.get(play.json()["url"]).content == b"mkv"
+    # A player the hub does not know keeps the MP4 rule.
+    no = dylan.client.post("/v1/tv/phone/play", headers=dylan.h,
+                           json={"movie_id": "vod:thomas-creek:101", "player": "other"})
+    assert no.status_code == 409 and no.json()["error"] == "tv_only"
+
+
+def test_iphone_media_app_keeps_the_kids_rule(hub, people):
+    """The player value never widens what a child may play."""
+    _library(hub)
+    _login(hub)
+    theo = people["phones"]["Theo"]
+    for ask in ({"movie_id": "vod:thomas-creek:100"}, {"channel_key": "xc:thomas-creek:10"}):
+        no = theo.client.post("/v1/tv/phone/play", headers=theo.h, json={**ask, "player": "ks"})
+        assert no.status_code == 404
+
+
 def test_android_phone_plays_mkv(hub, people, monkeypatch):
     _library(hub)
     _login(hub)

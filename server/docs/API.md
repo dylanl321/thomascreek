@@ -1244,7 +1244,7 @@ Films and episodes also answer `resume_s` (where this person stopped on any scre
 - `POST /v1/tv/phone/progress` `{"movie_id"|"episode_id", "position_s", "duration_s"?}` every minute and when the player closes. Kept for the caller's person exactly like a TV heartbeat, so it shows in their Continue watching on every TV. Same kids rule as `/play` (404), 400 without `position_s`.
 - `GET /v1/tv/phone/resume?movie_id=|episode_id=` → `{"position_s","duration_s","at"}`. A phone gets its person's place. A TV may call it too, with `person=` like `/v1/tv/upnext`. `position_s` is null when there is nothing to resume (under 30 seconds in, or within a minute of the end).
 
-- Films and episodes: `GET /v1/tv/phone/file/{pass}`, a byte-range proxy of the provider file. Only mp4, m4v and mov play on the phone; anything else answers 409 `tv_only` ("This one only plays on a TV"). Episodes need the series opened once (`GET /v1/tv/series/{id}`), as on the TV.
+- Films and episodes: `GET /v1/tv/phone/file/{pass}`, a byte-range proxy of the provider file. Only mp4, m4v and mov play on the phone; anything else answers 409 `tv_only` ("This one only plays on a TV"). A phone whose player opens every file type says so with `"player": "exo"` (Android phone, Media3) or `"player": "ks"` (the iPhone and iPad media app) on `/play`, and is not refused. Episodes need the series opened once (`GET /v1/tv/series/{id}`), as on the TV.
 - Channels: `GET /v1/tv/phone/live/{pass}/index.m3u8`. The hub reads the provider's HLS and points every line at `/v1/tv/phone/live/{pass}/p/{n}.m3u8` or `/s/{n}`. The provider's own addresses stay in the hub's memory. Reloads use the redirected playlist, not the login address.
 - Plex titles keep using `GET /v1/media/{id}/stream`.
 
