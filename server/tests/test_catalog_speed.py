@@ -23,8 +23,8 @@ def test_the_index_is_read_once_until_the_catalog_changes(hub, monkeypatch):
     observe(hub.db, [{"provider": "alpha", "kind": "movie", "stream_id": "1", "tmdb": "603",
                       "name": "The Matrix (1999)"}])
     reads = []
-    real = iptvcanon._state
-    monkeypatch.setattr(iptvcanon, "_state", lambda db: reads.append(1) or real(db))
+    real = iptvcanon._state_gently
+    monkeypatch.setattr(iptvcanon, "_state_gently", lambda db: reads.append(1) or real(db))
     first = index(hub.db)
     for _ in range(20):
         assert index(hub.db) is first

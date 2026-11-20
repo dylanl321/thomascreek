@@ -169,3 +169,14 @@ def people(hub, home_client):
         ph.sign_in()
         phones[person["name"]] = ph
     return {"dylan": dylan, "avery": avery, "theo": theo, "phones": phones}
+
+
+@pytest.fixture(autouse=True)
+def _fold_index_rebuilds_at_once():
+    """The live hub rebuilds the folded-title index at most every few minutes; tests check each rebuild. (Not
+    through `monkeypatch`: an autouse request would make its undo run after other fixtures' teardown.)"""
+    from hub import iptvcanon
+    saved = iptvcanon.REFRESH_EVERY_S
+    iptvcanon.REFRESH_EVERY_S = 0.0
+    yield
+    iptvcanon.REFRESH_EVERY_S = saved
