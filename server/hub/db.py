@@ -502,8 +502,11 @@ class DB:
 
     def _reader(self) -> sqlite3.Connection | None:
         """This thread's read connection, or None for an in-memory database (it has only the one connection) and
-        while this thread is inside a transaction on the shared connection (it must read its own writes)."""
-        if self._path == ":memory:" or self._conn.in_transaction:
+        while this thread is inside a transaction on the shared connection (it must read its own writes).
+        Another thread's transaction (a batch of saved pages, say) no longer sends this read to wait behind it:
+        transactions run only under `_lock`, so one is this thread's only when this thread holds the lock."""
+        owned = self._lock._is_owned()  # type: ignore[attr-defined]
+        if self._path == ":memory:" or (self._conn.in_transaction and owned):
             return None
         conn = getattr(self._readers, "conn", None)
         if conn is None:

@@ -30,7 +30,8 @@ def test_the_index_is_read_once_until_the_catalog_changes(hub, monkeypatch):
         assert index(hub.db) is first
         assert _holding(hub, "vod:alpha:1")["title"] == "The Matrix"
         assert playable(hub.db, kind="movie", title="The Matrix")["ref"] == "vod:alpha:1"
-    assert len(reads) == 1
+    # The fold kept the index of what it saved, so nothing parses the state back (Nov 20 2026).
+    assert len(reads) == 0
     # A new fold is seen as soon as the index rebuilt behind the call (iptvcanon.recent): a play never waits for
     # that rebuild (Nov 19 2026: lineups and plays rebuilt it inline after every fold, 8 to 10 s from abroad).
     observe(hub.db, [{"provider": "alpha", "kind": "movie", "stream_id": "2", "name": "Dune (2021)"}])
