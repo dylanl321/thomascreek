@@ -57,25 +57,31 @@ def change(h: Any, who: str, *, add: str | None = None, first: bool = False, rem
 
 def present(cat: Any, item_ids: list[str], allowed: Callable[[dict[str, Any]], bool]) -> list[dict[str, Any]]:
     """What the tray draws for each queued id, leaving out what is gone or not `allowed`."""
+    from .playernext import episode_name
+    from .tvnames import title
+
     out: list[dict[str, Any]] = []
     for item_id in item_ids:
         if item_id.startswith("ep:"):
             row = cat.episode(item_id)
             if not row or not allowed(row):
                 continue
-            item: dict[str, Any] = {"id": item_id, "kind": "episode", "title": row.get("title") or "Episode",
-                                    "series_id": row.get("series_id")}
+            item: dict[str, Any] = {"id": item_id, "kind": "episode", "series_id": row.get("series_id"),
+                                    "title": episode_name(row.get("title"), row.get("number"))}
             numbers = [row.get("season"), row.get("number")]
             if all(isinstance(n, int) for n in numbers):
                 item["season"], item["number"] = numbers
-            if row.get("series_name"):
-                item["subtitle"] = row["series_name"]
-            art = cat._art("still", item_id)
+            show = title(row.get("series_name")).get("name")
+            if show:
+                item["subtitle"] = show
+            # An episode the provider sent no picture for shows its series' poster.
+            art = cat._art("still", item_id) or cat._art("poster", str(row.get("series_id") or "") or None)
         else:
             row = cat.movie(item_id)
             if not row or not allowed(row):
                 continue
-            item = {"id": item_id, "kind": "movie", "title": row.get("name") or row.get("title") or "Film"}
+            raw = row.get("name") or row.get("title")
+            item = {"id": item_id, "kind": "movie", "title": title(raw).get("name") or raw or "Film"}
             if row.get("year"):
                 item["subtitle"] = str(row["year"])[:4]
             art = cat._art("poster", item_id)
