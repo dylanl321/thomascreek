@@ -60,4 +60,10 @@ def test_a_play_says_how_long_each_step_took(hub, people):
         assert r.status_code == 200
         # total: every answer (hub.timings)
         steps = [part.split(";")[0] for part in r.headers["Server-Timing"].split(", ")]
-        assert steps == ["ready", "row", "lease", "source", "resume", "next", "total"]
+        main = [step for step in steps if "." not in step]
+        assert main == ["ready", "row", "lease", "source", "resume", "next", "total"]
+        # Inside the lease: waiting for the pool, idle leases, the title's copies, freeing this holder's last
+        # lease, the pick and the save (and the addresses for a direct play).
+        inner = {step.split(".", 1)[1] for step in steps if step.startswith("lease.")}
+        assert {"wait", "idle", "item", "free", "pick", "save"} <= inner
+        assert ("urls" in inner) is direct

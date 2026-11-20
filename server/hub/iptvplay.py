@@ -7,6 +7,7 @@ path. The provider address is only the redirect for that one TV.
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import functools
 import logging
 import re
@@ -31,9 +32,26 @@ _POOL = threading.RLock()
 def _pooled(fn: Any) -> Any:
     @functools.wraps(fn)
     def run(*args: Any, **kwargs: Any) -> Any:
+        started = time.perf_counter()
         with _POOL:
+            _step("wait", started)
             return fn(*args, **kwargs)
     return run
+
+
+# Where a lease spends its time, for the play route's Server-Timing (`lease.<step>`): a play on a worker thread
+# carries the caller's dict here (asyncio.to_thread copies the context). Episode plays spent 2 to 3 s in the lease
+# while films took 0.4 s, and the one "lease" figure could not say why (Nov 20 2026).
+STEPS: contextvars.ContextVar[dict[str, float] | None] = contextvars.ContextVar("iptvplay_steps", default=None)
+
+
+def _step(name: str, since: float) -> float:
+    """Add the milliseconds since `since` to step `name` (when a caller is collecting); the time now."""
+    now = time.perf_counter()
+    found = STEPS.get()
+    if found is not None and name not in found:  # the outermost call's figure; nested pooled calls add nothing
+        found[name] = round((now - since) * 1000, 1)
+    return now
 
 KV_LOGINS = "iptv.logins"
 KV_USAGE = "iptv.usage"
@@ -360,14 +378,19 @@ def lease(h: Any, ref: str, holder: str, *, avoid: set[str] | None = None,
     relayed bytes themselves) and is freed IDLE_S after that stops, or at once on stop. A holder has one lease:
     a new one replaces it. None when every login that carries this title is busy."""
     now = time.time() if now is None else now
+    clock = time.perf_counter()
     _release_idle(h, now)
+    clock = _step("idle", clock)
     _kind, provider, _stream = _split_ref(ref)
     item = _holding(h, ref) or _episode(h, ref) or {"id": ref, "sources": [{"provider": provider, "ref": ref,
                                                                               "quality": None}]}
+    clock = _step("item", clock)
     mine = {_key(row) for row in _sessions(h) if row.get("tv") == holder}
     _release_tv(h, holder)
+    clock = _step("free", clock)
     # The stream this holder just let go may still be counted by the provider; it is this holder's to reuse.
     chosen = _pick(h, item, avoid if avoid is not None else _failed(h, now), now, mine=mine)
+    clock = _step("pick", clock)
     if chosen is None:
         return None
     row = {"session": new_id("ses"), "tv": holder, "provider": chosen["provider"], "login": chosen["login"],
@@ -376,6 +399,7 @@ def lease(h: Any, ref: str, holder: str, *, avoid: set[str] | None = None,
     sessions = _sessions(h)
     sessions.append(row)
     h.db.kv_set(KV_SESSIONS, sessions)
+    _step("save", clock)
     return row
 
 
@@ -393,6 +417,7 @@ def direct_all(h: Any, ref: str, holder: str, *, now: float | None = None) -> li
     row = lease(h, ref, holder, now=now)
     if row is None:
         return []
+    clock = time.perf_counter()
     out: list[str] = []
     for server in [None, *addresses_for(h, row["session"], holder)[1:]]:
         url = target(h, row["session"], holder, server=server)
@@ -400,6 +425,7 @@ def direct_all(h: Any, ref: str, holder: str, *, now: float | None = None) -> li
             url = url[:-3] + ".m3u8"
         if url and url not in out:
             out.append(url)
+    _step("urls", clock)
     return out
 
 
