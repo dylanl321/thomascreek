@@ -237,7 +237,9 @@ def _merge_into(items: dict[str, dict[str, Any]], overrides: dict[str, Any], ids
 def _apply(db: Any, batch: list[dict[str, Any]], decisions: dict[str, Any]) -> tuple[int, int]:
     """The model's answers for one batch, read and saved once (folded, kept apart). Before, each answer read and
     wrote the whole several-MB state, about 50 times a batch, on the event loop (Nov 19 2026)."""
-    items = {item["id"]: item for item in _items(db)}
+    state = _state(db)  # read once: the items and the waiting pairs come from the same parse
+    items = {item["id"]: item for item in state.get("items") or []
+             if isinstance(item, dict) and item.get("id") and item["id"] != "__unsure__"}
     overrides = _overrides(db)
     cache = dict(_ai(db))
     folded = apart = 0
@@ -253,7 +255,6 @@ def _apply(db: Any, batch: list[dict[str, Any]], decisions: dict[str, Any]) -> t
     if apart_ids:
         db.kv_set(KV_AI, cache)
     if folded or apart_ids:
-        state = _state(db)
         state["unsure"] = [r for r in state.get("unsure") or [] if isinstance(r, dict) and r.get("id") not in apart_ids]
         _save_items(db, list(items.values()), overrides, state=state)
     return folded, apart
@@ -373,20 +374,50 @@ def _size(db: Any) -> int:
 
 
 def index(db: Any) -> Index:
-    """`Index` of the saved state, rebuilt only when the state was written again (its stamp changes)."""
+    """`Index` of the saved state, rebuilt only when the state was written again (its stamp changes).
+
+    One build at a time: a caller that finds another thread building waits for it and takes its index instead
+    of parsing the several-MB state beside it. Three parses at once (the matcher, the background refresh and the
+    title build) starved plays of the interpreter lock for 2 to 4 s (Nov 20 2026)."""
     stamp = _stamp(db)
     cached = _INDEX.get(id(db))
     if cached is not None and stamp is not None and cached[0] == stamp:
         return cached[1]
-    started = time.perf_counter()
-    built = Index(_state_gently(db))
-    _INDEX[id(db)] = (stamp, built)
+    with _parse_lock(db):
+        stamp = _stamp(db)
+        cached = _INDEX.get(id(db))
+        if cached is not None and stamp is not None and cached[0] == stamp:
+            return cached[1]  # another thread built it while this one waited
+        started = time.perf_counter()
+        built = Index(_state_gently(db))
+        _INDEX[id(db)] = (stamp, built)
+        _BUILT_AT[id(db)] = time.monotonic()
+        gentlejson.settle(_size(db) if len(built.items) > 5000 else 0)
+        took = time.perf_counter() - started
+        if took > 1:
+            log.info("iptvcanon: read %d folded titles in %.1f s", len(built.items), took)
+        return built
+
+
+_PARSE_LOCKS: dict[int, threading.Lock] = {}
+_PARSE_LOCKS_GUARD = threading.Lock()
+
+
+def _parse_lock(db: Any) -> threading.Lock:
+    with _PARSE_LOCKS_GUARD:
+        return _PARSE_LOCKS.setdefault(id(db), threading.Lock())
+
+
+def _remember(db: Any, state: dict[str, Any]) -> None:
+    """After the hub itself saved the state, index what it saved instead of parsing it back: the matcher saved
+    after each batch of model answers, and each save made the next reader parse several MB again (Nov 20 2026).
+    Called with the write lock held, so the stamp read here is this write's own. Writers build `state` fresh and
+    drop it after saving; the index readers never change what it holds."""
+    stamp = _stamp(db)
+    if stamp is None:
+        return
+    _INDEX[id(db)] = (stamp, Index(state))
     _BUILT_AT[id(db)] = time.monotonic()
-    gentlejson.settle(_size(db) if len(built.items) > 5000 else 0)
-    took = time.perf_counter() - started
-    if took > 1:
-        log.info("iptvcanon: read %d folded titles in %.1f s", len(built.items), took)
-    return built
 
 
 def recent(db: Any) -> Index:
@@ -980,9 +1011,13 @@ _state_gently = _state
 
 
 def _put_state(db: Any, state: dict[str, Any]) -> None:
-    """Save the fold state, written gently (`gentlejson.dumps`) where the database takes ready JSON."""
+    """Save the fold state, written gently (`gentlejson.dumps`) where the database takes ready JSON, and keep
+    its index (`_remember`) so nobody parses it back."""
     if hasattr(db, "kv_set_text"):
-        db.kv_set_text(KV, gentlejson.dumps(state))
+        text = gentlejson.dumps(state)
+        with _parse_lock(db):
+            db.kv_set_text(KV, text)
+            _remember(db, state)
     else:
         db.kv_set(KV, state)
 

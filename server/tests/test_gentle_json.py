@@ -87,3 +87,69 @@ def test_the_fold_state_is_saved_with_the_gentle_writer(tmp_path, monkeypatch):
         {"provider": "a", "stream_id": "1"}]}], {})
     assert written and written[0]["by_source"] == {"a|movie|1": "can_1"}
     assert iptvcanon._state(db)["items"][0]["id"] == "can_1"
+
+
+def test_the_hub_never_parses_back_a_state_it_just_saved(hub, monkeypatch):
+    """A save keeps its own index: the matcher saved after each batch of model answers and every reader then
+    parsed several MB again, starving plays of the interpreter lock (Nov 20 2026)."""
+    db = hub.db
+    iptvcanon._put_state(db, {"items": [{"id": "movie:a", "kind": "movie", "title": "A",
+                                         "sources": [{"ref": "vod:p:1"}]}]})
+
+    def no_parse(_db):
+        raise AssertionError("parsed the state back")
+
+    monkeypatch.setattr(iptvcanon, "_state_gently", no_parse)
+    assert iptvcanon.index(db).by_ref["vod:p:1"]["id"] == "movie:a"
+    assert iptvcanon.recent(db).by_id["movie:a"]["title"] == "A"
+
+
+def test_threads_that_need_the_index_together_parse_it_once(hub, monkeypatch):
+    import threading
+
+    db = hub.db
+    db.kv_set(iptvcanon.KV, {"items": [{"id": "movie:a", "kind": "movie", "title": "A", "sources": []}]})
+    iptvcanon._INDEX.pop(id(db), None)
+    real, parses = iptvcanon._state_gently, []
+
+    def slow(d):
+        parses.append(1)
+        time.sleep(0.2)
+        return real(d)
+
+    monkeypatch.setattr(iptvcanon, "_state_gently", slow)
+    found: list[object] = []
+    threads = [threading.Thread(target=lambda: found.append(iptvcanon.index(db))) for _ in range(3)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert len(parses) == 1
+    assert found[0] is found[1] is found[2]
+
+
+def test_a_read_does_not_wait_for_another_threads_transaction(tmp_path):
+    import threading
+
+    from hub.db import DB
+
+    db = DB(tmp_path / "hub.db")
+    db.kv_set("a", 1)
+    inside, done = threading.Event(), threading.Event()
+
+    def long_write():
+        with db._lock:
+            db._conn.execute("BEGIN")
+            db._conn.execute("INSERT INTO hub_kv (key, value, updated_at) VALUES ('b', '2', 0)")
+            inside.set()
+            done.wait(5)
+            db._conn.execute("COMMIT")
+
+    writer = threading.Thread(target=long_write)
+    writer.start()
+    inside.wait(5)
+    started = time.monotonic()
+    assert db.kv_get("a") == 1  # read on this thread's own connection, not behind the writer's lock
+    assert time.monotonic() - started < 1
+    done.set()
+    writer.join()
