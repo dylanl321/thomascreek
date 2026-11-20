@@ -46,6 +46,22 @@ IDLE_S = 90
 USAGE_FRESH_S = 90
 FAIL_S = 600
 QUALITY = {"2160p": 0, "1080p": 1, "720p": 2, "sd": 3}
+# A copy whose name starts with another language's tag ("TR - Community", "|DE| ...", "[FR]") or says it is
+# dubbed is not played unless it is the copy asked for: the house watches in English, and a show folded with its
+# dubbed copies played in Turkish because that provider had more free logins (Nov 20 2026). With every English
+# copy busy, the busy answer (who holds the logins) is better than a surprise dub.
+_FOREIGN_TAGS = {"ar", "al", "bg", "cz", "de", "dk", "es", "fi", "fr", "gr", "hi", "hu", "il", "in", "ir", "it",
+                 "kr", "ku", "lat", "nl", "no", "pk", "pl", "pt", "ro", "ru", "se", "sk", "tr", "ua", "exyu", "ex-yu"}
+_TAG = re.compile(r"^\W*([A-Z]{2,3}(?:-[A-Z]{2})?)\s*[-:|\]]")  # upper case: "It: Chapter Two" is a title
+_BRACKETED = re.compile(r"[(\[|]\s*([A-Z]{2,3}(?:-[A-Z]{2})?)\s*[)\]|]")  # "Monk (TR)", "Monk [DE]"
+_DUBBED = re.compile(r"(dublaj|t[üu]rk[çc]e|synchro|doblad|dubbed\b)", re.I)
+
+
+def foreign(name: object) -> bool:
+    """A source name that marks a copy in another language than the house's (English)."""
+    text = str(name or "")
+    tags = [m.group(1) for m in (_TAG.match(text), *_BRACKETED.finditer(text)) if m]
+    return any(tag.lower() in _FOREIGN_TAGS for tag in tags) or bool(_DUBBED.search(text))
 
 
 def accounts(h: Any, now: float | None = None) -> dict[str, Any]:
@@ -713,7 +729,12 @@ def _pick(h: Any, item: dict[str, Any], avoid: set[str], now: float,
     pool = logins(h)
     best = None
     best_key = None
-    for source in item.get("sources") or []:
+    sources = item.get("sources") or []
+    # Asked for a dubbed copy on purpose (the first source is the one asked for): then language doesn't count.
+    asked_foreign = bool(sources) and foreign(sources[0].get("name"))
+    for source in sources:
+        if not asked_foreign and foreign(source.get("name")):
+            continue
         for login in pool:
             if login["provider"] != source.get("provider"):
                 continue
@@ -829,9 +850,20 @@ def _episode(h: Any, ref: str) -> dict[str, Any] | None:
     if not known:
         return None
     _kind, provider, _stream = _split_ref(ref)
-    sources = [{"provider": provider, "ref": ref, "quality": None}]
-    sources += [{"provider": _split_ref(twin)[1], "ref": twin, "quality": None} for twin in _twins(h, known)]
+    sources = [{"provider": provider, "ref": ref, "quality": None,
+                "name": _series_name(h, str(known.get("series_id") or ""))}]
+    sources += [{"provider": _split_ref(twin)[1], "ref": twin, "quality": None, "name": name}
+                for twin, name in _named_twins(h, known)]
     return {"id": ref, "sources": sources}
+
+
+def _series_name(h: Any, series_id: str) -> str | None:
+    """The provider's own name for a series copy ("TR - Community"), from the folded catalog."""
+    from .iptvcanon import recent
+
+    item = recent(h.db).by_ref.get(series_id) if series_id else None
+    return next((str(src.get("name")) for src in (item or {}).get("sources") or []
+                 if src.get("ref") == series_id and src.get("name")), None)
 
 
 def _twin_series(h: Any, series_id: str) -> list[str]:
@@ -846,6 +878,11 @@ def _twin_series(h: Any, series_id: str) -> list[str]:
 
 def _twins(h: Any, known: dict[str, Any]) -> list[str]:
     """The same episode (season and number) on the other providers, from series pages the hub has already read."""
+    return [ref for ref, _name in _named_twins(h, known)]
+
+
+def _named_twins(h: Any, known: dict[str, Any]) -> list[tuple[str, str | None]]:
+    """`_twins`, each with its series copy's provider name (to tell a dubbed copy)."""
     season, number = known.get("season"), known.get("number")
     if season is None or number is None:
         return []
@@ -854,14 +891,14 @@ def _twins(h: Any, known: dict[str, Any]) -> list[str]:
         read = catalog._details()["series"] if catalog is not None else {}
     except Exception:  # noqa: BLE001 - a catalog read must not stop playback
         return []
-    out = []
+    out: list[tuple[str, str | None]] = []
     for other in _twin_series(h, str(known.get("series_id") or "")):
         for part in (read.get(other) or {}).get("seasons") or []:
             if part.get("number") != season:
                 continue
             match = next((ep for ep in part.get("episodes") or [] if ep.get("number") == number), None)
             if match and match.get("id"):
-                out.append(str(match["id"]))
+                out.append((str(match["id"]), _series_name(h, other)))
     return out
 
 

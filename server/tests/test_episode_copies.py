@@ -72,3 +72,45 @@ def test_a_show_with_no_other_copy_reads_nothing(hub):
 
     cat.fetch_series = never
     assert asyncio.run(read_twins(hub, "ep:thomas-creek:601")) == 0
+
+
+def test_a_dubbed_copy_of_the_show_is_never_played_instead(hub):
+    """Nov 20 2026: Community played in Turkish: its folded twin on another provider had more free logins."""
+    from hub.iptvplay import foreign
+
+    assert foreign("TR - Community") and foreign("|DE| Monk") and foreign("[FR] Monk") and foreign("Monk (Dublaj)")
+    assert not foreign("EN - Monk") and not foreign("Monk") and not foreign("NF - 13 Bombs")
+    assert foreign("Monk (TR)") and foreign("Monk [DE]") and foreign("Monk |TR|")
+    assert not foreign("It: Chapter Two") and not foreign("US - The Office") and not foreign("Monk (US)")
+    assert not foreign("Monk (2004)") and not foreign("Monk [4K]") and not foreign("Monk (HD)")
+    observe(hub.db, [
+        {"provider": "thomas-creek", "kind": "series", "stream_id": "9", "name": "EN - Monk", "tmdb": "1695",
+         "ref": "series:thomas-creek:9"},
+        {"provider": "beta", "kind": "series", "stream_id": "44", "name": "Monk (TR)", "tmdb": "1695",
+         "ref": "series:beta:44"},
+    ])
+    _show_logins(hub, beta_slots="5")
+    cat = hub.tv_catalog
+    cat.store_series(_page({(1, 1): "501"}, "mkv"), "series:thomas-creek:9")
+    cat.store_series(_page({(1, 1): "7001"}, "mp4"), "series:beta:44")
+    assert [s["ref"] for s in _episode(hub, "ep:thomas-creek:501")["sources"]] == ["ep:thomas-creek:501",
+                                                                                   "ep:beta:7001"]
+    first = lease(hub, "ep:thomas-creek:501", "phone:dev1")
+    assert first and first["provider"] == "thomas-creek"  # English, though the dubbed copy has 5 free logins
+    assert lease(hub, "ep:thomas-creek:501", "phone:dev2") is None  # busy, not a surprise dub
+    # Asked for the dubbed copy itself: it plays.
+    assert lease(hub, "ep:beta:7001", "phone:dev3")["provider"] == "beta"
+
+
+def _show_logins(hub, *, beta_slots: str) -> None:
+    hub.config.iptv.providers = []
+    hub.vault.set("iptv.tc.main.password", "secret-main")
+    hub.vault.set("iptv.beta.spare.password", "secret-spare")
+    hub.db.kv_set("iptv.logins", [
+        {"provider": "thomas-creek", "login": "main", "server": "http://tc.test", "username": "main",
+         "password_secret": "iptv.tc.main.password"},
+        {"provider": "beta", "login": "spare", "server": "http://beta.test", "username": "spare",
+         "password_secret": "iptv.beta.spare.password"},
+    ])
+    note_usage(hub, "thomas-creek", "main", {"max_connections": "1", "active_cons": "0", "status": "Active"})
+    note_usage(hub, "beta", "spare", {"max_connections": beta_slots, "active_cons": "0", "status": "Active"})
