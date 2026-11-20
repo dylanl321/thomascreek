@@ -40,7 +40,7 @@ from .deps import Caller, caller, error, hub
 from ..upnext import remember, resume_at, who_key
 from .tvguide import _media, _ready, watcher
 from ..faults import note
-from ..iptvplay import STEPS
+from ..iptvplay import collect, stop_collecting
 
 log = logging.getLogger("hub.tvphone")
 
@@ -136,11 +136,11 @@ async def phone_play(body: dict[str, Any], response: Response, c: Caller = Depen
         holder = f"phone:{c.device['id']}"
         # The pool takes its own lock (hub/iptvplay.py _POOL), so the lease runs off the loop.
         steps: dict[str, float] = {}
-        mark = STEPS.set(steps)
+        mark = collect(steps)
         try:
             urls = await asyncio.to_thread(direct_all, h, key, holder)
         finally:
-            STEPS.reset(mark)
+            stop_collecting(mark)
         lap("lease")
         lap.detail("lease", steps)
         if not urls:
@@ -187,11 +187,11 @@ async def phone_play(body: dict[str, Any], response: Response, c: Caller = Depen
 
     holder = f"phone:{c.device['id']}"
     steps = {}
-    mark = STEPS.set(steps)
+    mark = collect(steps)
     try:
         held = await asyncio.to_thread(lease, h, key, holder)
     finally:
-        STEPS.reset(mark)
+        stop_collecting(mark)
     lap("lease")
     lap.detail("lease", steps)
     if held is None:
