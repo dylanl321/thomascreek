@@ -557,3 +557,36 @@ def test_a_page_written_while_another_is_read_leaves_the_readers_copy_alone(hub)
     now = cat._details()
     assert "ep:thomas-creek:1" in now["episodes"] and "ep:thomas-creek:2" in now["episodes"]
     assert set(now["series"]) >= {"series:thomas-creek:1", "series:thomas-creek:2"}
+
+
+def test_next_episode_follows_the_series_page_and_skips_specials(hub):
+    from hub.playernext import next_episode
+
+    def ep(i, n):
+        return {"id": str(i), "episode_num": n, "title": f"E{n}", "container_extension": "mp4"}
+
+    hub.tv_catalog.store_series({"info": {"name": "Show"}, "episodes": {
+        "0": [ep(90, 1)], "1": [ep(12, 2), ep(11, 1)], "2": [ep(21, 1)]}}, "series:thomas-creek:7")
+    assert next_episode(hub.tv_catalog, "ep:thomas-creek:11")["episode_id"] == "ep:thomas-creek:12"
+    assert next_episode(hub.tv_catalog, "ep:thomas-creek:12")["episode_id"] == "ep:thomas-creek:21"
+    assert next_episode(hub.tv_catalog, "ep:thomas-creek:21") is None  # a special never follows a season
+
+
+def test_pages_are_kept_in_the_database_and_an_old_details_file_moves_in_once(hub, tmp_path):
+    import json as _json
+
+    from hub.tvcatalog import TvCatalog
+
+    cat = hub.tv_catalog
+    cat.details_path.parent.mkdir(parents=True, exist_ok=True)
+    cat.details_path.write_text(_json.dumps({"series": {}, "movies": {"vod:thomas-creek:5": {"id": "vod:thomas-creek:5",
+                                                                                              "name": "Old"}},
+                                             "episodes": {}}))
+    cat.__dict__.pop("_details_doc", None)
+    assert cat._details()["movies"]["vod:thomas-creek:5"]["name"] == "Old"
+    cat.store_series({"info": {"name": "New"}, "episodes": {"1": [
+        {"id": "3", "episode_num": 1, "title": "A", "container_extension": "mp4"}]}}, "series:thomas-creek:3")
+    fresh = TvCatalog(hub.vault, hub.db, cat.details_path.parent.parent)  # as after a restart
+    doc = fresh._details()
+    assert "vod:thomas-creek:5" in doc["movies"] and "ep:thomas-creek:3" in doc["episodes"]
+    assert "series:thomas-creek:3" in doc["series"]

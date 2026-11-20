@@ -56,13 +56,19 @@ def episode_name(raw: object, number: object = None) -> str:
 def next_episode(cat: Any, episode_id: str, *, kids_only: bool = False) -> dict[str, Any] | None:
     """`{episode_id, series_id, title, season?, number?, still_url?}` for the episode after `episode_id`, or None
     at the end of the series (or when the series was never read)."""
-    episodes = cat._details().get("episodes") or {}
+    details = cat._details()
+    episodes = details.get("episodes") or {}
     current = episodes.get(episode_id)
     if not isinstance(current, dict) or not current.get("series_id"):
         return None
     series_id = current["series_id"]
     here = _order(current)
-    later = [ep for ep in _series_episodes(cat, episodes, series_id)
+    # The series' own page lists its episodes in order: read those, not every episode the hub ever read.
+    record = (details.get("series") or {}).get(series_id)
+    listed = [ep for part in (record.get("seasons") or []) if isinstance(part, dict)
+              for ep in part.get("episodes") or [] if isinstance(ep, dict) and ep.get("id")] \
+        if isinstance(record, dict) else []
+    later = [ep for ep in (listed or _series_episodes(cat, episodes, series_id))
              if _order(ep) > here and (ep.get("season") != 0 or current.get("season") == 0)]
     if not later:
         return None

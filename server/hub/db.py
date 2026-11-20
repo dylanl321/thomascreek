@@ -254,6 +254,15 @@ SCHEMA = [
         value TEXT NOT NULL,
         updated_at REAL NOT NULL
     )""",
+    # One row per series, film or episode page the hub read from a provider (hub/tvcatalog.py `_details`). It was
+    # one JSON file rewritten whole for every page, which held the interpreter for seconds per episode play.
+    """
+    CREATE TABLE IF NOT EXISTS tv_details (
+        bucket TEXT NOT NULL,
+        id TEXT NOT NULL,
+        data TEXT NOT NULL,
+        PRIMARY KEY (bucket, id)
+    )""",
 ]
 
 # Columns added after the first deploy: (table, column, definition). Added on start if missing.
@@ -447,6 +456,24 @@ class DB:
         for r in self.all("SELECT bucket, kind, key, data FROM watch_history"):
             out.setdefault(r["bucket"], {}).setdefault(r["kind"], {})[r["key"]] = json.loads(r["data"])
         return out
+
+    def details_rows(self) -> list[tuple[str, str, str]]:
+        """Every saved page: (bucket, id, JSON text)."""
+        return [(r["bucket"], r["id"], r["data"]) for r in self.all("SELECT bucket, id, data FROM tv_details")]
+
+    def details_put(self, rows: list[tuple[str, str, str]]) -> None:
+        """Save pages (bucket, id, JSON text) in one transaction."""
+        if not rows:
+            return
+        with self._lock:
+            self._conn.execute("BEGIN")
+            try:
+                self._conn.executemany("INSERT INTO tv_details (bucket, id, data) VALUES (?,?,?) "
+                                       "ON CONFLICT(bucket, id) DO UPDATE SET data=excluded.data", rows)
+                self._conn.execute("COMMIT")
+            except Exception:
+                self._conn.execute("ROLLBACK")
+                raise
 
     def watch_save(self, bucket: str, before: dict[str, Any], after: dict[str, Any]) -> None:
         """Write only the rows that changed, and drop the ones `after` no longer keeps (trimmed)."""
