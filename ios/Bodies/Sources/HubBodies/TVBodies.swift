@@ -185,6 +185,54 @@ struct TVLibrarySearch: Decodable {
     var movies: [TVShow]?
 }
 
+// MARK: The player on this iPhone (/v1/tv/phone/next, /queue, /segments)
+
+/// The episode the hub plays after this one (its order; a kids' episode only for a child).
+struct PlayNextEpisode: Decodable {
+    var episodeId: String
+    var seriesId: String?
+    var title: String?
+    var season: Int?
+    var number: Int?
+    var stillUrl: String?
+    /// "S1 E2 · Second", or the title alone when the hub sent no numbers.
+    var line: String {
+        let name = title ?? "Next episode"
+        if let season, let number { return "S\(season) E\(number) · \(name)" }
+        return name
+    }
+}
+struct PlayNextReply: Decodable { var next: PlayNextEpisode? }
+
+/// A recap, intro or credits section the hub knows.
+struct PlaySegment: Decodable {
+    var kind: String
+    var startS: Double
+    var endS: Double
+    var label: String { kind == "recap" ? "Skip recap" : (kind == "intro" ? "Skip intro" : "Skip credits") }
+}
+struct PlaySegments: Decodable { var segments: [PlaySegment]? }
+
+/// One entry of the person's "Play next" queue, which follows them to every screen.
+struct PlayQueueItem: Decodable, Identifiable {
+    var id: String
+    var kind: String?
+    var title: String
+    var subtitle: String?
+    var season: Int?
+    var number: Int?
+    var seriesId: String?
+    var imageUrl: String?
+    var durationS: Int?
+    var isEpisode: Bool { id.hasPrefix("ep:") }
+    /// "Cartoon Show · S1 E2" for an episode, the hub's subtitle for a film, or nil.
+    var line: String? {
+        if isEpisode, let season, let number { return [subtitle, "S\(season) E\(number)"].compactMap { $0 }.joined(separator: " · ") }
+        return subtitle
+    }
+}
+struct PlayQueue: Decodable { var items: [PlayQueueItem]? }
+
 struct TVPlayRequest: Identifiable {
     var id: String { title + (channelKey ?? "") + (start ?? "") + (movieId ?? "") + (episodeId ?? "") }
     var title: String

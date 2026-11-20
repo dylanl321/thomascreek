@@ -286,6 +286,7 @@ struct TVGuideView: View {
 
 struct TVSeriesView: View {
     var seriesID: String
+    @Environment(HomeStore.self) private var store
     @State private var show: TVShow?
     @State private var missing = false
     @State private var play: TVPlayRequest?
@@ -313,6 +314,17 @@ struct TVSeriesView: View {
                                 }
                             }
                             .buttonStyle(.plain).card()
+                            // Press and hold: the person's "Play next" queue on the hub
+                            .contextMenu {
+                                if episode.id.hasPrefix("ep:") {
+                                    Button { addToPlayQueue(episode.id, title: episode.title ?? show.name, first: true, store: store) } label: {
+                                        Label("Play next", systemImage: "text.line.first.and.arrowtriangle.forward")
+                                    }
+                                    Button { addToPlayQueue(episode.id, title: episode.title ?? show.name, first: false, store: store) } label: {
+                                        Label("Add to queue", systemImage: "text.badge.plus")
+                                    }
+                                }
+                            }
                         }
                     }
                 } else if missing {
@@ -336,6 +348,7 @@ struct TVSeriesView: View {
 
 struct TVMovieView: View {
     var movieID: String
+    @Environment(HomeStore.self) private var store
     @State private var movie: TVShow?
     @State private var missing = false
     @State private var play: TVPlayRequest?
@@ -349,6 +362,19 @@ struct TVMovieView: View {
                         Label("Play", systemImage: "play.fill").font(.headline).frame(maxWidth: .infinity, minHeight: 48)
                     }
                     .buttonStyle(.borderedProminent)
+                    if movie.id.hasPrefix("vod:") {
+                        HStack(spacing: 10) {
+                            Button { addToPlayQueue(movie.id, title: movie.name, first: true, store: store) } label: {
+                                Label("Play next", systemImage: "text.line.first.and.arrowtriangle.forward")
+                                    .font(.subheadline.weight(.semibold)).frame(maxWidth: .infinity, minHeight: 44)
+                            }
+                            Button { addToPlayQueue(movie.id, title: movie.name, first: false, store: store) } label: {
+                                Label("Add to queue", systemImage: "text.badge.plus")
+                                    .font(.subheadline.weight(.semibold)).frame(maxWidth: .infinity, minHeight: 44)
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                    }
                 } else if missing {
                     EmptyCard(symbol: "film", title: "That movie isn't available", detail: nil)
                 } else { LoadingCard() }
