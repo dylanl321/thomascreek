@@ -56,6 +56,7 @@ ORDER = ("power_on", "power_off", "input", "open_app", "up", "down", "left", "ri
          "channel_down", "tune", "send", "volume_up", "volume_down", "mute", "volume_set", "text", "app", "source")
 KEYS = frozenset(ORDER)
 # For these the TV app comes first when it is on screen: it knows the channel list and the player.
+CHANNEL_STEPS = frozenset({"channel_up", "channel_down"})
 PLAYER_ONLY = frozenset({"play", "pause", "seek", "stop"})
 APP_FIRST = frozenset({"play", "pause", "seek", "stop", "tune", "channel_up", "channel_down", "text"})
 
@@ -73,8 +74,9 @@ SAID = {
     "up": "Up", "down": "Down", "left": "Left", "right": "Right", "select": "OK", "back": "Back", "home": "Home",
     "menu": "Menu", "play_pause": "Play or pause", "play": "Playing", "pause": "Paused", "rewind": "Back a bit",
     "fast_forward": "Forward a bit", "seek": "Skipped", "stop": "Stopped", "channel_up": "Channel up",
-    "channel_down": "Channel down", "tune": "Tuned", "send": "Playing", "volume_up": "Louder", "volume_down": "Quieter",
-    "mute": "Mute", "volume_set": "Volume set", "text": "Typed", "power_on": "Turned on", "power_off": "Turned off",
+    "channel_down": "Channel down", "tune": "Tuned", "send": "Starting", "volume_up": "Louder",
+    "volume_down": "Quieter", "mute": "Mute", "volume_set": "Volume set", "text": "Typed", "power_on": "Turned on",
+    "power_off": "Turned off",
     "input": "Switched the TV to this box", "open_app": "Opened Thomas Creek TV", "app": "Opened", "source": "Switched",
 }
 
@@ -139,7 +141,14 @@ def _pointless(key: str, ways: list[str], tv: dict[str, Any], online: bool) -> b
     front = online and bool(tv.get("foreground", True))
     if key == "open_app":
         return front
-    return key in PLAYER_ONLY and ways == ["app"] and not isinstance(tv.get("playing"), dict)
+    if ways != ["app"]:
+        return False
+    playing = tv.get("playing") if isinstance(tv.get("playing"), dict) else None
+    if key in CHANNEL_STEPS:
+        # The app steps channels inside its player: on a film, or with nothing on, the press would do nothing.
+        live = playing is not None and (playing.get("channel_key") or playing.get("kind") in ("live", "catchup"))
+        return not live
+    return key in PLAYER_ONLY and playing is None
 
 
 def _now_playing(h: Any, tv: dict[str, Any], now: float) -> dict[str, Any] | None:
@@ -256,12 +265,13 @@ def _ways(h: Any, subject: Subject, install_id: str, tv: dict[str, Any], online:
         add("input", "adb")
         add("text", "adb")
     if online and android:
-        for key in ("volume_up", "volume_down", "mute"):
+        # The app steps the box's volume. It has no mute of its own (it took the press and did nothing).
+        for key in ("volume_up", "volume_down"):
             add(key, "app")
+    # Only over network debugging: Android lets no app put itself in front from the background, and the app's
+    # own restart ended it without bringing it back (seen on the test TV, Nov 21 2026).
     if adb:
         add("open_app", "adb")
-    if online and android:
-        add("open_app", "app")
     # The TV app knows its own player and channel list, so its way comes first for those buttons.
     for key in APP_FIRST:
         ways = out.get(key)
@@ -335,6 +345,8 @@ async def press(h: Any, subject: Subject, install_id: str, body: Any) -> dict[st
 def _why_not(key: str, name: str, online: bool) -> str:
     if not online:
         return f"{name} is off or asleep, so it can't take that. Turn it on first."
+    if key == "open_app":
+        return f"Thomas Creek TV can't be opened on {name} from a phone. Open it with the TV's remote."
     if key in APP_FIRST or key in ("back", "home"):
         return f"{name} isn't showing Thomas Creek TV right now. Open it on the TV, then try again."
     return f"{name} doesn't have that button from a phone."
@@ -355,21 +367,14 @@ async def _by_app(h: Any, subject: Subject, install_id: str, tv: dict[str, Any],
     if key == "send":
         _send_title(h, subject, install_id, tv, body)
         return None
-    if key == "open_app":
-        # No network debugging: the app, still running behind another one, comes to the front by restarting.
-        try:
-            tvs._fleet(h, install_id, "restart_app", {}, subject.name)
-        except tvs.TvsError as exc:
-            raise PressError(exc.status, exc.code, exc.message) from None
-        return f"Opening Thomas Creek TV on {tv.get('name') or 'the TV'}."
     if key == "stop":
         try:
             out = await tvs.act(h, install_id, {"action": key}, subject.name)
         except tvs.TvsError as exc:
             raise PressError(exc.status, exc.code, exc.message) from None
         return str(out.get("message") or "") or None
-    if key in ("volume_up", "volume_down", "mute"):
-        params = {"mute": True} if key == "mute" else {"delta": 1 if key == "volume_up" else -1}
+    if key in ("volume_up", "volume_down"):
+        params = {"delta": 1 if key == "volume_up" else -1}
         try:
             tvs._fleet(h, install_id, "tv_volume", params, subject.name)
         except tvs.TvsError as exc:

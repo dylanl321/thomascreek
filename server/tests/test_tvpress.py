@@ -79,7 +79,7 @@ def test_a_tv_playing_the_app_offers_the_player_buttons_and_nothing_dead(hub, ho
     # No Home Assistant remote and no network debugging: the app's own buttons, and no arrows.
     # Thomas Creek TV is in front, so there is nothing to open.
     assert row["controls"] == ["back", "home", "play", "pause", "seek", "stop", "channel_up",
-                               "channel_down", "tune", "send", "volume_up", "volume_down", "mute", "text"]
+                               "channel_down", "tune", "send", "volume_up", "volume_down", "text"]
     assert "note" not in row
 
     _asleep(hub, BED)
@@ -250,7 +250,7 @@ def test_a_title_is_sent_to_a_tv_and_a_child_sends_only_kids_titles(hub, home_cl
     dylan, theo = people["phones"]["Dylan"], people["phones"]["Theo"]
     sent = _press(dylan, TV_ID, key="send", movie_id="xc:thomas-creek:501", title="Dune")
     assert sent.status_code == 200, sent.text
-    assert sent.json() == {"ok": True, "via": "app", "message": "Playing on Living room."}
+    assert sent.json() == {"ok": True, "via": "app", "message": "Starting on Living room."}
     queued = hub.tv_app.pending_commands(TV_ID)[-1]
     assert queued["action"] == "play" and queued["kind"] == "movie" and queued["movie_id"] == "xc:thomas-creek:501"
     assert _press(dylan, TV_ID, key="send").status_code == 400
@@ -345,7 +345,7 @@ def test_a_box_that_does_not_answer_is_offered_no_dead_buttons(hub, home_client,
     assert "up" not in _row(dylan, TV_ID)["controls"]
 
 
-def test_open_app_without_network_debugging_brings_the_app_forward(hub, home_client, people):
+def test_open_app_is_offered_only_where_it_works(hub, home_client, people):
     office, _bed = _two_tvs(hub, home_client)
     report(hub, TV_ID, BODY, time.time())
     _on_screen(home_client, office)
@@ -353,9 +353,31 @@ def test_open_app_without_network_debugging_brings_the_app_forward(hub, home_cli
     tvs[TV_ID]["foreground"] = False
     hub.tv_app._save_tvs(tvs)
     dylan = people["phones"]["Dylan"]
-    opened = _press(dylan, TV_ID, key="open_app")
-    assert opened.status_code == 200, opened.text
-    assert opened.json() == {"ok": True, "via": "app", "message": "Opening Thomas Creek TV on Living room."}
+    # No network debugging: Android lets no app put itself in front, so the button is not drawn and a press
+    # says what to do instead of ending the app.
+    assert "open_app" not in _row(dylan, TV_ID)["controls"]
+    refused = _press(dylan, TV_ID, key="open_app")
+    assert refused.status_code == 409
+    assert refused.json()["message"] == (
+        "Thomas Creek TV can't be opened on Living room from a phone. Open it with the TV's remote.")
+    assert not [c for c in hub.tv_app.pending_commands(TV_ID) if c.get("action") == "restart_app"]
+    _adb(hub)
+    assert "open_app" in _row(dylan, TV_ID)["controls"]
+    assert _press(dylan, TV_ID, key="open_app").json()["via"] == "adb"
+
+
+def test_channel_steps_and_mute_are_not_offered_where_the_app_would_ignore_them(hub, home_client, people):
+    office, _bed = _two_tvs(hub, home_client)
+    report(hub, TV_ID, BODY, time.time())
+    _on_screen(home_client, office, playing={"movie_id": "m1", "title": "A film", "kind": "movie"})
+    dylan = people["phones"]["Dylan"]
+    controls = _row(dylan, TV_ID)["controls"]
+    assert "channel_up" not in controls and "channel_down" not in controls and "mute" not in controls
+    assert {"play", "pause", "seek", "stop", "volume_up", "volume_down"} <= set(controls)
+    tvs = hub.tv_app.tvs()
+    tvs[TV_ID]["playing"] = {"channel_key": "xc:thomas-creek:10", "name": "CNN", "kind": "live"}
+    hub.tv_app._save_tvs(tvs)
+    assert {"channel_up", "channel_down"} <= set(_row(dylan, TV_ID)["controls"])
 
 
 def test_a_film_says_how_old_its_place_is_so_the_bar_keeps_moving(hub, home_client, people):
