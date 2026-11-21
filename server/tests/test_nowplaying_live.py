@@ -157,3 +157,31 @@ def test_a_start_that_never_came_back_alerts_once(hub, home_client, people, monk
     # Something else, hours later: one new start.
     asyncio.run(nowplaying_live.sync(hub, now=t0 + nowplaying_live.START_WAIT_S + 1))
     assert starts() == ["aa11", "aa11"]
+
+
+def test_a_test_emulator_playing_as_someone_starts_nothing_on_their_phone(hub, home_client, people, monkeypatch):
+    """An Android emulator or Apple simulator on the Mac, playing as Dylan for a walk-through, never starts his Now
+    playing activity (Nov 21 2026: one stuck in his Dynamic Island he couldn't clear)."""
+    monkeypatch.setattr(nowplaying_live, "kick", lambda h: None)
+    _, tv_headers = _tv(hub, home_client)
+    apns = FakeApns()
+    hub.apns = apns  # type: ignore[assignment]
+    dylan = people["phones"]["Dylan"]
+    home_client.post("/v1/devices/live-activity", headers=dylan.h,
+                     json={"now_playing_start_token": "aa11", "env": "sandbox"})
+    tv_id = next(iter(hub.tv_app.tvs()))
+    for model in ("sdk_google_atv64_arm64", "arm64"):
+        _model(hub, tv_id, model)
+        _playing(home_client, tv_headers, "US| ABC News", people["dylan"]["id"])
+        asyncio.run(nowplaying_live.sync(hub))
+        assert apns.sent == []
+    _model(hub, tv_id, "SHIELD Android TV")
+    _playing(home_client, tv_headers, "US| ABC News", people["dylan"]["id"])
+    asyncio.run(nowplaying_live.sync(hub))
+    assert _starts(apns) == ["aa11"]
+
+
+def _model(hub, tv_id, model):
+    tvs = hub.tv_app.tvs()
+    tvs[tv_id]["model"] = model
+    hub.tv_app._save_tvs(tvs)
