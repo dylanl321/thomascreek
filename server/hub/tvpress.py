@@ -56,6 +56,7 @@ ORDER = ("power_on", "power_off", "input", "open_app", "up", "down", "left", "ri
          "channel_down", "tune", "send", "volume_up", "volume_down", "mute", "volume_set", "text", "app", "source")
 KEYS = frozenset(ORDER)
 # For these the TV app comes first when it is on screen: it knows the channel list and the player.
+PLAYER_ONLY = frozenset({"play", "pause", "seek", "stop"})
 APP_FIRST = frozenset({"play", "pause", "seek", "stop", "tune", "channel_up", "channel_down", "text"})
 
 WINDOW_S = 5.0
@@ -65,6 +66,7 @@ ONLINE_S = 120
 ADB_CHECK_S = 45.0  # how often a listed box is asked again whether network debugging answers
 ADB_TRUST_S = 300.0  # an answer older than this no longer counts
 ADB_PROBE_S = 4.0
+POSITION_AGE_MAX_S = 300.0  # an older report says little about where the film is now
 STALE_S = 14 * 86400.0  # an unreachable box not seen for this long is left off the list
 
 SAID = {
@@ -130,6 +132,25 @@ def _told_apart(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return rows
 
 
+def _pointless(key: str, ways: list[str], tv: dict[str, Any], online: bool) -> bool:
+    """A button that would do nothing right now is not drawn (a press of it is still taken: the TV's word on
+    what it plays trails a press by a moment). The player's buttons with nothing playing, and Open app with
+    Thomas Creek TV already in front."""
+    front = online and bool(tv.get("foreground", True))
+    if key == "open_app":
+        return front
+    return key in PLAYER_ONLY and ways == ["app"] and not isinstance(tv.get("playing"), dict)
+
+
+def _now_playing(h: Any, tv: dict[str, Any], now: float) -> dict[str, Any] | None:
+    """What is on, with how old the TV's word on its place is (`position_age_s`): a TV reports now and then, and
+    a phone moves the bar on by that age instead of standing still between reports."""
+    out = tvs._now_playing(h, tv.get("playing"))
+    if out is not None and out.get("position_s") is not None and tv.get("state_at"):
+        out["position_age_s"] = int(min(max(now - float(tv["state_at"]), 0.0), POSITION_AGE_MAX_S))
+    return out
+
+
 def _row(h: Any, subject: Subject, install_id: str, tv: dict[str, Any], names: dict[str, Any], now: float,
          everyone: dict[str, dict[str, Any]], fleet: dict[str, dict[str, Any]]) -> dict[str, Any]:
     online = _online(h, install_id, tv, now)
@@ -142,9 +163,9 @@ def _row(h: Any, subject: Subject, install_id: str, tv: dict[str, Any], names: d
         "kids": tv.get("profile") == "kids",
         "online": online,
         "foreground": bool(tv.get("foreground", True)) if online else False,
-        "now_playing": tvs._now_playing(h, tv.get("playing")) if online else None,
+        "now_playing": _now_playing(h, tv, now) if online else None,
         "watching": _watching(h, tv, everyone, now),
-        "controls": [key for key in ORDER if ways.get(key)],
+        "controls": [key for key in ORDER if ways.get(key) and not _pointless(key, ways[key], tv, online)],
     }
     st = _state(h, tv)
     if st is not None:
