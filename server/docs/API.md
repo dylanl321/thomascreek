@@ -1477,7 +1477,7 @@ Approved:
 
 Both are `200`. The TV starts the request again. It does not show an error code.
 
-The same `install_id` that was already approved, posting again from home (a wiped TV with a new key), is approved on this call. The new `public_key` replaces the old one. Room, profile, name, and favorites stay. The body is the approved object above, with no `pair_id`.
+The same `install_id` that was already approved is approved on this call only when the body also carries `ts` (unix seconds, within five minutes) and `signature`, an ES256 signature over `tvpair:<install_id>:<ts>` made with the key the hub holds for that TV. The body is then the approved object above, with no `pair_id`. Without that proof (a wiped TV with a new key, an older app that does not sign, or another device using the id) the answer is pending and a parent approves once; until then the stored TV and its key keep working, and the tap moves the TV to the new `public_key`. Room, profile, name, and favorites stay.
 
 Phones hear one SSE event, and one push when push is configured. Repeating the post does not send another.
 
