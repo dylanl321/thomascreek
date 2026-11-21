@@ -26,6 +26,9 @@ KV_LIVE = "la_np."          # + device id: {"tokens": [{"id", "token", "env"}], 
 START_WAIT_S = 3 * 3600
 MAX_TVS = 6
 ROLES = ("admin", "adult", "child", "guest")
+# Since the hub started: how many Now playing pushes went out, and to how many people (counts only). Read on
+# /v1/ping/timings `now_playing`, so "only the person it plays for gets the alert" can be checked on the live hub.
+TALLY: dict[str, Any] = {"started": 0, "updated": 0, "ended": 0, "people": set()}
 
 
 def set_start_token(h: Any, device_id: str, token: str | None, env: str) -> None:
@@ -157,8 +160,20 @@ async def sync(h: Any, now: float | None = None) -> dict[str, int]:
                 continue
             if getattr(res, "ok", False):
                 counts["started"] += 1
+                TALLY["people"].add(person["id"])
                 h.db.kv_set(KV_LIVE + did, {"tokens": [], "sig": sig, "started_at": now})
+    for k in ("started", "updated", "ended"):
+        TALLY[k] += counts[k]
     return counts
+
+
+def tally(h: Any) -> dict[str, Any]:
+    """The pushes so far, and how many TVs are playing right now with nobody named (those alert nobody)."""
+    raw = h.tv_app.tvs() if getattr(h, "tv_app", None) is not None else {}
+    playing = [t for t in raw.values() if isinstance(t, dict) and t.get("playing")]
+    return {"started": TALLY["started"], "updated": TALLY["updated"], "ended": TALLY["ended"],
+            "people_alerted": len(TALLY["people"]), "tvs_playing": len(playing),
+            "tvs_playing_for_nobody": sum(1 for t in playing if not t.get("watcher"))}
 
 
 def kick(h: Any) -> None:

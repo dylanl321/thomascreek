@@ -137,9 +137,32 @@ def build_app(hub: Hub | None = None, *, start_background: bool = True) -> FastA
             raise error(403, "not_home", "Only on the home network")
         t: Timings = app.state.timings
         host: HostLoad = app.state.host_load
+        tally = {k: {"n": int(v["n"]), "refused": int(v["refused"]), "last_at": round(v["last_at"])}
+                 for k, v in sorted(app.state.callers.items())}
         return {"since": round(t.since), "version": __version__, "build": os.environ.get("HUB_BUILD"),
+                "proxies": len(hub._proxies), "callers": tally, "now_playing": _now_playing(),
                 "host": host.last(), "host_hour": host.hour(),
                 "routes": t.summary(window_s=float(window) if window else None), "slow": t.slow()}
+
+    def _now_playing() -> dict[str, Any] | None:
+        from . import nowplaying_live
+
+        try:
+            return nowplaying_live.tally(hub)
+        except Exception:  # noqa: BLE001 - a reading, never a reason for the page to fail
+            return None
+
+    @app.get("/v1/ping/providers", tags=["meta"])
+    async def ping_providers(request: Request, fresh: bool = False) -> dict[str, Any]:
+        """Home network only, no sign-in: how far the hub gets with each IPTV provider address (name lookup,
+        connection, TLS, the provider's answer to the hub's client and to a TV player's) and whether each login
+        works. Addresses are numbered, never shown; no username or password. See hub/iptvprobe.py."""
+        from . import iptvprobe
+        from .routes.deps import caller_ip, error
+
+        if not hub.is_home(caller_ip(request, hub)):
+            raise error(403, "not_home", "Only on the home network")
+        return await iptvprobe.reading(hub, force=fresh)
 
     @app.get("/v1/hello", tags=["meta"])
     async def hello() -> dict[str, Any]:
@@ -180,6 +203,30 @@ def build_app(hub: Hub | None = None, *, start_background: bool = True) -> FastA
                     for k in [k for k, v in hits.items() if not v or now - v[-1] > 60]:
                         hits.pop(k, None)
         return await call_next(request)
+
+    # How callers reach the hub (direct, through the listed proxy, or forwarded by a machine that isn't listed), and
+    # how many of each were refused. Read on /v1/ping/timings `callers`: a phone on mobile data shows up as
+    # proxy_away, and its home-only calls as refused. Counts only, never an address.
+    callers: dict[str, dict[str, float]] = {}
+    app.state.callers = callers
+    warned: dict[str, float] = {}
+
+    @app.middleware("http")
+    async def caller_tally(request, call_next):
+        peer = request.client.host if request.client else None
+        kind = hub.caller_kind(peer, request.headers.get("x-forwarded-for"))
+        resp = await call_next(request)
+        row = callers.setdefault(kind, {"n": 0, "refused": 0, "last_at": 0.0})
+        row["n"] += 1
+        row["last_at"] = time.time()
+        if resp.status_code == 403:
+            row["refused"] += 1
+        if kind in ("forwarded_untrusted", "proxy_unnamed") and time.time() - warned.get(kind, 0) > 3600:
+            warned[kind] = time.time()
+            log.warning("a request came %s; it counts as away. Check hub.trusted_proxies against the reverse "
+                        "proxy's network", "through an unlisted proxy" if kind == "forwarded_untrusted"
+                        else "from the listed proxy without naming its caller")
+        return resp
 
     @app.middleware("http")
     async def admin_session_renew(request, call_next):
