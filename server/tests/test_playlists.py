@@ -149,7 +149,9 @@ def test_the_endpoint_is_for_admins_and_the_page_draws_the_stored_report(hub, pe
     assert "/admin/playlists" in home_client.get("/admin/watching").text
     # Signed out, the page is the sign-in page and shows nothing.
     home_client.cookies.clear()
-    assert "QQ" not in home_client.get("/admin/playlists").text
+    # Markers a random sign-in code can't contain ("QQ" once matched one, Nov 21 2026).
+    signed_out = home_client.get("/admin/playlists").text
+    assert "Left in names" not in signed_out and "USA | SPORTS" not in signed_out
 
 
 def test_a_hub_with_lists_and_no_report_counts_them_by_itself(hub, monkeypatch):

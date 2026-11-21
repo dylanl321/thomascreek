@@ -37,6 +37,7 @@ KINDS = {"title", "show", "youtube", "request"}
 SHOW_SCOPES = {"next", "last", "season", "all"}
 PREPARED_KEEP_S = 7 * 86400
 REFRESH_S = 15 * 60
+STALE_S = 2 * 3600  # an older lineup is answered at once while a fresh one is worked out
 MAX_ITEMS = 300  # per send: a whole long-running show is plenty
 
 
@@ -138,6 +139,13 @@ class Sends:
         if hit and not fresh and time.time() - hit[0] < REFRESH_S:
             return hit[1], hit[2]
         lock = self._locks.setdefault(person_id, asyncio.Lock())
+        if hit and not fresh and time.time() - hit[0] < STALE_S:
+            # A little old: answer with it and ask Plex behind it, so a phone never waits on Plex here
+            # (Nov 21 2026, /v1/sends/mine 3.3 s). A change through the hub drops the cache, which still waits.
+            if not lock.locked():
+                task = asyncio.ensure_future(self.lineup(person_id, fresh=True))
+                task.add_done_callback(lambda t: t.cancelled() or t.exception())
+            return hit[1], hit[2]
         async with lock:
             hit = self._cache.get(person_id)
             if hit and not fresh and time.time() - hit[0] < 5:
@@ -335,7 +343,7 @@ class Sends:
             self._task = None
 
     async def _loop(self) -> None:
-        await asyncio.sleep(20)
+        await asyncio.sleep(3)  # soon after a start, so the phones' first /v1/sends/mine finds it worked out
         while True:
             self._wake.clear()
             for pid in self.people_with_sends():

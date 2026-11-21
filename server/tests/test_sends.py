@@ -255,3 +255,34 @@ def test_lineup_change_wakes_the_ipads_once(plex, people, hub, monkeypatch):
         _mock_show(mock)
         assert dylan.client.post("/v1/sends/sync", json={"person_id": tid}, headers=dylan.h).status_code == 200
     assert len(sent) == 2
+
+
+def test_an_older_lineup_answers_at_once_and_refreshes_behind(hub, monkeypatch):
+    """Past REFRESH_S the kept lineup is answered at once and Plex is asked behind it (Nov 21 2026,
+    /v1/sends/mine 3.3 s); a lineup the hub dropped still waits for a fresh one."""
+    import asyncio
+    import time as _time
+
+    from hub import sends as sends_mod
+
+    calls = []
+
+    async def compute(pid):
+        calls.append(pid)
+        await asyncio.sleep(0.05)
+        return [{"item_id": f"i{len(calls)}"}], {}
+
+    monkeypatch.setattr(hub.sends, "_compute", compute)
+
+    async def run():
+        first, _ = await hub.sends.lineup("per1")
+        assert first == [{"item_id": "i1"}]
+        at, items, status = hub.sends._cache["per1"]
+        hub.sends._cache["per1"] = (_time.time() - sends_mod.REFRESH_S - 1, items, status)
+        began = _time.perf_counter()
+        old, _ = await hub.sends.lineup("per1")
+        assert old == [{"item_id": "i1"}] and _time.perf_counter() - began < 0.04
+        await asyncio.sleep(0.15)
+        assert calls == ["per1", "per1"] and hub.sends._cache["per1"][1] == [{"item_id": "i2"}]
+
+    asyncio.run(run())
