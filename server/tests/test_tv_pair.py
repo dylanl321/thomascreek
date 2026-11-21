@@ -48,12 +48,50 @@ def test_a_new_tv_waits_for_one_tap_and_then_gets_its_token(hub, home_client, aw
     assert ready["config"]["playlists"] == [] or "password" in str(ready["config"]["playlists"])
     assert ready["tv"]["id"] == INSTALL
 
+    # The same TV, proving it still holds its key, is back in at once
+    ts = int(time.time())
+    proven = home_client.post("/v1/tv/pair", json={**_body(key), "ts": ts,
+                                                    "signature": key.sign(f"tvpair:{INSTALL}:{ts}".encode())}).json()
+    assert proven["status"] == "approved" and "pair_id" not in proven
+
+    # A wiped TV (new key) waits for one tap and keeps its room and name; until then the stored key stays
     wiped = Key()
     back = home_client.post("/v1/tv/pair", json=_body(wiped)).json()
-    assert back["status"] == "approved" and "pair_id" not in back
-    assert back["room"] == "living_room"
+    assert back["status"] == "pending" and "access_token" not in back
+    assert hub.tv_app.tvs()[INSTALL]["public_key"] == normalize_public_key(key.pub)
+    assert hub.tv_app.tvs()[INSTALL]["status"] == "approved"
+    tapped = dylan.client.post(f"/v1/tv/pair/{back['pair_id']}/approve", headers=dylan.h, json={})
+    assert tapped.json()["status"] == "approved"
+    again = home_client.get(f"/v1/tv/pair/{back['pair_id']}").json()
+    assert again["status"] == "approved" and again["room"] == "living_room"
     assert hub.tv_app.tvs()[INSTALL]["public_key"] == normalize_public_key(wiped.pub)
     assert hub.tv_app.tvs()[INSTALL]["name"] == "Living room TV"
+
+
+def test_an_approved_tv_id_alone_gets_no_token(hub, home_client, people):
+    """Someone on the network who knows an approved TV's install id cannot take its token."""
+    dylan = people["phones"]["Dylan"]
+    install = "tv_den_0123456789abcd"
+    key = Key()
+    first = home_client.post("/v1/tv/pair", json={**_body(key), "install_id": install}).json()
+    dylan.client.post(f"/v1/tv/pair/{first['pair_id']}/approve", headers=dylan.h, json={"profile": "kids"})
+    other = Key()
+    for body in (
+        {**_body(other), "install_id": install},
+        {**_body(key), "install_id": install},
+        {**_body(other), "install_id": install, "ts": int(time.time()),
+         "signature": other.sign(f"tvpair:{install}:{int(time.time())}".encode())},
+        {**_body(key), "install_id": install, "ts": int(time.time()) - 3600,
+         "signature": key.sign(f"tvpair:{install}:{int(time.time()) - 3600}".encode())},
+    ):
+        answer = home_client.post("/v1/tv/pair", json=body).json()
+        assert answer["status"] == "pending" and "access_token" not in answer
+    assert hub.tv_app.tvs()[install]["status"] == "approved"
+    assert hub.tv_app.tvs()[install]["public_key"] == normalize_public_key(key.pub)
+    # The parent's tap on the held request keeps the TV's kids profile
+    pair_id = home_client.post("/v1/tv/pair", json={**_body(other), "install_id": install}).json()["pair_id"]
+    dylan.client.post(f"/v1/tv/pair/{pair_id}/approve", headers=dylan.h, json={})
+    assert hub.tv_app.tvs()[install]["profile"] == "kids"
 
 
 def test_deny_and_expiry_are_quiet(hub, home_client, people):

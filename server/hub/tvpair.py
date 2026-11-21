@@ -1,8 +1,12 @@
 """A TV on the home network asks to join. A parent taps once.
 
-The install id is the stable identity. A TV that was already approved, and comes
-back wiped with a new key, keeps its room, profile and name. A new id waits
-fifteen minutes. The same address cannot ask more than eight times in ten minutes.
+The install id is the stable identity. A TV that was already approved gets back in at
+once only when it proves it still holds its key: it signs "tvpair:<install id>:<unix
+seconds>" with the key the hub has. Without that proof (a wiped TV with a new key, an
+older app that does not sign, or anyone else on the network using its id) a parent taps
+once, the TV keeps its room, profile and name, and the stored TV is left as it is until
+then. A new id waits fifteen minutes. The same address cannot ask more than eight times
+in ten minutes.
 """
 
 from __future__ import annotations
@@ -11,7 +15,7 @@ import re
 import time
 from typing import Any
 
-from .crypto import CryptoError, normalize_public_key
+from .crypto import CryptoError, normalize_public_key, verify_signature
 from .db import new_id
 from .home import iso
 from .tvapp import TvAppError
@@ -20,6 +24,7 @@ KV = "tv.pair"
 TTL_S = 15 * 60
 RATE_N = 8
 RATE_WINDOW_S = 600
+PROOF_SKEW_S = 300
 _INSTALL = re.compile(r"^[A-Za-z0-9_-]{16,64}$")
 
 
@@ -45,11 +50,18 @@ class TvPair:
         tvs = self.hub.tv_app.tvs()
         existing = tvs.get(install_id)
         if existing and existing.get("status") == "approved":
-            existing.update(public_key=public_key, name=existing.get("name") or name, model=model or existing.get("model"),
-                            app_version=version or existing.get("app_version"), last_seen_at=now, ip=ip)
-            tvs[install_id] = existing
-            self.hub.tv_app._save_tvs(tvs)
-            return self._approved(install_id)
+            if _proves(existing, install_id, body, now):
+                existing.update(public_key=public_key, name=existing.get("name") or name, model=model or existing.get("model"),
+                                app_version=version or existing.get("app_version"), last_seen_at=now, ip=ip)
+                tvs[install_id] = existing
+                self.hub.tv_app._save_tvs(tvs)
+                return self._approved(install_id)
+            # Not proven: ask a parent once. The approved TV keeps working with its own key meanwhile.
+            self.hub.db.log("tv.pair", "held", target=install_id, detail="approved TV asked again without its key",
+                            source="tv")
+            return self._ask(install_id, name, model, room, room_name, now,
+                             rekey={"public_key": public_key, "app_version": version, "ip": ip,
+                                    "profile": existing.get("profile") or "adult"})
         if existing is None and len(tvs) >= 40:
             raise TvAppError(429, "too_many", "Too many TVs are registered. Remove old ones on the hub.")
         box = self._box_for(ip) if not (existing and existing.get("status") == "revoked") else None
@@ -74,13 +86,23 @@ class TvPair:
             record["room"] = room
         tvs[install_id] = record
         self.hub.tv_app._save_tvs(tvs)
+        return self._ask(install_id, name, model, room, room_name, now)
+
+    def _ask(self, install_id: str, name: str, model: str | None, room: str | None, room_name: str | None,
+             now: float, rekey: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Open (or refresh) the one pending row for this TV and tell the parents once."""
         pending = self._live(now)
-        current = next((row for row in pending if row.get("install_id") == install_id), None)
+        current = next((row for row in pending if row.get("install_id") == install_id
+                        and row.get("status") not in ("approved", "denied")), None)
         fresh = current is None
         if current is None:
             current = {"pair_id": new_id("pair"), "install_id": install_id, "notified": False}
         current.update(name=name, model=model, suggested_room=room, suggested_room_name=room_name,
                        expires_at=now + TTL_S)
+        if rekey is not None:
+            current["rekey"] = rekey
+        else:
+            current.pop("rekey", None)
         pending = [row for row in pending if row.get("install_id") != install_id]
         pending.append(current)
         self._save(pending)
@@ -128,11 +150,22 @@ class TvPair:
             return {"ok": False, "status": "expired"}
         if row.get("status") == "approved":
             return {"ok": True, "status": "approved"}
-        profile = body.get("profile") or "adult"
+        rekey = row.get("rekey") if isinstance(row.get("rekey"), dict) else None
+        profile = body.get("profile") or (rekey or {}).get("profile") or "adult"
         if profile not in ("adult", "kids"):
             raise TvAppError(400, "bad_profile", "Profile is adult or kids")
         room_id, _room_name = _room(self.hub, str(body.get("room") or row.get("suggested_room") or ""))
         name = str(body.get("name") or row.get("name") or "TV").strip()[:80]
+        if rekey is not None:
+            # A known TV asked again with a new key: the parent's tap moves the TV to that key
+            tvs = self.hub.tv_app.tvs()
+            tv = tvs.get(str(row["install_id"]))
+            if tv is None:
+                return {"ok": False, "status": "expired"}
+            tv.update(public_key=rekey.get("public_key") or tv.get("public_key"), last_seen_at=now,
+                      app_version=rekey.get("app_version") or tv.get("app_version"), ip=rekey.get("ip") or tv.get("ip"))
+            tvs[str(row["install_id"])] = tv
+            self.hub.tv_app._save_tvs(tvs)
         try:
             self.hub.tv_app.set_tv(str(row["install_id"]), status="approved", profile=profile, name=name,
                                    **({"room": room_id} if room_id else {}))
@@ -231,6 +264,21 @@ class TvPair:
         rows = [item for item in self._live(now) if item.get("pair_id") != row.get("pair_id")]
         rows.append(row)
         self._save(rows)
+
+
+def _proves(tv: dict[str, Any], install_id: str, body: dict[str, Any], now: float) -> bool:
+    """The request is signed with the key the hub holds for this TV, within five minutes."""
+    try:
+        ts = int(body.get("ts") or 0)
+    except (TypeError, ValueError):
+        return False
+    signature = str(body.get("signature") or "")
+    if not ts or not signature or abs(now - ts) > PROOF_SKEW_S or not tv.get("public_key"):
+        return False
+    try:
+        return verify_signature(str(tv["public_key"]), f"tvpair:{install_id}:{ts}".encode(), signature)
+    except Exception:  # noqa: BLE001 - an unreadable stored key is no proof
+        return False
 
 
 def _pending_body(row: dict[str, Any]) -> dict[str, Any]:
