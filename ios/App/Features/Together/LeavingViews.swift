@@ -113,7 +113,7 @@ final class PresenceMonitor: NSObject, CLLocationManagerDelegate {
     static let shared = PresenceMonitor()
     static let settingKey = "app.family.arrivals"
     static let lastStateKey = "app.family.circleState"   // "inside" / "outside": tells a crossing from a refresh
-    static let monitorName = "thomascreek.presence"
+    static let monitorName = "ThomasCreekPresence"   // letters only: CLMonitor aborts the app on a name with a dot
     static let conditionID = "thomascreek.home"
     static let radius: CLLocationDistance = 150
     private let manager = CLLocationManager()   // only for the "Always" permission and a one-off fix at home
