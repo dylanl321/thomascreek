@@ -396,3 +396,30 @@ def test_the_timings_page_counts_catalog_index_builds(hub):
                       client=("192.168.1.50", 40000))
     body = home.get("/v1/ping/timings").json()
     assert set(body["canon"]) >= {"n", "max_ms", "last_ms", "last_at"}
+
+
+def test_a_provider_that_never_reads_is_tried_again_once_an_hour_not_on_every_call(hub, monkeypatch):
+    """Nov 21 2026: a provider whose address didn't resolve never got a list file, so every call found it due and the
+    hub read and folded every provider again back to back, rebuilding the folded catalog every 30 min."""
+    from hub import tvcatalog
+
+    cat = hub.tv_catalog
+    monkeypatch.setattr(cat, "_extra_logins", lambda: {"eagle": {"servers": ["https://a"]}})
+    reads = []
+
+    async def read():
+        reads.append(1)
+        return {}
+
+    monkeypatch.setattr(cat, "refresh_extras", read)
+
+    async def calls(times):
+        for t in times:
+            cat._extras_due(t)
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+
+    asyncio.run(calls([1_000_000.0, 1_000_060.0, 1_000_000.0 + tvcatalog.EXTRA_RETRY_S - 1]))
+    assert reads == [1]
+    asyncio.run(calls([1_000_000.0 + tvcatalog.EXTRA_RETRY_S]))
+    assert reads == [1, 1]
