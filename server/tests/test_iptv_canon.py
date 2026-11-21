@@ -247,7 +247,7 @@ def test_a_streaming_service_tag_is_not_part_of_the_title(hub):
     items = observe(hub.db, rows)["items"]
     by_title = {item["title"]: item for item in items if item["kind"] != "live"}
     assert sorted(s["stream_id"] for s in by_title["KAOS"]["sources"]) == ["1", "2"]
-    assert sorted(s["stream_id"] for s in by_title["Moana"]["sources"]) == ["3", "4"]
+    assert sorted(s["stream_id"] for s in by_title["Moana 2"]["sources"]) == ["3", "4"]  # the 2 is the title's
     live = [item for item in items if item["kind"] == "live"]
     assert len(live) == 2
     assert playable(hub.db, kind="series", title="NF - KAOS") is not None
@@ -301,3 +301,48 @@ async def test_the_matcher_reads_the_saved_state_once_a_batch_not_once_a_pair(hu
     await iptvcanon.settle(hub, ask=ask, force=True)
     assert len(seen) == 3 and all(pair.get("left_info") for pair in seen)
     assert parses == []
+
+
+def test_a_title_is_matched_under_the_name_its_card_shows():
+    """Nov 2026, on the house's lists: the matcher read a number as a channel variant and "US" as a place, so
+    "District 9" was matched as "District" and "One of Us Is Lying" as "One of Is Lying"."""
+    from hub import tvnames
+    from hub.iptvnorm import parse
+
+    for raw, name, key, year in (
+        ("NF - District 9 (2009)", "District 9", "district 9", 2009),
+        ("NF - Force 2", "Force 2", "force 2", None),
+        ("EN - One of Us Is Lying (2021)", "One of Us Is Lying", "one of us is lying", 2021),
+        ("EN - West Side Story (1961)", "West Side Story", "west side story", 1961),
+        ("EN - Munich (2005) A DIRECTOR, A NOTE", "Munich", "munich", 2005),
+        ("EN - Carême (2025)", "Carême", "careme", 2025),
+        ("NF - 1941 (1979)", "1941", "1941", 1979),
+        ("[US] Hot Rod - 2007", "Hot Rod", "hot rod", 2007),
+    ):
+        got = parse(raw, titles=True)
+        assert (got.display, got.key, got.year, got.variant) == (name, key, year, None), raw
+        assert tvnames.polish(raw)[0] == name, raw  # the card shows the same name
+        assert parse(got.display, got.year, titles=True).key == key, raw  # a saved title reads back the same
+    # A bare number on the end stays on the card and is the year for matching: it meets "First Day Out (2023)".
+    bare, bracketed = parse("[US] First Day Out 2023", titles=True), parse("EN - First Day Out (2023)", titles=True)
+    assert bare.display == "First Day Out 2023" and (bare.key, bare.year) == (bracketed.key, bracketed.year)
+    assert parse("EN - Blade Runner 2049", titles=True).year == 2049  # never folds with the 1982 film by name
+    # A dated show keeps its date as the variant, as before.
+    raw_show = parse("WWE Raw (26/08/2024)", titles=True)
+    assert raw_show.variant == "2024-08-26" and raw_show.key == "wwe raw"
+    # Channels keep their own rules: ESPN 2 is ESPN's second feed, East is a feed.
+    assert parse("US| ESPN 2 HD").variant == "2" and parse("HBO East").variant == "east"
+
+
+def test_sequels_fold_with_their_own_copies_and_not_with_each_other(hub):
+    rows = [
+        {"provider": "tc", "kind": "movie", "stream_id": "1", "name": "EN - The Equalizer (2014)"},
+        {"provider": "tc", "kind": "movie", "stream_id": "2", "name": "EN - The Equalizer 2 (2018)"},
+        {"provider": "beta", "kind": "movie", "stream_id": "3", "name": "NF - The Equalizer 2 (2018) 4K"},
+        {"provider": "beta", "kind": "movie", "stream_id": "4", "name": "EN - One of Us Is Lying (2021)"},
+        {"provider": "tc", "kind": "movie", "stream_id": "5", "name": "EN - One of Is Lying (2021)"},
+    ]
+    items = observe(hub.db, rows)["items"]
+    by_title = {item["title"]: sorted(s["stream_id"] for s in item["sources"]) for item in items}
+    assert by_title["The Equalizer"] == ["1"] and by_title["The Equalizer 2"] == ["2", "3"]
+    assert by_title["One of Us Is Lying"] == ["4"] and by_title["One of Is Lying"] == ["5"]

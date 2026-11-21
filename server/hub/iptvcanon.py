@@ -26,7 +26,9 @@ KV_OVERRIDES = "tv.catalog.overrides"
 KV_USAGE = "tv.catalog.ai.usage"
 KV_ASKED = "tv.catalog.ai.asked"
 # Bump when the matching rules change, so the next refresh compares every row again.
-FINGERPRINT_VERSION = 5  # 5: dated titles keep their date; crowded groups split (Nov 19 2026)
+# 5: dated titles keep their date; crowded groups split (Nov 19 2026)
+# 6: films and series are matched under the name their card shows (Nov 21 2026)
+FINGERPRINT_VERSION = 6
 SAME_PROVIDER_MAX = 8
 
 
