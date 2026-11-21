@@ -24,7 +24,7 @@ from .routes.deps import http_error_handler
 from .state import Hub
 from .timings import HOST_EVERY_S, HostLoad, TimingMiddleware, Timings
 from .routes import sends as sends_routes
-from .routes import phonelogs, phoneproviders
+from .routes import phonelogs, phoneproviders, tvpress
 from .vault import Vault, load_master_key
 
 SWITCH_INTERVAL_S = 0.001  # see `run`
@@ -220,7 +220,7 @@ def build_app(hub: Hub | None = None, *, start_background: bool = True) -> FastA
     app.include_router(mcp_routes.router)  # MCP for outside AI apps, and its OAuth sign-in
     app.include_router(sends_routes.router)  # films and shows sent to the kids' iPads
     for r in (auth.router, alerts.router, home.router, people.router, media_requests.router, media.router, family.router, feasts.router, trips.router, network.router,
-              cameras.router, kitchen.router, nas.router, printers.router, remotes.router, tvapp.router, tvapp.tv_router, tvguide.router, tvphone.router, phonelogs.router, phoneproviders.router, catalog.router, iptvplay.router, tvfleet.router, tvpair.router, tvs.router, tvs.tv_router, home_alerts.router, tvcameras.router, ambient.router, art.router, dvr.router, titles.router, layout.router, recipes.router, search.router, lights.router, appupdate.router, lights.pages, admin_web.api, admin_web.pages, people_web.pages, playlists_web.pages, fleet_web.pages, downloads.router,
+              cameras.router, kitchen.router, nas.router, printers.router, remotes.router, tvapp.router, tvapp.tv_router, tvguide.router, tvphone.router, tvpress.router, phonelogs.router, phoneproviders.router, catalog.router, iptvplay.router, tvfleet.router, tvpair.router, tvs.router, tvs.tv_router, home_alerts.router, tvcameras.router, ambient.router, art.router, dvr.router, titles.router, layout.router, recipes.router, search.router, lights.router, appupdate.router, lights.pages, admin_web.api, admin_web.pages, people_web.pages, playlists_web.pages, fleet_web.pages, downloads.router,
               assistant.router, brain.router, youtube.router, smart.router, weather.router, climate.router, me.router, household.router, household.pages):
         app.include_router(r)
     # Outermost, so its time covers every other middleware too.
