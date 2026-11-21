@@ -109,6 +109,7 @@ class WifiPresence:
         self.polled_at = 0.0
         self.last_error: str | None = None
         self._learned: dict[str, dict[str, dict[str, Any]]] | None = None
+        self.kid_macs: dict[str, set[str]] = {}
 
     # -- the Firewalla ----------------------------------------------------
     @property
@@ -148,6 +149,20 @@ class WifiPresence:
             if d.get("ip") and online:
                 by_ip[str(d["ip"])] = mac
         self.devices, self.by_ip, self.polled_at, self.last_error = devices, by_ip, now, None
+        # A child's devices, by the same rule as their network alerts: linked by the hub, a Firewalla
+        # group named after them, or a device named "Theo's iPad".
+        kids: dict[str, set[str]] = {}
+        alerts = getattr(self.hub, "alerts", None)
+        if alerts is not None:
+            for d in rows:
+                mac = str(d.get("mac") or "").upper()
+                try:
+                    kid = alerts.kid_for_device(d) if mac else None
+                except Exception:  # noqa: BLE001  presence still works for the grown-ups
+                    kid = None
+                if kid:
+                    kids.setdefault(kid["id"], set()).add(mac)
+        self.kid_macs = kids
 
     # -- learning whose device is whose -----------------------------------
     def _load(self) -> dict[str, dict[str, dict[str, Any]]]:
@@ -184,14 +199,10 @@ class WifiPresence:
     def macs_for(self, p: dict[str, Any]) -> set[str]:
         out = {str(v.get("mac")).upper() for v in (self._load().get(p["id"]) or {}).values() if v.get("mac")}
         if p.get("role") == "child":
+            out |= self.kid_macs.get(p["id"], set())
             for r in self.hub.db.all("SELECT mac FROM network_rules WHERE person_id=?", [p["id"]]):
                 if r.get("mac"):
                     out.add(str(r["mac"]).upper())
-            first = str(p.get("name") or "").split(" ")[0].lower()
-            if first:
-                for mac, d in self.devices.items():
-                    if str(d.get("group") or "").lower() == first:
-                        out.add(mac)
         return out
 
     def for_person(self, p: dict[str, Any]) -> list[dict[str, Any]]:

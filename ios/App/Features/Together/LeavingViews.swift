@@ -104,12 +104,21 @@ struct DepartureView: View {
 
 /// Watches a circle round the house and tells the hub when this person arrives or leaves.
 /// The hub decides whether they were the last one out (and pushes the check) or runs their welcome mode.
+///
+/// Uses `CLMonitor` (iOS 17+): the old `CLCircularRegion` monitoring is refused by iOS 27 ("unsupported
+/// fence type"). Only "inside" or "outside" the circle ever leaves the phone, never where it is.
+/// A crossing relaunches the app in the background; `start()` at launch picks the event up.
 @MainActor
 final class PresenceMonitor: NSObject, CLLocationManagerDelegate {
     static let shared = PresenceMonitor()
     static let settingKey = "app.family.arrivals"
-    nonisolated static let regionID = "thomascreek.home"
-    private let manager = CLLocationManager()
+    static let lastStateKey = "app.family.circleState"   // "inside" / "outside": tells a crossing from a refresh
+    static let monitorName = "thomascreek.presence"
+    static let conditionID = "thomascreek.home"
+    static let radius: CLLocationDistance = 150
+    private let manager = CLLocationManager()   // only for the "Always" permission and a one-off fix at home
+    private var monitor: CLMonitor?
+    private var listening: Task<Void, Never>?
     private var pendingSetup = false
 
     override init() {
@@ -117,84 +126,118 @@ final class PresenceMonitor: NSObject, CLLocationManagerDelegate {
         manager.delegate = self
     }
 
-    /// Call at launch: region events relaunch the app in the background and arrive here.
-    /// Also asks iOS whether the phone is inside the circle right now, so the hub is current after a
-    /// restart or a missed crossing (sent as inside/outside: no welcome scene, no last-one-out check).
+    /// Call at launch (also a background relaunch for a crossing) and when the app comes to the front.
     func start() {
         guard UserDefaults.standard.bool(forKey: Self.settingKey) else { return }
-        if manager.monitoredRegions.isEmpty { setUpRegion() } else { refreshState() }
-    }
-
-    func refreshState() {
-        for r in manager.monitoredRegions where r.identifier == Self.regionID { manager.requestState(for: r) }
+        // Builds before this used CLCircularRegion; iOS no longer runs those, so drop them.
+        for r in manager.monitoredRegions { manager.stopMonitoring(for: r) }
+        Task {
+            let m = await self.openMonitor()
+            if await m.identifiers.contains(Self.conditionID) {
+                await self.refresh(m)
+            } else {
+                self.setUpCircle()
+            }
+        }
     }
 
     func enable() {
         UserDefaults.standard.set(true, forKey: Self.settingKey)
         pendingSetup = true
-        if manager.authorizationStatus == .notDetermined { manager.requestAlwaysAuthorization() }
-        else if manager.authorizationStatus == .authorizedWhenInUse { manager.requestAlwaysAuthorization(); setUpRegion() }
-        else { setUpRegion() }
+        switch manager.authorizationStatus {
+        case .notDetermined: manager.requestAlwaysAuthorization()
+        case .authorizedWhenInUse: manager.requestAlwaysAuthorization(); setUpCircle()
+        default: setUpCircle()
+        }
     }
 
     func disable() {
         UserDefaults.standard.set(false, forKey: Self.settingKey)
+        UserDefaults.standard.removeObject(forKey: Self.lastStateKey)
         for r in manager.monitoredRegions { manager.stopMonitoring(for: r) }
-        // The hub forgets this phone's last arrive/leave; Wi-Fi decides who's home again.
-        Task { let _: Empty? = await hubQuiet("presence off", { try await HubClient.shared.post("/v1/presence", ["event": "off"]) }) }
+        listening?.cancel()
+        listening = nil
+        Task {
+            if let m = self.monitor { await m.remove(Self.conditionID) }
+            // The hub forgets this phone's last arrive/leave; Wi-Fi decides who's home again.
+            let _: Empty? = await hubQuiet("presence off", { try await HubClient.shared.post("/v1/presence", ["event": "off"]) })
+        }
     }
 
-    var isOn: Bool { UserDefaults.standard.bool(forKey: Self.settingKey) && !manager.monitoredRegions.isEmpty }
+    var isOn: Bool { UserDefaults.standard.bool(forKey: Self.settingKey) }
     var needsAlways: Bool { manager.authorizationStatus != .authorizedAlways }
 
+    private func openMonitor() async -> CLMonitor {
+        if let m = monitor { return m }
+        let m = await CLMonitor(Self.monitorName)
+        monitor = m
+        listening = Task { [weak self] in
+            do {
+                for try await event in await m.events where event.identifier == Self.conditionID {
+                    await self?.handle(event.state)
+                }
+            } catch {
+                // The stream ends on an error; the next start() opens it again.
+            }
+        }
+        return m
+    }
+
     /// The house's location comes from the hub (Home Assistant's own); a phone at home can also use where it is.
-    private func setUpRegion() {
+    private func setUpCircle() {
         Task {
             struct Loc: Decodable { var location: Coord?; struct Coord: Decodable { var lat: Double; var lon: Double } }
             if let l: Loc = await hubQuiet("home location", { try await HubClient.shared.get("/v1/me/welcome") }), let c = l.location {
-                monitor(CLLocationCoordinate2D(latitude: c.lat, longitude: c.lon))
+                await self.watch(CLLocationCoordinate2D(latitude: c.lat, longitude: c.lon))
             } else if HomeStore.shared.me?.atHome == true {
-                manager.requestLocation()
+                self.manager.requestLocation()
             }
         }
     }
 
-    private func monitor(_ c: CLLocationCoordinate2D) {
-        for r in manager.monitoredRegions { manager.stopMonitoring(for: r) }
-        let region = CLCircularRegion(center: c, radius: 150, identifier: Self.regionID)
-        region.notifyOnEntry = true
-        region.notifyOnExit = true
-        manager.startMonitoring(for: region)
+    private func watch(_ c: CLLocationCoordinate2D) async {
+        let m = await openMonitor()
+        await m.remove(Self.conditionID)
+        UserDefaults.standard.removeObject(forKey: Self.lastStateKey)   // the first event is a refresh, not a crossing
+        await m.add(CLMonitor.CircularGeographicCondition(center: c, radius: Self.radius), identifier: Self.conditionID)
         pendingSetup = false
-        manager.requestState(for: region)
+    }
+
+    /// Coming back to the app: tell the hub where the phone is now, without welcome or last-one-out.
+    private func refresh(_ m: CLMonitor) async {
+        guard let state = await m.record(for: Self.conditionID)?.lastEvent.state else { return }
+        await handle(state, refreshOnly: true)
+    }
+
+    /// One state from iOS. A change from a known state is a crossing (arrive/leave); anything else only
+    /// refreshes (inside/outside). iOS can repeat an event on a background launch, so repeats are dropped.
+    private func handle(_ state: CLMonitor.Event.State, refreshOnly: Bool = false) async {
+        let now: String
+        switch state {
+        case .satisfied: now = "inside"
+        case .unsatisfied: now = "outside"
+        default: return
+        }
+        let before = UserDefaults.standard.string(forKey: Self.lastStateKey)
+        if before == now && !refreshOnly { return }
+        UserDefaults.standard.set(now, forKey: Self.lastStateKey)
+        if before == nil || before == now || refreshOnly {
+            let _: Empty? = await hubQuiet("presence", { try await HubClient.shared.post("/v1/presence", ["event": now]) })
+        } else {
+            await report(now == "inside" ? "arrive" : "leave")
+        }
     }
 
     nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
-        Task { @MainActor in if self.pendingSetup { self.setUpRegion() } }
+        Task { @MainActor in if self.pendingSetup { self.setUpCircle() } }
     }
 
     nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let c = locations.last?.coordinate else { return }
-        Task { @MainActor in if self.pendingSetup { self.monitor(c) } }
+        Task { @MainActor in if self.pendingSetup { await self.watch(c) } }
     }
 
     nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {}
-
-    nonisolated func locationManager(_ manager: CLLocationManager, didDetermineState state: CLRegionState, for region: CLRegion) {
-        guard region.identifier == Self.regionID, state != .unknown else { return }
-        let event = state == .inside ? "inside" : "outside"
-        Task { @MainActor in
-            let _: Empty? = await hubQuiet("presence", { try await HubClient.shared.post("/v1/presence", ["event": event]) })
-        }
-    }
-
-    nonisolated func locationManager(_ manager: CLLocationManager, didEnterRegion region: CLRegion) {
-        Task { @MainActor in await self.report("arrive") }
-    }
-
-    nonisolated func locationManager(_ manager: CLLocationManager, didExitRegion region: CLRegion) {
-        Task { @MainActor in await self.report("leave") }
-    }
 
     private func report(_ event: String) async {
         // The app may only have a few seconds in the background.
