@@ -94,3 +94,59 @@ def test_a_grown_up_watching_as_a_child_gets_only_rated_titles(plex, people, hub
     assert dylan.client.post(f"/v1/tv/plex/43/play?person={theo['id']}", headers=dylan.h).status_code == 404
     assert dylan.client.post(f"/v1/tv/plex/42/play?person={theo['id']}", headers=dylan.h).status_code == 200
     assert dylan.client.post("/v1/tv/plex/43/play", headers=dylan.h).status_code == 200
+
+
+# -- kept for the house (review P3, Nov 21 2026) ------------------------------------------------------------------
+def _sections(plex):
+    return sum(1 for call in plex.calls if call.request.url.path == "/library/sections")
+
+
+def test_the_library_is_kept_on_disk_and_answered_without_plex_after_a_restart(plex, people, hub):
+    dylan = people["phones"]["Dylan"]
+    first = dylan.client.get("/v1/tv/plex/library", headers=dylan.h)
+    assert first.status_code == 200 and _sections(plex) == 1
+    assert hub.plex_library.path is not None and hub.plex_library.path.exists()
+    # A new hub process: the saved library answers, Plex is not asked while it is fresh.
+    from hub.tvplex import PlexLibrary
+
+    hub.plex_library = PlexLibrary(hub, hub.plex_library.path)
+    again = dylan.client.get("/v1/tv/plex/library", headers=dylan.h)
+    assert again.json() == first.json() and _sections(plex) == 1
+    tag = again.headers["etag"]
+    assert dylan.client.get("/v1/tv/plex/library", headers={**dylan.h, "If-None-Match": tag}).status_code == 304
+
+
+def test_an_old_library_answers_at_once_and_refreshes_once_behind(plex, hub):
+    import asyncio
+    import time as _time
+
+    from hub import tvplex
+
+    async def run():
+        lib = hub.plex_library
+        doc = await lib.load()
+        lib._at = _time.time() - tvplex.TTL_S - 1
+        got = await asyncio.gather(*(lib.load() for _ in range(5)))
+        assert all(g is doc for g in got)  # nobody waited for Plex
+        assert lib._task is not None
+        await lib._task
+        return lib
+
+    lib = asyncio.run(run())
+    assert _sections(plex) == 2 and _time.time() - lib._at < 5
+
+
+def test_first_callers_share_one_plex_read(plex, hub):
+    import asyncio
+
+    async def run():
+        return await asyncio.gather(*(hub.plex_library.load() for _ in range(4)))
+
+    got = asyncio.run(run())
+    assert all(g is got[0] for g in got) and _sections(plex) == 1
+
+
+def test_a_child_gets_a_kids_version_and_tag(plex, people):
+    theo = people["phones"]["Theo"]
+    got = theo.client.get("/v1/tv/plex/library", headers=theo.h)
+    assert got.json()["version"].endswith("k") and got.headers["etag"] == f'"{got.json()["version"]}"'

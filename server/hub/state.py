@@ -126,7 +126,7 @@ class Hub:
         self.artwork.plex = self.plex
         self.tv_catalog.artwork = self.artwork
         from .tvplex import PlexLibrary
-        self.plex_library = PlexLibrary(self)
+        self.plex_library = PlexLibrary(self, data / "tv_plex_library.json" if db._path != ":memory:" else None)
         self.tv_app.artwork = self.artwork
         dvr_dir = Path(config.dvr.dir) if config.dvr.dir else data / "dvr"
         self.dvr = Dvr(self, dvr_dir)
