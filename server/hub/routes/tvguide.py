@@ -12,6 +12,7 @@ import hashlib
 import json
 import logging
 import re
+import threading
 import time
 from typing import Any
 
@@ -457,18 +458,49 @@ async def sport(day: str | None = None, league: str | None = None, c: Caller = D
 
 def _sport_channels(h: Hub, games: list[dict[str, Any]], home: Any, kids: bool, now: float) -> list[dict[str, Any]]:
     """`tvsport.match`, off the loop and once a minute for the same games: it reads every guide programme, and each
-    TV asking held the hub still for seconds (Nov 21 2026, /v1/ping/stalls)."""
+    TV asking held the hub still for seconds (Nov 21 2026, /v1/ping/stalls). The minute's first caller no longer
+    waits for it either: within SPORT_STALE_S of the last match for the same catalog and audience, that answer is
+    given at once and the new one is worked out behind it (one at a time)."""
     doc = h.tv_catalog.load()
     said = hashlib.sha256(json.dumps(games, sort_keys=True, default=str).encode()).hexdigest()
     key = (id(doc), kids, int(now // 60), said)
     memo = h.__dict__.setdefault("_sport_channels", {})
     if key in memo:
         return memo[key]
+    last = h.__dict__.setdefault("_sport_last", {}).get((id(doc), kids))
+    if last is not None and now - last[0] < SPORT_STALE_S:
+        busy = h.__dict__.setdefault("_sport_busy", set())
+        if (id(doc), kids) not in busy:
+            busy.add((id(doc), kids))
+            threading.Thread(target=_sport_behind, args=(h, games, home, kids, now, key), daemon=True,
+                             name="sport-match").start()
+        return last[1]
+    return _sport_match(h, games, home, kids, now, key)
+
+
+SPORT_STALE_S = 300.0
+
+
+def _sport_match(h: Hub, games: list[dict[str, Any]], home: Any, kids: bool, now: float,
+                 key: tuple[Any, ...]) -> list[dict[str, Any]]:
+    doc = h.tv_catalog.load()
     body = tvsport.match(games, h.tv_catalog, h.tv_catalog.basic(home), kids_only=kids, now=now)
+    memo = h.__dict__.setdefault("_sport_channels", {})
     if len(memo) > 32:
         memo.clear()
     memo[key] = body
+    h.__dict__.setdefault("_sport_last", {})[(id(doc), kids)] = (now, body)
     return body
+
+
+def _sport_behind(h: Hub, games: list[dict[str, Any]], home: Any, kids: bool, now: float,
+                  key: tuple[Any, ...]) -> None:
+    try:
+        _sport_match(h, games, home, kids, now, key)
+    except Exception as exc:  # noqa: BLE001  the last answer stays until SPORT_STALE_S
+        log.info("sport: matching channels failed (%s)", type(exc).__name__)
+    finally:
+        h.__dict__.setdefault("_sport_busy", set()).discard((id(h.tv_catalog.load()), kids))
 
 
 @router.get("/names")

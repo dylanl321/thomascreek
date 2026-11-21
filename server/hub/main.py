@@ -50,9 +50,10 @@ def build_app(hub: Hub | None = None, *, start_background: bool = True) -> FastA
             dog.start()
             app.state.watchdog = dog
             await h.start()
-            from .warm import before_serving
+            from .warm import after_serving, before_serving
 
             await before_serving(h)  # the first TV after a restart gets a warm hub (review P9)
+            app.state.warm_after = asyncio.create_task(after_serving(h))  # basic lineup and sport, behind the port
 
             async def host_loop() -> None:
                 while True:
@@ -72,6 +73,9 @@ def build_app(hub: Hub | None = None, *, start_background: bool = True) -> FastA
 
                 zc = await advertise(h)
         yield
+        warm_after = getattr(app.state, "warm_after", None)
+        if warm_after is not None:
+            warm_after.cancel()
         if host_task is not None:
             host_task.cancel()
         if certs_task is not None:

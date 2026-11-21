@@ -660,11 +660,22 @@ class HomeModel:
                 "available": st.get("state") not in ("unavailable", "unknown"),
                 "can_set": self.hub.policy.decide(s, "lock.set", target, {}).allowed}
 
-    def snapshot(self, s: Subject, open_home: bool = False) -> dict[str, Any]:
+    def snapshot(self, s: Subject, open_home: bool = False, timing: dict[str, float] | None = None) -> dict[str, Any]:
+        """`timing` (optional) gets the milliseconds of each part, for the route's Server-Timing."""
+        marks = timing if timing is not None else {}
+        clock = time.perf_counter()
+
+        def lap(name: str) -> None:
+            nonlocal clock
+            at = time.perf_counter()
+            marks[name] = round((at - clock) * 1000, 1)
+            clock = at
+
         cfg = self.hub.config
         policy = self.hub.policy
         starred = set(self.hub.settings.favorite_ids(s, "room"))
         devices = [d for eid in self.states if (d := self.device(eid, s)) is not None and d["room_id"]]
+        lap("devices")
         vis = self.visible_areas(s)
         rooms = []
         for a in self.areas.values():
@@ -686,6 +697,7 @@ class HomeModel:
         floors = [{"id": f["id"], "name": f["name"], "room_ids": [r["id"] for r in rooms if r["floor_id"] == f["id"]]}
                   for f in self.floors]
         floors = [f for f in floors if f["room_ids"]]
+        lap("rooms")
 
         cameras = []
         if policy.has(s, "cameras") and self.hub.frigate.enabled:
@@ -714,7 +726,9 @@ class HomeModel:
         modes = [{"id": m.id, "name": m.name, "symbol": m.symbol, "active": False}
                  for m in cfg.modes if s.role in m.roles]
         month = policy.now().month
+        lap("cameras")
         plan, smart = self.plan_and_cards(s, open_home=open_home)
+        lap("cards")
         snap: dict[str, Any] = {
             "generated_at": iso(time.time()),
             "status": self.status(s, devices),
@@ -739,14 +753,23 @@ class HomeModel:
             snap["printers"] = self.hub.workshop.summaries()
         if policy.has(s, "systems"):
             snap["systems"] = self.systems_card()
+        lap("rest")
         return snap
 
     def scenes(self, area_id: str, s: Subject, include_hidden: bool = False) -> list[dict[str, Any]]:
         """The room's Home Assistant scenes this person may run, in the room's saved order."""
         out = []
         hidden = self.layout.hidden
-        for eid, ar in self.entity_area.items():
-            if ar != area_id or not eid.startswith("scene.") or eid not in self.states:
+        # The scenes by room, kept while the room assignments stay the same: Home asked every entity once per room.
+        memo = self.__dict__.get("_scenes_by_area")
+        if memo is None or memo[0] is not self.entity_area or memo[2] != len(self.entity_area):
+            index: dict[str, list[str]] = {}
+            for eid, ar in self.entity_area.items():
+                if eid.startswith("scene."):
+                    index.setdefault(ar, []).append(eid)
+            memo = self.__dict__["_scenes_by_area"] = (self.entity_area, index, len(self.entity_area))
+        for eid in memo[1].get(area_id, ()):
+            if eid not in self.states:
                 continue
             if eid in hidden and not include_hidden:
                 continue
