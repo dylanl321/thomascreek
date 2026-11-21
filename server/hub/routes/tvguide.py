@@ -485,7 +485,18 @@ SPORT_STALE_S = 300.0
 
 def _sport_match(h: Hub, games: list[dict[str, Any]], home: Any, kids: bool, now: float,
                  key: tuple[Any, ...]) -> list[dict[str, Any]]:
-    body = tvsport.match(games, h.tv_catalog, h.tv_catalog.basic(home), kids_only=kids, now=now)
+    from .. import sidecar
+
+    body = None
+    if sidecar.enabled():
+        # In the helper process, on another core: here it held the interpreter for seconds and every TV and phone
+        # call waited behind it (3 to 13 s on the live hub, Nov 21 2026).
+        try:
+            body = sidecar.sport_match(games, home, kids, now)
+        except Exception as exc:  # noqa: BLE001 - matched here instead, as before
+            log.info("sport: the helper didn't answer (%s); matching here", type(exc).__name__)
+    if body is None:
+        body = tvsport.match(games, h.tv_catalog, h.tv_catalog.basic(home), kids_only=kids, now=now)
     memo = h.__dict__.setdefault("_sport_channels", {})
     if len(memo) > 32:
         memo.clear()

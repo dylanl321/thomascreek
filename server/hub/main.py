@@ -97,6 +97,9 @@ def build_app(hub: Hub | None = None, *, start_background: bool = True) -> FastA
         if zc is not None:
             await zc.async_close()
         await h.stop()
+        from . import sidecar
+
+        sidecar.shutdown()
         art = getattr(h, "artwork", None)
         if art is not None:
             art.flush()  # notes and matches kept since the last timed write
@@ -158,8 +161,14 @@ def build_app(hub: Hub | None = None, *, start_background: bool = True) -> FastA
                  for k, v in sorted(app.state.callers.items())}
         return {"since": round(t.since), "version": __version__, "build": os.environ.get("HUB_BUILD"),
                 "proxies": len(hub._proxies), "callers": tally, "now_playing": _now_playing(),
+                "sidecar": _sidecar(),
                 "host": host.last(), "host_hour": host.hour(),
                 "routes": t.summary(window_s=float(window) if window else None), "slow": t.slow()}
+
+    def _sidecar() -> dict[str, Any]:
+        from . import sidecar
+
+        return sidecar.tally()
 
     def _now_playing() -> dict[str, Any] | None:
         from . import nowplaying_live
@@ -323,6 +332,8 @@ def run() -> None:
     logging.getLogger("httpx").setLevel(logging.WARNING)
     # Provider list reads run in a child process, so they never hold up a request (catalogjob.py).
     os.environ.setdefault("HUB_CATALOG_CHILD", "1")
+    # The sport channel match runs in a helper process that stays up (sidecar.py).
+    os.environ.setdefault("HUB_SIDECAR", "1")
     # The event loop gives up the GIL on every SQLite call and waits for it back while a worker thread parses the
     # catalog; at Python's 5 ms switch interval a loop tick with a few hundred small reads took 10 to 20 s after a
     # start (Nov 19 2026, /v1/ping/stalls). A shorter interval hands it back sooner, at a small cost to the parse.
