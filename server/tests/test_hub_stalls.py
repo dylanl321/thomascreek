@@ -367,3 +367,32 @@ def test_saved_pages_are_read_a_few_hundred_at_a_time(hub, monkeypatch):
     got = hub.db.details_rows()
     assert sorted(got) == sorted(rows)
     assert len(reads) == 3
+
+
+def test_a_background_index_rebuild_works_out_the_copies_too(hub, monkeypatch):
+    """Nov 21 2026: the first /v1/tv/copies after a rebuild worked the copies out itself and took 3 s live."""
+    from hub import iptvcanon
+
+    two = [{"ref": "vod:a:1", "quality": "HD"}, {"ref": "vod:a:2", "quality": "SD"}]
+    hub.db.kv_set(iptvcanon.KV, {"items": [{"id": "m1", "kind": "movie", "sources": two}]})
+    iptvcanon._INDEX.pop(id(hub.db), None)
+    before = iptvcanon.tally()["n"]
+    iptvcanon._refresh(hub.db)
+    assert iptvcanon.tally()["n"] == before + 1
+    memo = iptvcanon._COPIES[id(hub.db)]
+    assert memo[0] is iptvcanon._INDEX[id(hub.db)][1]
+    worked = []
+    monkeypatch.setattr(iptvcanon, "_copies", lambda found: worked.append(1) or {})
+    assert iptvcanon.copies(hub.db)["groups"] == [{"id": "m1", "refs": ["vod:a:1", "vod:a:2"]}]
+    assert worked == []
+
+
+def test_the_timings_page_counts_catalog_index_builds(hub):
+    from starlette.testclient import TestClient
+
+    from hub.main import build_app
+
+    home = TestClient(build_app(hub, start_background=False), base_url="https://hub.test",
+                      client=("192.168.1.50", 40000))
+    body = home.get("/v1/ping/timings").json()
+    assert set(body["canon"]) >= {"n", "max_ms", "last_ms", "last_at"}

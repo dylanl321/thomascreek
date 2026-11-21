@@ -411,9 +411,27 @@ def index(db: Any) -> Index:
         _BUILT_AT[id(db)] = time.monotonic()
         gentlejson.settle(_size(db) if len(built.items) > 5000 else 0)
         took = time.perf_counter() - started
+        _count_build(took)
         if took > 1:
             log.info("iptvcanon: read %d folded titles in %.1f s", len(built.items), took)
         return built
+
+
+# Index builds since the hub started (read on /v1/ping/timings `canon`): each one parses the several-MB state while
+# holding the interpreter lock in turns, so how often and how long they run tells what the next stall is.
+BUILDS: dict[str, Any] = {"n": 0, "max_ms": 0.0, "last_ms": 0.0, "last_at": 0.0}
+
+
+def _count_build(took_s: float) -> None:
+    ms = round(took_s * 1000, 1)
+    BUILDS["n"] += 1
+    BUILDS["last_ms"] = ms
+    BUILDS["max_ms"] = max(BUILDS["max_ms"], ms)
+    BUILDS["last_at"] = round(time.time())
+
+
+def tally() -> dict[str, Any]:
+    return dict(BUILDS)
 
 
 _PARSE_LOCKS: dict[int, threading.Lock] = {}
@@ -466,6 +484,7 @@ REFRESH_EVERY_S = 300.0
 def _refresh(db: Any) -> None:
     try:
         index(db)
+        copies(db)  # worked out here, so the first TV after the rebuild doesn't pay for it (3 s live, Nov 21 2026)
     except Exception:  # noqa: BLE001 - the last index keeps answering
         log.exception("iptvcanon: refresh failed")
     finally:
@@ -548,6 +567,7 @@ def _build(db: Any) -> None:
         found.by_title("movie", "")
         _TITLED[id(db)] = (db, found)
         _TITLED_AT[id(db)] = time.monotonic()
+        copies(db)
         log.info("iptvcanon: title index ready in %.1f s", time.perf_counter() - started)
     except Exception:  # noqa: BLE001 - search then simply goes without canonical ids
         log.exception("iptvcanon: title index failed")

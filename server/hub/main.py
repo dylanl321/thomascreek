@@ -161,7 +161,7 @@ def build_app(hub: Hub | None = None, *, start_background: bool = True) -> FastA
                  for k, v in sorted(app.state.callers.items())}
         return {"since": round(t.since), "version": __version__, "build": os.environ.get("HUB_BUILD"),
                 "proxies": len(hub._proxies), "callers": tally, "now_playing": _now_playing(),
-                "sidecar": _sidecar(),
+                "sidecar": _sidecar(), "canon": _canon(),
                 "host": host.last(), "host_hour": host.hour(),
                 "routes": t.summary(window_s=float(window) if window else None), "slow": t.slow()}
 
@@ -169,6 +169,11 @@ def build_app(hub: Hub | None = None, *, start_background: bool = True) -> FastA
         from . import sidecar
 
         return sidecar.tally()
+
+    def _canon() -> dict[str, Any]:
+        from . import iptvcanon
+
+        return iptvcanon.tally()
 
     def _now_playing() -> dict[str, Any] | None:
         from . import nowplaying_live
