@@ -437,11 +437,20 @@ def direct_all(h: Any, ref: str, holder: str, *, now: float | None = None) -> li
         return []
     clock = time.perf_counter()
     out: list[str] = []
-    for server in [None, *addresses_for(h, row["session"], holder)[1:]]:
-        url = target(h, row["session"], holder, server=server)
-        if url and url.endswith(".ts") and "/live/" in url:
+    first = target(h, row["session"], holder)
+    login = _login_of(h, row)
+    if not first or login is None:
+        _step("urls", clock)
+        return out
+    # One address built; the backups are the same path on each of the provider's other addresses. Building each
+    # one in full read the catalog and the vault again per address (lease.urls near 1 s, Nov 21 2026).
+    base = str(login["server"])
+    tail = first[len(base):] if first.startswith(base) else None
+    for server in [base, *(list(login.get("servers") or [])[1:] if tail is not None else [])]:
+        url = first if server == base else str(server) + str(tail)
+        if url.endswith(".ts") and "/live/" in url:
             url = url[:-3] + ".m3u8"
-        if url and url not in out:
+        if url not in out:
             out.append(url)
     _step("urls", clock)
     return out
@@ -514,6 +523,13 @@ def busy_reason(h: Any, ref: str) -> str:
 def held_by(h: Any, holder: str) -> dict[str, Any] | None:
     """The lease `holder` has now (its provider and login), or None."""
     return next((row for row in _sessions(h) if row.get("tv") == holder), None)
+
+
+def held_elsewhere(h: Any, provider: str, login: str, holder: str) -> bool:
+    """Another player holds this login now. A hub relay pass must not open a stream on it then: one login carries
+    one stream, and a second connection makes the provider cut one of them (Nov 21 2026)."""
+    return any(row.get("provider") == provider and row.get("login") == login and row.get("tv") != holder
+               for row in _sessions(h))
 
 
 def source_view(h: Any, holder: str, *, route: str, address: int = 1,
@@ -657,10 +673,25 @@ def release_tv(h: Any, tv_id: str) -> None:
     _release_tv(h, tv_id)
 
 
-@_pooled
+# A relayed stream touches its lease on every request (each segment, twice), and each touch took the pool lock and
+# wrote the lease list: with a play holding the lock, the hub's loop stood still up to 3 s on it (Nov 21 2026,
+# /v1/ping/stalls). A lease lives IDLE_S, so a touch more often than this changes nothing worth writing.
+TOUCH_EVERY_S = 15.0
+
+
 def touch(h: Any, tv_id: str, now: float | None = None) -> None:
-    """A heartbeat keeps this TV's slot."""
-    now = time.time() if now is None else now
+    """A heartbeat keeps this TV's slot. At most once per TOUCH_EVERY_S per holder for live calls."""
+    if now is None:
+        now = time.time()
+        touched = _memo(h, "_touched")
+        if now - touched.get(tv_id, 0.0) < TOUCH_EVERY_S:
+            return
+        touched[tv_id] = now
+    _touch(h, tv_id, now)
+
+
+@_pooled
+def _touch(h: Any, tv_id: str, now: float) -> None:
     sessions = _sessions(h)
     changed = False
     for row in sessions:
@@ -698,9 +729,32 @@ def target(h: Any, session: str, tv_id: str, *, server: str | None = None) -> st
     return f"{base}/{folder}/{quote(login['username'])}/{quote(str(password))}/{quote(stream_id)}.{ext}"
 
 
+def _memo(h: Any, name: str) -> dict[str, Any]:
+    """A small in-memory table kept on this hub (gone at restart)."""
+    table = getattr(h, name, None)
+    if not isinstance(table, dict):
+        table = {}
+        setattr(h, name, table)
+    return table
+
+
 def _file_type(h: Any, kind: str, ref: str) -> str:
     """The provider's own file type for a film or episode (mkv, avi, ...). The provider only serves a
-    film under its real extension, so guessing mp4 left an .mkv film black. mp4 when the catalog has none."""
+    film under its real extension, so guessing mp4 left an .mkv film black. mp4 when the catalog has none.
+    Remembered per title: the catalog read held the hub's loop for a second (Nov 21 2026)."""
+    cache = _memo(h, "_file_types")
+    known = cache.get(ref)
+    if known:
+        return known
+    ext, found = _read_file_type(h, kind, ref)
+    if found:  # a guess (the catalog not read yet) is not remembered
+        if len(cache) > 5000:
+            cache.clear()
+        cache[ref] = ext
+    return ext
+
+
+def _read_file_type(h: Any, kind: str, ref: str) -> tuple[str, bool]:
     catalog = getattr(h, "tv_catalog", None)
     row = None
     if catalog is not None:
@@ -711,7 +765,7 @@ def _file_type(h: Any, kind: str, ref: str) -> str:
         except Exception:  # noqa: BLE001 - a catalog read must not stop playback
             row = None
     ext = str((row or {}).get("ext") or "").strip().lower().lstrip(".")
-    return ext if ext.isalnum() and 0 < len(ext) <= 5 else "mp4"
+    return (ext if ext.isalnum() and 0 < len(ext) <= 5 else "mp4"), row is not None
 
 
 def note_usage(h: Any, provider: str, login: str, info: dict[str, Any], now: float | None = None) -> dict[str, Any]:
@@ -1003,14 +1057,21 @@ async def read_twins(h: Any, ref: str, *, budget_s: float = 4.0) -> int:
 
 
 @_pooled
-def refused(h: Any, holder: str, now: float | None = None) -> bool:
+def refused(h: Any, holder: str, now: float | None = None, *, login: str | None = None,
+            stream: str | None = None) -> bool:
     """The provider refused the stream `holder` leased in every format (Nov 21 2026: 405 to a sports channel's `.ts`
     and `.m3u8` on one login while another login played it). That copy on that login is set aside, for REFUSED_S
     when another login of the provider can take it (plays go there for hours) or FAIL_S when it is the only one (a
-    short outage doesn't hide the channel for hours), and the lease freed. False when the holder has no lease."""
+    short outage doesn't hide the channel for hours), and the lease freed. False when the holder has no lease, or
+    (with `login`, "provider|login" of the pass that was refused, and `stream`, its stream id) when its lease is now
+    on another login or channel: an old pass must not set aside, or free, the stream the holder plays now."""
     now = time.time() if now is None else now
     row = next((item for item in _sessions(h) if item.get("tv") == holder), None)
     if row is None:
+        return False
+    if login is not None and f"{row.get('provider')}|{row.get('login')}" != login:
+        return False
+    if stream is not None and _split_ref(str(row.get("ref") or ""))[2] != stream:
         return False
     others = [lg for lg in logins(h) if lg["provider"] == row.get("provider") and lg["login"] != row.get("login")]
     _mark_failed(h, row, now, REFUSED_S if others else FAIL_S)

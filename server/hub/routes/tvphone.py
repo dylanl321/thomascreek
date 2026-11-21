@@ -841,13 +841,17 @@ def _providers(h: Hub, claims: dict[str, Any], ext: str) -> list[tuple[str, str,
     the provider's addresses, best first (hub/iptvaddr.py). Never logged or returned.
 
     Each request keeps the phone's lease alive, so the login is freed shortly after the bytes stop."""
-    from ..iptvplay import credentials, logins, touch
+    from ..iptvplay import credentials, held_elsewhere, logins, touch
 
     found = None
     pid = "thomas-creek"
     servers: list[str] = []
     if isinstance(claims.get("pl"), str) and "|" in claims["pl"]:
         provider, login = claims["pl"].split("|", 1)
+        if held_elsewhere(h, provider, login, f"phone:{claims.get('dev')}"):
+            # This pass's login went to another player (this one played something else since, or let it idle): a
+            # second stream on it would make the provider cut one of them. Play again for a login of its own.
+            raise error(409, "moved", "This stream moved on. Play it again.")
         found = credentials(h, provider, login)
         row = next((lg for lg in logins(h) if lg["provider"] == provider and lg["login"] == login), None)
         pid, servers = provider, list((row or {}).get("servers") or [])
@@ -1126,7 +1130,8 @@ async def phone_live_ts(token: str, request: Request, h: Hub = Depends(hub)) -> 
             # the next play takes another copy or login, or says at once that the channel is off.
             from ..iptvplay import refused
 
-            if await asyncio.to_thread(refused, h, f"phone:{claims.get('dev')}"):
+            if await asyncio.to_thread(refused, h, f"phone:{claims.get('dev')}",
+                                       login=claims.get("pl"), stream=str(claims.get("s"))):
                 log.info("phone live: the provider refused a channel on its login (%s); set aside",
                          ", ".join(why for why, _ms in tries))
         raise

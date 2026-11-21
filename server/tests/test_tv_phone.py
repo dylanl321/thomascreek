@@ -314,3 +314,22 @@ def test_the_catalog_is_read_once_at_start_for_plays(hub):
     iptvcanon._INDEX.pop(id(hub.db), None)
     asyncio.run(hub.warm_plays())
     assert id(hub.db) in iptvcanon._INDEX
+
+
+def test_an_old_pass_never_opens_a_second_stream_on_a_login_someone_else_holds(hub, people):
+    """One login carries one stream. A pass from an earlier play must not open the provider on a login the pool has
+    given to another player since: the provider would cut one of the two streams (Nov 21 2026)."""
+    from hub import iptvplay
+
+    _library(hub)
+    _login(hub)
+    dylan = people["phones"]["Dylan"]
+    relayed = dylan.client.post("/v1/tv/phone/play", headers=dylan.h, json={"channel_key": "xc:thomas-creek:10"}).json()
+    iptvplay.release_tv(hub, f"phone:{dylan.device_id}")
+    assert iptvplay.lease(hub, "xc:thomas-creek:11", "tv-other") is not None  # the only login goes to a TV
+    with respx.mock(assert_all_called=False) as mock:
+        ts = mock.get(f"{SERVER}/live/household/{PASSWORD}/10.ts").mock(return_value=httpx.Response(405))
+        got = dylan.client.get(relayed["ts_url"])
+    assert got.status_code == 409 and got.json()["error"] == "moved"
+    assert not ts.called
+    assert iptvplay.held_by(hub, "tv-other") is not None  # the TV's stream is left alone
