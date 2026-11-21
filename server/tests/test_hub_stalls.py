@@ -329,3 +329,13 @@ def test_checking_other_lists_age_never_parses_them_on_the_loop(hub, monkeypatch
     cat._extras_due(time.time())
     assert parsed == [] and not cat.__dict__.get("_extras_running")  # fresh: nothing read, nothing started
     assert cat._extra_written("beta") > 0 and cat._extra_written("gone") == 0.0
+
+
+def test_a_finished_refresh_rebuilds_the_answers_made_from_it(hub, monkeypatch):
+    """After a refresh the names, lineup and sport answers are built again behind it, before a TV asks."""
+    cat = hub.tv_catalog
+    called = []
+    monkeypatch.setattr(cat, "refresh_here", lambda: asyncio.sleep(0, result={"ok": 1}))
+    cat.on_refreshed = lambda: called.append(1)
+    assert asyncio.run(cat.refresh()) == {"ok": 1}
+    assert called == [1]

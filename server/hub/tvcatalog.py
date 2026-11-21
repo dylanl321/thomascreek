@@ -1108,12 +1108,21 @@ class TvCatalog:
         from . import catalogjob
 
         if not catalogjob.enabled():
-            return await self.refresh_here()
-        async with self._lock:
-            got = await catalogjob.run("refresh")
-        self._extra_result = got.get("extras") or {}
-        doc = await asyncio.to_thread(self.load)
-        await self._settle()
+            doc = await self.refresh_here()
+        else:
+            async with self._lock:
+                got = await catalogjob.run("refresh")
+            self._extra_result = got.get("extras") or {}
+            doc = await asyncio.to_thread(self.load)
+            await self._settle()
+        hook = self.__dict__.get("on_refreshed")
+        if hook is not None:
+            # The answers built from the snapshot (names, lineup, basic, sport) are built again behind the refresh,
+            # so the next TV start isn't the one that builds them all at once (Nov 21 2026: 2 to 7 s after one).
+            try:
+                hook()
+            except Exception as exc:  # noqa: BLE001 - the first callers build instead
+                log.info("tv catalog: rewarm after refresh failed to start (%s)", type(exc).__name__)
         return doc
 
     async def _settle(self) -> None:

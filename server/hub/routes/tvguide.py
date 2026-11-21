@@ -467,11 +467,13 @@ def _sport_channels(h: Hub, games: list[dict[str, Any]], home: Any, kids: bool, 
     memo = h.__dict__.setdefault("_sport_channels", {})
     if key in memo:
         return memo[key]
-    last = h.__dict__.setdefault("_sport_last", {}).get((id(doc), kids))
+    # The last answer for this audience, from this snapshot or the one before: a refresh's new snapshot made the
+    # next TV wait for a whole match again (6.9 s on the live hub, Nov 21 2026).
+    last = h.__dict__.setdefault("_sport_last", {}).get(kids)
     if last is not None and now - last[0] < SPORT_STALE_S:
         busy = h.__dict__.setdefault("_sport_busy", set())
-        if (id(doc), kids) not in busy:
-            busy.add((id(doc), kids))
+        if kids not in busy:
+            busy.add(kids)
             threading.Thread(target=_sport_behind, args=(h, games, home, kids, now, key), daemon=True,
                              name="sport-match").start()
         return last[1]
@@ -483,13 +485,12 @@ SPORT_STALE_S = 300.0
 
 def _sport_match(h: Hub, games: list[dict[str, Any]], home: Any, kids: bool, now: float,
                  key: tuple[Any, ...]) -> list[dict[str, Any]]:
-    doc = h.tv_catalog.load()
     body = tvsport.match(games, h.tv_catalog, h.tv_catalog.basic(home), kids_only=kids, now=now)
     memo = h.__dict__.setdefault("_sport_channels", {})
     if len(memo) > 32:
         memo.clear()
     memo[key] = body
-    h.__dict__.setdefault("_sport_last", {})[(id(doc), kids)] = (now, body)
+    h.__dict__.setdefault("_sport_last", {})[kids] = (now, body)
     return body
 
 
@@ -500,7 +501,7 @@ def _sport_behind(h: Hub, games: list[dict[str, Any]], home: Any, kids: bool, no
     except Exception as exc:  # noqa: BLE001  the last answer stays until SPORT_STALE_S
         log.info("sport: matching channels failed (%s)", type(exc).__name__)
     finally:
-        h.__dict__.setdefault("_sport_busy", set()).discard((id(h.tv_catalog.load()), kids))
+        h.__dict__.setdefault("_sport_busy", set()).discard(kids)
 
 
 @router.get("/names")

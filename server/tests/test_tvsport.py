@@ -248,7 +248,37 @@ def test_sport_channels_answer_the_last_match_while_the_next_is_worked_out(hub, 
     assert _time.perf_counter() - began < 1
     gate.set()
     for _ in range(50):
-        if hub.__dict__.get("_sport_last", {}).get((id(hub.tv_catalog.load()), False), (0, None))[1] == [{"n": 2}]:
+        if hub.__dict__.get("_sport_last", {}).get(False, (0, None))[1] == [{"n": 2}]:
             break
         _time.sleep(0.02)
     assert tvguide._sport_channels(hub, [], None, False, now + 61) == [{"n": 2}]
+
+
+def test_a_new_snapshot_still_gets_the_last_sport_answer_at_once(hub, monkeypatch):
+    """A refresh's new snapshot made the next TV wait for a whole match (6.9 s on the live hub, Nov 21 2026)."""
+    import threading
+    import time as _time
+
+    from hub import tvsport
+    from hub.routes import tvguide
+
+    gate = threading.Event()
+    calls = []
+
+    def match(games, catalog, basic, *, kids_only, now):
+        calls.append(now)
+        if len(calls) > 1:
+            gate.wait(5)
+        return [{"n": len(calls)}]
+
+    monkeypatch.setattr(tvsport, "match", match)
+    monkeypatch.setattr(hub.tv_catalog, "basic", lambda home: None)
+    docs = [{"channels": []}]
+    monkeypatch.setattr(hub.tv_catalog, "load", lambda: docs[-1])
+    now = 1_800_000_000.0
+    assert tvguide._sport_channels(hub, [], None, False, now) == [{"n": 1}]
+    docs.append({"channels": [], "fresh": True})  # the refresh's new snapshot
+    began = _time.perf_counter()
+    assert tvguide._sport_channels(hub, [], None, False, now + 5) == [{"n": 1}]
+    assert _time.perf_counter() - began < 1
+    gate.set()
