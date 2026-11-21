@@ -54,6 +54,16 @@ def build_app(hub: Hub | None = None, *, start_background: bool = True) -> FastA
 
             await before_serving(h)  # the first TV after a restart gets a warm hub (review P9)
             app.state.warm_after = asyncio.create_task(after_serving(h))  # basic lineup and sport, behind the port
+            from .warm import after_refresh
+
+            rewarms: set[asyncio.Task[None]] = set()
+
+            def rewarm() -> None:
+                task = asyncio.get_running_loop().create_task(after_refresh(h))
+                rewarms.add(task)  # kept, so it is not collected
+                task.add_done_callback(rewarms.discard)
+
+            h.tv_catalog.__dict__["on_refreshed"] = rewarm  # tvcatalog.refresh calls it
 
             async def host_loop() -> None:
                 while True:

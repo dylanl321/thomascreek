@@ -62,7 +62,19 @@ async def after_serving(h: Any) -> None:
     log.info("warm: lineup and sport ready %.1f s after the port opened", time.monotonic() - started)
 
 
-def _from_disk(h: Any) -> None:
+async def after_refresh(h: Any) -> None:
+    """A new snapshot was read: build the answers made from it again (names, lineup, copies, basic, sport) before a
+    TV asks, one step at a time in a worker."""
+    started = time.monotonic()
+    try:
+        await asyncio.to_thread(_from_disk, h, False)
+    except Exception:  # noqa: BLE001
+        log.exception("warm: rebuilding after a refresh failed; the first callers build instead")
+    await after_serving(h)
+    log.info("warm: rebuilt after a refresh in %.1f s", time.monotonic() - started)
+
+
+def _from_disk(h: Any, plex: bool = True) -> None:
     steps = []
     cat = getattr(h, "tv_catalog", None)
     if cat is not None:
@@ -78,7 +90,7 @@ def _from_disk(h: Any) -> None:
         from .iptvcanon import copies
 
         steps.append(("copies", lambda: copies(db)))
-    library = getattr(h, "plex_library", None)
+    library = getattr(h, "plex_library", None) if plex else None
     if library is not None:
         steps.append(("plex", library._read_saved))
     for name, step in steps:
