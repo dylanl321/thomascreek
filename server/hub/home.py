@@ -774,8 +774,17 @@ class HomeModel:
                     for e, st in self.states.items() if e.startswith(("water_heater.", "vacuum."))}
         hidden = self.layout.hidden
         cards = []
-        for d in devs.values():
-            kind = appliance_type(d, self.states)
+        # Which devices are appliances is worked out once a minute for the same devices and entities: matching every
+        # device's names against the appliance words on each /v1/home held the loop over a second (Nov 21 2026).
+        mark = (id(devs), len(devs), id(self.states), len(self.states))
+        memo = self.__dict__.get("_appliance_kinds")
+        now = time.monotonic()
+        if memo is None or memo[0] != mark or now - memo[1] >= 60:
+            found = {k: appliance_type(d, self.states) for k, d in devs.items()}
+            memo = self.__dict__["_appliance_kinds"] = (mark, now, found)
+        kinds = memo[2]
+        for dev_key, d in devs.items():
+            kind = kinds.get(dev_key)
             if kind is None:
                 continue
             key = f"device:{d['id']}" if self.ha_devices else d["id"]

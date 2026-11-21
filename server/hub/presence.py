@@ -154,10 +154,14 @@ class WifiPresence:
         kids: dict[str, set[str]] = {}
         alerts = getattr(self.hub, "alerts", None)
         if alerts is not None:
+            try:
+                links = alerts.device_links()  # once per poll, not two queries per device
+            except Exception:  # noqa: BLE001  each device then reads its own
+                links = None
             for d in rows:
                 mac = str(d.get("mac") or "").upper()
                 try:
-                    kid = alerts.kid_for_device(d) if mac else None
+                    kid = alerts.kid_for_device(d, links) if mac else None
                 except Exception:  # noqa: BLE001  presence still works for the grown-ups
                     kid = None
                 if kid:

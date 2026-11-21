@@ -3,6 +3,7 @@ asking a parent, guest passes (with their public page) and Tell Dylan feedback."
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import html
 import time
@@ -46,11 +47,12 @@ async def today(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str,
                     chores = {"mine": {"done": b["done"], "total": b["goal"] or len(b["items"]), "points": b["points"],
                                        "next": next((i["title"] for i in b["items"] if not i["done"]), None)}}
             elif h.policy.has(c.subject, "chores.manage"):
+                linked = [p for p in h.db.people_with_role("child") if p.get("family_board_id")]
+                # Every child's day at once, not one board read after another.
+                days = await asyncio.gather(*(h.family_board.today(p["family_board_id"]) for p in linked))
                 kids = []
-                for p in h.db.people_with_role("child"):
-                    if not p.get("family_board_id"):
-                        continue
-                    b = h.family_board.normalize_today(await h.family_board.today(p["family_board_id"]))
+                for p, raw in zip(linked, days, strict=True):
+                    b = h.family_board.normalize_today(raw)
                     kids.append({"id": p["id"], "name": p["name"].split()[0], "done": b["done"],
                                  "total": b["goal"] or len(b["items"]), "points": b["points"]})
                 chores = {"kids": kids}

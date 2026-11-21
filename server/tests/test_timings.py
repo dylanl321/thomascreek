@@ -72,3 +72,17 @@ def test_slow_answers_keep_their_step_names_and_times_only():
     assert len(slow) == 1
     assert slow[0]["route"] == "/v1/tv/phone/play" and slow[0]["steps"] == {"ready": 1.0, "lease": 1300.0}
     assert "http" not in str(slow)
+
+
+def test_long_polls_are_waits_not_slow_answers():
+    """A TV's /v1/tv/commands and /v1/tv/manage hold the call open until a command or the timeout: listed last with
+    `long_poll`, never over a second, never in the slow steps (Nov 21 2026)."""
+    t = Timings()
+    t.record("GET", "/v1/tv/commands", 25000, 200, "wait;dur=25000")
+    t.record("GET", "/v1/tv/manage", 20000, 200)
+    t.record("GET", "/v1/x", 1200, 200, "a;dur=1200")
+    rows = t.summary()
+    assert [r["route"] for r in rows] == ["/v1/x", "/v1/tv/commands", "/v1/tv/manage"]
+    assert rows[1]["long_poll"] is True and rows[1]["over_1s"] == 0 and rows[1]["over_1s_total"] == 0
+    assert "long_poll" not in rows[0] and rows[0]["over_1s"] == 1
+    assert [s["route"] for s in t.slow()] == ["/v1/x"]

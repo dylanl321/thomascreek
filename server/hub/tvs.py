@@ -49,7 +49,9 @@ def listing(h: Any, now: float | None = None, *, send: bool = False) -> dict[str
     """`send`: only the TVs a phone may offer to play on (approved, and seen in the last `SEND_SEEN_S`), so a
     test install or a TV that was replaced doesn't fill the phone's Cast list."""
     now = time.time() if now is None else now
-    rows = [summary(h, install_id, tv, now) for install_id, tv in h.tv_app.tvs().items() if tv.get("status") != "revoked"]
+    household = tvwho.people(h)  # once for the list, not once per TV
+    rows = [summary(h, install_id, tv, now, household) for install_id, tv in h.tv_app.tvs().items()
+            if tv.get("status") != "revoked"]
     if send:
         rows = _sendable(h, rows, now)
     rows.sort(key=lambda row: (row["status"] != "approved", str(row.get("name") or "").lower()))
@@ -107,7 +109,8 @@ def _seen(h: Any, install_id: str, tv: dict[str, Any] | None = None) -> float:
                float(tv.get("last_config_at") or 0))
 
 
-def summary(h: Any, install_id: str, tv: dict[str, Any], now: float) -> dict[str, Any]:
+def summary(h: Any, install_id: str, tv: dict[str, Any], now: float,
+            household: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     fleet = tvfleet._devices(h).get(install_id) or {}
     health = tv.get("health") or {}
     seen = _seen(h, install_id, tv)
@@ -139,7 +142,7 @@ def summary(h: Any, install_id: str, tv: dict[str, Any], now: float) -> dict[str
         "settings_by": tv.get("settings_by"),
         "settings_at": iso(float(tv["settings_at"])) if tv.get("settings_at") else None,
         # Who the hub thinks is watching (see hub/tvwho.py). person_id is None when nobody is named.
-        "watching": tvwho.current(h, install_id, now),
+        "watching": tvwho.current(h, install_id, now, household),
     }
 
 

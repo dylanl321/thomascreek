@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 from datetime import date, timedelta
 from typing import Any
@@ -15,6 +16,8 @@ from .base import Adapter, AdapterError, ServiceError, log
 
 FAVORITE_TAG = "Favorite"
 OVEN_TAG = "Oven"
+TODAY_FRESH_S = 15.0   # a board day this new is used as is
+TODAY_STALE_S = 600.0  # older than fresh but this new: shown at once, refreshed behind
 
 
 def _servings(r: dict[str, Any]) -> str | None:
@@ -406,9 +409,41 @@ class FamilyBoard(Adapter):
         return [{"id": p.get("id"), "name": p.get("name"), "emoji": p.get("emoji"), "role": p.get("role")}
                 for p in data.get("people", []) if not p.get("archived")]
 
+    async def request(self, method: str, path: str, **kw: Any) -> httpx.Response:
+        if method.upper() != "GET":
+            self.__dict__.pop("_today", None)  # a chore or reward changed: the next read asks the board
+        return await super().request(method, path, **kw)
+
     async def today(self, board_person_id: str, day: str | None = None) -> dict[str, Any]:
-        params = {"date": day} if day else None
-        return await self.get_json(f"/api/today/{board_person_id}", params=params)
+        """A person's day on the board. Today's (no `day`) is kept TODAY_FRESH_S, then served while one read
+        refreshes it behind, so Today and the Home cards never wait on the board twice (Nov 21 2026, `/v1/today`
+        3-7 s with a board read per child). Any write through the hub drops what is kept."""
+        if day:
+            return await self.get_json(f"/api/today/{board_person_id}", params={"date": day})
+        kept: dict[str, tuple[float, dict[str, Any]]] = self.__dict__.setdefault("_today", {})
+        now = time.monotonic()
+        row = kept.get(board_person_id)
+        if row and now - row[0] < TODAY_FRESH_S:
+            return row[1]
+        if row and now - row[0] < TODAY_STALE_S:
+            busy: dict[str, Any] = self.__dict__.setdefault("_today_busy", {})
+            if busy.get(board_person_id) is None:
+                busy[board_person_id] = asyncio.ensure_future(self._today_behind(board_person_id))
+            return row[1]
+        return await self._today_read(board_person_id)
+
+    async def _today_read(self, board_person_id: str) -> dict[str, Any]:
+        raw = await self.get_json(f"/api/today/{board_person_id}")
+        self.__dict__.setdefault("_today", {})[board_person_id] = (time.monotonic(), raw)
+        return raw
+
+    async def _today_behind(self, board_person_id: str) -> None:
+        try:
+            await self._today_read(board_person_id)
+        except Exception as exc:  # noqa: BLE001  the kept day stays until TODAY_STALE_S
+            log.info("family board: refreshing a day failed (%s)", type(exc).__name__)
+        finally:
+            self.__dict__.get("_today_busy", {}).pop(board_person_id, None)
 
     @staticmethod
     def normalize_today(raw: dict[str, Any]) -> dict[str, Any]:

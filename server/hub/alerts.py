@@ -44,6 +44,7 @@ LABEL_GROUPS = {
 LABEL_TITLES = {"person": "Person", "car": "Car", "animal": "Animal"}
 PACKAGE_LABELS = {"package"}
 HAZARD_CLASSES = {"moisture", "smoke", "gas", "carbon_monoxide"}
+SCAN_S = 30.0  # how long a scan of the entities for doorbells, garages and hazards is kept
 DOORBELL_WORDS = re.compile(r"doorbell|door bell|visitor|\bding\b|\bring\b", re.I)
 DEAD_STATES = {"unavailable", "unknown", "", None}
 OPEN_STATES = {"on", "open", "opening", "unlocked", "detected"}
@@ -95,15 +96,25 @@ class Alerts:
 
     # -- settings ----------------------------------------------------------
     def sources(self) -> dict[str, Any]:
+        # Read on every Home Assistant state change; the stamp is a small read, the value only when it changed.
+        stamp = self.hub.db.kv_stamp("alerts.sources")
+        memo = self.__dict__.get("_sources")
+        if memo is not None and memo[0] == stamp:
+            return dict(memo[1], outside_doors=list(memo[1]["outside_doors"]), extra=list(memo[1]["extra"]))
         raw = self.hub.db.kv_get("alerts.sources") or {}
-        return {"doorbell_entity": raw.get("doorbell_entity"), "doorbell_camera": raw.get("doorbell_camera"),
-                "outside_doors": list(raw.get("outside_doors") or []), "extra": list(raw.get("extra") or []),
-                "garage_after_s": int(raw.get("garage_after_s") or 600)}
+        found: dict[str, Any] = {
+            "doorbell_entity": raw.get("doorbell_entity"), "doorbell_camera": raw.get("doorbell_camera"),
+            "outside_doors": list(raw.get("outside_doors") or []), "extra": list(raw.get("extra") or []),
+            "garage_after_s": int(raw.get("garage_after_s") or 600)}
+        self.__dict__["_sources"] = (stamp, found)
+        return dict(found, outside_doors=list(found["outside_doors"]), extra=list(found["extra"]))
 
     def set_sources(self, values: dict[str, Any]) -> dict[str, Any]:
         cur = self.sources()
         cur.update({k: v for k, v in values.items() if k in cur})
         self.hub.db.kv_set("alerts.sources", cur)
+        self.__dict__.pop("_sources", None)
+        self.__dict__.pop("_scanned", None)
         return cur
 
     def default_cameras(self) -> dict[str, list[str]]:
@@ -183,27 +194,57 @@ class Alerts:
     def _name(st: dict[str, Any] | None, eid: str) -> str:
         return ((st or {}).get("attributes") or {}).get("friendly_name") or eid.split(".", 1)[-1].replace("_", " ")
 
-    def doorbells(self) -> list[str]:
+    def _scan(self) -> dict[str, list[str]]:
+        """Doorbells, garages and hazards among Home Assistant's entities, kept for SCAN_S. `on_state` asked for
+        them on every state change, and each ask read the sources and scanned every entity with a regex: the hub's
+        loop stood 1 to 1.4 s at a time in `doorbells` on the live hub (Nov 21 2026). A new entity, a changed
+        source or SCAN_S makes a new scan."""
         src = self.sources()
+        states = self._states()
+        key = (id(states), len(states), src["doorbell_entity"])
+        now = time.monotonic()
+        memo = self.__dict__.get("_scanned")
+        if memo is not None and memo[0] == key and now - memo[1] < SCAN_S:
+            return memo[2]
+        found = {"doorbells": self._doorbells(src, states), "garages": self._garages(states),
+                 "hazards": self._hazards(states)}
+        self.__dict__["_scanned"] = (key, now, found)
+        return found
+
+    def doorbells(self) -> list[str]:
+        return self._scan()["doorbells"]
+
+    def garages(self) -> list[str]:
+        return self._scan()["garages"]
+
+    def hazards(self) -> list[str]:
+        return self._scan()["hazards"]
+
+    @staticmethod
+    def _doorbells(src: dict[str, Any], states: dict[str, dict[str, Any]]) -> list[str]:
         if src["doorbell_entity"]:
             return [src["doorbell_entity"]]
         out = []
-        for eid, st in self._states().items():
-            attrs = st.get("attributes") or {}
+        for eid, st in states.items():
             dom = eid.split(".", 1)[0]
+            if dom not in ("binary_sensor", "event"):
+                continue
+            attrs = st.get("attributes") or {}
             if dom == "event" and attrs.get("device_class") == "doorbell":
                 out.append(eid)
-            elif dom in ("binary_sensor", "event") and DOORBELL_WORDS.search(f"{eid} {attrs.get('friendly_name', '')}"):
+            elif DOORBELL_WORDS.search(f"{eid} {attrs.get('friendly_name', '')}"):
                 if attrs.get("device_class") not in ("motion", "occupancy", "door", "opening"):
                     out.append(eid)
         return sorted(out)
 
-    def garages(self) -> list[str]:
-        return sorted(e for e, st in self._states().items()
+    @staticmethod
+    def _garages(states: dict[str, dict[str, Any]]) -> list[str]:
+        return sorted(e for e, st in states.items()
                       if e.startswith("cover.") and (st.get("attributes") or {}).get("device_class") == "garage")
 
-    def hazards(self) -> list[str]:
-        return sorted(e for e, st in self._states().items()
+    @staticmethod
+    def _hazards(states: dict[str, dict[str, Any]]) -> list[str]:
+        return sorted(e for e, st in states.items()
                       if e.startswith("binary_sensor.") and (st.get("attributes") or {}).get("device_class") in HAZARD_CLASSES)
 
     def nobody_home(self) -> bool:
@@ -604,14 +645,26 @@ class Alerts:
                      15: "internet", 11: "vpn", 13: "vpn", 7: "offline"}
     KID_TYPES = {10: "adult", 9: "gaming", 8: "video", 3: "bandwidth"}
 
-    def kid_for_device(self, dev: dict[str, Any]) -> dict[str, Any] | None:
+    def device_links(self) -> tuple[list[dict[str, Any]], dict[str, str]]:
+        """The children and the hub's device links ({MAC: person_id}), read once for a caller that asks
+        `kid_for_device` about many devices (presence asked two queries per Firewalla device on the loop)."""
+        kids = self.hub.db.people_with_role("child")
+        rows = self.hub.db.all("SELECT mac, person_id FROM network_rules WHERE mac IS NOT NULL")
+        return kids, {str(r["mac"]).upper(): r["person_id"] for r in rows if r.get("mac")}
+
+    def kid_for_device(self, dev: dict[str, Any],
+                       links: tuple[list[dict[str, Any]], dict[str, str]] | None = None) -> dict[str, Any] | None:
         """The child a Firewalla device belongs to: linked by the hub, or in a Firewalla group named after them."""
         mac = str(dev.get("mac") or dev.get("id") or "").upper()
-        kids = self.hub.db.people_with_role("child")
-        if mac:
-            row = self.hub.db.one("SELECT person_id FROM network_rules WHERE upper(mac)=?", [mac])
-            if row:
-                return next((k for k in kids if k["id"] == row["person_id"]), None)
+        if links is None:
+            kids = self.hub.db.people_with_role("child")
+            row = self.hub.db.one("SELECT person_id FROM network_rules WHERE upper(mac)=?", [mac]) if mac else None
+            linked = row["person_id"] if row else None
+        else:
+            kids, by_mac = links
+            linked = by_mac.get(mac) if mac else None
+        if linked:
+            return next((k for k in kids if k["id"] == linked), None)
         g = dev.get("group")
         # The Firewalla adapter flattens the group to its name; a raw Firewalla row has {name, id}.
         group = str((g.get("name") if isinstance(g, dict) else g) or "")

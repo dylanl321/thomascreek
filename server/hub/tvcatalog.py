@@ -1377,6 +1377,26 @@ class TvCatalog:
                 return self._present_channel(row)
         return None
 
+    def _shown_channels(self, doc: dict[str, Any]) -> dict[str, dict[str, Any]]:
+        """Every channel as the screens show it (lineup edits applied, hidden ones left out), in lineup order, kept
+        until the catalog, the lineup edits or the kids' categories change. A search and the guide went through
+        every channel's name cleaning and the whole lineup setting on each call (Nov 21 2026, search `guide` step
+        up to 2.7 s). Callers must not change the rows."""
+        mark = (id(doc), self.db.kv_stamp("tvapp.lineup"), frozenset(self._kid_names()))
+        memo = self.__dict__.get("_shown_memo")
+        if memo is not None and memo[0] == mark:
+            return memo[1]
+        overlay = self._overlay()
+        out: dict[str, dict[str, Any]] = {}
+        for row in doc.get("channels") or []:
+            if not isinstance(row, dict) or not row.get("key"):
+                continue
+            shown = self._present_channel(row, overlay)
+            if shown is not None:
+                out[shown["key"]] = shown
+        self.__dict__["_shown_memo"] = (mark, out)
+        return out
+
     def _present_channel(self, row: dict[str, Any],
                          overlay: dict[str, dict[str, Any]] | None = None) -> dict[str, Any] | None:
         """`overlay` is the lineup edits, read once by a caller that loops over every channel."""
@@ -1407,16 +1427,14 @@ class TvCatalog:
         now = time.time() if now is None else now
         picked = set(channels or []) | ({channel} if channel else set())
         doc = self.load()
-        overlay = self._overlay()
         notes: dict[str, dict[str, Any]] = {}
         wanted = []
-        for row in doc.get("channels") or []:
+        for shown in self._shown_channels(doc).values():
             if len(wanted) >= 200:
                 break
-            if picked and row.get("key") not in picked:
+            if picked and shown["key"] not in picked:
                 continue
-            shown = self._present_channel(row, overlay)
-            if shown is None or (kids_only and not shown["kids"]):
+            if kids_only and not shown["kids"]:
                 continue
             programmes = []
             current = None
@@ -1571,15 +1589,13 @@ class TvCatalog:
         channels: list[dict[str, Any]] = []
         programmes: list[dict[str, Any]] = []
         doc = self.load()
-        overlay = self._overlay()
         lap("load")
         notes: dict[str, dict[str, Any]] = {}
         guide = doc.get("guide") or {}
         indexed = self.index_ready()
         by_key: dict[str, dict[str, Any]] = {}
-        for row in doc.get("channels") or []:
-            shown = self._present_channel(row, overlay)
-            if shown is None or (kids_only and not shown["kids"]):
+        for shown in self._shown_channels(doc).values():
+            if kids_only and not shown["kids"]:
                 continue
             by_key[shown["key"]] = shown
             if needle in str(shown["name"]).casefold() and not tvnames.is_divider(shown["name"]):
@@ -1598,18 +1614,19 @@ class TvCatalog:
                     programmes.append(view)
                     if len(programmes) >= 20:
                         break
+        lap("channels")
         if indexed:
             try:
                 hits = self.index.programmes(needle)
             except sqlite3.Error:
                 hits = []
             for key, item in hits:
-                shown = by_key.get(key)
-                if shown is None:
+                hit = by_key.get(key)
+                if hit is None:
                     continue
-                view = self._with_programme_art(_programme(item, shown, now), notes)
-                view["channel_key"] = shown["key"]
-                view["channel_name"] = shown["name"]
+                view = self._with_programme_art(_programme(item, hit, now), notes)
+                view["channel_key"] = hit["key"]
+                view["channel_name"] = hit["name"]
                 programmes.append(view)
                 if len(programmes) >= 20:
                     break

@@ -26,6 +26,7 @@ def devices(h: Hub, subject: Subject, now: float | None = None) -> list[dict[str
     """TVs this person can stop, in the order they're likely to want next."""
     now = time.time() if now is None else now
     rows = []
+    household = tvwho.people(h)  # once for the list, not once per TV
     for install_id, tv in h.tv_app.tvs().items():
         if tv.get("status") != "approved":
             continue
@@ -43,7 +44,7 @@ def devices(h: Hub, subject: Subject, now: float | None = None) -> list[dict[str
         if tv.get("media_entity"):
             row["media_entity"] = tv["media_entity"]
         # Who the hub thinks is watching (hub/tvwho.py), for the phone's Now playing card.
-        row["watching"] = tvwho.current(h, install_id, now)
+        row["watching"] = tvwho.current(h, install_id, now, household)
         rows.append(row)
     return _order(h, subject.person_id, rows)
 
