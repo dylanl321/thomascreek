@@ -284,3 +284,33 @@ def test_the_hub_remembers_a_channel_without_hls_and_leads_with_its_ts(hub, peop
         hls.mock(return_value=httpx.Response(200, text="#EXTM3U\n#EXTINF:6,\nseg1.ts\n"))
         assert dylan.client.get(relayed["url"]).status_code == 200
     assert "hls" not in play(True)
+
+
+def test_a_channel_the_provider_refuses_everywhere_says_so_at_once(hub, people):
+    """Nov 21 2026: one sports channel answered 405 to both `.ts` and `.m3u8` on the only login, and the phone went
+    through 40 s of tries. A refused `.ts` sets that copy aside; the next /play answers 503 `refused` at once."""
+    _library(hub)
+    _login(hub)
+    dylan = people["phones"]["Dylan"]
+    relayed = dylan.client.post("/v1/tv/phone/play", headers=dylan.h, json={"channel_key": "xc:thomas-creek:10"}).json()
+    with respx.mock(assert_all_called=False) as mock:
+        mock.get(f"{SERVER}/live/household/{PASSWORD}/10.ts").mock(return_value=httpx.Response(405))
+        assert dylan.client.get(relayed["ts_url"]).status_code == 502
+    again = dylan.client.post("/v1/tv/phone/play", headers=dylan.h, json={"channel_key": "xc:thomas-creek:10"})
+    assert again.status_code == 503 and again.json()["error"] == "refused"
+    direct = dylan.client.post("/v1/tv/phone/play", headers=dylan.h,
+                               json={"channel_key": "xc:thomas-creek:10", "player": "vlc", "direct": True})
+    assert direct.status_code == 503 and direct.json()["error"] == "refused"
+    # Another channel on the same login still plays.
+    other = dylan.client.post("/v1/tv/phone/play", headers=dylan.h, json={"channel_key": "xc:thomas-creek:11"})
+    assert other.status_code == 200, other.text
+
+
+def test_the_catalog_is_read_once_at_start_for_plays(hub):
+    import asyncio
+
+    from hub import iptvcanon
+
+    iptvcanon._INDEX.pop(id(hub.db), None)
+    asyncio.run(hub.warm_plays())
+    assert id(hub.db) in iptvcanon._INDEX

@@ -999,6 +999,32 @@ async def read_twins(h: Any, ref: str, *, budget_s: float = 4.0) -> int:
     return len(await asyncio.to_thread(_twins, h, known))
 
 
+@_pooled
+def refused(h: Any, holder: str, now: float | None = None) -> bool:
+    """The provider refused the stream `holder` leased in every format (Nov 21 2026: 405 to a sports channel's `.ts`
+    and `.m3u8` on one login while others played). That copy on that login is set aside for FAIL_S and the lease
+    freed, so the next play takes another copy or login. False when the holder has no lease."""
+    now = time.time() if now is None else now
+    row = next((item for item in _sessions(h) if item.get("tv") == holder), None)
+    if row is None:
+        return False
+    _mark_failed(h, row, now)
+    _drop(h, str(row.get("session")))
+    return True
+
+
+def all_refused(h: Any, ref: str, now: float | None = None) -> bool:
+    """Every login and copy that carries `ref` was refused by its provider lately (see `refused`)."""
+    now = time.time() if now is None else now
+    _kind, provider, _stream = _split_ref(ref)
+    item = _holding(h, ref) or _episode(h, ref) or {"sources": [{"provider": provider, "ref": ref}]}
+    failed = _failed(h, now)
+    pool = logins(h)
+    marks = [f"{login['provider']}|{login['login']}|{source.get('ref')}" for source in item.get("sources") or []
+             for login in pool if login["provider"] == source.get("provider")]
+    return bool(marks) and all(mark in failed for mark in marks)
+
+
 def _mark_failed(h: Any, row: dict[str, Any], now: float) -> None:
     fails = h.db.kv_get("iptv.fails") or {}
     if not isinstance(fails, dict):

@@ -25,7 +25,7 @@ import secrets
 import shutil
 import time
 from collections import OrderedDict
-from typing import Any
+from typing import Any, NoReturn
 from urllib.parse import quote, urlencode, urljoin, urlsplit
 
 import httpx
@@ -131,7 +131,7 @@ async def phone_play(body: dict[str, Any], response: Response, c: Caller = Depen
         # Straight from the provider (the Android travel phone, Dylan's choice Nov 2026; a grown-up's iPhone and
         # iPad too, Nov 20 2026): the address carries a login, so it goes only to this signed-in grown-up's
         # phone and is never logged. A child, a guest or a kids' device asking for it is relayed instead, below.
-        from ..iptvplay import busy_reason, direct_all, holders, read_twins, refresh_usage, warm_twins
+        from ..iptvplay import direct_all, read_twins, refresh_usage, warm_twins
 
         holder = f"phone:{c.device['id']}"
         # The pool takes its own lock (hub/iptvplay.py _POOL), so the lease runs off the loop.
@@ -154,7 +154,7 @@ async def phone_play(body: dict[str, Any], response: Response, c: Caller = Depen
         warm_twins(h, key)
         url = urls[0] if urls else None
         if not url:
-            raise error(503, "busy", busy_reason(h, key), holders=holders(h, key, titles=not kids_only))
+            _off_or_busy(h, key, kids_only)
         h.db.log("tv.phone.play", "ok", person_id=person, device_id=c.device["id"], target=key,
                  params={"title": row.get("name") or row.get("title"), "direct": True})
         out_direct: dict[str, Any] = {"url": url, "kind": mode, "title": row.get("name") or row.get("title"),
@@ -200,7 +200,7 @@ async def phone_play(body: dict[str, Any], response: Response, c: Caller = Depen
         lap("next", done=True)
         return out_direct
     # The hub relays it, on a login leased to this phone like a TV's (one stream per login).
-    from ..iptvplay import busy_reason, holders, lease, read_twins, refresh_usage, warm_twins
+    from ..iptvplay import lease, read_twins, refresh_usage, warm_twins
 
     holder = f"phone:{c.device['id']}"
     steps = {}
@@ -219,7 +219,7 @@ async def phone_play(body: dict[str, Any], response: Response, c: Caller = Depen
         lap("retry")
     warm_twins(h, key)
     if held is None:
-        raise error(503, "busy", busy_reason(h, key), holders=holders(h, key, titles=not kids_only))
+        _off_or_busy(h, key, kids_only)
     token, exp = h.tokens.issue_scoped({"aud": AUD, "k": mode, "s": _stream_id(key), "x": ext,
                                         "sid": secrets.token_urlsafe(9), "dev": c.device["id"],
                                         "pl": f"{held['provider']}|{held['login']}"}, TTL_S)
@@ -242,6 +242,16 @@ async def phone_play(body: dict[str, Any], response: Response, c: Caller = Depen
     await _episode(h, mode, key, row, out, kids_only)
     lap("next", done=True)
     return out
+
+
+def _off_or_busy(h: Hub, key: str, kids_only: bool) -> NoReturn:
+    """No login was leased: either the provider refused every copy lately (say so at once, no ladder of tries on
+    the phone), or every login is busy (who holds them)."""
+    from ..iptvplay import all_refused, busy_reason, holders
+
+    if all_refused(h, key):
+        raise error(503, "refused", "The provider isn't sending this right now. Try again in a few minutes.")
+    raise error(503, "busy", busy_reason(h, key), holders=holders(h, key, titles=not kids_only))
 
 
 def _source(h: Hub, holder: str, title: Any, row: dict[str, Any], route: str,
@@ -1105,9 +1115,21 @@ async def phone_live_ts(token: str, request: Request, h: Hub = Depends(hub)) -> 
     has no HLS for. Each address in turn, like the playlist."""
     claims = _claims(h, token, {"live"})
     _keep(h, claims)
-    return await _on_each_address(h, claims, "ts",
-                                  lambda url: _relay(_client(h, agent=_agent(request)), url, {}, "video/mp2t"),
-                                  "The channel didn't answer")
+    try:
+        return await _on_each_address(h, claims, "ts",
+                                      lambda url: _relay(_client(h, agent=_agent(request)), url, {}, "video/mp2t"),
+                                      "The channel didn't answer")
+    except HubHTTPError as exc:
+        tries = getattr(exc, "tries", None) or []
+        if tries and all(why.startswith("http4") for why, _ms in tries):
+            # The provider refuses this channel on this login in the format the TVs play too: set that copy aside so
+            # the next play takes another copy or login, or says at once that the channel is off.
+            from ..iptvplay import refused
+
+            if await asyncio.to_thread(refused, h, f"phone:{claims.get('dev')}"):
+                log.info("phone live: the provider refused a channel on its login (%s); set aside",
+                         ", ".join(why for why, _ms in tries))
+        raise
 
 
 @router.get("/live/{token}/p/{n}.m3u8")

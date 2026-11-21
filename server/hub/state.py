@@ -399,10 +399,23 @@ class Hub:
         self.tv_bedtime.start()
         self._explore = asyncio.create_task(self._explore_loop())
         self._fleet = asyncio.create_task(self._fleet_loop())
+        self._warm = asyncio.create_task(self.warm_plays())
         if self.config.artwork.enabled:
             self.artwork.start()
         if self.config.dvr.enabled:
             self.dvr.start()
+
+    async def warm_plays(self) -> None:
+        """Read the folded catalog once at start, off the loop, so the first play after a restart doesn't parse it
+        (Nov 21 2026: a channel's /play took 13.9 s right after a deploy, all of it in the lease's fold step)."""
+        try:
+            from .iptvcanon import index
+
+            await asyncio.to_thread(index, self.db)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - the first play builds it instead
+            log.info("warming the catalog for plays: %s", exc)
 
     async def _explore_loop(self) -> None:
         """Rebuild the Explore feed every six hours. A failure keeps the last copy."""
@@ -671,3 +684,5 @@ class Hub:
             self._explore.cancel()
         if getattr(self, "_fleet", None):
             self._fleet.cancel()
+        if getattr(self, "_warm", None):
+            self._warm.cancel()
