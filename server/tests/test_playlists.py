@@ -150,3 +150,25 @@ def test_the_endpoint_is_for_admins_and_the_page_draws_the_stored_report(hub, pe
     # Signed out, the page is the sign-in page and shows nothing.
     home_client.cookies.clear()
     assert "QQ" not in home_client.get("/admin/playlists").text
+
+
+def test_a_hub_with_lists_and_no_report_counts_them_by_itself(hub, monkeypatch):
+    """Nov 21 2026: after an update the live hub had no report until somebody opened the page."""
+    cat = hub.tv_catalog
+    monkeypatch.setattr(cat, "_report_docs", lambda: [("thomas-creek", MAIN), ("beta", OTHER)])
+    assert cat.playlist_report() == {}
+
+    async def start() -> bool:
+        loop = asyncio.create_task(cat.playlist_report_loop(first_s=0, every_s=3600))
+        await asyncio.sleep(0.05)
+        await cat._report_task  # the check and the count both run off the loop
+        again = cat.playlist_report_soon()  # nothing stale now: no second count
+        await cat._report_task
+        loop.cancel()
+        return again
+
+    assert asyncio.run(start()) is False
+    report = cat.playlist_report()
+    assert len(report["providers"]) == 2 and report["stamp"] == playlists.stamp(cat._report_docs())
+    built_at = report["built_at"]
+    assert asyncio.run(start()) is False and cat.playlist_report()["built_at"] == built_at

@@ -916,34 +916,53 @@ class TvCatalog:
             log.warning("playlists report not built (%s)", type(exc).__name__)
             return {}
 
-    def playlist_report_soon(self) -> bool:
-        """Build the report in the background when there is none for the lists the hub holds now (a hub just
-        updated, a provider just added). True while one is being built. One at a time."""
-        if self.__dict__.get("_report_running"):
-            return True
-        from . import catalogjob, playlists
+    def _report_stale(self) -> bool:
+        """Whether the stored report was counted from other lists than the hub holds now. Reads the snapshot, which
+        can mean parsing tens of MB after a start, so it is called in a worker thread."""
+        from . import playlists
 
         docs = self._report_docs()
-        if not docs or self.playlist_report().get("stamp") == playlists.stamp(docs):
+        return bool(docs) and self.playlist_report().get("stamp") != playlists.stamp(docs)
+
+    def playlist_report_soon(self) -> bool:
+        """Count the playlists in the background when there is no report for the lists the hub holds now (a hub
+        just updated, a provider just added). True while one is being counted. One at a time, and nothing here
+        runs on the caller's loop turn: the check itself reads the snapshot."""
+        if self.__dict__.get("_report_running"):
+            return True
+        if self.__dict__.get("_report_checking"):
             return False
+        from . import catalogjob
 
         async def run() -> None:
             try:
+                if not await asyncio.to_thread(self._report_stale):
+                    return
+                self._report_running = True
                 if catalogjob.enabled():
                     await catalogjob.run("report")
                 else:
                     await asyncio.to_thread(self.write_playlist_report)
-            except Exception as exc:  # noqa: BLE001 - the page says it isn't built yet and tries again
+            except Exception as exc:  # noqa: BLE001 - the page says it isn't counted yet and tries again
                 log.warning("playlists report: background build failed (%s)", type(exc).__name__)
             finally:
                 self._report_running = False
+                self._report_checking = False
 
         try:
             self._report_task = asyncio.get_running_loop().create_task(run())
-            self._report_running = True
+            self._report_checking = True
         except RuntimeError:
             return False
-        return True
+        return False
+
+    async def playlist_report_loop(self, first_s: float = 90.0, every_s: float = 3600.0) -> None:
+        """After a start, and then hourly: count the playlists when the stored report is missing or older than
+        the lists (Nov 21 2026: a hub just updated had no report until somebody opened the page)."""
+        await asyncio.sleep(first_s)
+        while True:
+            self.playlist_report_soon()
+            await asyncio.sleep(every_s)
 
     def playlist_report(self) -> dict[str, Any]:
         """The stored report, parsed once per file change, or {} before the first one. `stale` says the lists
