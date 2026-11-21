@@ -625,6 +625,13 @@ class TvCatalog:
         safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in pid)[:60]
         return self.path.parent / f"extra-{safe}.json"
 
+    def _extra_written(self, pid: str) -> float:
+        """When another provider's list was last saved (0 when it never was), without reading it."""
+        try:
+            return self._extra_path(pid).stat().st_mtime
+        except OSError:
+            return 0.0
+
     def extra(self, pid: str) -> dict[str, Any]:
         path = self._extra_path(pid)
         try:
@@ -807,7 +814,9 @@ class TvCatalog:
         if self.__dict__.get("_extras_running"):
             return
         try:
-            due = any(now - float(self.extra(pid).get("fetched_at") or 0) >= LIST_TTL_S for pid in self._extra_logins())
+            # The file's change time, not its `fetched_at`: reading that parsed each provider's whole list (MB of
+            # JSON) on the hub's loop after every refresh, and held every caller 1.1 s (Nov 21 2026).
+            due = any(now - self._extra_written(pid) >= LIST_TTL_S for pid in self._extra_logins())
         except Exception:  # noqa: BLE001
             return
         if not due:

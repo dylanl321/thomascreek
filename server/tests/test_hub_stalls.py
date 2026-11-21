@@ -313,3 +313,19 @@ def test_a_slow_warm_does_not_hold_the_start(hub, monkeypatch):
         return _time.monotonic() - began
 
     assert asyncio.run(run()) < 0.4
+
+
+def test_checking_other_lists_age_never_parses_them_on_the_loop(hub, monkeypatch):
+    """`ensure` asks whether the other providers' lists are due on the hub's loop; reading `fetched_at` parsed each
+    whole list there after every refresh and held every caller 1.1 s (Nov 21 2026)."""
+    cat = hub.tv_catalog
+    _logins(cat, monkeypatch)
+    cat.ingest_extra("beta", live=[{"stream_id": 1, "name": "ESPN"}], vod=[], series=[])
+    cat.__dict__.pop("_extra_cache", None)
+    parsed = []
+    monkeypatch.setattr(cat, "extra", lambda pid: parsed.append(pid) or {})
+    import time
+
+    cat._extras_due(time.time())
+    assert parsed == [] and not cat.__dict__.get("_extras_running")  # fresh: nothing read, nothing started
+    assert cat._extra_written("beta") > 0 and cat._extra_written("gone") == 0.0
