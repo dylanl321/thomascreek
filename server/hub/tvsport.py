@@ -212,6 +212,7 @@ class Sport:
         self._dated: dict[str, tuple[float, list[dict[str, Any]]]] = {}  # "League|20261118" or "League|now"
         self._failed: set[str] = set()
         self._lock = asyncio.Lock()
+        self._refreshing: asyncio.Task[None] | None = None
 
     def _zone(self) -> ZoneInfo:
         try:
@@ -242,19 +243,17 @@ class Sport:
         self._boards[name] = (now, games)
 
     async def games(self, now: float | None = None) -> list[dict[str, Any]]:
+        """The games on now. Once every league has a board, an old board is answered at once and refreshed behind
+        it: waiting for ESPN made each minute's first /v1/tv/sport take 2.6 to 8 s (Nov 21 2026 review)."""
         now = time.time() if now is None else now
-        async with self._lock:
-            stale = []
-            for league in LEAGUES:
-                got = self._boards.get(league[0])
-                live = got is not None and any(g["state"] == "live" for g in got[1])
-                ttl = LIVE_TTL_S if live else IDLE_TTL_S
-                if got is None or now - got[0] >= ttl:
-                    stale.append(league)
-            if stale:
-                async with httpx.AsyncClient(timeout=8, transport=self._transport,
-                                             headers={"User-Agent": "ThomasCreekHub"}) as client:
-                    await asyncio.gather(*(self._fetch(client, league, now) for league in stale))
+        if self._stale(now):
+            if all(self._boards.get(league[0]) is not None for league in LEAGUES):
+                running = self._refreshing
+                if running is None or running.done():
+                    self._refreshing = asyncio.create_task(self._refresh(now))
+                    self._refreshing.add_done_callback(_quiet)
+            else:
+                await self._refresh(now)
         out = []
         for league in LEAGUES:
             # A race, fight or golf board lists its whole weekend: show it from the week before.
@@ -264,6 +263,24 @@ class Sport:
                     out.append(game)
         return out
 
+
+    def _stale(self, now: float) -> list[tuple[str, str, str, str, str]]:
+        stale = []
+        for league in LEAGUES:
+            got = self._boards.get(league[0])
+            live = got is not None and any(g["state"] == "live" for g in got[1])
+            ttl = LIVE_TTL_S if live else IDLE_TTL_S
+            if got is None or now - got[0] >= ttl:
+                stale.append(league)
+        return stale
+
+    async def _refresh(self, now: float) -> None:
+        async with self._lock:
+            stale = self._stale(now)
+            if stale:
+                async with httpx.AsyncClient(timeout=8, transport=self._transport,
+                                             headers={"User-Agent": "ThomasCreekHub"}) as client:
+                    await asyncio.gather(*(self._fetch(client, league, now) for league in stale))
 
     # -- other days and league pages (#208) ----------------------------------------------------------------------
     def day_of(self, value: str | None, now: float) -> str | None:
@@ -504,3 +521,8 @@ def match(games: list[dict[str, Any]], catalog: Any, basic: dict[str, Any] | Non
     out.sort(key=lambda g: (order.get(g["state"], 1), 0 if g["watch"] else 1, POPULARITY.get(g["league"], 99),
                             g["start"] if g["state"] != "final" else -g["start"]))
     return out
+
+
+def _quiet(task: asyncio.Task[Any]) -> None:
+    if not task.cancelled() and task.exception() is not None:
+        log.info("sport: refresh failed (%s)", type(task.exception()).__name__)
