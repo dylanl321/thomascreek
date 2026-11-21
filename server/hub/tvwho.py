@@ -83,11 +83,13 @@ def allowed_on(tv: dict[str, Any], person: dict[str, Any] | None) -> bool:
     return tv.get("profile") != "kids" or person.get("role") == "child"
 
 
-def current(h: Any, install_id: str, now: float | None = None) -> dict[str, Any]:
-    """{person_id, name, role, reason, line, since} for one TV. person_id is None when the hub can't tell."""
+def current(h: Any, install_id: str, now: float | None = None,
+            household: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    """{person_id, name, role, reason, line, since} for one TV. person_id is None when the hub can't tell.
+    `household` is `people(h)` read once by a caller asking for many TVs (the TV list read it once per TV)."""
     now = time.time() if now is None else now
     tv = h.tv_app.tvs().get(install_id) or {}
-    everyone = {p["id"]: p for p in people(h)}
+    everyone = {p["id"]: p for p in (people(h) if household is None else household)}
     found = _guess(tv, everyone, now)
     if found is None:
         return {"person_id": None, "name": None, "role": None, "reason": None, "line": None, "since": None}

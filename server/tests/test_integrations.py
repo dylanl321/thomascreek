@@ -187,3 +187,53 @@ def test_checked_off_activity_stays_on_today():
     piano = ev[1]
     assert piano["done"] and piano["start"] == "2026-11-13T09:00:00" and piano["who"] == "Juni"
     assert merge_plan(ev, {}) == ev
+
+
+def test_board_day_is_kept_briefly_and_a_write_drops_it(hub):
+    """Today and the Home cards read each child's board day; a second read within TODAY_FRESH_S is not another
+    call to the board, an older one is shown at once and refreshed behind, and a chore ticked through the hub
+    makes the next read ask the board again (Nov 21 2026, /v1/today 3-7 s)."""
+    import asyncio
+    import time as _time
+
+    from hub.adapters import family as fam
+
+    hub.config.family_board.enabled = True
+    hub.config.family_board.url = "http://fcc.test"
+    board = hub.family_board
+
+    async def run() -> None:
+        with respx.mock(assert_all_called=False) as mock:
+            day = mock.get("http://fcc.test/api/today/theo").mock(return_value=httpx.Response(200, json=TODAY))
+            mock.post(url__regex=r"http://fcc\.test/.*").mock(return_value=httpx.Response(200, json={"ok": True}))
+            assert (await board.today("theo"))["date"] == "2026-11-12"
+            await board.today("theo")
+            assert day.call_count == 1
+            # Older than fresh: answered from what is kept, one refresh behind.
+            kept = board.__dict__["_today"]["theo"]
+            kept_at = _time.monotonic() - fam.TODAY_FRESH_S - 1
+            board.__dict__["_today"]["theo"] = (kept_at, kept[1])
+            await board.today("theo")
+            await asyncio.sleep(0.05)
+            assert day.call_count == 2
+            await board.chore_done("bed", "theo")
+            await board.today("theo")
+            assert day.call_count == 3
+
+    asyncio.run(run())
+
+
+def test_board_day_for_another_date_is_always_asked(hub):
+    import asyncio
+
+    hub.config.family_board.enabled = True
+    hub.config.family_board.url = "http://fcc.test"
+
+    async def run() -> None:
+        with respx.mock() as mock:
+            day = mock.get("http://fcc.test/api/today/theo").mock(return_value=httpx.Response(200, json=TODAY))
+            await hub.family_board.today("theo", "2026-11-11")
+            await hub.family_board.today("theo", "2026-11-11")
+            assert day.call_count == 2
+
+    asyncio.run(run())

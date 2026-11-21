@@ -30,7 +30,7 @@ from . import tvnames
 
 log = logging.getLogger("hub.catalogdb")
 
-VERSION = 1
+VERSION = 2  # 2: programme words in their own narrow table (ptext), so a search scans words, not JSON
 KINDS = ("movies", "series")
 SORTS = {
     "name": "sort_key, ord",
@@ -48,6 +48,8 @@ CREATE INDEX titles_sort ON titles (kind, sort_key, ord);
 CREATE INDEX titles_category ON titles (kind, category_cf);
 CREATE TABLE progs (chan_ord INTEGER NOT NULL, item_ord INTEGER NOT NULL, channel TEXT NOT NULL,
   text_cf TEXT NOT NULL, row TEXT NOT NULL, PRIMARY KEY (chan_ord, item_ord));
+CREATE TABLE ptext (chan_ord INTEGER NOT NULL, item_ord INTEGER NOT NULL, text_cf TEXT NOT NULL,
+  PRIMARY KEY (chan_ord, item_ord)) WITHOUT ROWID;
 """
 
 
@@ -95,6 +97,7 @@ def build(path: Path, doc: dict[str, Any], stamp: str) -> None:
                 text = f"{str(item.get('title') or '').casefold()}\n{str(item.get('subtitle') or '').casefold()}"
                 progs.append((chan_ord, item_ord, key, text, json.dumps(item)))
         conn.executemany("INSERT INTO progs VALUES (?,?,?,?,?)", progs)
+        conn.executemany("INSERT INTO ptext VALUES (?,?,?)", [(p[0], p[1], p[3]) for p in progs])
         conn.executemany("INSERT INTO meta VALUES (?,?)", [("stamp", stamp), ("version", str(VERSION))])
         conn.commit()
     finally:
@@ -197,6 +200,9 @@ class Reader:
         conn = self._conn()
         if conn is None:
             raise sqlite3.OperationalError("no catalog index")
-        rows = conn.execute("SELECT channel, row FROM progs WHERE instr(text_cf, ?) > 0 "
-                            "ORDER BY chan_ord, item_ord LIMIT ?", [needle, limit]).fetchall()
+        # The words are scanned in their own narrow table; only the matches' JSON rows are read.
+        rows = conn.execute("SELECT p.channel, p.row FROM (SELECT chan_ord, item_ord FROM ptext "
+                            "WHERE instr(text_cf, ?) > 0 ORDER BY chan_ord, item_ord LIMIT ?) hit "
+                            "JOIN progs p USING (chan_ord, item_ord) ORDER BY p.chan_ord, p.item_ord",
+                            [needle, limit]).fetchall()
         return [(r[0], json.loads(r[1])) for r in rows]

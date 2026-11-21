@@ -26,6 +26,10 @@ SLOW_MS = 1000.0
 SLOW_KEEP = 40
 _PART = re.compile(r"^([A-Za-z][\w.-]{0,40});dur=(\d+(?:\.\d+)?)$")
 HOST_EVERY_S = 10.0
+# Long-polls: the TV asks and the hub holds the call open until a command arrives or `timeout` (20-25 s) passes,
+# so their time is the wait by design, not a slow answer. They are listed with `long_poll: true`, last, and never
+# counted as over a second (Nov 21 2026: /v1/tv/commands 25 s and /v1/tv/manage 20 s topped the slow list).
+LONG_POLL = frozenset({"GET /v1/tv/commands", "GET /v1/tv/manage"})
 
 
 def _pct(sorted_ms: list[float], p: float) -> float:
@@ -50,8 +54,9 @@ class Timings:
 
     def record(self, method: str, route: str, ms: float, status: int, parts: str | None = None) -> None:
         key = f"{method} {route}"
+        waits = key in LONG_POLL
         # Failed answers keep their steps too: a relay's 502 names what the provider answered (`up0.http403`).
-        steps = _steps(parts) if parts and (ms >= SLOW_MS or status >= 500) else None
+        steps = _steps(parts) if parts and ((ms >= SLOW_MS and not waits) or status >= 500) else None
         with self._lock:
             if steps:
                 row = {"at": round(self._clock()), "method": method, "route": route, "ms": round(ms), "steps": steps}
@@ -63,7 +68,7 @@ class Timings:
                 rows = self._rows[key] = collections.deque(maxlen=self.keep)
             rows.append((self._clock(), ms, status))
             self._count[key] += 1
-            if ms >= SLOW_MS:
+            if ms >= SLOW_MS and not waits:
                 self._slow[key] += 1
 
     def summary(self, *, window_s: float | None = None) -> list[dict[str, Any]]:
@@ -80,13 +85,17 @@ class Timings:
                 continue
             ms = sorted(r[1] for r in rows)
             method, route = key.split(" ", 1)
-            out.append({
+            waits = key in LONG_POLL
+            row: dict[str, Any] = {
                 "method": method, "route": route, "n": len(ms), "total": count.get(key, 0),
                 "p50_ms": round(_pct(ms, 0.50), 1), "p95_ms": round(_pct(ms, 0.95), 1), "max_ms": round(ms[-1], 1),
-                "over_1s": sum(1 for v in ms if v >= SLOW_MS), "over_1s_total": slow.get(key, 0),
+                "over_1s": 0 if waits else sum(1 for v in ms if v >= SLOW_MS), "over_1s_total": slow.get(key, 0),
                 "errors": sum(1 for r in rows if r[2] >= 500), "last": round(rows[-1][0]),
-            })
-        out.sort(key=lambda r: r["p95_ms"], reverse=True)
+            }
+            if waits:
+                row["long_poll"] = True
+            out.append(row)
+        out.sort(key=lambda r: (bool(r.get("long_poll")), -r["p95_ms"]))
         return out
 
 

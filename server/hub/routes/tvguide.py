@@ -332,7 +332,7 @@ async def up_next(profile: str | None = None, person: str | None = None, c: Call
         kids = kids or narrowed
         who = who_key(person=watching)
     await warm_plex(h, who, "kids" if kids else "adult")
-    return shelf(h, "kids" if kids else "adult", who=who)
+    return await asyncio.to_thread(shelf, h, "kids" if kids else "adult", who=who)  # reads the catalog: off the loop
 
 
 @router.post("/playback_events")
@@ -404,8 +404,9 @@ async def guide(start: float | None = None, end: float | None = None, channel: s
     keys = [key.strip() for key in (channels or "").split(",") if key.strip()]
     if len(keys) > 100:
         raise error(400, "bad_request", "Ask for up to 100 channels at a time")
-    body = h.tv_catalog.guide(start=begin, end=finish, channel=channel or None, kids_only=kids, now=now,
-                              channels=keys or None)
+    # Off the loop: a wide window over many channels builds hundreds of programme cards (Nov 21 2026, 1.1 s ends).
+    body = await asyncio.to_thread(h.tv_catalog.guide, start=begin, end=finish, channel=channel or None,
+                                   kids_only=kids, now=now, channels=keys or None)
     h.source_health.annotate(body.get("channels") or [])
     return body
 
