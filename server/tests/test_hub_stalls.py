@@ -279,3 +279,37 @@ def test_sport_channels_are_matched_once_a_minute(hub, monkeypatch):
     assert len(calls) == 1
     tvguide._sport_channels(hub, games, None, False, 700.0)  # the next minute
     assert len(calls) == 2
+
+
+# -- warm before serving (review P9, Nov 21 2026) ----------------------------------------------------------------
+def test_the_warm_builds_names_and_copies_before_the_first_call(hub, monkeypatch):
+    from hub import iptvcanon, warm
+    from hub.routes import tvguide
+
+    hub.tv_catalog.path.parent.mkdir(parents=True, exist_ok=True)
+    hub.tv_catalog.path.write_text(json.dumps({"vod": [{"stream_id": 1, "name": "EN - Up (2009)"}]}))
+    built = []
+    real = tvguide.tvnames.names
+    monkeypatch.setattr(tvguide.tvnames, "names", lambda *a, **k: built.append(k.get("kids_only")) or real(*a, **k))
+    asyncio.run(warm.before_serving(hub))
+    assert sorted(built) == [False, True]
+    assert hub.__dict__["_tv_names"][False][0] is hub.tv_catalog.load()
+    assert id(hub.db) in iptvcanon._COPIES
+    # A later names call answers from what the warm built.
+    tvguide.names_reply(hub, False)
+    assert len(built) == 2
+
+
+def test_a_slow_warm_does_not_hold_the_start(hub, monkeypatch):
+    import time as _time
+
+    from hub import warm
+
+    monkeypatch.setattr(warm, "_from_disk", lambda h: _time.sleep(0.5))
+
+    async def run():
+        began = _time.monotonic()
+        await warm.before_serving(hub, limit=0.05)
+        return _time.monotonic() - began
+
+    assert asyncio.run(run()) < 0.4

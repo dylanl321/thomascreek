@@ -50,6 +50,9 @@ def build_app(hub: Hub | None = None, *, start_background: bool = True) -> FastA
             dog.start()
             app.state.watchdog = dog
             await h.start()
+            from .warm import before_serving
+
+            await before_serving(h)  # the first TV after a restart gets a warm hub (review P9)
 
             async def host_loop() -> None:
                 while True:

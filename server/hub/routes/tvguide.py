@@ -478,16 +478,23 @@ async def names(request: Request, c: Caller = Depends(caller), h: Hub = Depends(
     """
     kids = _media(h, c)
     await _ready(h)
+    # Off the loop: cleaning every provider name and packing them held the hub 3 to 7 s after a start (Nov 21 2026).
+    memo = await asyncio.to_thread(names_reply, h, kids)
+    tag = f'"{memo[1]}"'
+    if request.headers.get("if-none-match") == tag:
+        return Response(status_code=304, headers={"ETag": tag})
+    return Response(memo[2], media_type="application/json", headers={"ETag": tag})
+
+
+def names_reply(h: Hub, kids: bool) -> tuple[Any, str, bytes]:
+    """The packed /v1/tv/names body, kept per catalog. Also built by the start-up warm (`hub/warm.py`)."""
     doc = h.tv_catalog.load()
     cache = h.__dict__.setdefault("_tv_names", {})
     memo = cache.get(kids)
     if memo is None or memo[0] is not doc:
         body = tvnames.names(doc, kids_only=kids, is_kids=h.tv_catalog._is_kids)
         memo = cache[kids] = (doc, body["version"], json.dumps(body, separators=(",", ":")).encode())
-    tag = f'"{memo[1]}"'
-    if request.headers.get("if-none-match") == tag:
-        return Response(status_code=304, headers={"ETag": tag})
-    return Response(memo[2], media_type="application/json", headers={"ETag": tag})
+    return memo
 
 
 SORTS = ("name", "year", "added")
@@ -740,20 +747,37 @@ def _plex_ok(h: Hub, c: Caller, rating: object, person: str | None = None) -> bo
 
 
 @router.get("/plex/library")
-async def tv_plex_library(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
-    """Every Plex film and show with TMDB / IMDb ids, so the TV folds them into its own tiles."""
+async def tv_plex_library(request: Request, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> Response:
+    """Every Plex film and show with TMDB / IMDb ids, so the TV folds them into its own tiles. The last library is
+    answered at once (an old one refreshes behind it) and packed once per audience, off the loop."""
     _watch_cap(h, c)
     if not h.plex.enabled:
-        return {"version": "", "movies": [], "shows": []}
+        return Response(b'{"version":"","movies":[],"shows":[]}', media_type="application/json")
     try:
         doc = await h.plex_library.load()
     except AdapterError as exc:
         raise error(503, "unavailable", str(exc)) from None
-    if c.subject.role in ("admin", "adult", "tablet"):
-        return doc
-    return {"version": doc["version"] + "k",
-            "movies": [m for m in doc["movies"] if _plex_ok(h, c, m.get("rating"))],
-            "shows": [s for s in doc["shows"] if _plex_ok(h, c, s.get("rating"))]}
+    grown = c.subject.role in ("admin", "adult", "tablet")
+    allowed: frozenset[str] = frozenset()
+    if not grown:
+        from .. import kidratings
+
+        allowed = frozenset(child_ratings(h, c) or kidratings.for_person(h, None))
+    version = doc["version"] if grown else doc["version"] + "k"
+
+    def build() -> dict[str, Any]:
+        if grown:
+            return doc
+        return {"version": version,
+                "movies": [m for m in doc["movies"] if str(m.get("rating") or "") in allowed],
+                "shows": [s for s in doc["shows"] if str(s.get("rating") or "") in allowed]}
+
+    key = (doc["version"], grown, tuple(sorted(allowed)))
+    body = await asyncio.to_thread(h.plex_library.encoded, key, build)
+    tag = f'"{version}"'
+    if request.headers.get("if-none-match") == tag:
+        return Response(status_code=304, headers={"ETag": tag})
+    return Response(body, media_type="application/json", headers={"ETag": tag})
 
 
 def _plex_id(item_id: str) -> str:

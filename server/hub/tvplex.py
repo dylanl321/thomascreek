@@ -13,10 +13,12 @@ supported) behind a short-lived pass, so the Plex token never reaches the TV.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
 import time
+from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
@@ -72,14 +74,72 @@ def shape(raw: dict[str, Any], art: Any = None) -> dict[str, Any] | None:
 
 
 class PlexLibrary:
-    def __init__(self, hub: Any):
+    """Every Plex film and show, kept for the house.
+
+    A TV asks for it on each start, and rebuilding it from Plex took 2.6 s typically and 22 s at worst (Nov 21 2026
+    review). So the last library is kept on disk and in memory: a caller gets it at once, and an old one is
+    refreshed behind it, once, however many callers arrive. Only the very first load ever waits for Plex."""
+
+    def __init__(self, hub: Any, path: Path | None = None):
         self.hub = hub
+        self.path = path
         self._at = 0.0
         self._doc: dict[str, Any] | None = None
+        self._task: asyncio.Task[dict[str, Any]] | None = None
+        self._encoded: dict[Any, bytes] = {}
 
     async def load(self, force: bool = False) -> dict[str, Any]:
-        if self._doc is not None and not force and time.time() - self._at < TTL_S:
+        if self._doc is None and not force and self.path is not None:
+            await asyncio.to_thread(self._read_saved)
+        if self._doc is not None and not force:
+            if time.time() - self._at >= TTL_S:
+                self._refresh_later()
             return self._doc
+        return await self._fetch_once()
+
+    def encoded(self, key: Any, build: Any) -> bytes:
+        """The packed reply for one audience of the current library (`key` includes the version)."""
+        memo = self._encoded.get(key)
+        if memo is None:
+            if len(self._encoded) > 16:
+                self._encoded.clear()
+            memo = self._encoded[key] = json.dumps(build(), separators=(",", ":")).encode()
+        return memo
+
+    def _read_saved(self) -> None:
+        if self._doc is not None or self.path is None:
+            return
+        try:
+            doc = json.loads(self.path.read_text())
+            at = self.path.stat().st_mtime
+        except (OSError, ValueError):
+            return
+        if isinstance(doc, dict) and isinstance(doc.get("movies"), list) and isinstance(doc.get("shows"), list):
+            self._doc, self._at = doc, at
+
+    def _save(self, doc: dict[str, Any]) -> None:
+        if self.path is None:
+            return
+        try:
+            tmp = self.path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(doc, separators=(",", ":")))
+            tmp.replace(self.path)
+        except OSError as exc:
+            log.info("plex library: not saved (%s)", type(exc).__name__)
+
+    async def _fetch_once(self) -> dict[str, Any]:
+        if self._task is None or self._task.done():
+            self._task = asyncio.create_task(self._fetch())
+            self._task.add_done_callback(_quiet)
+        return await asyncio.shield(self._task)
+
+    def _refresh_later(self) -> None:
+        if self._task is not None and not self._task.done():
+            return
+        self._task = asyncio.create_task(self._fetch())
+        self._task.add_done_callback(_quiet)
+
+    async def _fetch(self) -> dict[str, Any]:
         plex = self.hub.plex
         rows: dict[str, list[dict[str, Any]]] = {"movies": [], "shows": []}
         sections = (await plex.get_json("/library/sections")).get("MediaContainer", {}).get("Directory", [])
@@ -112,7 +172,30 @@ class PlexLibrary:
             remember_many = getattr(art, "remember_many", None)
             if remember_many is not None:
                 remember_many(notes)
-        version = hashlib.sha256(json.dumps(rows, sort_keys=True, default=str).encode()).hexdigest()[:12]
-        self._doc = {"version": version, **rows}
+        doc = await asyncio.to_thread(_versioned, rows)
+        if self._doc is None or doc["version"] != self._doc.get("version"):
+            self._encoded.clear()
+            self._doc = doc
+            await asyncio.to_thread(self._save, doc)
+        else:
+            await asyncio.to_thread(_touch, self.path)
         self._at = time.time()
         return self._doc
+
+
+def _versioned(rows: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
+    version = hashlib.sha256(json.dumps(rows, sort_keys=True, default=str).encode()).hexdigest()[:12]
+    return {"version": version, **rows}
+
+
+def _touch(path: Path | None) -> None:
+    if path is not None:
+        try:
+            path.touch()
+        except OSError:
+            pass
+
+
+def _quiet(task: asyncio.Task[Any]) -> None:
+    if not task.cancelled() and task.exception() is not None:
+        log.info("plex library: refresh failed (%s)", type(task.exception()).__name__)
