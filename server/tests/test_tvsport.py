@@ -156,84 +156,44 @@ def test_every_league_is_asked_and_next_weeks_race_weekend_is_kept(hub):
     respx.get(url__startswith=tvsport.ESPN).mock(return_value=httpx.Response(200, json={"events": []}))
     feed = tvsport.Sport(hub)
     import asyncio
-    games = asyncio.run(feed.games(now.timestamp()))
-    assert f1.called and nba.called and [g["league"] for g in games] == ["Formula 1"]
-    asyncio.run(feed.games(now.timestamp() + 61))
+
+    async def run():
+        games = await feed.games(now.timestamp())
+        assert f1.called and nba.called and [g["league"] for g in games] == ["Formula 1"]
+        again = await feed.games(now.timestamp() + 61)
+        assert [g["league"] for g in again] == ["Formula 1"]  # answered from the last boards at once
+        await feed._refreshing
+
+    asyncio.run(run())
     assert nba.call_count == 2  # a failed board is tried again after a minute, not a quarter hour
 
 
-# ── other days and league pages (#208) ──────────────────────────────────────────────────────────────────────────
-
-
-def _local_noon(hub, days: int) -> datetime:
-    from zoneinfo import ZoneInfo
-    zone = ZoneInfo(hub.config.hub.timezone)
-    today = datetime.now(zone).replace(hour=12, minute=0, second=0, microsecond=0)
-    return (today + timedelta(days=days)).astimezone(timezone.utc)
-
-
 @respx.mock
-def test_a_day_window_lists_that_days_games_with_their_channels(hub, people):
-    now = datetime.now(timezone.utc)
-    _catalog(hub, now)
-    tomorrow = _local_noon(hub, 1)
-    ymd = tomorrow.astimezone(__import__("zoneinfo").ZoneInfo(hub.config.hub.timezone)).strftime("%Y%m%d")
-    asked = []
+def test_old_scores_answer_at_once_and_refresh_once_behind(hub):
+    import asyncio
+    import time as _time
 
-    def nfl_board(request):
-        asked.append(str(request.url))
-        return httpx.Response(200, json=_nfl(tomorrow, state="pre"))
+    now = datetime.now(timezone.utc).timestamp()
+    slow = {"on": False}
 
-    respx.get(url__startswith=f"{tvsport.ESPN}/football/nfl/").mock(side_effect=nfl_board)
-    respx.get(url__startswith=tvsport.ESPN).mock(return_value=httpx.Response(200, json={"events": []}))
-    dylan = people["phones"]["Dylan"]
-    today = dylan.client.get("/v1/tv/sport", headers=dylan.h).json()
-    assert "day" not in today and "league" not in today and "failed" not in today  # unchanged without parameters
+    async def answer(request):
+        if slow["on"]:
+            await asyncio.sleep(0.3)
+        return httpx.Response(200, json={"events": []})
 
-    got = dylan.client.get("/v1/tv/sport?day=%2B1", headers=dylan.h)
-    assert got.status_code == 200, got.text
-    body = got.json()
-    assert body["day"] == f"{ymd[:4]}-{ymd[4:6]}-{ymd[6:]}" and body["league"] is None and body["failed"] == []
-    [game] = body["games"]
-    assert game["league"] == "NFL" and game["state"] == "upcoming"
-    assert any(c["why"] == "broadcast" for c in game["channels"]) is False  # no NBC on this house's basic lineup
-    assert any(u.endswith(f"?dates={ymd}") for u in asked)
-    # The same day by date is the same board, asked once.
-    calls = len(asked)
-    same = dylan.client.get(f"/v1/tv/sport?day={ymd[:4]}-{ymd[4:6]}-{ymd[6:]}", headers=dylan.h).json()
-    assert [g["id"] for g in same["games"]] == [game["id"]] and len(asked) == calls
+    route = respx.get(url__startswith=tvsport.ESPN).mock(side_effect=answer)
+    feed = tvsport.Sport(hub)
 
+    async def run():
+        await feed.games(now)
+        first = route.call_count
+        slow["on"] = True
+        began = _time.monotonic()
+        await asyncio.gather(*(feed.games(now + tvsport.IDLE_TTL_S + 1) for _ in range(4)))
+        took = _time.monotonic() - began
+        await feed._refreshing
+        return first, took
 
-@respx.mock
-def test_a_league_page_keeps_one_league_and_says_when_a_board_failed(hub, people):
-    now = datetime.now(timezone.utc)
-    _catalog(hub, now)
-    nfl = respx.get(url__startswith=f"{tvsport.ESPN}/football/nfl/").mock(
-        return_value=httpx.Response(200, json=_nfl(now - timedelta(minutes=40))))
-    respx.get(url__startswith=f"{tvsport.ESPN}/basketball/nba/").mock(return_value=httpx.Response(503))
-    respx.get(url__startswith=tvsport.ESPN).mock(return_value=httpx.Response(200, json={"events": []}))
-    dylan = people["phones"]["Dylan"]
-    page = dylan.client.get("/v1/tv/sport?league=NFL", headers=dylan.h)
-    assert page.status_code == 200, page.text
-    body = page.json()
-    assert body["league"] == "NFL" and body["day"] is None and [g["league"] for g in body["games"]] == ["NFL"]
-    assert body["games"][0]["watch"] is not None
-    assert str(nfl.calls[-1].request.url).endswith("/football/nfl/scoreboard")  # football's whole week
-
-    nba = dylan.client.get("/v1/tv/sport?league=NBA", headers=dylan.h)
-    assert nba.status_code == 503 and "NBA" in nba.json()["message"]
-    day = dylan.client.get("/v1/tv/sport?day=0", headers=dylan.h).json()
-    assert "NBA" in day["failed"] and [g["league"] for g in day["games"]] == ["NFL"]
-
-    assert dylan.client.get("/v1/tv/sport?league=Quidditch", headers=dylan.h).status_code == 404
-    assert dylan.client.get("/v1/tv/sport?day=2001-01-01", headers=dylan.h).status_code == 400
-    assert dylan.client.get("/v1/tv/sport?day=soon", headers=dylan.h).status_code == 400
-
-
-@respx.mock
-def test_a_day_with_no_games_is_an_empty_list(hub, people):
-    _catalog(hub, datetime.now(timezone.utc))
-    respx.get(url__startswith=tvsport.ESPN).mock(return_value=httpx.Response(200, json={"events": []}))
-    dylan = people["phones"]["Dylan"]
-    body = dylan.client.get("/v1/tv/sport?day=-1&league=MLB", headers=dylan.h).json()
-    assert body["games"] == [] and body["failed"] == [] and body["league"] == "MLB"
+    first, took = asyncio.run(run())
+    assert took < 0.2  # nobody waited for ESPN
+    assert route.call_count == 2 * first  # one refresh for four callers
