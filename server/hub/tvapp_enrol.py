@@ -29,6 +29,9 @@ from .tvapp_common import (
     token_message,
 )
 
+# A TV's "last seen" is saved at most this often (see `session`).
+SEEN_EVERY_S = 30.0
+
 
 class EnrolMixin(TvAppParts):
     """Part of TvApp (hub/tvapp.py); uses its attributes (cfg, vault, db, dir, adb, ...)."""
@@ -277,10 +280,14 @@ class EnrolMixin(TvAppParts):
             person_id = str(person_id)
         subject = self.subject_for(tv, install_id, person_id or None)
         device = self._device(tv, install_id)
-        tvs = self.tvs()
-        if install_id in tvs:
-            tvs[install_id]["last_seen_at"] = time.time()
-            self._save_tvs(tvs)
+        now = time.time()
+        if now - float(tv.get("last_seen_at") or 0) >= SEEN_EVERY_S:
+            # Rewriting every TV's record on every call held the database's writer and dropped the reads the hub
+            # keeps between writes; "online" allows 120 s, so once in a while is enough (Nov 21 2026).
+            tvs = self.tvs()
+            if install_id in tvs:
+                tvs[install_id]["last_seen_at"] = now
+                self._save_tvs(tvs)
         return subject, device
 
     def subject_for(self, tv: dict[str, Any], install_id: str, person_id: str | None) -> Subject:
