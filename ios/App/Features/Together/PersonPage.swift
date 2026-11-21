@@ -101,8 +101,13 @@ struct PersonPage: View {
 
     private var presence: String {
         let since = member?.sinceDate.map { " since \($0.formatted(date: .omitted, time: .shortened))" } ?? ""
+        let how: String = switch member?.source {
+        case "wifi": " · on home Wi-Fi"
+        case "phone": " · by their iPhone"
+        default: ""
+        }
         switch member?.home ?? person?.home {
-        case true?: return "Home\(since)"
+        case true?: return "Home\(since)\(how)"
         case false?: return (member?.where.map { "At \($0)" } ?? "Out") + since
         default: return "The house can't tell where they are"
         }

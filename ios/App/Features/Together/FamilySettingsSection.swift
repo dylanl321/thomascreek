@@ -24,7 +24,7 @@ struct FamilySettingsSection: View {
                     Label { VStack(alignment: .leading, spacing: 1) {
                         Text("Arriving and leaving")
                         Text(PresenceMonitor.shared.needsAlways && arrivals ? "Allow location \"Always\" in Settings for this to work"
-                             : "Last one out gets a check of doors and garage").font(.caption).foregroundStyle(Theme.dim)
+                             : "Only notices arriving at and leaving the house; where you go is never sent").font(.caption).foregroundStyle(Theme.dim)
                     } } icon: { Image(systemName: "location.fill") }
                 }
                 .onChange(of: arrivals) { _, on in on ? PresenceMonitor.shared.enable() : PresenceMonitor.shared.disable() }

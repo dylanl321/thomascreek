@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -13,6 +14,8 @@ from ..crypto import CryptoError, confirm_message, new_nonce, verify_signature
 from ..policy import Subject
 from ..state import Hub
 from ..tvapp import TvAppError
+
+log = logging.getLogger("hub.deps")
 
 NONCE_TTL_S = 120
 
@@ -86,6 +89,12 @@ def caller(request: Request, h: Hub = Depends(hub), *, allow_cookie: bool = Fals
     at_home = h.is_home(ip)
     h.db.update("devices", "id", device["id"], {"last_seen_at": time.time()})
     subject = h.subject_for(device, at_home)
+    if at_home:
+        # Who's home by Wi-Fi: learn which Firewalla device this phone is (an in-memory lookup).
+        try:
+            h.household.wifi.saw_at_home(subject.person_id, subject.role, device["id"], ip)
+        except Exception as exc:  # noqa: BLE001  never fails the call
+            log.info("wifi presence learn failed: %s", type(exc).__name__)
     view_as = request.headers.get(VIEW_AS_HEADER)
     if not view_as:
         return Caller(subject, device, ip)
