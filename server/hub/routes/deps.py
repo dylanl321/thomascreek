@@ -72,6 +72,12 @@ def _token_from(request: Request, allow_cookie: bool) -> str | None:
     return request.cookies.get(PAGE_COOKIE) if allow_cookie else None
 
 
+# A phone's "last seen" is written at most this often. Writing it on every call (a phone polls /v1/tv/phone/tvs
+# every few seconds) made each call wait its turn for the database's writer, and dropped every small read the hub
+# keeps between writes (Nov 21 2026: phone calls up to 3.8 s with no stall on the hub's loop).
+SEEN_EVERY_S = 30.0
+
+
 def caller(request: Request, h: Hub = Depends(hub), *, allow_cookie: bool = False) -> Caller:
     token = _token_from(request, allow_cookie)
     if not token:
@@ -87,7 +93,9 @@ def caller(request: Request, h: Hub = Depends(hub), *, allow_cookie: bool = Fals
         raise error(401, "revoked", "This device was removed from the house")
     ip = caller_ip(request, h)
     at_home = h.is_home(ip)
-    h.db.update("devices", "id", device["id"], {"last_seen_at": time.time()})
+    now = time.time()
+    if now - float(device.get("last_seen_at") or 0) >= SEEN_EVERY_S:
+        h.db.update("devices", "id", device["id"], {"last_seen_at": now})
     subject = h.subject_for(device, at_home)
     if at_home and device.get("kind", "phone") == "phone":
         # Who's home by Wi-Fi: learn which Firewalla device this phone is (an in-memory lookup).

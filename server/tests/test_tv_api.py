@@ -302,6 +302,33 @@ def test_players_follow_who_can_play(hub, home_client, people):
     assert [row["id"] for row in kid_rows] == [KID_TV]
 
 
+def test_last_seen_is_saved_once_in_a_while_not_on_every_call(hub, home_client, people, monkeypatch):
+    """Every TV call rewrote every TV's record, and every phone call wrote its device row: each waited for the
+    database's writer, so phone polls took up to 3.8 s on the live hub (Nov 21 2026)."""
+    key, clock = Key(), Clock()
+    _enroll(home_client, key, TV_ID, "Living room")
+    hub.tv_app.set_tv(TV_ID, status="approved", room="living_room")
+    auth = _auth(_token(home_client, key, clock)["access_token"])
+    saves = []
+    real = hub.tv_app._save_tvs
+    monkeypatch.setattr(hub.tv_app, "_save_tvs", lambda tvs: (saves.append(1), real(tvs)))
+    for _ in range(3):
+        assert home_client.get("/v1/tv/bedtime", headers=auth).status_code == 200
+    assert saves == []
+    aged = hub.tv_app.tvs()
+    aged[TV_ID]["last_seen_at"] = time.time() - 60
+    real(aged)
+    home_client.get("/v1/tv/bedtime", headers=auth)
+    assert len(saves) == 1 and time.time() - hub.tv_app.tvs()[TV_ID]["last_seen_at"] < 5
+    dylan = people["phones"]["Dylan"]
+    writes = []
+    db_update = hub.db.update
+    monkeypatch.setattr(hub.db, "update", lambda *a, **k: (writes.append(a[:2]), db_update(*a, **k))[1])
+    for _ in range(3):
+        dylan.client.get("/v1/tv/players", headers=dylan.h)
+    assert ("devices", "id") not in writes
+
+
 def _config(client, key: Key, ts: int, headers: dict | None = None):
     return client.post("/v1/tv/config", headers=headers, json={
         "install_id": TV_ID, "ts": ts, "signature": key.sign(f"tvconfig:{TV_ID}:{ts}".encode())})
