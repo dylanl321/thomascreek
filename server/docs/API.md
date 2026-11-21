@@ -556,6 +556,8 @@ A provider TMDB id (`tmdb` or `tmdb_id` on the Xtream row) decides a pair outrig
 
 `GET /v1/tv/catalog/unsure` (`systems`) is the short list an admin can settle. At most 20; `total` counts them all. A pair already folded, kept apart, or no longer in the catalog is left out.
 
+`GET /v1/tv/catalog/playlists` (`systems`) is the read-only playlists report: for each provider, how many channels, films and series it carries and how many have a guide id, programmes, a TMDB id and a category; the lead tags providers write in front of names and how many rows still show one after cleaning; each provider's categories as written and as shown; and how many titles each combination of providers carries. It is counted at the end of every provider read and stored, so the call only reads a small file. `ready` is false before the first count and `building` is true while one is being made. It holds counts, tags, category names and a few title names; never a login or an address. The admin page draws it at `/admin/playlists`.
+
 ```json
 {"unsure":[{"id":"9c1e…","left":"can_aaa","right":"can_bbb","title":"CNN","other":"Cable News Network","score":0.74}],"total":1}
 ```

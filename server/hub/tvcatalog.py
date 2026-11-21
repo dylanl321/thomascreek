@@ -707,8 +707,15 @@ class TvCatalog:
         raise TvAppError(502, "bad_provider", last)
 
     def ingest_extra(self, pid: str, *, live: list[Any] | None, vod: list[Any] | None, series: list[Any] | None,
-                     now: float | None = None, keep: dict[str, Any] | None = None) -> dict[str, Any]:
-        """`keep` is the provider's last saved doc: a list passed as None (its read failed) keeps that copy."""
+                     now: float | None = None, keep: dict[str, Any] | None = None,
+                     categories: dict[str, list[Any] | None] | None = None) -> dict[str, Any]:
+        """`keep` is the provider's last saved doc: a list passed as None (its read failed) keeps that copy.
+        `categories` is the provider's category lists by kind (live, vod, series). A row keeps its category id as
+        `cat` and the doc keeps the id-to-name tables, for the playlists report only: nothing a screen is sent
+        reads them, so another provider's rows are still never judged by a category."""
+        def cat(row: dict[str, Any]) -> str | None:
+            return _clip(row.get("category_id"), 20) if categories is not None else None
+
         def key(prefix: str, value: object) -> str | None:
             part = _id_part(value)
             return f"{prefix}:{pid}:{part}" if part else None
@@ -718,6 +725,8 @@ class TvCatalog:
             if isinstance(row, dict) and (k := key("xc", row.get("stream_id"))):
                 channels.append({"key": k, "name": _clip(row.get("name"), 80) or "Channel",
                                  "epg_id": _clip(row.get("epg_channel_id"), 80)})
+                if cat(row):
+                    channels[-1]["cat"] = cat(row)
         for rows, out, prefix, id_field in ((vod, movies, "vod", "stream_id"), (series, shows, "series", "series_id")):
             for row in rows or []:
                 if not isinstance(row, dict) or not (k := key(prefix, row.get(id_field))):
@@ -730,6 +739,8 @@ class TvCatalog:
                 ext = _ext(row.get("container_extension"))
                 if ext:
                     item["ext"] = ext
+                if cat(row):
+                    item["cat"] = cat(row)
                 out.append(item)
         if keep:
             channels = channels if live is not None else list(keep.get("channels") or [])
@@ -737,6 +748,12 @@ class TvCatalog:
             shows = shows if series is not None else list(keep.get("series") or [])
         doc = {"provider": pid, "fetched_at": time.time() if now is None else now,
                "channels": channels, "movies": movies, "series": shows}
+        tables = dict((keep or {}).get("categories") or {})
+        for kind, rows_in in (categories or {}).items():
+            if rows_in is not None and kind in ("live", "vod", "series"):
+                tables[kind] = _categories(rows_in)
+        if tables:
+            doc["categories"] = tables
         path = self._extra_path(pid)
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(".tmp")
@@ -847,9 +864,19 @@ class TvCatalog:
                 result[pid] = "not read: " + "; ".join(sorted(set(f.split(" ", 1)[1] for f in failed)))
                 log.info("provider %s: lists not read (%s)", pid, result[pid][10:])
                 continue
+            # The category names, for the playlists report. A provider that won't list them still folds and plays.
+            categories: dict[str, list[Any] | None] = {}
+            for kind, action in (("live", "get_live_categories"), ("vod", "get_vod_categories"),
+                                 ("series", "get_series_categories")):
+                try:
+                    _used, r = await self._api(pid, servers, {**params, "action": action}, wait_s=EXTRA_WAIT_S)
+                    categories[kind] = await asyncio.to_thread(_list_body, r)
+                except Exception:  # noqa: BLE001 - names for a report; never a reason to lose the lists just read
+                    categories[kind] = None
             try:
                 doc = await asyncio.to_thread(self.ingest_extra, pid, live=got[0], vod=got[1], series=got[2],
-                                              keep=self.extra(pid) if failed else None)
+                                              keep=self.extra(pid) if failed or None in categories.values() else None,
+                                              categories=categories)
             except (OSError, ValueError) as exc:
                 result[pid] = f"not read: couldn't be saved ({type(exc).__name__})"
                 continue
@@ -863,7 +890,77 @@ class TvCatalog:
             pass
         if logins:
             await asyncio.to_thread(self.fold)
+        await asyncio.to_thread(self.write_playlist_report)
         return result
+
+    # -- the playlists report (read-only: what each provider holds and what the cleaners make of it) -----------------
+    def _report_docs(self) -> list[tuple[str, dict[str, Any]]]:
+        docs = [(SOURCE, self.load())]
+        for pid in self._extra_logins():
+            docs.append((pid, self.extra(pid)))
+        return [(pid, doc) for pid, doc in docs if doc]
+
+    def write_playlist_report(self) -> dict[str, Any]:
+        """Count every provider's lists and store the result. Tens of seconds on a big library, so it runs in the
+        provider-read child or a worker thread, never on a request. A failure keeps the last report."""
+        from . import playlists
+
+        try:
+            docs = self._report_docs()
+            report = playlists.build(docs)
+            report["stamp"] = playlists.stamp(docs)
+            _atomic_write(self.path.parent / "playlists.json", json.dumps(report))
+            log.info("playlists report: %d providers in %.0f s", len(report["providers"]), report["took_s"])
+            return report
+        except Exception as exc:  # noqa: BLE001 - the report is a view; the lists and the fold are untouched
+            log.warning("playlists report not built (%s)", type(exc).__name__)
+            return {}
+
+    def playlist_report_soon(self) -> bool:
+        """Build the report in the background when there is none for the lists the hub holds now (a hub just
+        updated, a provider just added). True while one is being built. One at a time."""
+        if self.__dict__.get("_report_running"):
+            return True
+        from . import catalogjob, playlists
+
+        docs = self._report_docs()
+        if not docs or self.playlist_report().get("stamp") == playlists.stamp(docs):
+            return False
+
+        async def run() -> None:
+            try:
+                if catalogjob.enabled():
+                    await catalogjob.run("report")
+                else:
+                    await asyncio.to_thread(self.write_playlist_report)
+            except Exception as exc:  # noqa: BLE001 - the page says it isn't built yet and tries again
+                log.warning("playlists report: background build failed (%s)", type(exc).__name__)
+            finally:
+                self._report_running = False
+
+        try:
+            self._report_task = asyncio.get_running_loop().create_task(run())
+            self._report_running = True
+        except RuntimeError:
+            return False
+        return True
+
+    def playlist_report(self) -> dict[str, Any]:
+        """The stored report, parsed once per file change, or {} before the first one. `stale` says the lists
+        were read again since (it is rebuilt at the end of every provider read)."""
+        path = self.path.parent / "playlists.json"
+        try:
+            mtime = path.stat().st_mtime_ns
+        except OSError:
+            return {}
+        cached = self.__dict__.get("_playlists")
+        if cached is None or cached[0] != mtime:
+            try:
+                doc = json.loads(path.read_text())
+            except (OSError, ValueError):
+                return {}
+            cached = self._playlists = (mtime, doc if isinstance(doc, dict) else {})
+        return cached[1]
 
     def store_series(self, payload: dict[str, Any], series_id: str) -> dict[str, Any]:
         info = payload.get("info") if isinstance(payload.get("info"), dict) else {}

@@ -352,7 +352,7 @@ AREAS = (("/admin", "Overview"), ("/admin/devices", "TVs"), ("/admin/people", "P
 AREA_PATHS = {path for path, _ in AREAS}
 CSS = CSS + SUITE_CSS
 # Pages that sit under an area in the menu.
-UNDER = {"/admin/downloads": "/admin/watching"}
+UNDER = {"/admin/downloads": "/admin/watching", "/admin/playlists": "/admin/watching"}
 
 
 def _counts(h: Hub) -> dict[str, tuple[int, str]]:
@@ -1121,6 +1121,9 @@ or text files named after a key (for example trek.api_key.txt). Each goes to the
     elif area == "watching":
         body = f"""{_catalog_html(h, csrf)}
 {sections}
+<h3>Playlists</h3><div class=card><div class=row><div>Every provider side by side
+<div class=dim>What each one carries, how they overlap, and which names the hub still shows with a provider tag</div></div>
+<a class='btn light small' href=/admin/playlists>Open</a></div></div>
 <h3>Downloads</h3><div class=card><div class=row><div>Kids' YouTube and saved films
 <div class=dim>Queue, failures and space used</div></div>
 <a class='btn light small' href=/admin/downloads>Open</a></div></div>"""
