@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import httpx
 import respx
 
@@ -188,3 +190,42 @@ def test_cast_receiver_can_read_the_pass_addresses(hub, people):
         assert "Content-Range" in got.headers["access-control-expose-headers"]
     other = dylan.client.get("/v1/me", headers={**dylan.h, "Origin": "https://receiver.example"})
     assert "access-control-allow-origin" not in other.headers
+
+
+def test_live_relay_says_what_the_provider_answered_and_tries_the_backup(hub, people):
+    """Nov 21 2026: a channel relayed to a phone abroad failed in half a second with nothing to say why. A refusal
+    now moves to the provider's backup address, the phone player's own name is sent, and a failure keeps each
+    address's answer (never the address) in /v1/ping/timings."""
+    from hub import iptvaddr
+
+    backup = "http://backup.example:8080"
+    _library(hub)
+    _login(hub)
+    iptvaddr.set_backups(hub.db, "thomas-creek", [backup], SERVER)
+    dylan = people["phones"]["Dylan"]
+    player = {**dylan.h, "User-Agent": "AppleCoreMedia/1.0.0 (iPhone)"}
+    with respx.mock(assert_all_called=False) as mock:
+        main = mock.get(f"{SERVER}/live/household/{PASSWORD}/10.m3u8").mock(
+            return_value=httpx.Response(403, text="forbidden"))
+        spare = mock.get(f"{backup}/live/household/{PASSWORD}/10.m3u8").mock(
+            return_value=httpx.Response(200, text="#EXTM3U\n#EXTINF:6,\nseg1.ts\n"))
+        url = dylan.client.post("/v1/tv/phone/play", headers=dylan.h, json={"channel_key": "xc:thomas-creek:10"}
+                                ).json()["url"]
+        got = dylan.client.get(url, headers=player)
+        assert got.status_code == 200, got.text
+        assert main.called and spare.called
+        assert spare.calls.last.request.headers["user-agent"] == "AppleCoreMedia/1.0.0 (iPhone)"
+        # A refusal belongs to the login, not the address: the main address isn't set aside.
+        assert iptvaddr.best(hub.db, "thomas-creek", SERVER) == SERVER
+
+        spare.mock(return_value=httpx.Response(200, text="<html>not today</html>",
+                                               headers={"content-type": "text/html; charset=utf-8"}))
+        url = dylan.client.post("/v1/tv/phone/play", headers=dylan.h, json={"channel_key": "xc:thomas-creek:10"}
+                                ).json()["url"]
+        failed = dylan.client.get(url, headers=player)
+    assert failed.status_code == 502 and failed.json()["message"] == "The channel didn't answer"
+    assert "up0.http403;dur=" in failed.headers["server-timing"]
+    assert "up1.notplaylist.html;dur=" in failed.headers["server-timing"]
+    kept = next(r for r in hub.timings.slow() if r["route"].endswith("/index.m3u8"))
+    assert kept["status"] == 502 and "up0.http403" in kept["steps"] and "up1.notplaylist.html" in kept["steps"]
+    assert PASSWORD not in json.dumps(kept) and "backup.example" not in json.dumps(kept)

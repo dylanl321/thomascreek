@@ -50,11 +50,14 @@ class Timings:
 
     def record(self, method: str, route: str, ms: float, status: int, parts: str | None = None) -> None:
         key = f"{method} {route}"
-        steps = _steps(parts) if parts and ms >= SLOW_MS else None
+        # Failed answers keep their steps too: a relay's 502 names what the provider answered (`up0.http403`).
+        steps = _steps(parts) if parts and (ms >= SLOW_MS or status >= 500) else None
         with self._lock:
             if steps:
-                self._slow_parts.append({"at": round(self._clock()), "method": method, "route": route,
-                                         "ms": round(ms), "steps": steps})
+                row = {"at": round(self._clock()), "method": method, "route": route, "ms": round(ms), "steps": steps}
+                if status >= 500:
+                    row["status"] = status
+                self._slow_parts.append(row)
             rows = self._rows.get(key)
             if rows is None:
                 rows = self._rows[key] = collections.deque(maxlen=self.keep)
@@ -88,7 +91,7 @@ class Timings:
 
 
     def slow(self) -> list[dict[str, Any]]:
-        """The last slow answers that named their steps, newest first."""
+        """The last slow or failed answers that named their steps, newest first (a failed one has `status`)."""
         with self._lock:
             return list(self._slow_parts)[::-1]
 

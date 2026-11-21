@@ -36,7 +36,7 @@ from pydantic import BaseModel, Field
 from ..crypto import CryptoError
 from ..state import Hub
 from ..tvapp import TvAppError
-from .deps import Caller, caller, error, hub
+from .deps import Caller, HubHTTPError, caller, error, hub
 from ..upnext import remember, resume_at, who_key
 from .tvguide import _media, _ready, watcher
 from ..faults import note
@@ -804,41 +804,77 @@ def _providers(h: Hub, claims: dict[str, Any], ext: str) -> list[tuple[str, str,
 
 
 class _Unreachable(Exception):
-    """The provider address didn't connect: try the provider's next address."""
+    """This address gave no stream: it didn't connect, timed out, refused (4xx/5xx) or sent something else. The
+    next address is tried. `why` is a short code (`unreachable`, `timeout`, `http403`, `notplaylist.html`) that
+    never carries the address."""
+
+    def __init__(self, why: str = "unreachable") -> None:
+        super().__init__(why)
+        self.why = why
 
 
-async def _on_each_address(h: Hub, claims: dict[str, Any], ext: str, attempt: Any) -> Any:
-    """Run `attempt(url, may_fall_back)` on the best address, then the backups when one can't be reached."""
+def _why_body(resp: httpx.Response) -> str:
+    kind = (resp.headers.get("content-type") or "").split(";", 1)[0].rsplit("/", 1)[-1]
+    kind = re.sub(r"[^a-z0-9]", "", kind.lower())[:12]
+    return f"notplaylist.{kind}" if kind else "notplaylist"
+
+
+def _failed(message: str, tries: list[tuple[str, float]]) -> HubHTTPError:
+    """The 502 the phone shows, with what each address answered as `Server-Timing` steps (`up0.http403;dur=310`)
+    so `/v1/ping/timings` keeps the provider's answer without its address."""
+    exc = error(502, "unavailable", message)
+    if tries:
+        exc.headers = {"Server-Timing": ", ".join(f"up{i}.{why};dur={ms:.0f}" for i, (why, ms) in enumerate(tries))}
+    return exc
+
+
+async def _on_each_address(h: Hub, claims: dict[str, Any], ext: str, attempt: Any,
+                           message: str = "The TV source didn't answer") -> Any:
+    """Run `attempt(url)` on the best address, then each backup while one gives no stream. An address that didn't
+    connect is set aside for a while (hub/iptvaddr.py); a refusal belongs to the login, so it isn't."""
     from ..iptvaddr import note as note_address
 
     every = _providers(h, claims, ext)
-    for i, (pid, server, url) in enumerate(every):
+    tries: list[tuple[str, float]] = []
+    for pid, server, url in every:
+        started = time.perf_counter()
         try:
-            return await attempt(url, i < len(every) - 1)
-        except _Unreachable:
-            note_address(h.db, pid, server, False, "couldn't be reached")
-    raise error(502, "unavailable", "The TV source didn't answer")
+            return await attempt(url)
+        except _Unreachable as exc:
+            tries.append((exc.why, (time.perf_counter() - started) * 1000))
+            if exc.why in ("unreachable", "timeout"):
+                note_address(h.db, pid, server, False, "couldn't be reached")
+    log.info("phone %s relay: no address gave a stream (%s)", claims.get("k"),
+             ", ".join(why for why, _ms in tries) or "no address")
+    raise _failed(message, tries)
 
 
-def _client(h: Hub, timeout: float = 20) -> httpx.AsyncClient:
+def _client(h: Hub, timeout: float = 20, agent: str | None = None) -> httpx.AsyncClient:
+    """`agent` is the phone player's own User-Agent for live channels: some providers serve live streams only to a
+    player they recognise, and the phone plays the same stream straight from them with that name."""
     return httpx.AsyncClient(timeout=httpx.Timeout(timeout, read=60), follow_redirects=True,
                              transport=getattr(h.tv_catalog, "_transport", None),
-                             headers={"User-Agent": "ThomasCreekHub"})
+                             headers={"User-Agent": agent or "ThomasCreekHub"})
 
 
-async def _relay(client: httpx.AsyncClient, url: str, headers: dict[str, str], media: str | None,
-                 fall_back: bool = False) -> Response:
+def _agent(request: Request) -> str | None:
+    agent = (request.headers.get("user-agent") or "").strip()
+    return agent[:200] if agent else None
+
+
+async def _relay(client: httpx.AsyncClient, url: str, headers: dict[str, str], media: str | None) -> Response:
     try:
         upstream = await client.send(client.build_request("GET", url, headers=headers), stream=True)
+    except httpx.TimeoutException:
+        await client.aclose()
+        raise _Unreachable("timeout") from None
     except httpx.HTTPError:
         await client.aclose()
-        if fall_back:
-            raise _Unreachable() from None
-        raise error(502, "unavailable", "The TV source didn't answer") from None
+        raise _Unreachable("unreachable") from None
     if upstream.status_code >= 400:
         await upstream.aclose()
         await client.aclose()
-        raise error(502, "unavailable", "The TV source didn't answer")
+        raise _Unreachable(f"http{upstream.status_code}")
     keep = {k: upstream.headers[k] for k in ("content-length", "content-range", "last-modified", "etag")
             if k in upstream.headers}
     keep["accept-ranges"] = "bytes"
@@ -855,14 +891,22 @@ async def _relay(client: httpx.AsyncClient, url: str, headers: dict[str, str], m
     return StreamingResponse(body(), status_code=upstream.status_code, headers=keep, media_type=kind)
 
 
+async def _relay_one(client: httpx.AsyncClient, url: str, headers: dict[str, str], message: str) -> Response:
+    """One known address (a live segment): no backups, so a failure is the 502 at once."""
+    started = time.perf_counter()
+    try:
+        return await _relay(client, url, headers, None)
+    except _Unreachable as exc:
+        raise _failed(message, [(exc.why, (time.perf_counter() - started) * 1000)]) from None
+
+
 @router.get("/file/{token}")
 async def phone_file(token: str, request: Request, h: Hub = Depends(hub)) -> Response:
     claims = _claims(h, token, {"movie", "episode"})
     ext = str(claims.get("x") or "mp4")
     headers = {"Range": request.headers["range"]} if request.headers.get("range") else {}
     media = {"mp4": "video/mp4", "m4v": "video/x-m4v", "mov": "video/quicktime"}.get(ext)
-    return await _on_each_address(h, claims, ext,
-                                  lambda url, more: _relay(_client(h), url, headers, media, fall_back=more))
+    return await _on_each_address(h, claims, ext, lambda url: _relay(_client(h), url, headers, media))
 
 
 # -- live channels (HLS) -------------------------------------------------------------------------------------------
@@ -948,17 +992,27 @@ def rewrite(text: str, base_url: str, row: dict[str, Any], token: str) -> str:
     return "\n".join(out) + "\n"
 
 
-async def _playlist(h: Hub, url: str, fall_back: bool = False) -> tuple[str, str]:
-    async with _client(h, 15) as client:
+async def _playlist(h: Hub, url: str, agent: str | None = None) -> tuple[str, str]:
+    async with _client(h, 15, agent) as client:
         try:
             resp = await client.get(url)
+        except httpx.TimeoutException:
+            raise _Unreachable("timeout") from None
         except httpx.HTTPError:
-            if fall_back:
-                raise _Unreachable() from None
-            raise error(502, "unavailable", "The channel didn't answer") from None
-    if resp.status_code >= 400 or "#EXTM3U" not in resp.text[:200]:
-        raise error(502, "unavailable", "The channel didn't answer")
+            raise _Unreachable("unreachable") from None
+    if resp.status_code >= 400:
+        raise _Unreachable(f"http{resp.status_code}")
+    if "#EXTM3U" not in resp.text[:200]:
+        raise _Unreachable(_why_body(resp))
     return resp.text, str(resp.url)
+
+
+async def _playlist_one(h: Hub, url: str, agent: str | None) -> tuple[str, str]:
+    started = time.perf_counter()
+    try:
+        return await _playlist(h, url, agent)
+    except _Unreachable as exc:
+        raise _failed("The channel didn't answer", [(exc.why, (time.perf_counter() - started) * 1000)]) from None
 
 
 def _m3u8(text: str) -> Response:
@@ -966,7 +1020,7 @@ def _m3u8(text: str) -> Response:
 
 
 @router.get("/live/{token}/index.m3u8")
-async def phone_live(token: str, h: Hub = Depends(hub)) -> Response:
+async def phone_live(token: str, request: Request, h: Hub = Depends(hub)) -> Response:
     claims = _claims(h, token, {"live"})
     _keep(h, claims)
     row = LIVE.get(str(claims.get("sid") or token[-16:]))
@@ -974,25 +1028,26 @@ async def phone_live(token: str, h: Hub = Depends(hub)) -> Response:
     if row["media"]:
         # After the first answer, reload the provider's own (redirected) playlist, not the login address
         try:
-            text, final = await _playlist(h, row["media"])
+            text, final = await _playlist(h, row["media"], _agent(request))
         except Exception as exc:  # noqa: BLE001  falls back to the login address below
             note("phone stream: provider playlist", exc)
             text = None
     if text is None:
-        text, final = await _on_each_address(h, claims, "m3u8", lambda url, more: _playlist(h, url, fall_back=more))
+        text, final = await _on_each_address(h, claims, "m3u8", lambda url: _playlist(h, url, _agent(request)),
+                                             "The channel didn't answer")
     row["media"] = final
     return _m3u8(rewrite(text, final, row, token))
 
 
 @router.get("/live/{token}/p/{n}.m3u8")
-async def phone_live_list(token: str, n: int, h: Hub = Depends(hub)) -> Response:
+async def phone_live_list(token: str, n: int, request: Request, h: Hub = Depends(hub)) -> Response:
     claims = _claims(h, token, {"live"})
     _keep(h, claims)
     row = LIVE.get(str(claims.get("sid") or token[-16:]))
     url = row["refs"].get(n)
     if url is None:
         raise error(404, "not_found", "Not part of this stream")
-    text, final = await _playlist(h, url)
+    text, final = await _playlist_one(h, url, _agent(request))
     return _m3u8(rewrite(text, final, row, token))
 
 
@@ -1005,7 +1060,7 @@ async def phone_live_segment(token: str, n: int, request: Request, h: Hub = Depe
     if url is None:
         raise error(404, "not_found", "Not part of this stream")
     headers = {"Range": request.headers["range"]} if request.headers.get("range") else {}
-    return await _relay(_client(h), url, headers, None)
+    return await _relay_one(_client(h, agent=_agent(request)), url, headers, "The channel didn't answer")
 
 
 # -- the converted copy for Cast TVs -------------------------------------------------------------------------------
