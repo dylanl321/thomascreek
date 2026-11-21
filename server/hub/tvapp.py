@@ -153,6 +153,10 @@ class TvApp(BuildsMixin, EnrolMixin, ConfigMixin):
         if tv is None or tv.get("status") != "approved":
             raise TvAppError(401, "revoked", "This TV was removed on the hub")
         tv.update(playing=playing, foreground=foreground, health=health, state_at=now, last_seen_at=now)
+        # Who this is playing for: a person the TV or a phone named on purpose, never a guess. The Now playing
+        # alert goes to that person only (hub/nowplaying_live.py).
+        watcher = self._watcher(body.get("person_id"), tv) if playing else None
+        tv["watcher"] = watcher
         if health.get("app_version"):
             tv["app_version"] = health["app_version"]
         command = _command_result(body)
@@ -165,7 +169,7 @@ class TvApp(BuildsMixin, EnrolMixin, ConfigMixin):
                             "command": None if command is None else command.get("id")}, source="tv")
         if playing:
             remember(self.db, "kids" if tv.get("profile") == "kids" else "adult", playing, now,
-                     person=self._watcher(body.get("person_id"), tv), tv=install_id)
+                     person=watcher, tv=install_id)
         event = self.watch_event(install_id)
         if command is not None:
             event["command"] = command

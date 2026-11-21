@@ -1,9 +1,10 @@
 """The Now playing Live Activity, started, updated and ended by the hub (#204).
 
 Each phone sends its push-to-start token for NowPlayingAttributes, and each activity's own update token
-once it starts. When a TV the person may control starts playing, the hub starts the activity on their
-phones; when what's on changes it updates it; when nothing is on any more it ends it. The card lists
-every TV that is on. A person can switch it off ("now_playing" in their alert settings).
+once it starts. When a TV starts playing for a person (under their name, never a guess), the hub starts the
+activity on that person's phones only; when what's on changes it updates it; when nothing is on any more it
+ends it. The card lists the TVs playing for them. A person can switch it off ("now_playing" in their alert
+settings).
 """
 
 from __future__ import annotations
@@ -45,8 +46,13 @@ def _live(h: Any, device_id: str) -> dict[str, Any]:
 
 
 def tvs_for(h: Any, person: dict[str, Any]) -> list[dict[str, Any]]:
-    """TVs that are on and that this person may control, as the activity shows them."""
+    """TVs that are on for this person, as the activity shows them: playing under their name (they picked
+    themselves on the TV, said "I'm watching" or sent the show from their phone) and that they may control. A TV
+    playing for someone else, or for nobody, starts nothing on their phone (Dylan, Nov 21 2026: "why would that
+    even be happening if a person didn't start the show or it's not under their name")."""
     from .tvhandoff import devices
+
+    raw = h.tv_app.tvs() if getattr(h, "tv_app", None) is not None else {}
 
     home = True
     try:
@@ -60,6 +66,8 @@ def tvs_for(h: Any, person: dict[str, Any]) -> list[dict[str, Any]]:
         playing = row.get("playing") if isinstance(row.get("playing"), dict) else None
         title = str((playing or {}).get("title") or (playing or {}).get("name") or "").strip()
         if not row.get("online") or not title:
+            continue
+        if (raw.get(str(row["id"])) or {}).get("watcher") != person["id"]:
             continue
         out.append({"id": str(row["id"]), "name": str(row.get("name") or "TV"), "title": title[:80],
                     "kind": str((playing or {}).get("kind") or "")})
