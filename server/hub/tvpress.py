@@ -16,6 +16,7 @@ nobody else's. A kids' TV and a child are only tuned to kids' channels (`tvcontr
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from typing import Any
@@ -61,6 +62,9 @@ WINDOW_S = 5.0
 MAX_IN_WINDOW = 40  # a held arrow repeats about six times a second
 ADB_READY_S = 30.0
 ONLINE_S = 120
+ADB_CHECK_S = 45.0  # how often a listed box is asked again whether network debugging answers
+ADB_TRUST_S = 300.0  # an answer older than this no longer counts
+ADB_PROBE_S = 4.0
 STALE_S = 14 * 86400.0  # an unreachable box not seen for this long is left off the list
 
 SAID = {
@@ -94,6 +98,8 @@ def listing(h: Any, subject: Subject, now: float | None = None) -> dict[str, Any
     for install_id, tv in h.tv_app.tvs().items():
         if tv.get("status") != "approved" or not _allowed(h, subject, tv, install_id):
             continue
+        if _android(h, install_id, fleet) and tvs._can_adb(h, tv):
+            _ask_adb(h, install_id, tv, now)
         row = _row(h, subject, install_id, tv, names, now, everyone, fleet)
         if _forgotten(row, tvs._seen(h, install_id, tv), now):
             continue
@@ -207,7 +213,8 @@ def _ways(h: Any, subject: Subject, install_id: str, tv: dict[str, Any], online:
     """Button -> the ways the hub can send it to this TV now, best first. A button with no way is left out."""
     ha = _ha_keys(h, subject, tv)
     android = _android(h, install_id, fleet)
-    adb = android and tvs._can_adb(h, tv)
+    # An address on file is not a box that answers: only one that answered a moment ago gets these buttons.
+    adb = android and tvs._can_adb(h, tv) and _adb_ok(h, install_id)
     app = online and bool(tv.get("foreground", True))
     out: dict[str, list[str]] = {}
 
@@ -230,8 +237,10 @@ def _ways(h: Any, subject: Subject, install_id: str, tv: dict[str, Any], online:
     if online and android:
         for key in ("volume_up", "volume_down", "mute"):
             add(key, "app")
-    if adb or (online and android):
-        add("open_app", "adb" if adb else "app")
+    if adb:
+        add("open_app", "adb")
+    if online and android:
+        add("open_app", "app")
     # The TV app knows its own player and channel list, so its way comes first for those buttons.
     for key in APP_FIRST:
         ways = out.get(key)
@@ -325,7 +334,14 @@ async def _by_app(h: Any, subject: Subject, install_id: str, tv: dict[str, Any],
     if key == "send":
         _send_title(h, subject, install_id, tv, body)
         return None
-    if key in ("stop", "open_app"):
+    if key == "open_app":
+        # No network debugging: the app, still running behind another one, comes to the front by restarting.
+        try:
+            tvs._fleet(h, install_id, "restart_app", {}, subject.name)
+        except tvs.TvsError as exc:
+            raise PressError(exc.status, exc.code, exc.message) from None
+        return f"Opening Thomas Creek TV on {tv.get('name') or 'the TV'}."
+    if key == "stop":
         try:
             out = await tvs.act(h, install_id, {"action": key}, subject.name)
         except tvs.TvsError as exc:
@@ -417,9 +433,17 @@ async def _by_adb(h: Any, install_id: str, tv: dict[str, Any], key: str, body: d
         try:
             out = await tvs.act(h, install_id, action, who)
         except tvs.TvsError as exc:
+            if exc.code in ("offline", "needs_allow"):
+                _adb_mark(h, install_id, False)
+                raise PressError(exc.status, exc.code, _no_answer(name, exc)) from None
             raise PressError(exc.status, exc.code, exc.message) from None
+        _adb_mark(h, install_id, True)
         return str(out.get("message") or "") or None
-    serial = await _serial(h, tv)
+    try:
+        serial = await _serial(h, tv)
+    except PressError:
+        _adb_mark(h, install_id, False)
+        raise
     if key == "text":
         text = " ".join(str(body.get("text") or "").split())
         if not text or len(text) > 80 or "://" in text:
@@ -434,7 +458,9 @@ async def _by_adb(h: Any, install_id: str, tv: dict[str, Any], key: str, body: d
     result = await h.tv_app.adb.run(args, 15)
     if result.code != 0:
         _ready(h).pop(serial, None)
+        _adb_mark(h, install_id, False)
         raise PressError(502, "key_failed", f"{name} didn't take that. Try again in a moment.")
+    _adb_mark(h, install_id, True)
     return None
 
 
@@ -457,9 +483,66 @@ async def _serial(h: Any, tv: dict[str, Any]) -> str:
     try:
         serial = await tvs._adb_ready(h, tv)
     except tvs.TvsError as exc:
-        raise PressError(exc.status, exc.code, exc.message) from None
+        raise PressError(exc.status, exc.code, _no_answer(tv.get("name") or "The TV", exc)) from None
     ready[serial] = time.time() + ADB_READY_S
     return serial
+
+
+def _no_answer(name: str, exc: tvs.TvsError) -> str:
+    """The sentence for a person holding the phone, not for whoever set the box up."""
+    if exc.code == "needs_allow":
+        return exc.message
+    if exc.code == "offline":
+        return f"{name} didn't answer. It may be off; turn it on and try again."
+    return exc.message
+
+
+# -- does network debugging answer --------------------------------------------------------------------------------
+
+def _adb_seen(h: Any) -> dict[str, dict[str, Any]]:
+    store: dict[str, dict[str, Any]] | None = getattr(h, "_press_adb_seen", None)
+    if store is None:
+        store = {}
+        h._press_adb_seen = store
+    return store
+
+
+def _adb_ok(h: Any, install_id: str) -> bool:
+    seen = _adb_seen(h).get(install_id)
+    return bool(seen and seen.get("ok") and time.time() - float(seen.get("at") or 0) < ADB_TRUST_S)
+
+
+def _adb_mark(h: Any, install_id: str, ok: bool) -> None:
+    _adb_seen(h)[install_id] = {"ok": ok, "at": time.time()}
+
+
+def _ask_adb(h: Any, install_id: str, tv: dict[str, Any], now: float) -> None:
+    """Ask the box, behind the list and never in it, whether network debugging answers. The list a phone reads
+    every few seconds keeps the answer fresh; the first list after a start comes without these buttons."""
+    seen = _adb_seen(h).setdefault(install_id, {"ok": False, "at": 0.0})
+    if seen.get("asking") or now - float(seen.get("at") or 0) < ADB_CHECK_S:
+        return
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+    seen["asking"] = True
+
+    async def ask() -> None:
+        ok = False
+        try:
+            await asyncio.wait_for(tvs._adb_ready(h, tv), ADB_PROBE_S)
+            ok = True
+        except (tvs.TvsError, TimeoutError, OSError):
+            ok = False
+        finally:
+            _adb_mark(h, install_id, ok)
+
+    task = loop.create_task(ask())
+    tasks: set[asyncio.Task[None]] = getattr(h, "_press_adb_tasks", None) or set()
+    h._press_adb_tasks = tasks
+    tasks.add(task)
+    task.add_done_callback(tasks.discard)
 
 
 def _pace(h: Any, person_id: str | None, install_id: str) -> bool:

@@ -63,6 +63,7 @@ def _adb(hub, install_id=TV_ID, fail=False):
 
     hub.tv_app.adb._run = fake
     hub.tv_app.adb.binary = "sh"
+    tvpress._adb_mark(hub, install_id, True)  # the box answered a moment ago
     return calls
 
 
@@ -171,6 +172,10 @@ def test_a_key_that_fails_says_so_and_the_next_press_reconnects(hub, home_client
     failed = _press(dylan, TV_ID, key="up")
     assert failed.status_code == 502
     assert failed.json()["message"] == "Living room didn't take that. Try again in a moment."
+    # The box stopped taking keys: its arrows are gone from the next list until it answers again.
+    assert "up" not in _row(dylan, TV_ID)["controls"]
+    assert _press(dylan, TV_ID, key="up").status_code == 409
+    tvpress._adb_mark(hub, TV_ID, True)
     _press(dylan, TV_ID, key="up")
     assert len([c for c in calls if c[0] == "connect"]) == 2
 
@@ -304,3 +309,44 @@ def test_same_named_tvs_are_told_apart_and_a_long_gone_box_is_left_out(hub, home
     page = dylan.client.get(LIST, headers=dylan.h).json()["tvs"]
     assert BED not in [row["id"] for row in page]
     assert _row(dylan, TV_ID)["name"] == "Apple TV"
+
+
+def test_a_box_that_does_not_answer_is_offered_no_dead_buttons(hub, home_client, people):
+    """Seen on the live hub: a TV that was off still drew arrows and volume because the hub had its address."""
+    _two_tvs(hub, home_client)
+    report(hub, TV_ID, BODY, time.time())
+    _adb(hub)
+    dylan = people["phones"]["Dylan"]
+    assert {"up", "power_on", "input"} <= set(_row(dylan, TV_ID)["controls"])  # network debugging answers
+
+    tvpress._adb_mark(hub, TV_ID, False)
+    assert not {"up", "select", "menu", "power_on", "input"} & set(_row(dylan, TV_ID)["controls"])
+    assert _press(dylan, TV_ID, key="up").status_code == 409
+    tvpress._adb_mark(hub, TV_ID, True)
+
+    # A press that finds the box gone takes the buttons away for the next list, and says so plainly.
+    calls = _adb(hub)
+
+    async def gone(args, _wait):
+        calls.append(args)
+        return AdbResult(1, "failed to connect")
+
+    hub.tv_app.adb._run = gone
+    tvpress._ready(hub).clear()
+    failed = _press(dylan, TV_ID, key="up")
+    assert failed.status_code == 409, failed.text
+    assert failed.json()["message"] == "Living room didn't answer. It may be off; turn it on and try again."
+    assert "up" not in _row(dylan, TV_ID)["controls"]
+
+
+def test_open_app_without_network_debugging_brings_the_app_forward(hub, home_client, people):
+    office, _bed = _two_tvs(hub, home_client)
+    report(hub, TV_ID, BODY, time.time())
+    _on_screen(home_client, office)
+    tvs = hub.tv_app.tvs()
+    tvs[TV_ID]["foreground"] = False
+    hub.tv_app._save_tvs(tvs)
+    dylan = people["phones"]["Dylan"]
+    opened = _press(dylan, TV_ID, key="open_app")
+    assert opened.status_code == 200, opened.text
+    assert opened.json() == {"ok": True, "via": "app", "message": "Opening Thomas Creek TV on Living room."}
