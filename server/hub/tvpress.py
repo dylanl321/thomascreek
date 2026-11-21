@@ -61,6 +61,7 @@ WINDOW_S = 5.0
 MAX_IN_WINDOW = 40  # a held arrow repeats about six times a second
 ADB_READY_S = 30.0
 ONLINE_S = 120
+STALE_S = 14 * 86400.0  # an unreachable box not seen for this long is left off the list
 
 SAID = {
     "up": "Up", "down": "Down", "left": "Left", "right": "Right", "select": "OK", "back": "Back", "home": "Home",
@@ -86,18 +87,47 @@ def listing(h: Any, subject: Subject, now: float | None = None) -> dict[str, Any
     from .tvhandoff import _order
 
     names = {area["id"]: area.get("name") for area in h.home.areas.values()}
+    # Read once for the whole list, not once a TV: who is home asks the network, and the list is read every few seconds.
+    everyone = {p["id"]: p for p in tvwho.people(h)}
+    fleet = tvfleet._devices(h)
     rows = []
     for install_id, tv in h.tv_app.tvs().items():
         if tv.get("status") != "approved" or not _allowed(h, subject, tv, install_id):
             continue
-        rows.append(_row(h, subject, install_id, tv, names, now))
-    return {"tvs": _order(h, subject.person_id, rows)}
+        row = _row(h, subject, install_id, tv, names, now, everyone, fleet)
+        if _forgotten(row, tvs._seen(h, install_id, tv), now):
+            continue
+        rows.append(row)
+    return {"tvs": _told_apart(_order(h, subject.person_id, rows))}
 
 
-def _row(h: Any, subject: Subject, install_id: str, tv: dict[str, Any], names: dict[str, Any],
-         now: float) -> dict[str, Any]:
+def _forgotten(row: dict[str, Any], seen: float, now: float) -> bool:
+    """A box nobody has switched on for weeks and that the hub can't wake: an old registration, not a TV to drive."""
+    return not row["online"] and not row["controls"] and now - seen > STALE_S
+
+
+def _told_apart(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Two TVs with one name get their room after it, or a number when the room doesn't tell them apart either."""
+    same: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        same.setdefault(str(row["name"]).casefold(), []).append(row)
+    for group in same.values():
+        if len(group) < 2:
+            continue
+        rooms = [str(row.get("room_name") or "") for row in group]
+        if all(rooms) and len({r.casefold() for r in rooms}) == len(rooms):
+            for row, room in zip(group, rooms, strict=True):
+                row["name"] = f"{row['name']} ({room})"
+        else:
+            for n, row in enumerate(sorted(group, key=lambda r: str(r["id"])), start=1):
+                row["name"] = f"{row['name']} {n}"
+    return rows
+
+
+def _row(h: Any, subject: Subject, install_id: str, tv: dict[str, Any], names: dict[str, Any], now: float,
+         everyone: dict[str, dict[str, Any]], fleet: dict[str, dict[str, Any]]) -> dict[str, Any]:
     online = _online(h, install_id, tv, now)
-    ways = _ways(h, subject, install_id, tv, online)
+    ways = _ways(h, subject, install_id, tv, online, fleet)
     row: dict[str, Any] = {
         "id": install_id,
         "name": tv.get("name") or "TV",
@@ -107,7 +137,7 @@ def _row(h: Any, subject: Subject, install_id: str, tv: dict[str, Any], names: d
         "online": online,
         "foreground": bool(tv.get("foreground", True)) if online else False,
         "now_playing": tvs._now_playing(h, tv.get("playing")) if online else None,
-        "watching": _watching(h, install_id, tv, now),
+        "watching": _watching(h, tv, everyone, now),
         "controls": [key for key in ORDER if ways.get(key)],
     }
     st = _state(h, tv)
@@ -137,13 +167,14 @@ def _why_nothing(tv: dict[str, Any], online: bool) -> str:
     return f"{name} can't be driven from a phone yet."
 
 
-def _watching(h: Any, install_id: str, tv: dict[str, Any], now: float) -> str | None:
+def _watching(h: Any, tv: dict[str, Any], everyone: dict[str, dict[str, Any]], now: float) -> str | None:
     """The name of the person the TV plays for, when the hub knows one."""
     held = tv.get("watcher")  # a person id, kept by the TV's own check-in
     person = h.db.person(held) if isinstance(held, str) and held else None
     if person and person.get("name"):
         return str(person["name"])
-    return tvwho.current(h, install_id, now).get("name")
+    found = tvwho._guess(tv, everyone, now)
+    return str(found[0]["name"]) if found else None
 
 
 def _online(h: Any, install_id: str, tv: dict[str, Any], now: float) -> bool:
@@ -162,19 +193,20 @@ def _state(h: Any, tv: dict[str, Any]) -> dict[str, Any] | None:
     return st if isinstance(st, dict) and st.get("state") != "unavailable" else None
 
 
-def _android(h: Any, install_id: str) -> bool:
+def _android(h: Any, install_id: str, fleet: dict[str, dict[str, Any]] | None = None) -> bool:
     """An Android or Google TV, by its own check-in. An Apple TV checks in as `unknown` with no Android version; a TV
     that hasn't checked in yet is treated the same, so it is never offered a button only the Android app acts on."""
-    fleet = tvfleet._devices(h).get(install_id) or {}
-    return fleet.get("platform") in ("google_tv", "android_tv") or bool(fleet.get("android"))
+    box = (tvfleet._devices(h) if fleet is None else fleet).get(install_id) or {}
+    return box.get("platform") in ("google_tv", "android_tv") or bool(box.get("android"))
 
 
 # -- which way each button goes -----------------------------------------------------------------------------------
 
-def _ways(h: Any, subject: Subject, install_id: str, tv: dict[str, Any], online: bool) -> dict[str, list[str]]:
+def _ways(h: Any, subject: Subject, install_id: str, tv: dict[str, Any], online: bool,
+          fleet: dict[str, dict[str, Any]] | None = None) -> dict[str, list[str]]:
     """Button -> the ways the hub can send it to this TV now, best first. A button with no way is left out."""
     ha = _ha_keys(h, subject, tv)
-    android = _android(h, install_id)
+    android = _android(h, install_id, fleet)
     adb = android and tvs._can_adb(h, tv)
     app = online and bool(tv.get("foreground", True))
     out: dict[str, list[str]] = {}

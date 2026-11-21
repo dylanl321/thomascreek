@@ -284,3 +284,23 @@ def test_the_list_names_the_person_a_tv_plays_for(hub, home_client, people):
     dylan = people["phones"]["Dylan"]
     assert _row(dylan, TV_ID)["watching"] == "Avery"
     assert _row(dylan, BED)["watching"] != "per_gone"  # an unknown id is never shown as a name
+
+
+def test_same_named_tvs_are_told_apart_and_a_long_gone_box_is_left_out(hub, home_client, people):
+    _two_tvs(hub, home_client)
+    tvs = hub.tv_app.tvs()
+    tvs[TV_ID].update(name="Apple TV", room="living_room")
+    tvs[BED].update(name="Apple TV", room="living_room")
+    hub.tv_app._save_tvs(tvs)
+    dylan = people["phones"]["Dylan"]
+    page = dylan.client.get(LIST, headers=dylan.h).json()["tvs"]
+    assert sorted(row["name"] for row in page if row["id"] in (TV_ID, BED)) == ["Apple TV 1", "Apple TV 2"]
+
+    # Not seen for a month, and nothing the hub could do to it: an old registration.
+    tvs = hub.tv_app.tvs()
+    old = time.time() - 30 * 86400
+    tvs[BED].update(state_at=old, last_seen_at=old, last_config_at=old)
+    hub.tv_app._save_tvs(tvs)
+    page = dylan.client.get(LIST, headers=dylan.h).json()["tvs"]
+    assert BED not in [row["id"] for row in page]
+    assert _row(dylan, TV_ID)["name"] == "Apple TV"
