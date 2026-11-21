@@ -89,8 +89,9 @@ def caller(request: Request, h: Hub = Depends(hub), *, allow_cookie: bool = Fals
     at_home = h.is_home(ip)
     h.db.update("devices", "id", device["id"], {"last_seen_at": time.time()})
     subject = h.subject_for(device, at_home)
-    if at_home:
+    if at_home and device.get("kind", "phone") == "phone":
         # Who's home by Wi-Fi: learn which Firewalla device this phone is (an in-memory lookup).
+        # A test simulator (kind "test") runs on a Mac that is always home, so it never teaches one.
         try:
             h.household.wifi.saw_at_home(subject.person_id, subject.role, device["id"], ip)
         except Exception as exc:  # noqa: BLE001  never fails the call

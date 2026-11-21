@@ -140,3 +140,13 @@ def test_refresh_has_no_side_effects_and_off_forgets(hub, home_client, people):
     home_client.post("/v1/presence", json={"event": "off"}, headers=ph.h)
     assert hub.household.presence(people["avery"])["home"] is None
     assert home_client.post("/v1/presence", json={"event": "where"}, headers=ph.h).status_code == 422
+
+
+def test_simulator_never_teaches_a_device(hub, home_client, people, monkeypatch):
+    fw = FakeFirewalla([{"mac": PHONE_MAC, "ip": "192.168.1.50", "online": True}])
+    monkeypatch.setattr(hub, "firewalla", fw)
+    asyncio.run(hub.household.wifi.poll())
+    ph = people["phones"]["Dylan"]
+    hub.db.update("devices", "id", ph.device_id, {"kind": "test"})
+    home_client.get("/v1/family/presence", headers=ph.h)
+    assert hub.household.wifi.macs_for(people["dylan"]) == set()
