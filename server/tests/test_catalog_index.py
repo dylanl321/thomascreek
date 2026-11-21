@@ -156,6 +156,24 @@ def test_channels_carry_a_readable_name_and_keep_the_providers(hub):
     assert card["display_name"] == row["display_name"]
 
 
+def test_search_shows_one_card_for_a_channel_the_provider_lists_several_times(hub):
+    """Three feeds of one channel in one category came back as three "Bein Sport 01" cards (Nov 21 2026)."""
+    cat = hub.tv_catalog
+    doc = _doc(5)
+    for i, name in enumerate(["FR| BEIN SPORT 01 FHD", "FR| BEIN SPORT 01 HD", "FR| BEIN SPORT 01 SD"]):
+        doc["channels"][i].update(name=name, category="France")
+    doc["channels"][3].update(name="AR| BEIN SPORT 01 HD", category="Arabic")
+    doc["channels"][4].update(name="FR| BEIN SPORT 02 HD", category="France")
+    cat._write(doc)
+    cards = cat.search("bein", kids_only=False)["channels"]
+    assert [(c["key"], c["group"]) for c in cards] == [("xc:0", "France"), ("xc:3", "Arabic"), ("xc:4", "France")]
+    assert cards[0]["copies"] == [{"key": "xc:1", "name": "FR| BEIN SPORT 01 HD"},
+                                  {"key": "xc:2", "name": "FR| BEIN SPORT 01 SD"}]
+    assert "copies" not in cards[1] and "copies" not in cards[2]
+    # The lineup itself is untouched: every feed is still a channel there.
+    assert len(cat.lineup(kids_only=False)["channels"]) == len(doc["channels"])
+
+
 def test_grown_up_cartoon_channels_in_a_kids_category_are_not_for_kids(hub):
     """Providers file "Adult Swim" with the kids' channels. The lineup, the guide and search keep it from a child;
     a grown-up's own kids switch on a channel still wins."""
