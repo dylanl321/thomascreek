@@ -273,3 +273,14 @@ def test_a_held_arrow_is_let_through_and_a_stuck_one_is_not(hub, home_client, pe
     answers = [_press(dylan, TV_ID, key="down").json() for _ in range(tvpress.MAX_IN_WINDOW + 1)]
     assert all(a["ok"] for a in answers[:-1])
     assert answers[-1] == {"ok": False, "via": None, "message": "That's as fast as it goes."}
+
+
+def test_the_list_names_the_person_a_tv_plays_for(hub, home_client, people):
+    _two_tvs(hub, home_client)
+    tvs = hub.tv_app.tvs()
+    tvs[TV_ID].update(watcher=people["avery"]["id"])  # an id, as the TV's check-in keeps it
+    tvs[BED].update(watcher="per_gone")
+    hub.tv_app._save_tvs(tvs)
+    dylan = people["phones"]["Dylan"]
+    assert _row(dylan, TV_ID)["watching"] == "Avery"
+    assert _row(dylan, BED)["watching"] != "per_gone"  # an unknown id is never shown as a name

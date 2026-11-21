@@ -139,9 +139,10 @@ def _why_nothing(tv: dict[str, Any], online: bool) -> str:
 
 def _watching(h: Any, install_id: str, tv: dict[str, Any], now: float) -> str | None:
     """The name of the person the TV plays for, when the hub knows one."""
-    held = tv.get("watcher")
-    if isinstance(held, dict) and held.get("name"):
-        return str(held["name"])
+    held = tv.get("watcher")  # a person id, kept by the TV's own check-in
+    person = h.db.person(held) if isinstance(held, str) and held else None
+    if person and person.get("name"):
+        return str(person["name"])
     return tvwho.current(h, install_id, now).get("name")
 
 
