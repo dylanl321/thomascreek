@@ -383,3 +383,77 @@ def test_a_refused_channel_goes_to_the_other_login_for_hours(hub):
     later = iptvplay.lease(hub, ref, "phone:a", now=1001.0 + iptvplay.FAIL_S + 60)
     assert later is not None and later["login"] == second["login"]
     assert not iptvplay.all_refused(hub, ref, now=1003.0)
+
+
+def _two_logins(hub, backups=None):
+    from hub import iptvaddr
+
+    hub.config.iptv.providers = []
+    if backups:
+        iptvaddr.set_backups(hub.db, "alpha", backups, "http://alpha.test")
+    hub.vault.set("iptv.alpha.one.password", "p1")
+    hub.vault.set("iptv.alpha.two.password", "p2")
+    hub.db.kv_set("iptv.logins", [
+        {"provider": "alpha", "login": "one", "server": "http://alpha.test", "username": "one",
+         "password_secret": "iptv.alpha.one.password"},
+        {"provider": "alpha", "login": "two", "server": "http://alpha.test", "username": "two",
+         "password_secret": "iptv.alpha.two.password"},
+    ])
+
+
+def test_an_old_pass_refused_leaves_the_stream_playing_now_alone(hub):
+    """Nov 21 2026: a phone's old relay pass was refused after the phone had moved on; the hub then set aside and freed
+    the stream the phone was playing now, and the login went to someone else mid-play."""
+    from hub import iptvplay
+
+    _two_logins(hub)
+    now_playing = iptvplay.lease(hub, "xc:alpha:88", "phone:a", now=1000.0)
+    assert now_playing is not None
+    pl = f"alpha|{now_playing['login']}"
+    other = "alpha|two" if now_playing["login"] == "one" else "alpha|one"
+    assert not iptvplay.refused(hub, "phone:a", now=1001.0, login=other, stream="88")  # another login
+    assert not iptvplay.refused(hub, "phone:a", now=1001.0, login=pl, stream="77")     # another channel
+    assert iptvplay.held_by(hub, "phone:a") is not None
+    assert iptvplay.refused(hub, "phone:a", now=1001.0, login=pl, stream="88")
+    assert iptvplay.held_by(hub, "phone:a") is None
+    assert iptvplay.held_elsewhere(hub, "alpha", now_playing["login"], "phone:b") is False
+
+
+def test_a_login_held_by_another_player_is_seen(hub):
+    from hub import iptvplay
+
+    _two_logins(hub)
+    row = iptvplay.lease(hub, "xc:alpha:88", "tv-1", now=1000.0)
+    assert row is not None
+    assert iptvplay.held_elsewhere(hub, "alpha", row["login"], "phone:a")
+    assert not iptvplay.held_elsewhere(hub, "alpha", row["login"], "tv-1")
+
+
+def test_a_touch_writes_at_most_every_few_seconds(hub, monkeypatch):
+    """Each relayed segment touched the lease and wrote the list under the pool lock; the loop stood still on it."""
+    from hub import iptvplay
+
+    _two_logins(hub)
+    assert iptvplay.lease(hub, "xc:alpha:88", "phone:a") is not None
+    writes = []
+    real = hub.db.kv_set
+    monkeypatch.setattr(hub.db, "kv_set", lambda key, value: (writes.append(key), real(key, value))[1])
+    for _ in range(20):
+        iptvplay.touch(hub, "phone:a")
+    assert writes.count(iptvplay.KV_SESSIONS) == 1
+
+
+def test_direct_addresses_are_built_once(hub, monkeypatch):
+    """lease.urls took near a second: every backup address read the catalog and the vault again."""
+    from hub import iptvplay
+
+    _two_logins(hub, backups=["http://alpha-b.test", "http://alpha-c.test"])
+    reads = []
+    monkeypatch.setattr(hub.tv_catalog, "movie", lambda ref: reads.append(ref) or {"id": ref, "ext": "mkv"})
+    urls = iptvplay.direct_all(hub, "vod:alpha:100", "phone:a")
+    assert [u.split("/movie/")[0] for u in urls] == ["http://alpha.test", "http://alpha-b.test", "http://alpha-c.test"]
+    assert all(u.endswith("/100.mkv") for u in urls)
+    assert len({u.split("/movie/")[1] for u in urls}) == 1
+    assert len(reads) == 1
+    iptvplay.direct_all(hub, "vod:alpha:100", "phone:a")
+    assert len(reads) == 1  # remembered
