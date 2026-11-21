@@ -125,3 +125,21 @@ def _show_logins(hub, *, beta_slots: str) -> None:
     ])
     note_usage(hub, "thomas-creek", "main", {"max_connections": "1", "active_cons": "0", "status": "Active"})
     note_usage(hub, "beta", "spare", {"max_connections": beta_slots, "active_cons": "0", "status": "Active"})
+
+
+def test_the_hub_relay_opens_the_copy_the_lease_picked(hub):
+    """Nov 21 2026: a phone's relay asked the twin's provider for the first provider's episode number and played a
+    different show (a Turkish drama for 30 Rock)."""
+    from hub.routes.tvphone import _held_stream
+
+    _show(hub)
+    cat = hub.tv_catalog
+    cat.store_series(_page({(1, 1): "501", (1, 2): "502"}, "mkv"), "series:thomas-creek:9")
+    cat.store_series(_page({(1, 1): "7001", (1, 2): "7002"}, "mp4"), "series:beta:44")
+    assert lease(hub, "ep:thomas-creek:501", "phone:dev1")["provider"] == "thomas-creek"
+    held = lease(hub, "ep:thomas-creek:502", "phone:dev2")
+    assert held["ref"] == "ep:beta:7002"
+    assert _held_stream(hub, held, "ep:thomas-creek:502", "mkv") == ("7002", "mp4")
+    own = lease(hub, "ep:thomas-creek:501", "phone:dev1")
+    assert _held_stream(hub, own, "ep:thomas-creek:501", "mkv") == ("501", "mkv")
+    assert _held_stream(hub, None, "ep:thomas-creek:501", "mkv") == ("501", "mkv")
