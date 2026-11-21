@@ -165,6 +165,17 @@ async def phone_play(body: dict[str, Any], response: Response, c: Caller = Depen
         lap("source")
         alternates = urls[1:]
         relay = _relay_pass(h, c, mode, key, ext)
+        if mode == "live":
+            # The same channel as one MPEG-TS stream, for players that open it (VLC, ExoPlayer): the provider's own
+            # addresses, then the hub's relay. Some channels have no HLS at the provider (it answers 405).
+            from ..iptvplay import as_ts
+
+            ts_urls = as_ts(urls)
+            base = (h.config.hub.remote_url or "").rstrip("/")
+            if relay is not None and base:
+                ts_urls.append(base + _ts_path(relay))
+            if ts_urls:
+                out_direct["ts_urls"] = ts_urls
         if relay is not None:
             # The same stream relayed by the hub, on the same leased login (one stream at a time either way): the
             # route that still works where the provider turns away the phone's own address (abroad, a hotel
@@ -211,6 +222,8 @@ async def phone_play(body: dict[str, Any], response: Response, c: Caller = Depen
              params={"title": title})
     path = f"/v1/tv/phone/live/{token}/index.m3u8" if mode == "live" else f"/v1/tv/phone/file/{token}"
     out: dict[str, Any] = {"url": path, "kind": mode, "title": title, "expires_at": exp}
+    if mode == "live":
+        out["ts_url"] = _ts_path(path)  # the channel as one MPEG-TS stream, when the provider has no HLS for it
     _cast_fields(out, mode, ext, token, cast=body.get("cast") is True)
     source = await asyncio.to_thread(_source, h, holder, title, row, "relay", None)
     if source:
@@ -252,6 +265,10 @@ class _Laps:
             self.response.headers["Server-Timing"] = ", ".join(self.parts)
             if now - self.start > 1.0:
                 log.info("tv.phone.play slow: %s", self.response.headers["Server-Timing"])
+
+
+def _ts_path(index_path: str) -> str:
+    return index_path.removesuffix("/index.m3u8") + "/stream.ts"
 
 
 def _relay_pass(h: Hub, c: Caller, mode: str, key: str, ext: str) -> str | None:
@@ -1037,6 +1054,17 @@ async def phone_live(token: str, request: Request, h: Hub = Depends(hub)) -> Res
                                              "The channel didn't answer")
     row["media"] = final
     return _m3u8(rewrite(text, final, row, token))
+
+
+@router.get("/live/{token}/stream.ts")
+async def phone_live_ts(token: str, request: Request, h: Hub = Depends(hub)) -> Response:
+    """The channel as one MPEG-TS stream relayed from the provider (what the TVs play), for a channel the provider
+    has no HLS for. Each address in turn, like the playlist."""
+    claims = _claims(h, token, {"live"})
+    _keep(h, claims)
+    return await _on_each_address(h, claims, "ts",
+                                  lambda url: _relay(_client(h, agent=_agent(request)), url, {}, "video/mp2t"),
+                                  "The channel didn't answer")
 
 
 @router.get("/live/{token}/p/{n}.m3u8")

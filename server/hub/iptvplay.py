@@ -444,6 +444,12 @@ def direct_all(h: Any, ref: str, holder: str, *, now: float | None = None) -> li
     return out
 
 
+def as_ts(urls: list[str]) -> list[str]:
+    """The MPEG-TS form of live HLS addresses (what the TVs play). Some channels have no HLS on the provider: it
+    answers 405 for `.m3u8` (Nov 21 2026) while the `.ts` stream plays. Never logged."""
+    return [u[:-5] + ".ts" for u in urls if u.endswith(".m3u8") and "/live/" in u]
+
+
 async def refresh_usage(h: Any, ref: str, *, budget_s: float = 3.0, now: float | None = None) -> None:
     """Ask the provider, live, how many streams each login that carries `ref` has open, when the last answer is
     older than USAGE_FRESH_S. Done before a play so a login is never called busy on an old count. Gives up after
