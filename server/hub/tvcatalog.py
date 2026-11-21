@@ -1673,13 +1673,17 @@ def _one_channel_each(cards: list[dict[str, Any]]) -> list[dict[str, Any]]:
     FHD, HD and backup feeds, or the same list from two logins), and all of them clean to one name, so a search
     showed "Bein Sport 01" three times (Nov 21 2026). The first in lineup order stays; the others ride on it as an
     optional `copies` list of `{key, name}`, for a screen that wants to offer them. The same name in another
-    category ("France" and "Arabic") is another channel and keeps its own card."""
+    category ("France" and "Arabic"), or behind another marker in one category ("CL| ESPN 2" beside "ESPN 2"), is
+    another channel and keeps its own card."""
     out: list[dict[str, Any]] = []
-    seen: dict[tuple[str, str], dict[str, Any]] = {}
+    seen: dict[tuple[str, str, str], dict[str, Any]] = {}
     for card in cards:
         shown = card.get("display_name") or tvnames.channel_name(card.get("name"))
         clean = " ".join(re.sub(r"[^a-z0-9]+", " ", str(shown).casefold()).split())
-        mark = (clean, str(card.get("group") or "").strip().casefold())
+        # The provider's own marker in front of the name ("CL| ESPN 2", "US: ESPN 2") is part of who the channel is:
+        # Chile's ESPN 2 and the American one clean to the same name and can share a category, and are two channels.
+        lead = re.match(r"\s*([^\W\d_]{2,5})\s*[|:]", str(card.get("name") or ""))
+        mark = (clean, str(card.get("group") or "").strip().casefold(), lead.group(1).casefold() if lead else "")
         twin = seen.get(mark) if clean else None
         if twin is not None:
             twin.setdefault("copies", []).append({"key": card["key"], "name": card["name"]})
