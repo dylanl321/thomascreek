@@ -816,11 +816,19 @@ class TvCatalog:
         try:
             # The file's change time, not its `fetched_at`: reading that parsed each provider's whole list (MB of
             # JSON) on the hub's loop after every refresh, and held every caller 1.1 s (Nov 21 2026).
-            due = any(now - self._extra_written(pid) >= LIST_TTL_S for pid in self._extra_logins())
+            # A provider whose read failed (an address that doesn't resolve) never gets a file, so it looked due on
+            # every call: all providers were read and folded again back to back, and each fold made the hub parse
+            # the folded catalog again (12 to 14 s of shared CPU every 30 min, Nov 21 2026). A provider is tried
+            # again EXTRA_RETRY_S after the last try, whatever came of it.
+            tried = self.__dict__.setdefault("_extras_tried", {})
+            due = [pid for pid in self._extra_logins()
+                   if now - self._extra_written(pid) >= LIST_TTL_S and now - tried.get(pid, 0.0) >= EXTRA_RETRY_S]
         except Exception:  # noqa: BLE001
             return
         if not due:
             return
+        for pid in due:
+            tried[pid] = now
 
         async def run() -> None:
             try:
@@ -1987,6 +1995,7 @@ def _with_canon(row: dict[str, Any], canon: dict[str, str]) -> None:
         row["canonical_id"] = found
 
 
+EXTRA_RETRY_S = 3600.0  # another provider's lists are read at most this often when its last read failed
 EXTRA_WAIT_S = 180.0  # a provider's full film list can take minutes to come back
 
 
