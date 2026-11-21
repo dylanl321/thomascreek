@@ -129,7 +129,8 @@ def build_app(hub: Hub | None = None, *, start_background: bool = True) -> FastA
     async def ping_timings(request: Request, window: int | None = None) -> dict[str, Any]:
         """Home network only, no sign-in: p50, p95 and the slowest answer per route (route templates only, never an
         address or an id), and how busy the NAS and the hub are. `window` = only the last that many seconds. `slow`:
-        the last answers over a second with their own steps (Server-Timing names and milliseconds)."""
+        the last answers over a second, or failed (with `status`), with their own steps (Server-Timing names and
+        milliseconds)."""
         from .routes.deps import caller_ip, error
 
         if not hub.is_home(caller_ip(request, hub)):
