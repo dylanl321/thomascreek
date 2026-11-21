@@ -60,8 +60,8 @@ def test_the_report_counts_each_provider_and_what_the_cleaners_leave():
     films = {row["tag"]: row for row in report["tags"]["films"]}
     assert films["QQ"]["rows"] == {"beta": 3} and films["QQ"]["left"] == {"beta": 3}
     assert beta["films"]["tag_left"] == 3
-    # "District 9" keeps its number on the card and loses it for matching.
-    assert main["films"]["cleaners_differ"] >= 1
+    # The card name and the matching name agree (they are read through one cleaner).
+    assert main["films"]["cleaners_differ"] == 0
     # Categories: the main list keeps names on rows, the others an id and a table.
     assert report["categories"]["thomas-creek"]["live"][0] == {
         "raw": "US| NEWS", "label": "News", "country": "US", "rows": 3}

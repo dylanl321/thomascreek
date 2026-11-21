@@ -198,10 +198,24 @@ def polish(raw: object) -> tuple[str, int | None]:
 def _polish(text: str) -> tuple[str, int | None]:
     if not text or not (_LEAD.match(text) or _PAREN_YEAR.search(text) or _ALL_TAGS.match(text)):
         return text, None
+    return name_year(text)
+
+
+_DASH_YEAR = re.compile(r"\s[-\u2013\u2014]\s*(?:19|20)\d{2}\s*$")
+
+
+def name_year(text: str) -> tuple[str, int | None]:
+    """A film or series name without the provider's tags and notes, and its year. The card (`polish`) and the
+    matcher (`iptvnorm.parse`) both read a name through this, so a title is never matched under one name and
+    shown under another (Nov 2026: "District 9" was matched as "District", "One of Us Is Lying" as "One of Is
+    Lying").
+
+    A year in brackets is the year: "Heat (1995)". So is one a provider set off with a dash: "Hot Rod - 2007".
+    A bare number on the end is part of the title: "Blade Runner 2049", "Wonder Woman 1984".
+    """
     clean = title(text)
     name, year = clean["name"] or text, clean["year"]
-    if year and not _PAREN_YEAR.search(text):
-        # The year came off the end of a plain name ("EN - Blade Runner 2049"): it's part of the title.
+    if year and not _PAREN_YEAR.search(text) and not _DASH_YEAR.search(text):
         name, year = f"{name} {year}", None
     return name, year
 

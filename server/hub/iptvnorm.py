@@ -56,6 +56,8 @@ def parse(name: str, year: object = None, language: str | None = None, titles: b
 
     `titles` is for films and series: a streaming-service tag in front ("NF - ") is not part of the title.
     """
+    if titles:
+        return _parse_title(name or "", year, language)
     original = unicodedata.normalize("NFKC", name or "")
     text = "".join(ch for ch in unicodedata.normalize("NFKD", original) if not unicodedata.combining(ch))
     region = None
@@ -121,6 +123,53 @@ def parse(name: str, year: object = None, language: str | None = None, titles: b
     if dated and found_date:
         display = f"{display} ({found_date.group(0)})"  # the episode's own date, so each card says which one
     return Parsed(key, display, variant, region, lang, timeshift, quality, parsed_year)
+
+
+def title_key(name: str) -> str:
+    """A cleaned title as it is compared: no accents, no punctuation, one case. "Carême" and "Careme" are one."""
+    text = "".join(ch for ch in unicodedata.normalize("NFKD", name) if not unicodedata.combining(ch))
+    return _SPACE.sub(" ", _PUNCT.sub(" ", text)).strip().casefold()
+
+
+def _parse_title(name: str, year: object, language: str | None) -> Parsed:
+    """A film or series. The name is the one the card shows (`tvnames.name_year`), so matching and display agree.
+    Channel rules don't apply: a number is part of a title ("District 9", "Force 2"), and so are the words "us"
+    and "east". Only a dated show's date is a variant."""
+    from . import tvnames
+
+    original = unicodedata.normalize("NFKC", name).strip()
+    region = None
+    lang = (language or "").strip().lower() or None
+    lead = original
+    while True:  # the place or language a provider wrote in front, for the copy's language; the cleaner drops it
+        found = _PREFIX.match(lead)
+        if not found:
+            break
+        tag = found.group("tag").lower()
+        region = region or _REGIONS.get(tag)
+        lang = lang or _LANGS.get(tag)
+        lead = lead[found.end():].strip()
+    text = original
+    dated = None
+    found_date = _DATE.search(text)
+    if found_date:
+        day, month, year4 = _date_parts(found_date)
+        if day and month:
+            dated = f"{year4:04d}-{month:02d}-{day:02d}"
+            text = (text[:found_date.start()].rstrip(" ([") + " " + text[found_date.end():].lstrip(" )]")).strip()
+    quality = next((label for pattern, label in _QUALITY if pattern.search(original)), None)
+    display, shown_year = tvnames.name_year(text)
+    display = _SPACE.sub(" ", display).strip() or original
+    # A bare number on the end ("Blade Runner 2049", "First Day Out 2023") stays on the card, where it may be the
+    # title. For matching it is read as the year, so it never folds with a film of the same name from another year
+    # and still meets its copy that was written "First Day Out (2023)".
+    # The key is read off the card name itself, so a saved title read back gives the same key.
+    again = tvnames.title(display)
+    found_year = shown_year or again["year"]
+    key = title_key(str(again["name"] or display))
+    if dated and found_date:
+        display = f"{display} ({found_date.group(0)})"  # the episode's own date, so each card says which one
+    return Parsed(key, display, dated, region, lang, 0, quality, found_year or _as_year(year))
 
 
 _DATE = re.compile(r"\b(?:(\d{1,2})[/.](\d{1,2})[/.]((?:19|20)\d{2})|((?:19|20)\d{2})-(\d{1,2})-(\d{1,2}))\b")
