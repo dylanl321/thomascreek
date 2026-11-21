@@ -218,7 +218,11 @@ class Hub:
             ip = ipaddress.ip_address(peer)
         except ValueError:
             return None
-        if forwarded_for and self._trusted_proxy(ip):
+        if self._trusted_proxy(ip):
+            # A listed proxy always says who it is passing on. Without that the caller is unknown, never the
+            # proxy's own (home) address: a proxy forwarding the internet must not make the internet "home".
+            if not forwarded_for:
+                return None
             # Walk from the right: each trusted proxy appends the address it saw, so the
             # first untrusted entry from the right is the real caller. Entries further left
             # came from the caller itself and can say anything (a stranger could claim
@@ -231,7 +235,27 @@ class Hub:
                 if not self._trusted_proxy(hop):
                     return str(hop)
             return None
+        if forwarded_for and self.can_open_web(str(ip)):
+            # Forwarded by a local machine that isn't a listed proxy: a reverse proxy whose address changed (a new
+            # Docker network) or was never listed. Its own address would look like home, so the caller is unknown,
+            # which is away. Fails closed; `/v1/ping/timings` counts these under `callers`.
+            return None
         return str(ip)
+
+    def caller_kind(self, peer: str | None, forwarded_for: str | None) -> str:
+        """How a request reached the hub, for the `callers` tally: direct (home or away), through a listed proxy
+        (and whether the caller it names is at home), or forwarded by a machine that isn't listed."""
+        try:
+            ip = ipaddress.ip_address(peer or "")
+        except ValueError:
+            return "unknown"
+        if self._trusted_proxy(ip):
+            if not forwarded_for:
+                return "proxy_unnamed"
+            return "proxy_home" if self.is_home(self.client_ip(peer, forwarded_for)) else "proxy_away"
+        if forwarded_for and self.can_open_web(str(ip)):
+            return "forwarded_untrusted"
+        return "direct_home" if self.is_home(str(ip)) else "direct_away"
 
     def _app_update_changed(self, info: dict[str, Any]) -> None:
         """A newer app build is out: tell the open apps, and push once per build to everyone in the house."""
