@@ -238,3 +238,44 @@ def test_dvr_cleanup_writes_only_when_it_dropped_something(hub, monkeypatch):
     monkeypatch.setattr(hub.dvr, "_save", lambda rows: saved.append(rows))
     hub.dvr.cleanup()
     assert saved == []
+
+
+def test_copies_answer_from_the_last_index_while_the_title_matcher_saves(hub, monkeypatch):
+    """Nov 21 2026: /v1/tv/copies re-read the several-MB folded titles on the hub's loop after each save by the title
+    matcher, and the hub stood still 10 to 14 s about every four minutes while a TV was on."""
+    import time as _time
+
+    from hub import iptvcanon
+
+    two = [{"ref": "vod:a:1", "quality": "HD"}, {"ref": "vod:a:2", "quality": "SD"}]
+    hub.db.kv_set(iptvcanon.KV, {"items": [{"id": "m1", "kind": "movie", "sources": two}]})
+    iptvcanon._INDEX.pop(id(hub.db), None)
+    first = iptvcanon.copies(hub.db)
+    assert first["groups"] == [{"id": "m1", "refs": ["vod:a:1", "vod:a:2"]}]
+    assert iptvcanon.copies(hub.db) is first  # worked out once per index
+    _time.sleep(0.01)
+    hub.db.kv_set(iptvcanon.KV, {"items": [{"id": "m2", "kind": "movie", "sources": two}]})
+    built = []
+    real = iptvcanon.Index
+    monkeypatch.setattr(iptvcanon, "Index", lambda state: built.append(1) or real(state))
+    monkeypatch.setattr(iptvcanon, "REFRESH_EVERY_S", 3600.0)
+    started = _time.perf_counter()
+    assert iptvcanon.copies(hub.db) is first  # the last index answers; nothing parsed on the caller
+    assert built == [] and _time.perf_counter() - started < 0.5
+
+
+def test_sport_channels_are_matched_once_a_minute(hub, monkeypatch):
+    from hub import tvsport
+    from hub.routes import tvguide
+
+    calls = []
+    monkeypatch.setattr(tvsport, "match", lambda games, cat, basic, **kw: calls.append(1) or [{"id": "g"}])
+    doc = {"channels": []}
+    monkeypatch.setattr(hub.tv_catalog, "load", lambda: doc)
+    monkeypatch.setattr(hub.tv_catalog, "basic", lambda home: {"channels": []})
+    games = [{"id": "g", "start": 1.0}]
+    assert tvguide._sport_channels(hub, games, None, False, 600.0) == [{"id": "g"}]
+    assert tvguide._sport_channels(hub, games, None, False, 630.0) == [{"id": "g"}]
+    assert len(calls) == 1
+    tvguide._sport_channels(hub, games, None, False, 700.0)  # the next minute
+    assert len(calls) == 2
