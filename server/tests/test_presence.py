@@ -150,3 +150,8 @@ def test_simulator_never_teaches_a_device(hub, home_client, people, monkeypatch)
     hub.db.update("devices", "id", ph.device_id, {"kind": "test"})
     home_client.get("/v1/family/presence", headers=ph.h)
     assert hub.household.wifi.macs_for(people["dylan"]) == set()
+
+
+def test_child_device_by_name(hub, people):
+    hub.household.wifi.update([{"mac": "AA:BB:CC:00:00:0A", "online": True, "name": "Theo's iPad"}], time.time())
+    assert hub.household.presence(people["theo"])["home"] is True

@@ -612,7 +612,9 @@ class Alerts:
             row = self.hub.db.one("SELECT person_id FROM network_rules WHERE upper(mac)=?", [mac])
             if row:
                 return next((k for k in kids if k["id"] == row["person_id"]), None)
-        group = ((dev.get("group") or {}).get("name") if isinstance(dev.get("group"), dict) else None) or ""
+        g = dev.get("group")
+        # The Firewalla adapter flattens the group to its name; a raw Firewalla row has {name, id}.
+        group = str((g.get("name") if isinstance(g, dict) else g) or "")
         dname = str(dev.get("name") or "")
         for k in kids:
             first = k["name"].split()[0].lower()

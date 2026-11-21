@@ -19,6 +19,7 @@ struct ThomasCreekApp: App {
                 .onChange(of: phase, initial: true) { _, p in
                     if p == .active {
                         store.becameActive()
+                        PresenceMonitor.shared.start()   // where the phone is now, for who's home
                         Task { await NotificationTidy.sweep(); await DoorbellLive.shared.tidy() }
                     }
                     else if p == .background { store.wentToBackground() }
