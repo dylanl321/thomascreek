@@ -450,9 +450,24 @@ async def sport(day: str | None = None, league: str | None = None, c: Caller = D
     except Exception as exc:  # noqa: BLE001  sport channels fall back to no home market
         note("sport: house location", exc)
         home = None
-    basic = h.tv_catalog.basic(home)
-    body = tvsport.match(games, h.tv_catalog, basic, kids_only=kids, now=now)
+    body = await asyncio.to_thread(_sport_channels, h, games, home, kids, now)
     return {"games": body, "leagues": names, "at": now, **extra}
+
+
+def _sport_channels(h: Hub, games: list[dict[str, Any]], home: Any, kids: bool, now: float) -> list[dict[str, Any]]:
+    """`tvsport.match`, off the loop and once a minute for the same games: it reads every guide programme, and each
+    TV asking held the hub still for seconds (Nov 21 2026, /v1/ping/stalls)."""
+    doc = h.tv_catalog.load()
+    said = hashlib.sha256(json.dumps(games, sort_keys=True, default=str).encode()).hexdigest()
+    key = (id(doc), kids, int(now // 60), said)
+    memo = h.__dict__.setdefault("_sport_channels", {})
+    if key in memo:
+        return memo[key]
+    body = tvsport.match(games, h.tv_catalog, h.tv_catalog.basic(home), kids_only=kids, now=now)
+    if len(memo) > 32:
+        memo.clear()
+    memo[key] = body
+    return body
 
 
 @router.get("/names")
