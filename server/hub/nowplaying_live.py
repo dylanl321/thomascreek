@@ -19,8 +19,10 @@ log = logging.getLogger("hub.nowplaying")
 
 KV_START = "la_np_start."   # + device id: {"token", "env"}
 KV_LIVE = "la_np."          # + device id: {"tokens": [{"id", "token", "env"}], "sig", "started_at"}
-# A start push whose update token never came back (the phone was off): start again after this.
-START_WAIT_S = 10 * 60
+# A start push shows an alert on the phone. One whose update token never came back (the app wasn't running) is not
+# sent again for the same TVs and titles, and never sooner than this after the last one: re-sending it every ten
+# minutes buzzed the whole family with the same channel name all afternoon (Nov 21 2026, "AR beIN Sport").
+START_WAIT_S = 3 * 3600
 MAX_TVS = 6
 ROLES = ("admin", "adult", "child", "guest")
 
@@ -105,12 +107,16 @@ async def sync(h: Any, now: float | None = None) -> dict[str, int]:
             st = _live(h, did)
             tokens = st.get("tokens") or []
             if not tvs:
-                if tokens or st.get("started_at"):
+                if tokens:
                     for t in tokens:
                         await _send(h, t["token"], t.get("env"), {"aps": {
                             "timestamp": stamp, "event": "end", "content-state": content, "dismissal-date": stamp}})
                         counts["ended"] += 1
                     h.db.kv_set(KV_LIVE + did, None)
+                elif st.get("started_at") and now - float(st["started_at"]) >= START_WAIT_S:
+                    h.db.kv_set(KV_LIVE + did, None)
+                # A start that never came back is kept for START_WAIT_S, so a channel that drops and comes back (a
+                # stream retrying) doesn't alert the phone again.
                 continue
             if tokens:
                 if st.get("sig") == sig:
@@ -124,8 +130,9 @@ async def sync(h: Any, now: float | None = None) -> dict[str, int]:
                 st["sig"] = sig
                 h.db.kv_set(KV_LIVE + did, st)
                 continue
-            # Nothing running on this phone yet: start it by push, once (the phone answers with its token).
-            if st.get("started_at") and now - float(st["started_at"]) < START_WAIT_S:
+            # Nothing running on this phone yet: start it by push, once (the phone answers with its token). The same
+            # TVs and titles never start it twice; something new waits START_WAIT_S after the last start.
+            if st.get("started_at") and (st.get("sig") == sig or now - float(st["started_at"]) < START_WAIT_S):
                 continue
             start = h.db.kv_get(KV_START + did)
             if not isinstance(start, dict) or not start.get("token"):

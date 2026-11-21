@@ -84,7 +84,8 @@ def test_start_update_end_and_the_opt_out(hub, home_client, people, monkeypatch)
     apns.sent.clear()
     _playing(home_client, tv_headers, "Bluey")
     asyncio.run(nowplaying_live.sync(hub))
-    assert [t for t, p, _ in apns.sent if p["aps"]["event"] == "start"] == ["aa22"]  # Avery only
+    # Neither: Dylan switched it off, and Avery's start for Bluey never came back, so it isn't sent again.
+    assert [t for t, p, _ in apns.sent if p["aps"]["event"] == "start"] == []
     assert hub.db.kv_get(f"la_np.{dylan.device_id}") is None
 
 
@@ -104,3 +105,37 @@ def test_a_child_only_sees_tvs_they_may_control(hub, home_client, people, monkey
     home_client.post("/v1/devices/live-activity", headers=theo.h, json={"now_playing_start_token": "cc33"})
     asyncio.run(nowplaying_live.sync(hub))
     assert not [t for t, _p, _ in apns.sent if t == "cc33"]
+
+
+def test_a_start_that_never_came_back_alerts_once(hub, home_client, people, monkeypatch):
+    """Nov 21 2026: a TV on one channel re-alerted every phone in the house every ten minutes all afternoon."""
+    monkeypatch.setattr(nowplaying_live, "kick", lambda h: None)
+    _, tv_headers = _tv(hub, home_client)
+    apns = FakeApns()
+    hub.apns = apns  # type: ignore[assignment]
+    dylan = people["phones"]["Dylan"]
+    home_client.post("/v1/devices/live-activity", headers=dylan.h, json={"now_playing_start_token": "aa11"})
+
+    def starts():
+        return [t for t, p, _ in apns.sent if p["aps"]["event"] == "start" and t == "aa11"]
+
+    t0 = 1_800_000_000.0
+    _playing(home_client, tv_headers, "AR Sport 1")
+    asyncio.run(nowplaying_live.sync(hub, now=t0))
+    assert starts() == ["aa11"]
+    # The phone never answers with its activity token. Hours on the same channel: no second alert.
+    for k in range(1, 5):
+        asyncio.run(nowplaying_live.sync(hub, now=t0 + k * 600))
+    # The stream drops and comes back: still no second alert.
+    _playing(home_client, tv_headers, None)
+    asyncio.run(nowplaying_live.sync(hub, now=t0 + 3_000))
+    _playing(home_client, tv_headers, "AR Sport 1")
+    asyncio.run(nowplaying_live.sync(hub, now=t0 + 3_100))
+    assert starts() == ["aa11"]
+    # Something else on, soon after: it waits.
+    _playing(home_client, tv_headers, "Bluey")
+    asyncio.run(nowplaying_live.sync(hub, now=t0 + 3_200))
+    assert starts() == ["aa11"]
+    # Something else, hours later: one new start.
+    asyncio.run(nowplaying_live.sync(hub, now=t0 + nowplaying_live.START_WAIT_S + 1))
+    assert starts() == ["aa11", "aa11"]
