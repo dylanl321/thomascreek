@@ -356,3 +356,30 @@ def test_a_tv_that_stopped_frees_its_login(hub, people, home_client, monkeypatch
     monkeypatch.setattr(iptvplay.time, "time", lambda: real() + 200)
     iptvplay._release_idle(hub, real() + 200)
     assert not [row for row in hub.db.kv_get("iptv.sessions") if row["tv"] == TV_ID]
+
+
+def test_a_refused_channel_goes_to_the_other_login_for_hours(hub):
+    """Nov 21 2026: one login was refused a sports channel (405) while a second login of the same provider played it.
+    The refused pair stays aside for hours when another login can take it, minutes when it is the only one."""
+    from hub import iptvplay
+
+    hub.config.iptv.providers = []
+    hub.vault.set("iptv.alpha.one.password", "p1")
+    hub.vault.set("iptv.alpha.two.password", "p2")
+    hub.db.kv_set("iptv.logins", [
+        {"provider": "alpha", "login": "one", "server": "http://alpha.test", "username": "one",
+         "password_secret": "iptv.alpha.one.password"},
+        {"provider": "alpha", "login": "two", "server": "http://alpha.test", "username": "two",
+         "password_secret": "iptv.alpha.two.password"},
+    ])
+    ref = "xc:alpha:77"
+    first = iptvplay.lease(hub, ref, "phone:a", now=1000.0)
+    assert first is not None
+    assert iptvplay.refused(hub, "phone:a", now=1001.0)
+    second = iptvplay.lease(hub, ref, "phone:a", now=1002.0)
+    assert second is not None and second["login"] != first["login"]
+    # Still on the other login well after the short failure window.
+    iptvplay.release_tv(hub, "phone:a")
+    later = iptvplay.lease(hub, ref, "phone:a", now=1001.0 + iptvplay.FAIL_S + 60)
+    assert later is not None and later["login"] == second["login"]
+    assert not iptvplay.all_refused(hub, ref, now=1003.0)
