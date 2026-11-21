@@ -165,9 +165,8 @@ def _body(h: Hub, building: bool) -> str:
     report = h.tv_catalog.playlist_report()
     names = {p["id"]: p["name"] for p in iptvplay.providers(h)}
     if not report:
-        wait = ("The hub is counting the playlists now; this takes under a minute. Reload the page." if building
-                else "Nothing to count yet. Add a provider under Watching; the report is built after its first "
-                     "read.")
+        wait = ("The hub counts the playlists in the background, about a minute after a provider is first read. "
+                "Reload the page shortly. With no provider added yet under Watching there is nothing to count.")
         return f"<div class=card style='padding:18px 16px'><p class=dim style='margin:0'>{wait}</p></div>"
     note = " A newer count is being made now; reload in a minute." if building else ""
     took = html.escape(str(report.get("took_s")))

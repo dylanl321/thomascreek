@@ -41,6 +41,7 @@ def build_app(hub: Hub | None = None, *, start_background: bool = True) -> FastA
         host_task = None
         certs_task = None
         thumbs_task = None
+        report_task = None
         if start_background:
             # A hub whose loop is stuck restarts itself and leaves a note on where (see watchdog.py).
             from .watchdog import Watchdog
@@ -57,6 +58,8 @@ def build_app(hub: Hub | None = None, *, start_background: bool = True) -> FastA
 
             host_task = asyncio.create_task(host_loop())
             certs_task = asyncio.create_task(kidcerts.warm_later(h))  # a kids' page never waits for the scan
+            if getattr(h, "tv_catalog", None) is not None:
+                report_task = asyncio.create_task(h.tv_catalog.playlist_report_loop())
             if getattr(h, "tv_app", None) is not None:
                 from . import playerthumbs
 
@@ -72,6 +75,8 @@ def build_app(hub: Hub | None = None, *, start_background: bool = True) -> FastA
             certs_task.cancel()
         if thumbs_task is not None:
             thumbs_task.cancel()
+        if report_task is not None:
+            report_task.cancel()
         if zc is not None:
             await zc.async_close()
         await h.stop()
