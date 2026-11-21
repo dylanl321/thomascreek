@@ -27,7 +27,10 @@ final class TVPairingCenter {
         poll = Task { [weak self] in
             while !Task.isCancelled {
                 await self?.refresh()
-                try? await Task.sleep(for: .seconds(8))
+                // New asks arrive on the live stream (`note`), so a connected phone only checks now and then. Every
+                // 8 s from each open admin app was 361 calls in 51 min on the hub (Nov 21 2026 review, P8).
+                let live = HomeStore.shared.streamConnected
+                try? await Task.sleep(for: .seconds(live ? 120 : 8))
             }
         }
     }
