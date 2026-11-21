@@ -1664,7 +1664,30 @@ class TvCatalog:
         _mark_canonical(self.db, films, "movie", found)
         lap("canonical")
         shows, films = _one_each(shows), _one_each(films)
+        channels = _one_channel_each(channels)
         return {"q": q.strip(), "channels": channels[:20], "programmes": programmes[:20], "series": shows, "movies": films}
+
+
+def _one_channel_each(cards: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Search results with one card per channel. A provider lists one channel several times in a category (its
+    FHD, HD and backup feeds, or the same list from two logins), and all of them clean to one name, so a search
+    showed "Bein Sport 01" three times (Nov 21 2026). The first in lineup order stays; the others ride on it as an
+    optional `copies` list of `{key, name}`, for a screen that wants to offer them. The same name in another
+    category ("France" and "Arabic") is another channel and keeps its own card."""
+    out: list[dict[str, Any]] = []
+    seen: dict[tuple[str, str], dict[str, Any]] = {}
+    for card in cards:
+        shown = card.get("display_name") or tvnames.channel_name(card.get("name"))
+        clean = " ".join(re.sub(r"[^a-z0-9]+", " ", str(shown).casefold()).split())
+        mark = (clean, str(card.get("group") or "").strip().casefold())
+        twin = seen.get(mark) if clean else None
+        if twin is not None:
+            twin.setdefault("copies", []).append({"key": card["key"], "name": card["name"]})
+            continue
+        if clean:
+            seen[mark] = card
+        out.append(card)
+    return out
 
 
 def _one_each(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
