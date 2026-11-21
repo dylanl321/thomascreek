@@ -168,7 +168,7 @@ async def phone_play(body: dict[str, Any], response: Response, c: Caller = Depen
         if mode == "live":
             # The same channel as one MPEG-TS stream, for players that open it (VLC, ExoPlayer): the provider's own
             # addresses, then the hub's relay. Some channels have no HLS at the provider (it answers 405).
-            from ..iptvplay import as_ts
+            from ..iptvplay import as_ts, held_by
 
             ts_urls = as_ts(urls)
             base = (h.config.hub.remote_url or "").rstrip("/")
@@ -176,6 +176,12 @@ async def phone_play(body: dict[str, Any], response: Response, c: Caller = Depen
                 ts_urls.append(base + _ts_path(relay))
             if ts_urls:
                 out_direct["ts_urls"] = ts_urls
+            held = held_by(h, holder)
+            if held and ts_urls and no_hls(h, str(held["provider"]), _stream_id(key)):
+                # This channel has no HLS at the provider: lead with its `.ts`, keep the `.m3u8` as a fallback.
+                out_direct["hls"] = False
+                out_direct["url"] = ts_urls[0]
+                alternates = list(urls)
         if relay is not None:
             # The same stream relayed by the hub, on the same leased login (one stream at a time either way): the
             # route that still works where the provider turns away the phone's own address (abroad, a hotel
@@ -224,6 +230,8 @@ async def phone_play(body: dict[str, Any], response: Response, c: Caller = Depen
     out: dict[str, Any] = {"url": path, "kind": mode, "title": title, "expires_at": exp}
     if mode == "live":
         out["ts_url"] = _ts_path(path)  # the channel as one MPEG-TS stream, when the provider has no HLS for it
+        if no_hls(h, str(held["provider"]), _stream_id(key)):
+            out["hls"] = False  # the provider answered 405 to its `.m3u8` lately: open `ts_url` first
     _cast_fields(out, mode, ext, token, cast=body.get("cast") is True)
     source = await asyncio.to_thread(_source, h, holder, title, row, "relay", None)
     if source:
@@ -265,6 +273,33 @@ class _Laps:
             self.response.headers["Server-Timing"] = ", ".join(self.parts)
             if now - self.start > 1.0:
                 log.info("tv.phone.play slow: %s", self.response.headers["Server-Timing"])
+
+
+NO_HLS_KV = "iptv.no_hls"
+NO_HLS_S = 7 * 86400
+
+
+def no_hls(h: Hub, provider: str, stream: str, now: float | None = None) -> bool:
+    """The provider answered 405 to this channel's `.m3u8` lately: it has no HLS, only the `.ts` (Nov 21 2026)."""
+    now = time.time() if now is None else now
+    at = (h.db.kv_get(NO_HLS_KV) or {}).get(f"{provider}|{stream}")
+    return isinstance(at, (int, float)) and now - float(at) < NO_HLS_S
+
+
+def _learn_hls(h: Hub, claims: dict[str, Any], has_hls: bool) -> None:
+    provider = str(claims.get("pl") or "").split("|", 1)[0]
+    if not provider:
+        return
+    key, now = f"{provider}|{claims.get('s')}", time.time()
+    found = dict(h.db.kv_get(NO_HLS_KV) or {})
+    if has_hls == (key not in found):
+        return
+    if has_hls:
+        found.pop(key, None)
+    else:
+        found[key] = now
+    found = {k: v for k, v in found.items() if isinstance(v, (int, float)) and now - float(v) < NO_HLS_S}
+    h.db.kv_set(NO_HLS_KV, found)
 
 
 def _ts_path(index_path: str) -> str:
@@ -840,6 +875,7 @@ def _failed(message: str, tries: list[tuple[str, float]]) -> HubHTTPError:
     """The 502 the phone shows, with what each address answered as `Server-Timing` steps (`up0.http403;dur=310`)
     so `/v1/ping/timings` keeps the provider's answer without its address."""
     exc = error(502, "unavailable", message)
+    exc.tries = tries  # type: ignore[attr-defined]
     if tries:
         exc.headers = {"Server-Timing": ", ".join(f"up{i}.{why};dur={ms:.0f}" for i, (why, ms) in enumerate(tries))}
     return exc
@@ -1050,8 +1086,15 @@ async def phone_live(token: str, request: Request, h: Hub = Depends(hub)) -> Res
             note("phone stream: provider playlist", exc)
             text = None
     if text is None:
-        text, final = await _on_each_address(h, claims, "m3u8", lambda url: _playlist(h, url, _agent(request)),
-                                             "The channel didn't answer")
+        try:
+            text, final = await _on_each_address(h, claims, "m3u8", lambda url: _playlist(h, url, _agent(request)),
+                                                 "The channel didn't answer")
+        except HubHTTPError as exc:
+            tries = getattr(exc, "tries", None) or []
+            if tries and all(why == "http405" for why, _ms in tries):
+                _learn_hls(h, claims, False)  # the next play of this channel leads with its `.ts`
+            raise
+        _learn_hls(h, claims, True)
     row["media"] = final
     return _m3u8(rewrite(text, final, row, token))
 
