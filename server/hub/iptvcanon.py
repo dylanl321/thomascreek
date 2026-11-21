@@ -142,13 +142,28 @@ def search(db: Any, q: str = "", kind: str | None = None, *, last_built: bool = 
     return {"items": items}
 
 
+_COPIES: dict[int, tuple[Any, dict[str, Any]]] = {}
+
+
 def copies(db: Any) -> dict[str, Any]:
     """Movies and series the provider lists more than once, best copy first.
 
     A TV shows one row per title and plays it through the hub. Titles with one copy are left out.
-    """
+    Read from the last index built (`recent`), and worked out once per index: each TV asks every few minutes, and
+    reading the several-MB state again after the title matcher saved it held the hub still 10 to 14 s while a TV
+    was on (Nov 21 2026, /v1/ping/stalls)."""
+    found = recent(db)
+    memo = _COPIES.get(id(db))
+    if memo is not None and memo[0] is found:
+        return memo[1]
+    body = _copies(found)
+    _COPIES[id(db)] = (found, body)
+    return body
+
+
+def _copies(found: Any) -> dict[str, Any]:
     groups = []
-    for item in index(db).items:
+    for item in found.items:
         if item.get("kind") not in ("movie", "series") or item.get("season") is not None:
             continue
         sources = sorted(item.get("sources") or [], key=lambda source: _quality_rank(source.get("quality")))

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from fastapi import APIRouter, Depends, Request
@@ -27,7 +28,8 @@ async def tv_accounts(c: Caller = Depends(caller), h=Depends(hub)) -> dict[str, 
 async def tv_copies(c: Caller = Depends(caller), h=Depends(hub)) -> dict[str, Any]:
     """Titles the provider lists more than once. A TV shows one row for each and plays it through /tune."""
     _media(h, c)
-    return copies(h.db)
+    # Off the loop: the first read after a start parses the folded titles (several MB).
+    return await asyncio.to_thread(copies, h.db)
 
 
 @router.post("/tune")
