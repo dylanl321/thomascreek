@@ -144,7 +144,7 @@ class Firewalla:
         for d in self._mine(self._rows(await self._req("GET", "/devices", params={"box": gid})), gid):
             mac = (d.get("mac") or d.get("id") or "").upper()
             out.append({"mac": mac, "name": d.get("name") or d.get("macVendor") or mac, "ip": d.get("ip"),
-                        "online": d.get("online"), "gid": d.get("gid") or gid,
+                        "online": d.get("online"), "gid": d.get("gid") or gid, "last_seen": d.get("lastSeen"),
                         "group": (d.get("group") or {}).get("name") if isinstance(d.get("group"), dict) else None})
         return out
 

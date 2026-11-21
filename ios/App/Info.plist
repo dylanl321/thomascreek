@@ -77,7 +77,7 @@
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Finds the Thomas Creek hub on your home Wi-Fi.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>Lets Thomas Creek notice when you leave or get home, even when the app is closed, so the last one out gets a check of the doors and garage. Your location stays on this iPhone; only "arrived" or "left" is sent home, plus a rough location (about a kilometre) when you ask for the weather where you are.</string>
+	<string>Thomas Creek watches only a small circle around your house. When you cross it, even with the app closed, your iPhone sends just "arrived" or "left", so the last one out gets a check of the doors and garage. Where you go is never sent or tracked; the weather where you are uses a rough location (about a kilometre) only when you ask.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Thomas Creek notices when you get home or leave, to check the doors and garage, and shows the weather where you are.</string>
 	<key>NSMicrophoneUsageDescription</key>

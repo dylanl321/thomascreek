@@ -79,13 +79,14 @@ async def presence(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[s
 
 
 class PresenceReport(BaseModel):
-    event: Literal["arrive", "leave"]
+    event: Literal["arrive", "leave", "inside", "outside", "off"]
 
 
 @router.post("/presence")
 async def report_presence(body: PresenceReport, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
-    """The phone crossed the edge of home (its geofence). Leaving may answer with what's still open;
-    arriving may run the person's welcome mode."""
+    """The phone's circle round the house (never where it is). arrive/leave crossed the edge: leaving may
+    answer with what's still open, arriving may run the person's welcome mode. inside/outside refresh the
+    state when the app opens, with no side effects; off means the person turned location off."""
     return await h.household.report(c.subject, body.event)
 
 

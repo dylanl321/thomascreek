@@ -14,6 +14,8 @@ struct FamilyMember: Codable, Hashable, Identifiable {
     var since: String?
     var `where`: String?
     var me: Bool?
+    /// How the hub knows: "wifi", "phone" (the circle round the house) or "home_assistant".
+    var source: String?
     var sinceDate: Date? { since.flatMap(ISO.parse) }
 }
 

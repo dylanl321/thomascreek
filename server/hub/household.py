@@ -1,11 +1,11 @@
 """Family life around the house: who's home, Today, arriving and leaving,
 kids' bedtime, guest passes and "Tell Dylan" feedback.
 
-Presence comes from, in order: the person's `presence_entity`, a Home Assistant
-`person.<first name>` entity, or the last arrive/leave the person's own phone
-reported (a geofence round the house). The hub, not the phone, decides whether
-someone was the last one out, so a phone without location still gets the check
-when Home Assistant sees everyone leave.
+Presence: the person's `presence_entity` when one is chosen; otherwise the latest of
+a Home Assistant `person.<first name>` entity, their phone's arrive/leave at the
+house (an opt-in geofence) and their devices on home Wi-Fi (see `presence.py`).
+The hub, not the phone, decides whether someone was the last one out, so a phone
+without location still gets the check when Wi-Fi or Home Assistant sees them leave.
 """
 
 from __future__ import annotations
@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any
 from .db import new_id
 from .home import iso, kind_for
 from .kitchen import oven_state
+from .presence import WIFI_POLL_S, WifiPresence, combine
 from .smart import _bedtime, clock, hm
 
 if TYPE_CHECKING:
@@ -31,7 +32,6 @@ log = logging.getLogger("hub.household")
 
 HOME_STATES = ("home",)
 DOORBELL_LIVE_S = 180  # a ring stays on the Lock Screen this long (the app tidies with the same number)
-APP_PRESENCE_TTL_S = 18 * 3600  # a phone's own report counts this long without a newer one
 INTERCOM_PHRASES = [
     {"id": "dinner", "emoji": "🍽️", "text": "Dinner's ready!"},
     {"id": "downstairs", "emoji": "👋", "text": "Can everyone come downstairs, please?"},
@@ -55,26 +55,37 @@ class Household:
         self.hub = hub
         self._task: asyncio.Task | None = None
         self._last_home: dict[str, bool | None] = {}
+        self.wifi = WifiPresence(hub)
 
     # -- presence ----------------------------------------------------------
     def presence(self, p: dict[str, Any]) -> dict[str, Any]:
-        """{home: True/False/None, since, source}. None means the hub can't tell."""
+        """{home: True/False/None, since, source, where}. None means the hub can't tell."""
         states = self.hub.home.states
         eid = p.get("presence_entity")
+        chosen = bool(eid)
         if not eid:
             guess = f"person.{_first(p['name']).lower()}"
             eid = guess if guess in states else None
+        ha = None
         if eid and eid in states:
             st = states[eid]
             s = st.get("state")
             if s not in ("unknown", "unavailable"):
                 where = None if s in HOME_STATES or s == "not_home" else str(s).replace("_", " ").capitalize()
-                return {"home": s in HOME_STATES, "since": st.get("last_changed"), "source": "home_assistant",
-                        "where": where}
-        rep = self.hub.db.kv_get(f"presence.{p['id']}")
-        if rep and time.time() - rep.get("at", 0) < APP_PRESENCE_TTL_S:
-            return {"home": bool(rep["home"]), "since": iso(rep["at"]), "source": "phone", "where": None}
-        return {"home": None, "since": None, "source": None, "where": None}
+                if chosen:  # an entity picked for this person decides alone
+                    return {"home": s in HOME_STATES, "since": st.get("last_changed"), "source": "home_assistant",
+                            "where": where}
+                from .presence import _ts
+
+                ha = {"home": s in HOME_STATES, "changed_at": _ts(st.get("last_changed")), "where": where}
+        loc = self.hub.db.kv_get(f"presence.{p['id']}") if p.get("role") not in ("tablet", "guest") else None
+        r = combine(ha=ha, location=loc if loc and loc.get("home") is not None else None,
+                    wifi=self.wifi.for_person(p))
+        if r["source"] == "home_assistant" and ha is not None:
+            since: str | None = states[eid].get("last_changed")
+        else:
+            since = iso(r["changed_at"]) if r["changed_at"] else None
+        return {"home": r["home"], "since": since, "source": r["source"], "where": r["where"]}
 
     def family(self, s: "Subject") -> list[dict[str, Any]]:
         """Everyone (but tablets and guests) with whether they're home, for the who's-home row."""
@@ -86,7 +97,7 @@ class Household:
             out.append({"id": p["id"], "name": p["name"], "first": _first(p["name"]), "role": p["role"],
                         "avatar": p.get("avatar"), "ui_style": p.get("ui_style"), "home": pr["home"],
                         "since": pr["since"], "where": pr["where"] if s.role in ("admin", "adult") else None,
-                        "me": p["id"] == s.person_id})
+                        "me": p["id"] == s.person_id, "source": pr["source"]})
         order = {"admin": 0, "adult": 1, "child": 2}
         out.sort(key=lambda r: (order.get(r["role"], 3), r["name"]))
         return out
@@ -147,10 +158,26 @@ class Household:
 
     # -- a phone's own arrive / leave --------------------------------------
     async def report(self, s: "Subject", event: str) -> dict[str, Any]:
+        """The phone's geofence. arrive/leave crossed the edge (welcome mode, last-one-out check);
+        inside/outside only refresh where it is when the app opens (no welcome, no nudge);
+        off forgets it, so Wi-Fi and Home Assistant decide again."""
         if not s.person_id:
             return {"ok": False}
-        home = event == "arrive"
-        self.hub.db.kv_set(f"presence.{s.person_id}", {"home": home, "at": time.time(), "device": s.device_id})
+        key = f"presence.{s.person_id}"
+        if event == "off":
+            self.hub.db.kv_set(key, {"home": None, "at": time.time(), "device": s.device_id})
+            self.hub.bus.publish({"type": "presence", "person_id": s.person_id})
+            return {"ok": True}
+        home = event in ("arrive", "inside")
+        if event in ("inside", "outside"):
+            prev = self.hub.db.kv_get(key) or {}
+            # A refresh that says the same keeps the time of the real crossing.
+            at = prev["at"] if prev.get("home") is home and prev.get("at") else time.time()
+            self.hub.db.kv_set(key, {"home": home, "at": at, "device": s.device_id})
+            if prev.get("home") is not home:
+                self.hub.bus.publish({"type": "presence", "person_id": s.person_id, "home": home})
+            return {"ok": True}
+        self.hub.db.kv_set(key, {"home": home, "at": time.time(), "device": s.device_id})
         self.hub.bus.publish({"type": "presence", "person_id": s.person_id, "home": home})
         if home:
             return {"ok": True, **(await self.arrived(s))}
@@ -218,7 +245,11 @@ class Household:
         from . import familyapprovals
 
         last_board = 0.0
+        last_wifi = 0.0
         while True:
+            if time.time() - last_wifi >= WIFI_POLL_S:
+                last_wifi = time.time()
+                await self.wifi.poll()
             try:
                 await self.tick()
             except Exception as exc:  # noqa: BLE001
@@ -240,11 +271,13 @@ class Household:
             await asyncio.sleep(30)
 
     async def tick(self) -> list[str]:
-        """Who just left according to Home Assistant; nudges the last of them if things are open."""
+        """Who just left according to Home Assistant or Wi-Fi; nudges the last of them if things are open.
+        (A phone's own "leave" already ran the check when it was reported.)"""
         left = []
         for p in self.hub.db.people_with_role("admin", "adult"):
             pr = self.presence(p)
-            if pr["source"] != "home_assistant":
+            if pr["source"] not in ("home_assistant", "wifi"):
+                self._last_home[p["id"]] = pr["home"]
                 continue
             was = self._last_home.get(p["id"])
             self._last_home[p["id"]] = pr["home"]

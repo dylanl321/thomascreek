@@ -108,7 +108,7 @@ struct DepartureView: View {
 final class PresenceMonitor: NSObject, CLLocationManagerDelegate {
     static let shared = PresenceMonitor()
     static let settingKey = "app.family.arrivals"
-    static let regionID = "thomascreek.home"
+    nonisolated static let regionID = "thomascreek.home"
     private let manager = CLLocationManager()
     private var pendingSetup = false
 
@@ -118,9 +118,15 @@ final class PresenceMonitor: NSObject, CLLocationManagerDelegate {
     }
 
     /// Call at launch: region events relaunch the app in the background and arrive here.
+    /// Also asks iOS whether the phone is inside the circle right now, so the hub is current after a
+    /// restart or a missed crossing (sent as inside/outside: no welcome scene, no last-one-out check).
     func start() {
         guard UserDefaults.standard.bool(forKey: Self.settingKey) else { return }
-        if manager.monitoredRegions.isEmpty { setUpRegion() }
+        if manager.monitoredRegions.isEmpty { setUpRegion() } else { refreshState() }
+    }
+
+    func refreshState() {
+        for r in manager.monitoredRegions where r.identifier == Self.regionID { manager.requestState(for: r) }
     }
 
     func enable() {
@@ -134,6 +140,8 @@ final class PresenceMonitor: NSObject, CLLocationManagerDelegate {
     func disable() {
         UserDefaults.standard.set(false, forKey: Self.settingKey)
         for r in manager.monitoredRegions { manager.stopMonitoring(for: r) }
+        // The hub forgets this phone's last arrive/leave; Wi-Fi decides who's home again.
+        Task { let _: Empty? = await hubQuiet("presence off", { try await HubClient.shared.post("/v1/presence", ["event": "off"]) }) }
     }
 
     var isOn: Bool { UserDefaults.standard.bool(forKey: Self.settingKey) && !manager.monitoredRegions.isEmpty }
@@ -158,6 +166,7 @@ final class PresenceMonitor: NSObject, CLLocationManagerDelegate {
         region.notifyOnExit = true
         manager.startMonitoring(for: region)
         pendingSetup = false
+        manager.requestState(for: region)
     }
 
     nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
@@ -170,6 +179,14 @@ final class PresenceMonitor: NSObject, CLLocationManagerDelegate {
     }
 
     nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {}
+
+    nonisolated func locationManager(_ manager: CLLocationManager, didDetermineState state: CLRegionState, for region: CLRegion) {
+        guard region.identifier == Self.regionID, state != .unknown else { return }
+        let event = state == .inside ? "inside" : "outside"
+        Task { @MainActor in
+            let _: Empty? = await hubQuiet("presence", { try await HubClient.shared.post("/v1/presence", ["event": event]) })
+        }
+    }
 
     nonisolated func locationManager(_ manager: CLLocationManager, didEnterRegion region: CLRegion) {
         Task { @MainActor in await self.report("arrive") }
