@@ -67,6 +67,7 @@ class Household:
             guess = f"person.{_first(p['name']).lower()}"
             eid = guess if guess in states else None
         ha = None
+        ha_since: str | None = None
         if eid and eid in states:
             st = states[eid]
             s = st.get("state")
@@ -78,11 +79,12 @@ class Household:
                 from .presence import _ts
 
                 ha = {"home": s in HOME_STATES, "changed_at": _ts(st.get("last_changed")), "where": where}
+                ha_since = st.get("last_changed")
         loc = self.hub.db.kv_get(f"presence.{p['id']}") if p.get("role") not in ("tablet", "guest") else None
         r = combine(ha=ha, location=loc if loc and loc.get("home") is not None else None,
                     wifi=self.wifi.for_person(p))
         if r["source"] == "home_assistant" and ha is not None:
-            since: str | None = states[eid].get("last_changed")
+            since = ha_since
         else:
             since = iso(r["changed_at"]) if r["changed_at"] else None
         return {"home": r["home"], "since": since, "source": r["source"], "where": r["where"]}

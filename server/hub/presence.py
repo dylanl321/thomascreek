@@ -142,7 +142,8 @@ class WifiPresence:
                 last_seen = max(last_seen, now)
             old = self.devices.get(mac) or {}
             since = old.get("online_since") if old.get("online") else None
-            devices[mac] = {"online": online, "last_seen": last_seen, "online_since": (since or now) if online else None,
+            devices[mac] = {"online": online, "last_seen": last_seen,
+                            "online_since": (since or now) if online else None,
                             "group": d.get("group"), "name": d.get("name")}
             if d.get("ip") and online:
                 by_ip[str(d["ip"])] = mac
