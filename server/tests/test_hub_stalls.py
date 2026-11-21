@@ -339,3 +339,31 @@ def test_a_finished_refresh_rebuilds_the_answers_made_from_it(hub, monkeypatch):
     cat.on_refreshed = lambda: called.append(1)
     assert asyncio.run(cat.refresh()) == {"ok": 1}
     assert called == [1]
+
+
+def test_habits_are_learned_in_a_worker_thread(hub, monkeypatch):
+    import threading
+
+    smart = hub.smart
+    seen = []
+    monkeypatch.setattr(smart.weather, "refresh", lambda: asyncio.sleep(0))
+    monkeypatch.setattr(hub.forecasts, "warm_home", lambda: asyncio.sleep(0))
+    monkeypatch.setattr(smart, "learn_habits", lambda: seen.append(threading.current_thread().name))
+    smart._habits_at = 0
+    loop_thread = threading.current_thread().name
+    asyncio.run(smart.refresh())
+    assert seen and seen[0] != loop_thread
+
+
+def test_saved_pages_are_read_a_few_hundred_at_a_time(hub, monkeypatch):
+    from hub import db as dbmod
+
+    monkeypatch.setattr(dbmod, "DETAILS_PAGE", 3)
+    rows = [("episodes", str(n), json.dumps({"n": n})) for n in range(8)]
+    hub.db.details_put(rows)
+    reads = []
+    real = hub.db.all
+    monkeypatch.setattr(hub.db, "all", lambda sql, args=(): reads.append(sql) or real(sql, args))
+    got = hub.db.details_rows()
+    assert sorted(got) == sorted(rows)
+    assert len(reads) == 3

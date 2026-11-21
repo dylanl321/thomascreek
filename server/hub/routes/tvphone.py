@@ -65,6 +65,23 @@ def _stream_id(key: str) -> str:
     return part
 
 
+def _held_stream(h: Hub, held: dict[str, Any] | None, key: str, ext: str) -> tuple[str, str]:
+    """The stream number and file type a relay pass opens: those of the copy the lease picked, not of the item the
+    phone asked for. The pool may lease another provider's copy (an episode's twin, a folded channel), and asking
+    that provider for the first one's number played a different title (a Turkish drama for 30 Rock, Nov 21 2026)."""
+    ref = str((held or {}).get("ref") or "")
+    if not ref or ref == key:
+        return _stream_id(key), ext
+    from ..iptvplay import _file_type, _split_ref
+
+    kind, _provider, stream = _split_ref(ref)
+    if not stream or "/" in stream or ".." in stream:
+        return _stream_id(key), ext
+    if kind in ("vod", "ep", "series"):
+        ext = _file_type(h, kind, ref).lower()
+    return stream, ext
+
+
 def _grown_up_phone(c: Caller) -> bool:
     """Whose device may hold a provider address or login: an admin's or adult's own phone. Never a TV, a child,
     a guest or a kids' device (the rule `/logins` keeps). Watching as a child on that phone doesn't change it:
@@ -177,7 +194,7 @@ async def phone_play(body: dict[str, Any], response: Response, c: Caller = Depen
             if ts_urls:
                 out_direct["ts_urls"] = ts_urls
             held = held_by(h, holder)
-            if held and ts_urls and no_hls(h, str(held["provider"]), _stream_id(key)):
+            if held and ts_urls and no_hls(h, str(held["provider"]), _held_stream(h, held, key, ext)[0]):
                 # This channel has no HLS at the provider: lead with its `.ts`, keep the `.m3u8` as a fallback.
                 out_direct["hls"] = False
                 out_direct["url"] = ts_urls[0]
@@ -220,7 +237,8 @@ async def phone_play(body: dict[str, Any], response: Response, c: Caller = Depen
     warm_twins(h, key)
     if held is None:
         _off_or_busy(h, key, kids_only)
-    token, exp = h.tokens.issue_scoped({"aud": AUD, "k": mode, "s": _stream_id(key), "x": ext,
+    stream, ext = _held_stream(h, held, key, ext)
+    token, exp = h.tokens.issue_scoped({"aud": AUD, "k": mode, "s": stream, "x": ext,
                                         "sid": secrets.token_urlsafe(9), "dev": c.device["id"],
                                         "pl": f"{held['provider']}|{held['login']}"}, TTL_S)
     title = row.get("name") or row.get("title")
@@ -230,7 +248,7 @@ async def phone_play(body: dict[str, Any], response: Response, c: Caller = Depen
     out: dict[str, Any] = {"url": path, "kind": mode, "title": title, "expires_at": exp}
     if mode == "live":
         out["ts_url"] = _ts_path(path)  # the channel as one MPEG-TS stream, when the provider has no HLS for it
-        if no_hls(h, str(held["provider"]), _stream_id(key)):
+        if no_hls(h, str(held["provider"]), stream):
             out["hls"] = False  # the provider answered 405 to its `.m3u8` lately: open `ts_url` first
     _cast_fields(out, mode, ext, token, cast=body.get("cast") is True)
     source = await asyncio.to_thread(_source, h, holder, title, row, "relay", None)
@@ -323,7 +341,8 @@ def _relay_pass(h: Hub, c: Caller, mode: str, key: str, ext: str) -> str | None:
     held = held_by(h, f"phone:{c.device['id']}")
     if held is None:
         return None
-    token, _exp = h.tokens.issue_scoped({"aud": AUD, "k": mode, "s": _stream_id(key), "x": ext,
+    stream, ext = _held_stream(h, held, key, ext)
+    token, _exp = h.tokens.issue_scoped({"aud": AUD, "k": mode, "s": stream, "x": ext,
                                          "sid": secrets.token_urlsafe(9), "dev": c.device["id"],
                                          "pl": f"{held['provider']}|{held['login']}"}, TTL_S)
     return f"/v1/tv/phone/live/{token}/index.m3u8" if mode == "live" else f"/v1/tv/phone/file/{token}"
