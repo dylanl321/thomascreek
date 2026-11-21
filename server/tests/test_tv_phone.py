@@ -229,3 +229,30 @@ def test_live_relay_says_what_the_provider_answered_and_tries_the_backup(hub, pe
     kept = next(r for r in hub.timings.slow() if r["route"].endswith("/index.m3u8"))
     assert kept["status"] == 502 and "up0.http403" in kept["steps"] and "up1.notplaylist.html" in kept["steps"]
     assert PASSWORD not in json.dumps(kept) and "backup.example" not in json.dumps(kept)
+
+
+def test_a_channel_without_hls_plays_as_one_ts_stream(hub, people, monkeypatch):
+    """Nov 21 2026: the provider answered 405 to `.m3u8` for one sports channel, at home and abroad, while the TVs
+    play its `.ts`. Phones get the MPEG-TS form too: the provider's own (direct) and the hub's relay."""
+    _library(hub)
+    _login(hub)
+    monkeypatch.setattr(hub.config.hub, "remote_url", "https://hub.example/")
+    dylan = people["phones"]["Dylan"]
+    direct = dylan.client.post("/v1/tv/phone/play", headers=dylan.h,
+                               json={"channel_key": "xc:thomas-creek:10", "player": "vlc", "direct": True}).json()
+    assert direct["url"].endswith("/10.m3u8")
+    assert direct["ts_urls"][0] == direct["url"][:-5] + ".ts"
+    assert direct["ts_urls"][-1] == "https://hub.example" + direct["relay_url"].replace("/index.m3u8", "/stream.ts")
+    assert not any(u.endswith(".ts") for u in direct.get("alternates") or [])  # older players never get TS there
+    relayed = dylan.client.post("/v1/tv/phone/play", headers=dylan.h, json={"channel_key": "xc:thomas-creek:10"}).json()
+    assert relayed["ts_url"] == relayed["url"].replace("/index.m3u8", "/stream.ts")
+    with respx.mock(assert_all_called=False) as mock:
+        mock.get(f"{SERVER}/live/household/{PASSWORD}/10.m3u8").mock(return_value=httpx.Response(405))
+        ts = mock.get(f"{SERVER}/live/household/{PASSWORD}/10.ts").mock(
+            return_value=httpx.Response(200, content=b"G" * 188, headers={"content-type": "video/mp2t"}))
+        assert dylan.client.get(relayed["url"]).status_code == 502
+        got = dylan.client.get(relayed["ts_url"])
+    assert got.status_code == 200 and got.content == b"G" * 188 and ts.called
+    assert got.headers["content-type"] == "video/mp2t" and PASSWORD not in relayed["ts_url"]
+    films = dylan.client.post("/v1/tv/phone/play", headers=dylan.h, json={"movie_id": "vod:thomas-creek:101"}).json()
+    assert "ts_url" not in films
