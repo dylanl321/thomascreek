@@ -192,7 +192,9 @@ class Smart:
         if time.time() - self._habits_at > 600:
             self._habits_at = time.time()
             try:
-                self.learn_habits()
+                # A month of activity rows, read and grouped: on the loop this held every call for about 1 s
+                # (live stall at start-up, Nov 21 2026).
+                await asyncio.to_thread(self.learn_habits)
             except Exception as exc:  # noqa: BLE001
                 log.info("smart habits: %s", exc)
         self.hub.bus.publish({"type": "smart", "data": {}})

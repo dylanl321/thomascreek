@@ -371,6 +371,7 @@ SCHEMA += [
 ]
 WATCH_KINDS = ("channels", "series", "movies")
 WATCH_UPSERT = "INSERT OR REPLACE INTO watch_history (bucket, kind, key, data, last) VALUES (?,?,?,?,?)"
+DETAILS_PAGE = 300  # tv_details rows per read in `details_rows`
 
 ADDED_COLUMNS = [
     ("devices", "kind", "TEXT NOT NULL DEFAULT 'phone'"),   # phone | test (a simulator joined with a test key)
@@ -491,8 +492,18 @@ class DB:
         return out
 
     def details_rows(self) -> list[tuple[str, str, str]]:
-        """Every saved page: (bucket, id, JSON text)."""
-        return [(r["bucket"], r["id"], r["data"]) for r in self.all("SELECT bucket, id, data FROM tv_details")]
+        """Every saved page: (bucket, id, JSON text), read a few hundred rows at a time. One read of the whole
+        table held the interpreter for about 1 s at start-up and every call waited (live stall, Nov 21 2026)."""
+        out: list[tuple[str, str, str]] = []
+        last = -1
+        while True:
+            rows = self.all("SELECT rowid AS n, bucket, id, data FROM tv_details WHERE rowid > ? ORDER BY rowid "
+                            "LIMIT ?", [last, DETAILS_PAGE])
+            out.extend((r["bucket"], r["id"], r["data"]) for r in rows)
+            if len(rows) < DETAILS_PAGE:
+                return out
+            last = int(rows[-1]["n"])
+            time.sleep(0)  # let the other threads and the loop run between pages
 
     def details_put(self, rows: list[tuple[str, str, str]]) -> None:
         """Save pages (bucket, id, JSON text) in one transaction."""
