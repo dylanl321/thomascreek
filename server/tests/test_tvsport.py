@@ -282,3 +282,43 @@ def test_a_new_snapshot_still_gets_the_last_sport_answer_at_once(hub, monkeypatc
     assert tvguide._sport_channels(hub, [], None, False, now + 5) == [{"n": 1}]
     assert _time.perf_counter() - began < 1
     gate.set()
+
+
+def test_the_helper_process_matches_the_same_channels_as_the_hub(hub, tmp_path, monkeypatch):
+    """The sport match runs in a helper process with its own copy of the catalog (sidecar.py), read from the same
+    snapshot and database: it gives the same answer as matching in the hub."""
+    from hub import sidecar
+
+    now = datetime.now(timezone.utc)
+    _catalog(hub, now)
+    monkeypatch.setenv("HUB_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("HUB_CONFIG_FILE", str(tmp_path / "none.yaml"))
+    games = tvsport.parse(_nfl(now - timedelta(minutes=40)), tvsport.LEAGUES[0])
+    here = tvsport.match(games, hub.tv_catalog, hub.tv_catalog.basic(None), kids_only=False, now=now.timestamp())
+    try:
+        there = sidecar.sport_match(games, None, False, now.timestamp())
+        kids = sidecar.sport_match(games, None, True, now.timestamp())
+    finally:
+        sidecar.shutdown()
+    assert there == here and there[0]["channels"]
+    assert [c["name"] for c in kids[0]["channels"]] == [
+        c["name"] for c in tvsport.match(games, hub.tv_catalog, hub.tv_catalog.basic(None), kids_only=True,
+                                         now=now.timestamp())[0]["channels"]]
+    assert sidecar.tally()["ok"] >= 2
+
+
+def test_a_helper_that_fails_leaves_the_match_to_the_hub(hub, monkeypatch):
+    from hub import sidecar
+    from hub.routes import tvguide
+
+    now = datetime.now(timezone.utc)
+    _catalog(hub, now)
+    games = tvsport.parse(_nfl(now - timedelta(minutes=40)), tvsport.LEAGUES[0])
+    monkeypatch.setattr(sidecar, "enabled", lambda: True)
+
+    def broken(*args):
+        raise RuntimeError("helper gone")
+
+    monkeypatch.setattr(sidecar, "sport_match", broken)
+    body = tvguide._sport_channels(hub, games, None, False, now.timestamp())
+    assert body and body[0]["home"]["name"] == "Pittsburgh Steelers"
