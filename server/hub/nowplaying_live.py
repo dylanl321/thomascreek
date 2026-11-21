@@ -70,11 +70,22 @@ def tvs_for(h: Any, person: dict[str, Any]) -> list[dict[str, Any]]:
         title = str((playing or {}).get("title") or (playing or {}).get("name") or "").strip()
         if not row.get("online") or not title:
             continue
-        if (raw.get(str(row["id"])) or {}).get("watcher") != person["id"]:
+        tv = raw.get(str(row["id"])) or {}
+        if tv.get("watcher") != person["id"]:
+            continue
+        if _emulator({**row, **tv}):
+            # A test install on the Mac (an Android emulator, an Apple simulator) playing as someone never starts
+            # their Live Activity: walk-throughs as Dylan left one up on his phone he couldn't clear (Nov 21 2026).
             continue
         out.append({"id": str(row["id"]), "name": str(row.get("name") or "TV"), "title": title[:80],
                     "kind": str((playing or {}).get("kind") or "")})
     return out[:MAX_TVS]
+
+
+def _emulator(row: dict[str, Any]) -> bool:
+    from .tvs import _emulator as emulator
+
+    return emulator(row)
 
 
 def state(tvs: list[dict[str, Any]]) -> dict[str, Any]:

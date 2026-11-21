@@ -382,6 +382,18 @@ ADDED_COLUMNS = [
 JSON_COLUMNS = {"decision", "holdings", "source_ids", "areas", "shared_areas", "grants", "denies", "prefs", "activity", "actions", "payload", "params"}
 
 
+KV_KEEP_MAX = 64 * 1024  # a setting's JSON text up to this size is kept between writes
+
+
+def _copy(value: Any) -> Any:
+    """A caller's own copy of a kept read: rows are dicts (with JSON columns parsed), so one level down too."""
+    if isinstance(value, list):
+        return [_copy(v) for v in value]
+    if isinstance(value, dict):
+        return {k: (_copy(v) if isinstance(v, (dict, list)) else v) for k, v in value.items()}
+    return value
+
+
 def new_id(prefix: str) -> str:
     return f"{prefix}_{uuid.uuid4().hex[:20]}"
 
@@ -416,6 +428,9 @@ class DB:
         # a request's small read no longer waits for a worker thread's big write or read on the shared
         # connection (Nov 19 2026: the live hub stalled 3 to 7 s on `kv_get` and `people` behind them).
         self._readers = threading.local()
+        # Small hot reads (people, settings stamps, small settings) kept until the next write: every write goes
+        # through `_conn`, so its change counter moving means something may differ (`_kept`).
+        self._kept: dict[Any, tuple[int, Any]] = {}
         with self._lock:
             self._conn.execute("PRAGMA journal_mode=WAL")
             # In WAL mode NORMAL is SQLite's own advice: the database is never corrupted, and only the last commits
@@ -570,15 +585,44 @@ class DB:
         vals = [json.dumps(v) if k in JSON_COLUMNS and not isinstance(v, str) else v for k, v in values.items()]
         self.execute(f"UPDATE {table} SET {sets} WHERE {key}=?", [*vals, key_value])
 
+    def _kept_read(self, key: Any, read: Any, keep: Any = None) -> Any:
+        """`read()`, kept until the next write to the database. Each SQLite call lets go of the interpreter lock,
+        and getting it back behind a busy worker thread cost the event loop up to a switch interval per query:
+        Home, presence and who's watching ask for the same few rows dozens of times a second, and the loop
+        stalled about a second at a time on them (Nov 21 2026, /v1/ping/stalls). A read is kept only when no
+        write began or finished around it. Callers get their own copy."""
+        conn = self._conn
+        mark = conn.total_changes
+        found = self._kept.get(key)
+        if found is not None and found[0] == mark and not conn.in_transaction:
+            return _copy(found[1])
+        busy = conn.in_transaction
+        value = read()
+        if (not busy and not conn.in_transaction and conn.total_changes == mark
+                and (keep is None or keep(value))):
+            if len(self._kept) > 512:
+                self._kept.clear()
+            self._kept[key] = (mark, value)
+            return _copy(value)
+        return value
+
     # -- small hub-wide settings -------------------------------------------
     def kv_get(self, key: str) -> Any:
-        row = self.one("SELECT value FROM hub_kv WHERE key=?", [key])
-        return json.loads(row["value"]) if row else None
+        def read() -> Any:
+            row = self.one("SELECT value FROM hub_kv WHERE key=?", [key])
+            return row["value"] if row else None
+
+        # Only small values are kept: a big one (the fold state, the catalog) is parsed by its own module.
+        text = self._kept_read(("kv", key), read, lambda t: t is None or len(t) <= KV_KEEP_MAX)
+        return json.loads(text) if text is not None else None
 
     def kv_stamp(self, key: str) -> float | None:
         """When a setting last changed, without reading its value (some hold large maps): from hub_kv_stamps."""
-        row = self.one("SELECT updated_at FROM hub_kv_stamps WHERE key=?", [key])
-        return float(row["updated_at"]) if row else None
+        def read() -> float | None:
+            row = self.one("SELECT updated_at FROM hub_kv_stamps WHERE key=?", [key])
+            return float(row["updated_at"]) if row else None
+
+        return self._kept_read(("stamp", key), read)  # type: ignore[no-any-return]
 
     def kv_set(self, key: str, value: Any) -> None:
         self.kv_set_text(key, json.dumps(value))
@@ -611,10 +655,12 @@ class DB:
     def person(self, person_id: str | None) -> dict[str, Any] | None:
         if not person_id:
             return None
-        return self.one("SELECT * FROM people WHERE id=?", [person_id])
+        return self._kept_read(("person", person_id),  # type: ignore[no-any-return]
+                               lambda: self.one("SELECT * FROM people WHERE id=?", [person_id]))
 
     def people(self) -> list[dict[str, Any]]:
-        return self.all("SELECT * FROM people ORDER BY created_at")
+        return self._kept_read("people",  # type: ignore[no-any-return]
+                               lambda: self.all("SELECT * FROM people ORDER BY created_at"))
 
     def add_person(self, name: str, role: str, **extra: Any) -> dict[str, Any]:
         pid = extra.pop("id", None) or new_id("per")
@@ -623,7 +669,8 @@ class DB:
 
     def people_with_role(self, *roles: str) -> list[dict[str, Any]]:
         q = ",".join("?" * len(roles))
-        return self.all(f"SELECT * FROM people WHERE role IN ({q})", roles)
+        return self._kept_read(("people", roles),  # type: ignore[no-any-return]
+                               lambda: self.all(f"SELECT * FROM people WHERE role IN ({q})", roles))
 
     # -- devices ---------------------------------------------------------
     def device(self, device_id: str) -> dict[str, Any] | None:
