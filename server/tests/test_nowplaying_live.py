@@ -26,9 +26,15 @@ class FakeApns:
         return R()
 
 
-def _playing(home_client, headers, title="Bluey"):
+def _playing(home_client, headers, title="Bluey", person=None):
     body = {"foreground": True, "playing": {"title": title, "kind": "episode"} if title else None}
+    if person:
+        body["person_id"] = person
     assert home_client.post("/v1/tv/state", headers=headers, json=body).status_code == 200
+
+
+def _starts(apns):
+    return sorted(t for t, p, _ in apns.sent if p["aps"]["event"] == "start")
 
 
 def test_start_update_end_and_the_opt_out(hub, home_client, people, monkeypatch):
@@ -42,12 +48,16 @@ def test_start_update_end_and_the_opt_out(hub, home_client, people, monkeypatch)
                              json={"now_playing_start_token": tok, "env": "sandbox"})
         assert r.status_code == 200, r.text
 
+    # Nobody named on the TV: nobody's phone hears about it.
     _playing(home_client, tv_headers, "Bluey")
     asyncio.run(nowplaying_live.sync(hub))
-    starts = [(t, p) for t, p, _ in apns.sent if p["aps"]["event"] == "start"]
-    # Dylan and Avery; not Theo, who can't control that TV.
-    assert sorted(t for t, _ in starts) == ["aa11", "aa22"]
-    payload = starts[0][1]["aps"]
+    assert apns.sent == []
+
+    # Playing under Dylan's name: only Dylan's phone.
+    _playing(home_client, tv_headers, "Bluey", people["dylan"]["id"])
+    asyncio.run(nowplaying_live.sync(hub))
+    assert _starts(apns) == ["aa11"]
+    payload = [p for t, p, _ in apns.sent if t == "aa11"][0]["aps"]
     assert payload["attributes-type"] == "NowPlayingAttributes"
     assert payload["content-state"]["tvs"] == [{"id": payload["content-state"]["tvs"][0]["id"], "name": "Living room",
                                                 "title": "Bluey", "kind": "episode"}]
@@ -62,30 +72,33 @@ def test_start_update_end_and_the_opt_out(hub, home_client, people, monkeypatch)
     # Dylan's phone sends the running activity's token: a change is an update, the same state sends nothing.
     home_client.post("/v1/devices/live-activity", headers=dylan.h,
                      json={"now_playing_activity_token": "bb22", "activity_id": "act1", "env": "sandbox"})
-    _playing(home_client, tv_headers, "Bluey")
+    _playing(home_client, tv_headers, "Bluey", people["dylan"]["id"])
     asyncio.run(nowplaying_live.sync(hub))
     assert apns.sent == []
-    _playing(home_client, tv_headers, "Peppa")
+    _playing(home_client, tv_headers, "Peppa", people["dylan"]["id"])
     asyncio.run(nowplaying_live.sync(hub))
     updates = [(t, p) for t, p, _ in apns.sent if p["aps"]["event"] == "update"]
     assert updates and updates[0][0] == "bb22" and updates[0][1]["aps"]["content-state"]["title"] == "Peppa"
 
-    # The TV stops: Dylan's activity ends.
+    # The TV moves to Avery: Dylan's activity ends, Avery's phone starts.
     apns.sent.clear()
+    _playing(home_client, tv_headers, "Peppa", people["avery"]["id"])
+    asyncio.run(nowplaying_live.sync(hub))
+    assert [t for t, p, _ in apns.sent if p["aps"]["event"] == "end"] == ["bb22"]
+    assert _starts(apns) == ["aa22"]
+
+    # The TV stops.
     _playing(home_client, tv_headers, None)
     asyncio.run(nowplaying_live.sync(hub))
-    ends = [(t, p) for t, p, _ in apns.sent if p["aps"]["event"] == "end"]
-    assert [t for t, _ in ends] == ["bb22"]
 
-    # Dylan switches it off: the next TV start leaves his phone alone.
+    # Dylan switches it off: a show under his name leaves his phone alone.
     r = home_client.put("/v1/alerts", headers=dylan.h, json={"prefs": {"now_playing": False}})
     assert r.status_code == 200, r.text
     assert hub.alerts.prefs(people["dylan"]["id"])["now_playing"] is False
     apns.sent.clear()
-    _playing(home_client, tv_headers, "Bluey")
+    _playing(home_client, tv_headers, "Bluey", people["dylan"]["id"])
     asyncio.run(nowplaying_live.sync(hub))
-    # Neither: Dylan switched it off, and Avery's start for Bluey never came back, so it isn't sent again.
-    assert [t for t, p, _ in apns.sent if p["aps"]["event"] == "start"] == []
+    assert _starts(apns) == []
     assert hub.db.kv_get(f"la_np.{dylan.device_id}") is None
 
 
@@ -98,9 +111,14 @@ def test_a_child_only_sees_tvs_they_may_control(hub, home_client, people, monkey
     theo = people["phones"]["Theo"]
     tv = hub.tv_app.tvs()
     install_id = next(iter(tv))
-    tv[install_id].update(playing={"title": "Late film"}, state_at=__import__("time").time())
+    tv[install_id].update(playing={"title": "Late film"}, state_at=__import__("time").time(),
+                          watcher=people["theo"]["id"])
     hub.tv_app._save_tvs(tv)
     assert nowplaying_live.tvs_for(hub, hub.db.person(people["theo"]["id"])) == []
+    assert nowplaying_live.tvs_for(hub, hub.db.person(people["dylan"]["id"])) == []  # not under his name
+    tv = hub.tv_app.tvs()
+    tv[install_id]["watcher"] = people["dylan"]["id"]
+    hub.tv_app._save_tvs(tv)
     assert nowplaying_live.tvs_for(hub, hub.db.person(people["dylan"]["id"]))[0]["title"] == "Late film"
     home_client.post("/v1/devices/live-activity", headers=theo.h, json={"now_playing_start_token": "cc33"})
     asyncio.run(nowplaying_live.sync(hub))
@@ -120,7 +138,7 @@ def test_a_start_that_never_came_back_alerts_once(hub, home_client, people, monk
         return [t for t, p, _ in apns.sent if p["aps"]["event"] == "start" and t == "aa11"]
 
     t0 = 1_800_000_000.0
-    _playing(home_client, tv_headers, "AR Sport 1")
+    _playing(home_client, tv_headers, "AR Sport 1", people["dylan"]["id"])
     asyncio.run(nowplaying_live.sync(hub, now=t0))
     assert starts() == ["aa11"]
     # The phone never answers with its activity token. Hours on the same channel: no second alert.
@@ -129,11 +147,11 @@ def test_a_start_that_never_came_back_alerts_once(hub, home_client, people, monk
     # The stream drops and comes back: still no second alert.
     _playing(home_client, tv_headers, None)
     asyncio.run(nowplaying_live.sync(hub, now=t0 + 3_000))
-    _playing(home_client, tv_headers, "AR Sport 1")
+    _playing(home_client, tv_headers, "AR Sport 1", people["dylan"]["id"])
     asyncio.run(nowplaying_live.sync(hub, now=t0 + 3_100))
     assert starts() == ["aa11"]
     # Something else on, soon after: it waits.
-    _playing(home_client, tv_headers, "Bluey")
+    _playing(home_client, tv_headers, "Bluey", people["dylan"]["id"])
     asyncio.run(nowplaying_live.sync(hub, now=t0 + 3_200))
     assert starts() == ["aa11"]
     # Something else, hours later: one new start.
