@@ -77,6 +77,9 @@ IDLE_S = 90
 # freed login "full" and plays waited until the phone gave up).
 USAGE_FRESH_S = 90
 FAIL_S = 600
+# A provider that refuses one channel on one login in every format (405) keeps refusing it for hours while another
+# login plays it (Nov 21 2026, a sports channel): that pair is set aside this long, so plays go to the login that works.
+REFUSED_S = 6 * 3600
 QUALITY = {"2160p": 0, "1080p": 1, "720p": 2, "sd": 3}
 # A copy whose name starts with another language's tag ("TR - Community", "|DE| ...", "[FR]") or says it is
 # dubbed is not played unless it is the copy asked for: the house watches in English, and a show folded with its
@@ -1002,13 +1005,15 @@ async def read_twins(h: Any, ref: str, *, budget_s: float = 4.0) -> int:
 @_pooled
 def refused(h: Any, holder: str, now: float | None = None) -> bool:
     """The provider refused the stream `holder` leased in every format (Nov 21 2026: 405 to a sports channel's `.ts`
-    and `.m3u8` on one login while others played). That copy on that login is set aside for FAIL_S and the lease
-    freed, so the next play takes another copy or login. False when the holder has no lease."""
+    and `.m3u8` on one login while another login played it). That copy on that login is set aside, for REFUSED_S
+    when another login of the provider can take it (plays go there for hours) or FAIL_S when it is the only one (a
+    short outage doesn't hide the channel for hours), and the lease freed. False when the holder has no lease."""
     now = time.time() if now is None else now
     row = next((item for item in _sessions(h) if item.get("tv") == holder), None)
     if row is None:
         return False
-    _mark_failed(h, row, now)
+    others = [lg for lg in logins(h) if lg["provider"] == row.get("provider") and lg["login"] != row.get("login")]
+    _mark_failed(h, row, now, REFUSED_S if others else FAIL_S)
     _drop(h, str(row.get("session")))
     return True
 
@@ -1025,11 +1030,12 @@ def all_refused(h: Any, ref: str, now: float | None = None) -> bool:
     return bool(marks) and all(mark in failed for mark in marks)
 
 
-def _mark_failed(h: Any, row: dict[str, Any], now: float) -> None:
+def _mark_failed(h: Any, row: dict[str, Any], now: float, for_s: float = FAIL_S) -> None:
     fails = h.db.kv_get("iptv.fails") or {}
     if not isinstance(fails, dict):
         fails = {}
-    fails[f"{row.get('provider')}|{row.get('login')}|{row.get('ref')}"] = now + FAIL_S
+    fails = {key: until for key, until in fails.items() if float(until or 0) > now}
+    fails[f"{row.get('provider')}|{row.get('login')}|{row.get('ref')}"] = now + for_s
     h.db.kv_set("iptv.fails", fails)
 
 
