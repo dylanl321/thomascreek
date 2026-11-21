@@ -50,7 +50,9 @@ struct DeviceTile: View {
                       on: d["state"]?.string == "playing", tint: Theme.accent, big: big) { router.go(.music) }
         case .garage:
             let open = d["open"]?.bool == true
-            StateTile(symbol: open ? "door.garage.open" : "door.garage.closed", title: d.name, detail: open ? "Open" : "Closed",
+            let remote = RemoteLock(d).map { $0.locked ? " · Remote lock on" : "" } ?? ""
+            StateTile(symbol: open ? "door.garage.open" : "door.garage.closed", title: d.name,
+                      detail: (open ? "Open" : "Closed") + remote,
                       on: open, tint: Theme.warn, big: big) {
                 store.perform("garage.set", target: d.id, params: ["open": !open], confirm: "\(open ? "Close" : "Open") \(d.name)",
                               done: "\(d.name) \(open ? "closing" : "opening")")
@@ -410,5 +412,49 @@ extension DeviceItem {
             return String(name.dropFirst(prefix.count))
         }
         return name
+    }
+}
+
+/// A garage opener's own lock (the hub's `remote_lock` on a garage door). It only stops the remotes and keypad
+/// from opening that door; it is not a door lock, so it never shows as an unlocked door.
+struct RemoteLock {
+    var id: String
+    var locked: Bool
+    var available: Bool
+    var canSet: Bool
+    init?(_ d: DeviceItem) {
+        guard let o = d["remoteLock"]?.object, let id = o["id"]?.string else { return nil }
+        self.id = id
+        locked = o["locked"]?.bool == true
+        available = (o["available"]?.bool ?? true)
+        canSet = (o["can_set"] ?? o["canSet"])?.bool == true
+    }
+}
+
+/// "Remote lock" row under a garage door on Doors: on means the remotes and keypad can't open it.
+struct RemoteLockRow: View {
+    @Environment(HomeStore.self) private var store
+    let garage: DeviceItem
+    let lock: RemoteLock
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: lock.locked ? "lock.fill" : "lock.open").foregroundStyle(Theme.dim).frame(width: 24)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(garage.name).font(.subheadline.weight(.semibold))
+                Text(!lock.available ? "Remote lock not responding" : lock.locked ? "Remote lock on: remotes can't open it"
+                     : "Remote lock off").font(.footnote).foregroundStyle(Theme.dim)
+            }
+            Spacer()
+            if lock.canSet && lock.available {
+                Button(lock.locked ? "Turn off" : "Turn on") {
+                    store.perform("lock.set", target: lock.id, params: ["locked": !lock.locked],
+                                  confirm: "Turn \(lock.locked ? "off" : "on") the remote lock on \(garage.name)",
+                                  done: "Remote lock \(lock.locked ? "off" : "on")")
+                }
+                .buttonStyle(.bordered)
+            }
+        }
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 14).fill(Theme.card))
     }
 }

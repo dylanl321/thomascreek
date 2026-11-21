@@ -30,7 +30,8 @@ DOMAIN_KIND = {
 KIND_ACTIONS = {
     "light": ["light.set"], "fan": ["fan.set"], "switch": ["switch.set"], "climate": ["climate.set"],
     "select": ["select.set"],
-    "lock": ["lock.set"], "garage": ["garage.set"], "media": ["media.command", "media.volume", "media.play"],
+    "lock": ["lock.set"], "garage_lock": ["lock.set"],
+    "garage": ["garage.set"], "media": ["media.command", "media.volume", "media.play"],
     "speaker": ["media.command", "media.volume", "speaker.group"], "vacuum": ["vacuum.start"],
     "valve": ["valve.run"], "shower": ["shower.preheat"], "oven": ["oven.set", "oven.timer"], "camera": ["camera.view"],
 }
@@ -72,10 +73,63 @@ def is_irrigation_zone(state: dict[str, Any]) -> bool:
         NOT_A_ZONE.search(name) or NOT_A_ZONE.search(eid.replace("_", " ")))
 
 
+# A garage opener's own "lock" (ratgdo's "Lock remotes", MyQ, Tailwind and the like) only stops the remotes
+# and keypad from opening that door. It is not a door lock: it must never count as an unlocked door. The hub
+# tags such a lock's state with the garage cover it belongs to (see `garage_lock_pairs`), and it is shown on
+# that garage door as its remote lock instead of as a lock of its own.
+GARAGE_LOCK_KEY = "tc_garage_of"
+
+
+def _words(name: str) -> list[str]:
+    return re.findall(r"[a-z0-9]+", name.lower())
+
+
+def garage_lock_pairs(states: dict[str, dict[str, Any]], entity_device: dict[str, str],
+                      entity_area: dict[str, str]) -> dict[str, str]:
+    """Each lock that belongs to a garage door opener, with that garage cover.
+
+    Home Assistant's device registry decides when it is known: a lock on the same device as a garage cover is
+    the opener's lock. Without the registry (or for an opener split into two devices), a lock in the garage's
+    room whose name starts with the same two or more words as the garage's ("Large Garage Door Lock" and
+    "Large Garage Door Garage Door") is taken as the opener's. A real door lock such as "Garage Entry Door"
+    shares no leading words with "Large Garage Door ..." and stays a lock.
+    """
+    covers = [e for e, st in states.items() if e.startswith("cover.")
+              and (st.get("attributes") or {}).get("device_class") in ("garage", "gate")]
+    if not covers:
+        return {}
+    by_device = {entity_device[c]: c for c in covers if c in entity_device}
+    out: dict[str, str] = {}
+    for eid, st in states.items():
+        if not eid.startswith("lock."):
+            continue
+        dev = entity_device.get(eid)
+        if dev and dev in by_device:
+            out[eid] = by_device[dev]
+            continue
+        name = _words(str((st.get("attributes") or {}).get("friendly_name") or ""))
+        best, best_n = None, 1
+        for c in covers:
+            a_lock, a_cover = entity_area.get(eid), entity_area.get(c)
+            if a_lock and a_cover and a_lock != a_cover:
+                continue
+            cname = _words(str((states[c].get("attributes") or {}).get("friendly_name") or ""))
+            n = 0
+            while n < min(len(name), len(cname)) and name[n] == cname[n]:
+                n += 1
+            if n > best_n:
+                best, best_n = c, n
+        if best:
+            out[eid] = best
+    return out
+
+
 def kind_for(state: dict[str, Any]) -> str | None:
     eid: str = state["entity_id"]
     domain = eid.split(".", 1)[0]
     attrs = state.get("attributes", {})
+    if domain == "lock" and state.get(GARAGE_LOCK_KEY):
+        return "garage_lock"
     if domain == "cover":
         return "garage" if attrs.get("device_class") in ("garage", "gate") else None
     if domain == "media_player":
@@ -216,6 +270,9 @@ class HomeModel:
         self.ha_devices: dict[str, dict[str, Any]] = {}
         self.entity_device: dict[str, str] = {}
         self.platforms: dict[str, str] = {}
+        # Garage openers' own locks (lock entity -> its garage cover); see GARAGE_LOCK_KEY.
+        self.garage_locks: dict[str, str] = {}
+        self.remote_locks: dict[str, str] = {}  # garage cover -> its opener's lock
         # Rooms as Home Assistant has them, before the layout's moves and borrowed TV rooms.
         self.ha_area: dict[str, str] | None = None
         self.base_areas: dict[str, dict[str, Any]] = {}
@@ -364,6 +421,22 @@ class HomeModel:
         self.ha_area = dict(self.entity_area)
         self.recompute()
 
+    def _tag_garage_locks(self) -> None:
+        """Mark garage openers' locks so every reader treats them as the garage's remote lock, not a door."""
+        self.garage_locks = garage_lock_pairs(self.states, self.entity_device, self.ha_area or self.entity_area)
+        self.remote_locks = {}
+        for lock, cover in self.garage_locks.items():
+            self.remote_locks.setdefault(cover, lock)
+        for eid, st in self.states.items():
+            if eid in self.garage_locks:
+                st[GARAGE_LOCK_KEY] = self.garage_locks[eid]
+            elif eid.startswith("lock."):
+                st.pop(GARAGE_LOCK_KEY, None)
+
+    def event_id(self, eid: str) -> str:
+        """The device a change belongs to on screen: an opener's lock change updates its garage door."""
+        return self.garage_locks.get(eid, eid)
+
     def recompute(self) -> None:
         """Apply the TV picks and the admin's layout (moves, room names and icons) to the raw HA rooms."""
         from .catalog import pick_screens
@@ -385,6 +458,7 @@ class HomeModel:
             if a in self.base_areas:
                 ea[e] = a
         self.entity_area = ea
+        self._tag_garage_locks()
         areas = {}
         for k, v in self.base_areas.items():
             r = self.layout.room(k)
@@ -422,6 +496,7 @@ class HomeModel:
         before = {e for e in self.states if e.startswith("media_player.")}, \
             {e for e, st in self.states.items() if e.startswith("media_player.") and st.get("state") == "unavailable"}
         self.states = fresh
+        self._tag_garage_locks()
         self._learn_apps(first)
         after = {e for e in fresh if e.startswith("media_player.")}, \
             {e for e, st in fresh.items() if e.startswith("media_player.") and st.get("state") == "unavailable"}
@@ -429,7 +504,7 @@ class HomeModel:
             self.recompute()
         if first:
             return
-        for eid in changed:
+        for eid in dict.fromkeys(self.event_id(e) for e in changed):
             if eid in self.entity_area or eid in self.hub.config.favorites:
                 self.hub.bus.publish({"type": "device", "entity_id": eid})
 
@@ -474,6 +549,7 @@ class HomeModel:
     def publish_soon(self, eids: list[str] | set[str]) -> None:
         """Send `device` events for these entities after a short gathering pause (one per entity)."""
         for eid in eids:
+            eid = self.event_id(eid)
             if eid in self.entity_area or eid in self.hub.config.favorites:
                 self._dirty.add(eid)
         if not self._dirty or (self._flush is not None and not self._flush.done()):
@@ -529,7 +605,7 @@ class HomeModel:
         if st is None:
             return None
         kind = kind_for(st)
-        if kind is None:
+        if kind is None or kind == "garage_lock":  # shown on its garage door as `remote_lock`
             return None
         if not self.listed(eid, s) and not (include_hidden and eid in self.layout.hidden):
             return None
@@ -549,6 +625,8 @@ class HomeModel:
         state = device_state(kind, st, self.media_links.get(eid))
         if kind == "media" and (tv := self.hub.hookups.summary(eid)):
             state["plugged_into"] = tv  # this box sits on that TV's input; the hub wakes and switches it
+        if kind == "garage" and (rl := self.remote_lock(eid, s)):
+            state["remote_lock"] = rl
         if kind == "valve" and state.get("on"):
             left = self.hub.actions.valve_remaining(eid)
             if left is not None:
@@ -566,6 +644,21 @@ class HomeModel:
         if include_hidden:
             out["hidden"] = eid in self.layout.hidden
         return out
+
+    def remote_lock(self, cover: str, s: Subject) -> dict[str, Any] | None:
+        """The garage opener's remote lock for this door: {id, name, locked, available, can_set}.
+
+        "locked" means the remotes and keypad can't open the door; the app shows it as "Remote lock on/off".
+        """
+        lock = self.remote_locks.get(cover)
+        st = self.states.get(lock or "")
+        if not lock or st is None:
+            return None
+        target = Target(entity_id=lock, area=self.entity_area.get(cover), kind="garage_lock")
+        return {"id": lock, "name": (st.get("attributes") or {}).get("friendly_name", lock),
+                "locked": st.get("state") == "locked",
+                "available": st.get("state") not in ("unavailable", "unknown"),
+                "can_set": self.hub.policy.decide(s, "lock.set", target, {}).allowed}
 
     def snapshot(self, s: Subject, open_home: bool = False) -> dict[str, Any]:
         cfg = self.hub.config

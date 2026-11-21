@@ -251,6 +251,11 @@ struct DoorsView: View {
                     LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
                         ForEach(garages) { DeviceTile(device: $0, big: true) }
                     }
+                    let remote = garages.compactMap { g in RemoteLock(g).map { (g, $0) } }
+                    if !remote.isEmpty {
+                        SectionHeader("Remote locks")
+                        ForEach(remote, id: \.0.id) { RemoteLockRow(garage: $0.0, lock: $0.1) }
+                    }
                 }
                 if !locks.isEmpty {
                     SectionHeader("Locks", live: true)

@@ -35,7 +35,7 @@ log = logging.getLogger("hub.actions")
 ACTION_KINDS: dict[str, tuple[str, ...]] = {
     "light.set": ("light",), "fan.set": ("fan",), "switch.set": ("switch",), "climate.set": ("climate",),
     "select.set": ("select",),
-    "lock.set": ("lock",), "garage.set": ("garage",), "media.command": ("media", "speaker"),
+    "lock.set": ("lock", "garage_lock"), "garage.set": ("garage",), "media.command": ("media", "speaker"),
     "media.volume": ("media", "speaker"), "media.play": ("media", "speaker"), "speaker.group": ("speaker",),
     "vacuum.start": ("vacuum",), "valve.run": ("valve", "switch"), "shower.preheat": ("shower",),
     "camera.view": ("camera",), "oven.set": ("oven",), "oven.timer": ("oven",),
@@ -928,7 +928,7 @@ class ActionRunner:
                target=plan.target.entity_id, params=_safe(plan.params), detail=detail, source=source)
         if live and plan.target.entity_id and not plan.action.startswith("printer.") and \
                 (plan.custom is not None or not replied):
-            self.hub.bus.publish({"type": "device", "entity_id": plan.target.entity_id})
+            self.hub.bus.publish({"type": "device", "entity_id": self.hub.home.event_id(plan.target.entity_id)})
         await self._notice(s, plan, outcome)
         out: dict[str, Any] = {"ok": True, "message": msg, "dry_run": not live}
         if isinstance(plan.custom, dict) and plan.custom.get("job"):
