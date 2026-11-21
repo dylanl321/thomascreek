@@ -3,7 +3,7 @@
 Reading a provider means downloading lists of up to 150,000 rows and a guide of hundreds of MB, parsing them,
 writing the snapshot and folding every provider's titles together. In the hub's own process that work holds
 Python's interpreter lock for seconds at a time even inside a worker thread, so every TV, phone and heartbeat
-waited behind it (Nov 19 2026). Here the same code runs in a child process (`hub catalog refresh|extras`), at a
+waited behind it (Nov 19 2026). Here the same code runs in a child process (`hub catalog refresh|extras|report`), at a
 lower CPU priority, and the hub only waits for it without blocking: requests keep being answered from the last
 snapshot, and the hub reads the new files when the child is done.
 
@@ -72,7 +72,7 @@ async def run(job: str) -> dict[str, Any]:
 
 
 def child_main(job: str) -> int:
-    """`hub catalog refresh|extras`: read the provider lists in this process and print one JSON result line."""
+    """`hub catalog refresh|extras|report`: read the provider lists in this process and print one JSON result line."""
     from .config import data_dir, load_config
     from .db import DB
     from .tvapp import TvAppError
@@ -100,6 +100,9 @@ def child_main(job: str) -> int:
             extras = catalog.__dict__.get("_extra_result") or {}
         elif job == "extras":
             extras = asyncio.run(catalog.refresh_extras_here())
+        elif job == "report":  # count the stored lists again; nothing is downloaded
+            catalog.write_playlist_report()
+            extras = {}
         else:
             print(json.dumps({"ok": False, "status": 400, "error": "bad_request", "message": f"unknown job {job}"}))
             return 2

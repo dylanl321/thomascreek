@@ -52,3 +52,13 @@ async def catalog_split(body: dict[str, Any], c: Caller = Depends(caller), h=Dep
     if not result:
         raise error(404, "not_found", "That title isn't in the catalog.")
     return result
+
+
+@router.get("/playlists")
+async def catalog_playlists(c: Caller = Depends(caller), h=Depends(hub)) -> dict[str, Any]:
+    """What each provider's playlist holds and what the hub's cleaners make of it (hub/playlists.py). Counted at
+    the end of every provider read; `building` is true while a first or newer one is being counted."""
+    need(h, c, "systems")
+    building = h.tv_catalog.playlist_report_soon()
+    report = await asyncio.to_thread(h.tv_catalog.playlist_report)
+    return {**report, "building": building, "ready": bool(report)}

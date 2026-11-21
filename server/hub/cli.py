@@ -1,7 +1,7 @@
 """`hub` command line, run inside the container on the NAS.
 
   hub serve                          start the hub
-  hub catalog refresh|extras         read the provider lists (the hub runs this itself, in a child process)
+  hub catalog refresh|extras|report  read the provider lists (the hub runs this itself, in a child process)
   hub init-key PATH                  write a new 32-byte master key file
   hub secrets list|set NAME|delete NAME|sync   (sync: copy from 1Password now)
   hub check                          read-only connection test of every service
@@ -214,7 +214,7 @@ def main(argv: list[str] | None = None) -> None:
     d.add_argument("device", nargs="?")
     d.add_argument("person", nargs="?")
     cj = sub.add_parser("catalog")
-    cj.add_argument("job", choices=["refresh", "extras"])
+    cj.add_argument("job", choices=["refresh", "extras", "report"])
     b = sub.add_parser("bootstrap-admin")
     b.add_argument("name")
     b.add_argument("device")
