@@ -256,3 +256,31 @@ def test_a_channel_without_hls_plays_as_one_ts_stream(hub, people, monkeypatch):
     assert got.headers["content-type"] == "video/mp2t" and PASSWORD not in relayed["ts_url"]
     films = dylan.client.post("/v1/tv/phone/play", headers=dylan.h, json={"movie_id": "vod:thomas-creek:101"}).json()
     assert "ts_url" not in films
+
+
+def test_the_hub_remembers_a_channel_without_hls_and_leads_with_its_ts(hub, people, monkeypatch):
+    """After the provider answers 405 to a channel's `.m3u8`, the next play leads with its `.ts` (no failed first
+    try on the phone), keeps the `.m3u8` as a fallback, and forgets it once a playlist plays again."""
+    _library(hub)
+    _login(hub)
+    monkeypatch.setattr(hub.config.hub, "remote_url", "https://hub.example/")
+    dylan = people["phones"]["Dylan"]
+
+    def play(direct: bool) -> dict:
+        body = {"channel_key": "xc:thomas-creek:10", **({"player": "vlc", "direct": True} if direct else {})}
+        return dylan.client.post("/v1/tv/phone/play", headers=dylan.h, json=body).json()
+
+    first = play(True)
+    assert first["url"].endswith(".m3u8") and "hls" not in first
+    relayed = play(False)
+    with respx.mock(assert_all_called=False) as mock:
+        hls = mock.get(f"{SERVER}/live/household/{PASSWORD}/10.m3u8").mock(return_value=httpx.Response(405))
+        assert dylan.client.get(relayed["url"]).status_code == 502
+        again = play(True)
+        assert again["hls"] is False and again["url"] == again["ts_urls"][0] and again["url"].endswith("/10.ts")
+        assert again["alternates"][0].endswith("/10.m3u8") and again["alternates"][-1].endswith("/index.m3u8")
+        relayed = play(False)
+        assert relayed["hls"] is False
+        hls.mock(return_value=httpx.Response(200, text="#EXTM3U\n#EXTINF:6,\nseg1.ts\n"))
+        assert dylan.client.get(relayed["url"]).status_code == 200
+    assert "hls" not in play(True)
