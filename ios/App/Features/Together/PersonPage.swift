@@ -100,7 +100,10 @@ struct PersonPage: View {
     }
 
     private var presence: String {
-        let since = member?.sinceDate.map { " since \($0.formatted(date: .omitted, time: .shortened))" } ?? ""
+        let since = member?.sinceDate.map { d in
+            Calendar.current.isDateInToday(d) ? " since \(d.formatted(date: .omitted, time: .shortened))"
+                : " since \(d.formatted(.dateTime.weekday(.abbreviated).hour().minute()))"
+        } ?? ""
         let how: String = switch member?.source {
         case "wifi": " · on home Wi-Fi"
         case "phone": " · by their iPhone"

@@ -1,5 +1,6 @@
 import SwiftUI
 import CoreLocation
+import os
 
 // MARK: - "Last one out?"
 
@@ -102,6 +103,8 @@ struct DepartureView: View {
 
 // MARK: - Arriving and leaving (geofence)
 
+private let presenceLog = Logger(subsystem: "ThomasCreek", category: "presence")
+
 /// Watches a circle round the house and tells the hub when this person arrives or leaves.
 /// The hub decides whether they were the last one out (and pushes the check) or runs their welcome mode.
 ///
@@ -113,11 +116,12 @@ final class PresenceMonitor: NSObject, CLLocationManagerDelegate {
     static let shared = PresenceMonitor()
     static let settingKey = "app.family.arrivals"
     static let lastStateKey = "app.family.circleState"   // "inside" / "outside": tells a crossing from a refresh
-    static let monitorName = "thomascreek.presence"
+    static let monitorName = "ThomasCreekPresence"   // letters only: CLMonitor aborts the app on a name with a dot
     static let conditionID = "thomascreek.home"
     static let radius: CLLocationDistance = 150
     private let manager = CLLocationManager()   // only for the "Always" permission and a one-off fix at home
     private var monitor: CLMonitor?
+    private var opening: Task<CLMonitor, Never>?   // launch calls start() twice; iOS aborts on a second monitor of one name
     private var listening: Task<Void, Never>?
     private var pendingSetup = false
 
@@ -169,7 +173,10 @@ final class PresenceMonitor: NSObject, CLLocationManagerDelegate {
 
     private func openMonitor() async -> CLMonitor {
         if let m = monitor { return m }
-        let m = await CLMonitor(Self.monitorName)
+        if let o = opening { return await o.value }
+        let o = Task { await CLMonitor(Self.monitorName) }
+        opening = o
+        let m = await o.value
         monitor = m
         listening = Task { [weak self] in
             do {
@@ -216,7 +223,10 @@ final class PresenceMonitor: NSObject, CLLocationManagerDelegate {
         switch state {
         case .satisfied: now = "inside"
         case .unsatisfied: now = "outside"
-        default: return
+        default:
+            // .unknown or .unmonitored: iOS isn't watching the circle; Wi-Fi still tells the hub who's home.
+            presenceLog.info("circle not monitored (state \(String(describing: state), privacy: .public))")
+            return
         }
         let before = UserDefaults.standard.string(forKey: Self.lastStateKey)
         if before == now && !refreshOnly { return }
