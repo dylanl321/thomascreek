@@ -6,7 +6,7 @@ import asyncio
 import json
 from typing import Any
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -25,10 +25,15 @@ router = APIRouter(prefix="/v1", tags=["home"])
 
 
 @router.get("/home")
-async def home(plan: str | None = None, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
+async def home(response: Response, plan: str | None = None, c: Caller = Depends(caller),
+               h: Hub = Depends(hub)) -> dict[str, Any]:
     """`?plan=open` comes from the app's Home screen: only then may the house brain re-plan the layout.
-    Widgets, Siri and the assistant get the last plan without starting a model call."""
-    return h.home.snapshot(c.subject, open_home=plan == "open")
+    Widgets, Siri and the assistant get the last plan without starting a model call. `Server-Timing` names
+    each part's milliseconds."""
+    timing: dict[str, float] = {}
+    snap = h.home.snapshot(c.subject, open_home=plan == "open", timing=timing)
+    response.headers["Server-Timing"] = ", ".join(f"{name};dur={ms}" for name, ms in timing.items())
+    return snap
 
 
 def _bedtime_data(ev: dict[str, Any]) -> dict[str, Any]:

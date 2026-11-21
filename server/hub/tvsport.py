@@ -202,6 +202,9 @@ def parse(body: dict[str, Any], league: tuple[str, str, str, str, str]) -> list[
     return out
 
 
+SAVED_KEY = "tv.sport.boards"  # the last board per league, read back after a restart
+
+
 class Sport:
     """Scoreboards kept for a minute while something is live, a quarter hour otherwise."""
 
@@ -213,6 +216,34 @@ class Sport:
         self._failed: set[str] = set()
         self._lock = asyncio.Lock()
         self._refreshing: asyncio.Task[None] | None = None
+        self._load_saved()
+
+    def _load_saved(self) -> None:
+        """The last boards, kept on the hub, so the first /v1/tv/sport after a restart answers at once and refreshes
+        behind instead of waiting on ESPN (Nov 21 2026: 9 s for the first call after a restart)."""
+        db = getattr(self.hub, "db", None)
+        try:
+            saved = db.kv_get(SAVED_KEY) if db is not None else None
+        except Exception:  # noqa: BLE001  no saved boards: the first call asks ESPN as before
+            saved = None
+        if not isinstance(saved, dict):
+            return
+        names = {league[0] for league in LEAGUES}
+        for name, row in saved.items():
+            if name in names and isinstance(row, list) and len(row) == 2 and isinstance(row[1], list):
+                try:
+                    self._boards[name] = (float(row[0]), row[1])
+                except (TypeError, ValueError):
+                    continue
+
+    def _save(self) -> None:
+        db = getattr(self.hub, "db", None)
+        if db is None:
+            return
+        try:
+            db.kv_set(SAVED_KEY, {name: [at, games] for name, (at, games) in self._boards.items()})
+        except Exception as exc:  # noqa: BLE001  the boards stay in memory
+            log.info("sport: saving boards failed (%s)", type(exc).__name__)
 
     def _zone(self) -> ZoneInfo:
         try:
@@ -281,6 +312,7 @@ class Sport:
                 async with httpx.AsyncClient(timeout=8, transport=self._transport,
                                              headers={"User-Agent": "ThomasCreekHub"}) as client:
                     await asyncio.gather(*(self._fetch(client, league, now) for league in stale))
+                self._save()
 
     # -- other days and league pages (#208) ----------------------------------------------------------------------
     def day_of(self, value: str | None, now: float) -> str | None:

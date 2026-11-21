@@ -197,3 +197,58 @@ def test_old_scores_answer_at_once_and_refresh_once_behind(hub):
     first, took = asyncio.run(run())
     assert took < 0.2  # nobody waited for ESPN
     assert route.call_count == 2 * first  # one refresh for four callers
+
+
+def test_boards_come_back_after_a_restart(hub):
+    """The last boards are kept on the hub: a new feed (a restart) answers from them at once and refreshes behind,
+    instead of waiting on ESPN (Nov 21 2026, 9 s for the first call after a restart)."""
+    import asyncio
+    import time as _time
+
+    from hub import tvsport
+
+    now = _time.time()
+    game = {"id": "g1", "league": tvsport.LEAGUES[0][0], "state": "live", "start": now - 600, "kind": tvsport.TEAM,
+            "home": None, "away": None, "broadcasts": []}
+    first = tvsport.Sport(hub)
+    for league in tvsport.LEAGUES:
+        first._boards[league[0]] = (now, [game] if league[0] == game["league"] else [])
+    first._save()
+    again = tvsport.Sport(hub)
+    assert again._boards[game["league"]][1] == [game]
+    assert all(again._boards.get(league[0]) is not None for league in tvsport.LEAGUES)
+    assert asyncio.run(again.games(now)) == [game]
+
+
+def test_sport_channels_answer_the_last_match_while_the_next_is_worked_out(hub, monkeypatch):
+    """The minute's first /v1/tv/sport gets the last match at once; the new one is worked out behind it."""
+    import threading
+    import time as _time
+
+    from hub import tvsport
+    from hub.routes import tvguide
+
+    gate = threading.Event()
+    calls = []
+
+    def match(games, catalog, basic, *, kids_only, now):
+        calls.append(now)
+        if len(calls) > 1:
+            gate.wait(5)
+        return [{"n": len(calls)}]
+
+    monkeypatch.setattr(tvsport, "match", match)
+    monkeypatch.setattr(hub.tv_catalog, "basic", lambda home: None)
+    doc: dict = {"channels": []}
+    monkeypatch.setattr(hub.tv_catalog, "load", lambda: doc)
+    now = 1_800_000_000.0
+    assert tvguide._sport_channels(hub, [], None, False, now) == [{"n": 1}]
+    began = _time.perf_counter()
+    assert tvguide._sport_channels(hub, [], None, False, now + 61) == [{"n": 1}]  # last answer, not waiting
+    assert _time.perf_counter() - began < 1
+    gate.set()
+    for _ in range(50):
+        if hub.__dict__.get("_sport_last", {}).get((id(hub.tv_catalog.load()), False), (0, None))[1] == [{"n": 2}]:
+            break
+        _time.sleep(0.02)
+    assert tvguide._sport_channels(hub, [], None, False, now + 61) == [{"n": 2}]
