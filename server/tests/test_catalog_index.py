@@ -174,6 +174,21 @@ def test_search_shows_one_card_for_a_channel_the_provider_lists_several_times(hu
     assert len(cat.lineup(kids_only=False)["channels"]) == len(doc["channels"])
 
 
+def test_search_keeps_two_countries_channels_of_one_name_apart(hub):
+    """ "CL| ESPN 2" and "ESPN 2" in one category were folded into one card, and the American one was gone
+    (Nov 21 2026). The provider's marker in front of the name tells them apart; feeds behind one marker still fold."""
+    cat = hub.tv_catalog
+    doc = _doc(5)
+    for i, name in enumerate(["ESPN 2", "CL| ESPN 2", "CL| ESPN 2 HD", "US: ESPN 2", "ESPN 2 FHD"]):
+        doc["channels"][i].update(name=name, category="Sports")
+    cat._write(doc)
+    cards = cat.search("espn", kids_only=False)["channels"]
+    assert [c["key"] for c in cards] == ["xc:0", "xc:1", "xc:3"]
+    assert [x["key"] for x in cards[0]["copies"]] == ["xc:4"]
+    assert [x["key"] for x in cards[1]["copies"]] == ["xc:2"]
+    assert "copies" not in cards[2]
+
+
 def test_grown_up_cartoon_channels_in_a_kids_category_are_not_for_kids(hub):
     """Providers file "Adult Swim" with the kids' channels. The lineup, the guide and search keep it from a child;
     a grown-up's own kids switch on a channel still wins."""
