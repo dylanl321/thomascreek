@@ -157,6 +157,30 @@ def save_installed(h: Any, install_id: str, apps: Any) -> dict[str, Any]:
     return {"ok": True, "count": len(out)}
 
 
+# When the hub last set a box up again because the TV said its guard was off (install id -> monotonic seconds).
+_guard_fix: dict[str, float] = {}
+GUARD_RETRY_S = 600.0
+
+
+def guard_off(h: Any, install_id: str, guard: object) -> bool:
+    """A launcher TV that says its Home-button guard is off gets home and guard set again, at most every 10 minutes.
+
+    Reinstalling the same build turns the accessibility guard off without a version change, so the TV's Home button
+    opened Google TV again (office Hisense, tc.35 walkthrough 3, Nov 22 2026). The TV reports `launcher_guard`."""
+    if guard is not False:
+        return False
+    tv = h.tv_app.tvs().get(install_id) or {}
+    if not view(tv)["on"]:
+        return False
+    now = time.monotonic()
+    if now - _guard_fix.get(install_id, -GUARD_RETRY_S) < GUARD_RETRY_S:
+        return False
+    _guard_fix[install_id] = now
+    log.info("tvlauncher: %s says its guard is off, setting home and guard again", install_id)
+    start_apply(h, install_id)
+    return True
+
+
 def after_install(h: Any, install_id: str, version_before: object) -> bool:
     """A launcher TV that now runs another app build sets its home screen and guard again.
 

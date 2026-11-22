@@ -603,6 +603,8 @@ class HealthIn(BaseModel):
     epg_age_s: int | None = None
     last_error: str | None = Field(default=None, max_length=300)
     home_crashes: int | None = None
+    # A launcher TV: whether its Home-button guard is on (hub/tvlauncher.guard_off)
+    launcher_guard: bool | None = None
 
 
 class StateIn(BaseModel):
@@ -626,7 +628,8 @@ async def tv_state(body: StateIn, c: Caller = Depends(caller), h: Hub = Depends(
         data = h.tv_app.record_state(install_id, body.model_dump())
         from .. import tvlauncher
 
-        tvlauncher.after_install(h, install_id, version_before)
+        if not tvlauncher.after_install(h, install_id, version_before) and body.health is not None:
+            tvlauncher.guard_off(h, install_id, body.health.launcher_guard)
         data["watching"] = tvwho.current(h, install_id)
         if body.playing is not None:
             # Only a TV that is playing keeps its login; one that stopped frees it after iptvplay.IDLE_S.
