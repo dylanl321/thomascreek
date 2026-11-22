@@ -21,6 +21,7 @@ from .iptvnorm import AUTO_MERGE, UNSURE, Parsed, logo_key, parse, score
 log = logging.getLogger("hub.iptvcanon")
 
 KV = "tv.catalog.canonical"
+KV_WRITER = "tv.catalog.canonical.writer"
 KV_AI = "tv.catalog.ai"
 KV_OVERRIDES = "tv.catalog.overrides"
 KV_USAGE = "tv.catalog.ai.usage"
@@ -406,12 +407,13 @@ def index(db: Any) -> Index:
         if cached is not None and stamp is not None and cached[0] == stamp:
             return cached[1]  # another thread built it while this one waited
         started = time.perf_counter()
+        why = "first" if cached is None else "written" if cached[0] != stamp else "no stamp"
         built = Index(_state_gently(db))
         _INDEX[id(db)] = (stamp, built)
         _BUILT_AT[id(db)] = time.monotonic()
         gentlejson.settle(_size(db) if len(built.items) > 5000 else 0)
         took = time.perf_counter() - started
-        _count_build(took)
+        _count_build(took, why, stamp)
         if took > 1:
             log.info("iptvcanon: read %d folded titles in %.1f s", len(built.items), took)
         return built
@@ -422,16 +424,33 @@ def index(db: Any) -> Index:
 BUILDS: dict[str, Any] = {"n": 0, "max_ms": 0.0, "last_ms": 0.0, "last_at": 0.0}
 
 
-def _count_build(took_s: float) -> None:
+_RECENT_BUILDS: list[dict[str, Any]] = []
+
+
+def _count_build(took_s: float, why: str = "", stamp: Any = None) -> None:
     ms = round(took_s * 1000, 1)
     BUILDS["n"] += 1
     BUILDS["last_ms"] = ms
     BUILDS["max_ms"] = max(BUILDS["max_ms"], ms)
     BUILDS["last_at"] = round(time.time())
+    # Why each build ran, and when the state it read was written (Nov 22 2026: rebuilds every 30 min with no
+    # provider read; the writer wasn't known).
+    written = stamp[0] if isinstance(stamp, tuple) and stamp and isinstance(stamp[0], float) else None
+    _RECENT_BUILDS.append({"at": BUILDS["last_at"], "ms": ms, "why": why, "thread": threading.current_thread().name,
+                           "written_at": round(written or 0)})
+    del _RECENT_BUILDS[:-10]
 
 
-def tally() -> dict[str, Any]:
-    return dict(BUILDS)
+def tally(db: Any = None) -> dict[str, Any]:
+    import os
+
+    out: dict[str, Any] = {**BUILDS, "builds": list(_RECENT_BUILDS), "pid": os.getpid()}
+    if db is not None and hasattr(db, "kv_get"):
+        try:
+            out["writer"] = db.kv_get(KV_WRITER)
+        except Exception:  # noqa: BLE001 - the page still answers
+            pass
+    return out
 
 
 _PARSE_LOCKS: dict[int, threading.Lock] = {}
@@ -1055,8 +1074,23 @@ def _put_state(db: Any, state: dict[str, Any]) -> None:
         with _parse_lock(db):
             db.kv_set_text(KV, text)
             _remember(db, state)
+        _note_writer(db)
     else:
         db.kv_set(KV, state)
+
+
+def _note_writer(db: Any) -> None:
+    """Which process and step last wrote the state, kept beside it: a write from the provider-read child is not
+    remembered by the hub, and makes the hub's next reader parse the whole state again."""
+    import os
+    import sys
+
+    frame = sys._getframe(2)
+    try:
+        db.kv_set(KV_WRITER, {"at": round(time.time()), "pid": os.getpid(), "step": frame.f_code.co_name,
+                              "thread": threading.current_thread().name})
+    except Exception:  # noqa: BLE001 - only a note
+        pass
 
 
 def _ai(db: Any) -> dict[str, Any]:
