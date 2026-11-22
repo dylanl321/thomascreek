@@ -549,10 +549,20 @@ def match(games: list[dict[str, Any]], catalog: Any, basic: dict[str, Any] | Non
         item["channels"] = channels
         item["watch"] = channels[0]["key"] if channels else None
         out.append(item)
-    order = {"live": 0, "upcoming": 1, "final": 2}
-    out.sort(key=lambda g: (order.get(g["state"], 1), 0 if g["watch"] else 1, POPULARITY.get(g["league"], 99),
-                            g["start"] if g["state"] != "final" else -g["start"]))
-    return out
+    return order(out)
+
+
+def order(games: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Live first, then upcoming, then final; within each, games with a channel first, then by league popularity
+    and start time."""
+    rank = {"live": 0, "upcoming": 1, "final": 2}
+    def key(g: dict[str, Any]) -> tuple[int, int, int, float]:
+        start = float(g.get("start") or 0)
+        return (rank.get(str(g.get("state")), 1), 0 if g.get("watch") else 1, POPULARITY.get(str(g.get("league")), 99),
+                start if g.get("state") != "final" else -start)
+
+    games.sort(key=key)
+    return games
 
 
 def _quiet(task: asyncio.Task[Any]) -> None:
