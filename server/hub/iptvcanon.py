@@ -22,6 +22,7 @@ log = logging.getLogger("hub.iptvcanon")
 
 KV = "tv.catalog.canonical"
 KV_WRITER = "tv.catalog.canonical.writer"
+KV_DIGEST = "tv.catalog.canonical.digest"
 KV_AI = "tv.catalog.ai"
 KV_OVERRIDES = "tv.catalog.overrides"
 KV_USAGE = "tv.catalog.ai.usage"
@@ -1071,9 +1072,16 @@ def _put_state(db: Any, state: dict[str, Any]) -> None:
     its index (`_remember`) so nobody parses it back."""
     if hasattr(db, "kv_set_text"):
         text = gentlejson.dumps(state)
+        digest = hashlib.sha256(text.encode()).hexdigest()
+        if db.kv_get(KV_DIGEST) == digest and db.kv_stamp(KV) is not None:
+            # The same state again (a provider read that changed nothing, such as an hourly retry of a provider
+            # that can't be reached). Rewriting it made the hub parse the whole state again, 12 to 14 s of
+            # interleaved interpreter time, when the write came from the provider-read child (Nov 22 2026).
+            return
         with _parse_lock(db):
             db.kv_set_text(KV, text)
             _remember(db, state)
+        db.kv_set(KV_DIGEST, digest)
         _note_writer(db)
     else:
         db.kv_set(KV, state)
