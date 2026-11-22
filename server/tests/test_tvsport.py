@@ -220,6 +220,13 @@ def test_boards_come_back_after_a_restart(hub):
     assert asyncio.run(again.games(now)) == [game]
 
 
+_G = {"id": "g1", "state": "live", "league": "nfl", "start": 1}
+
+
+def _answer(n):
+    return [{**_G, "channels": [{"key": f"c{n}"}], "watch": f"c{n}"}]
+
+
 def test_sport_channels_answer_the_last_match_while_the_next_is_worked_out(hub, monkeypatch):
     """The minute's first /v1/tv/sport gets the last match at once; the new one is worked out behind it."""
     import threading
@@ -235,23 +242,23 @@ def test_sport_channels_answer_the_last_match_while_the_next_is_worked_out(hub, 
         calls.append(now)
         if len(calls) > 1:
             gate.wait(5)
-        return [{"n": len(calls)}]
+        return _answer(len(calls))
 
     monkeypatch.setattr(tvsport, "match", match)
     monkeypatch.setattr(hub.tv_catalog, "basic", lambda home: None)
     doc: dict = {"channels": []}
     monkeypatch.setattr(hub.tv_catalog, "load", lambda: doc)
     now = 1_800_000_000.0
-    assert tvguide._sport_channels(hub, [], None, False, now) == [{"n": 1}]
+    assert tvguide._sport_channels(hub, [_G], None, False, now) == _answer(1)
     began = _time.perf_counter()
-    assert tvguide._sport_channels(hub, [], None, False, now + 61) == [{"n": 1}]  # last answer, not waiting
+    assert tvguide._sport_channels(hub, [_G], None, False, now + 61) == _answer(1)  # last answer, not waiting
     assert _time.perf_counter() - began < 1
     gate.set()
     for _ in range(50):
-        if hub.__dict__.get("_sport_last", {}).get(False, (0, None))[1] == [{"n": 2}]:
+        if hub.__dict__.get("_sport_last", {}).get(False, (0, None))[1] == _answer(2):
             break
         _time.sleep(0.02)
-    assert tvguide._sport_channels(hub, [], None, False, now + 61) == [{"n": 2}]
+    assert tvguide._sport_channels(hub, [_G], None, False, now + 61) == _answer(2)
 
 
 def test_a_new_snapshot_still_gets_the_last_sport_answer_at_once(hub, monkeypatch):
@@ -269,17 +276,17 @@ def test_a_new_snapshot_still_gets_the_last_sport_answer_at_once(hub, monkeypatc
         calls.append(now)
         if len(calls) > 1:
             gate.wait(5)
-        return [{"n": len(calls)}]
+        return _answer(len(calls))
 
     monkeypatch.setattr(tvsport, "match", match)
     monkeypatch.setattr(hub.tv_catalog, "basic", lambda home: None)
     docs = [{"channels": []}]
     monkeypatch.setattr(hub.tv_catalog, "load", lambda: docs[-1])
     now = 1_800_000_000.0
-    assert tvguide._sport_channels(hub, [], None, False, now) == [{"n": 1}]
+    assert tvguide._sport_channels(hub, [_G], None, False, now) == _answer(1)
     docs.append({"channels": [], "fresh": True})  # the refresh's new snapshot
     began = _time.perf_counter()
-    assert tvguide._sport_channels(hub, [], None, False, now + 5) == [{"n": 1}]
+    assert tvguide._sport_channels(hub, [_G], None, False, now + 5) == _answer(1)
     assert _time.perf_counter() - began < 1
     gate.set()
 
@@ -322,3 +329,30 @@ def test_a_helper_that_fails_leaves_the_match_to_the_hub(hub, monkeypatch):
     monkeypatch.setattr(sidecar, "sport_match", broken)
     body = tvguide._sport_channels(hub, games, None, False, now.timestamp())
     assert body and body[0]["home"]["name"] == "Pittsburgh Steelers"
+
+
+def test_after_a_quiet_hour_the_first_tv_gets_fresh_scores_with_the_last_channels(hub, monkeypatch):
+    """Nov 22 2026: with nobody asking for 5 min, the next TV waited for a whole match (2 to 4 s live). The last
+    match's channels stand in for hours; the games, their scores and their order are always today's."""
+    import threading
+
+    from hub.routes import tvguide
+
+    gate = threading.Event()
+    calls = []
+
+    def match(games, catalog, basic, *, kids_only, now):
+        calls.append(now)
+        if len(calls) > 1:
+            gate.wait(5)
+        return [{**g, "channels": [{"key": "espn"}], "watch": "espn"} for g in games]
+
+    monkeypatch.setattr(tvsport, "match", match)
+    monkeypatch.setattr(hub.tv_catalog, "basic", lambda home: None)
+    monkeypatch.setattr(hub.tv_catalog, "load", lambda: {"channels": []})
+    now = 1_800_000_000.0
+    tvguide._sport_channels(hub, [_G], None, False, now)
+    later = [{**_G, "state": "final"}, {"id": "g2", "state": "upcoming", "league": "nba", "start": 5}]
+    got = tvguide._sport_channels(hub, later, None, False, now + 3600)
+    gate.set()
+    assert [(g["id"], g["state"], g["watch"]) for g in got] == [("g2", "upcoming", None), ("g1", "final", "espn")]

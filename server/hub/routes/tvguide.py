@@ -476,11 +476,28 @@ def _sport_channels(h: Hub, games: list[dict[str, Any]], home: Any, kids: bool, 
             busy.add(kids)
             threading.Thread(target=_sport_behind, args=(h, games, home, kids, now, key), daemon=True,
                              name="sport-match").start()
-        return last[1]
+        return _with_last_channels(games, last[1])
     return _sport_match(h, games, home, kids, now, key)
 
 
-SPORT_STALE_S = 300.0
+# How long the last channel match may stand in while a new one runs behind it. The games themselves (scores, state,
+# order) are always the fresh ones; only their channels come from the last match, which changes slowly. At 5 min,
+# the first TV after a quiet spell waited for a whole match (2 to 4 s on the live hub, Nov 22 2026).
+SPORT_STALE_S = 6 * 3600.0
+
+
+def _with_last_channels(games: list[dict[str, Any]], last: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Today's games with the channels the last match gave each (none for a game it hadn't seen), ordered as
+    `tvsport.match` orders them."""
+    known = {str(g.get("id")): g for g in last if isinstance(g, dict)}
+    out = []
+    for game in games:
+        item = dict(game)
+        seen = known.get(str(game.get("id")))
+        item["channels"] = list((seen or {}).get("channels") or [])
+        item["watch"] = item["channels"][0]["key"] if item["channels"] else None
+        out.append(item)
+    return tvsport.order(out)
 
 
 def _sport_match(h: Hub, games: list[dict[str, Any]], home: Any, kids: bool, now: float,
