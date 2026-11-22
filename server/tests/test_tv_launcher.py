@@ -185,3 +185,27 @@ def tvlauncher_result(text: str):
     from hub.tvapp import AdbResult
 
     return AdbResult(0, text)
+
+
+def test_a_launcher_tv_on_a_new_build_gets_home_and_guard_again(hub, people, home_client, monkeypatch):
+    """An install can leave the guard off (office Hisense, Nov 22 2026, thomascreek-tv#180): the hub sets the box
+    up again when a launcher TV reports another app build, and only then."""
+    _key, headers = _tv(hub, home_client)
+    tvlauncher.set_launcher(hub, TV_ID, {"on": True, "person_id": None, "apps": [], "guard": False}, apply=False)
+    started: list[str] = []
+    monkeypatch.setattr(tvlauncher, "start_apply", lambda h, install_id: started.append(install_id))
+
+    def beat(version: str) -> None:
+        sent = home_client.post("/v1/tv/state", headers=headers,
+                                json={"foreground": True, "health": {"app_version": version}})
+        assert sent.status_code == 200, sent.text
+
+    beat("1.4.1-tc.34")  # the first version the hub hears of is no change
+    beat("1.4.1-tc.34")
+    assert started == []
+    beat("1.4.1-tc.35")
+    assert started == [TV_ID]
+
+    tvlauncher.set_launcher(hub, TV_ID, {"on": False}, apply=False)
+    beat("1.4.1-tc.36")
+    assert started == [TV_ID]  # not a launcher: nothing to set

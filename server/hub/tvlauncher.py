@@ -157,6 +157,21 @@ def save_installed(h: Any, install_id: str, apps: Any) -> dict[str, Any]:
     return {"ok": True, "count": len(out)}
 
 
+def after_install(h: Any, install_id: str, version_before: object) -> bool:
+    """A launcher TV that now runs another app build sets its home screen and guard again.
+
+    Installing a build (an update, or a test build put back by hand) can leave the accessibility guard off, and the
+    TV's own Home button then opens Google TV (office Hisense, Nov 22 2026, thomascreek-tv#180). The hub set the box
+    up only when the launcher was saved, so it stayed that way. Returns whether a re-apply started."""
+    tv = h.tv_app.tvs().get(install_id) or {}
+    now = tv.get("app_version")
+    if not now or not version_before or now == version_before or not view(tv)["on"]:
+        return False
+    log.info("tvlauncher: %s now runs %s, setting home and guard again", install_id, now)
+    start_apply(h, install_id)
+    return True
+
+
 def start_apply(h: Any, install_id: str) -> None:
     try:
         loop = asyncio.get_running_loop()
