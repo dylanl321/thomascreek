@@ -441,3 +441,22 @@ def test_a_provider_that_never_reads_is_tried_again_once_an_hour_not_on_every_ca
     assert reads == [1]
     asyncio.run(calls([1_000_000.0 + tvcatalog.EXTRA_RETRY_S]))
     assert reads == [1, 1]
+
+
+def test_folding_the_same_lists_again_does_not_rewrite_the_state(hub):
+    """Nov 22 2026: a provider read that changed nothing (the hourly retry of a provider that can't be reached)
+    still rewrote the folded catalog from the provider-read child, and the hub parsed all of it again (12 to 14 s)."""
+    from hub import iptvcanon
+
+    def doc(*names):
+        movies = [{"id": f"vod:{i}", "name": n} for i, n in enumerate(names, 1)]
+        return iptvcanon.sources_from_catalog({"movies": movies})
+
+    sources = doc("EN - Up (2009)")
+    iptvcanon.observe(hub.db, sources)
+    first = hub.db.kv_stamp(iptvcanon.KV)
+    iptvcanon.observe(hub.db, sources)
+    assert hub.db.kv_stamp(iptvcanon.KV) == first
+    assert first is not None
+    iptvcanon.observe(hub.db, doc("EN - Up (2009)", "EN - Cars (2006)"))
+    assert hub.db.kv_stamp(iptvcanon.KV) != first
