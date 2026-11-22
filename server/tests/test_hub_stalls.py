@@ -396,6 +396,7 @@ def test_the_timings_page_counts_catalog_index_builds(hub):
                       client=("192.168.1.50", 40000))
     body = home.get("/v1/ping/timings").json()
     assert set(body["canon"]) >= {"n", "max_ms", "last_ms", "last_at"}
+    assert set(body["canon"]["catalog"]) >= {"fetched_at", "guide_at", "guide_channels", "reads", "extras_tried"}
 
 
 def test_a_provider_that_never_reads_is_tried_again_once_an_hour_not_on_every_call(hub, monkeypatch):
