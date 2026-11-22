@@ -625,6 +625,21 @@ class TvCatalog:
         safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in pid)[:60]
         return self.path.parent / f"extra-{safe}.json"
 
+    def _note_read(self, kind: str) -> None:
+        reads = self.__dict__.setdefault("_reads", [])
+        reads.append({"kind": kind, "at": round(time.time())})
+        del reads[:-10]
+
+    def read_status(self) -> dict[str, Any]:
+        """For /v1/ping/timings: when the main lists and guide were read, how big the guide is, and the last provider
+        reads this hub started (kind and time). From the copy already parsed; nothing is read for it. Times and
+        counts only."""
+        loaded = self.__dict__.get("_loaded")
+        doc = loaded[1] if loaded else {}
+        return {"fetched_at": round(float(doc.get("fetched_at") or 0)), "guide_at": round(float(doc.get("guide_at") or 0)),
+                "guide_channels": len(doc.get("guide") or {}), "reads": list(self.__dict__.get("_reads") or []),
+                "extras_tried": {pid: round(at) for pid, at in (self.__dict__.get("_extras_tried") or {}).items()}}
+
     def _extra_written(self, pid: str) -> float:
         """When another provider's list was last saved (0 when it never was), without reading it."""
         try:
@@ -847,6 +862,7 @@ class TvCatalog:
         Under `hub serve` the reading runs in a child process (catalogjob.py) so it never stalls a request."""
         from . import catalogjob
 
+        self._note_read("extras")
         if not catalogjob.enabled():
             return await self.refresh_extras_here()
         if not self._extra_logins():
@@ -1115,6 +1131,7 @@ class TvCatalog:
         snapshot meanwhile and parses the new one off the loop when the child is done."""
         from . import catalogjob
 
+        self._note_read("refresh")
         if not catalogjob.enabled():
             doc = await self.refresh_here()
         else:

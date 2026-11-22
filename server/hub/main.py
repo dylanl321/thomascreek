@@ -173,7 +173,12 @@ def build_app(hub: Hub | None = None, *, start_background: bool = True) -> FastA
     def _canon() -> dict[str, Any]:
         from . import iptvcanon
 
-        return iptvcanon.tally()
+        out = iptvcanon.tally()
+        try:
+            out["catalog"] = hub.tv_catalog.read_status()
+        except Exception:  # noqa: BLE001 - a reading, never a reason for the page to fail
+            pass
+        return out
 
     def _now_playing() -> dict[str, Any] | None:
         from . import nowplaying_live
