@@ -15,7 +15,7 @@ import unicodedata
 from typing import Any
 
 # Lead tags: "EN - ", "NF - ", "SPT - ", "WC – ", "|EN| ", "[MULTI] ", "EN | ". Only known tags, so "FBI - ..." stays.
-_TAGS = (r"EN|ENG|US|UK|GB|CA|AU|FR|DE|ES|IT|PT|NL|KR|JP|TR|IN|AR|MULTI|SUB|SPT|WC|VOD|4K|UHD|FHD|HD"
+_TAGS = (r"EN|ENG|US|UK|GB|CA|AU|FR|DE|ES|IT|PT|NL|KR|JP|TR|IN|AR|MULTI|SUB|SPT|WC|VOD|TOP|4K|UHD|FHD|HD"
          r"|NF|NETFLIX|A\+|SD/CAM|HDCAM|CAM|SD|D\+|DSNP|DISNEY\+|AMZ|AMZN|PRIME|HBO|HMAX|ATV\+?|ATVP|HULU|PCOK|PMNT|P\+")
 _LEAD = re.compile(rf"^\s*(?:\|\s*(?:{_TAGS})\s*\||\[\s*(?:{_TAGS})\s*\]|(?:{_TAGS})\s*(?:[-\u2013\u2014|]))\s*(?=\S)", re.I)
 _SERVICES = {

@@ -19,6 +19,8 @@ def test_provider_tags_quality_and_notes_come_off_titles():
         "NF - Take Charge Of My Heart (": ("Take Charge Of My Heart", None, None, "Netflix"),
         "NF - Take Charge Of My Heart (2025": ("Take Charge Of My Heart", 2025, None, "Netflix"),
         "EN - Dune [MULTI": ("Dune", None, None, None),
+        # A provider's "top" shelf tag (Shield Top 10, Nov 22 2026)
+        "TOP - The Beast": ("The Beast", None, None, None),
     }
     for raw, (name, year, quality, service) in cases.items():
         got = tvnames.title(raw)
