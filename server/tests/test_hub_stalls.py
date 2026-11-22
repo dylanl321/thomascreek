@@ -425,7 +425,7 @@ def test_a_provider_that_never_reads_is_tried_again_once_an_hour_not_on_every_ca
     monkeypatch.setattr(cat, "_extra_logins", lambda: {"eagle": {"servers": ["https://a"]}})
     reads = []
 
-    async def read():
+    async def read(**kw):
         reads.append(1)
         return {}
 
@@ -460,3 +460,35 @@ def test_folding_the_same_lists_again_does_not_rewrite_the_state(hub):
     assert first is not None
     iptvcanon.observe(hub.db, doc("EN - Up (2009)", "EN - Cars (2006)"))
     assert hub.db.kv_stamp(iptvcanon.KV) != first
+
+
+def test_the_hourly_retry_reads_only_the_provider_that_is_due_and_folds_only_after_a_read(hub, monkeypatch):
+    """Nov 22 2026: the hourly retry of a provider that can't be reached read every other provider again too, and
+    their renamed event channels made each fold a new folded catalog for the hub to parse (12 to 14 s)."""
+    import time as _time
+
+    from hub import tvcatalog
+    from hub.tvapp import TvAppError
+
+    cat = hub.tv_catalog
+    logins = {"fresh": {"username": "u", "password": "p", "servers": ["https://a"]},
+              "eagle": {"username": "u", "password": "p", "servers": ["https://b"]}}
+    monkeypatch.setattr(cat, "_extra_logins", lambda: logins)
+    now = _time.time()
+    monkeypatch.setattr(cat, "_extra_written", lambda pid: now - 600 if pid == "fresh" else 0.0)
+    asked, folds = [], []
+
+    async def api(pid, servers, params, **kw):
+        asked.append(pid)
+        raise TvAppError(502, "bad_provider", "name lookup failed")
+
+    monkeypatch.setattr(cat, "_api", api)
+    monkeypatch.setattr(cat, "fold", lambda *a: folds.append(1))
+    monkeypatch.setattr(cat, "write_playlist_report", lambda: None)
+    hub.db.kv_set(tvcatalog.KV_EXTRA_RESULT, {"fresh": "10 channels, 0 films, 0 series"})
+    got = asyncio.run(cat.refresh_extras_here(only_stale=True))
+    assert set(asked) == {"eagle"}
+    assert folds == []  # nothing was read, so nothing to fold
+    assert got["fresh"] == "10 channels, 0 films, 0 series" and got["eagle"].startswith("not read")
+    asyncio.run(cat.refresh_extras_here())  # the full read (keys saved on the admin page) still asks everyone
+    assert {"fresh", "eagle"} <= set(asked)

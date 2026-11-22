@@ -848,7 +848,7 @@ class TvCatalog:
 
         async def run() -> None:
             try:
-                await self.refresh_extras()
+                await self.refresh_extras(only_stale=True)
             finally:
                 self._extras_running = False
 
@@ -858,28 +858,41 @@ class TvCatalog:
         except RuntimeError:
             pass
 
-    async def refresh_extras(self) -> dict[str, str]:
-        """Read every other provider's lists. One provider failing keeps its last list and doesn't stop the rest.
-        Under `hub serve` the reading runs in a child process (catalogjob.py) so it never stalls a request."""
+    async def refresh_extras(self, *, only_stale: bool = False) -> dict[str, str]:
+        """Read every other provider's lists (`only_stale`: only those not read in the last LIST_TTL_S / 2). One
+        provider failing keeps its last list and doesn't stop the rest. Under `hub serve` the reading runs in a
+        child process (catalogjob.py) so it never stalls a request."""
         from . import catalogjob
 
-        self._note_read("extras")
+        self._note_read("extras-due" if only_stale else "extras")
         if not catalogjob.enabled():
-            return await self.refresh_extras_here()
+            return await self.refresh_extras_here(only_stale=only_stale)
         if not self._extra_logins():
             return {}
-        got = await catalogjob.run("extras")
-        self._extra_result = got.get("extras") or {}
+        got = await catalogjob.run("extras-due" if only_stale else "extras")
+        fresh = got.get("extras") or {}
+        # A provider the child left alone keeps the status of its last read.
+        self._extra_result = {**(self.__dict__.get("_extra_result") or {}), **fresh} if only_stale else fresh
         return self._extra_result
 
-    async def refresh_extras_here(self) -> dict[str, str]:
+    async def refresh_extras_here(self, *, only_stale: bool = False) -> dict[str, str]:
         """Read each other provider's three lists one at a time. A list that fails keeps its last copy, and the
         result says which list failed and why in a few words (never an address or a login), so the providers sheet
         can show it (Nov 19 2026: one provider never folded and nothing said why)."""
         result: dict[str, str] = {}
         logins = self._extra_logins()
         names = {"get_live_streams": "channels", "get_vod_streams": "films", "get_series": "series"}
+        read_any = False
+        now = time.time()
         for pid, lg in logins.items():
+            if only_stale and now - self._extra_written(pid) < LIST_TTL_S / 2:
+                # The hourly retry of one provider that can't be reached read every other provider again too, and
+                # their renamed event channels made each fold a new state for the hub to parse (12 to 14 s of
+                # shared CPU, Nov 22 2026). A provider read in the last few hours is left as it is.
+                prior = self.__dict__.get("_extra_result") or self.db.kv_get(KV_EXTRA_RESULT) or {}
+                if isinstance(prior, dict) and pid in prior:
+                    result[pid] = prior[pid]
+                continue
             params = {"username": lg["username"], "password": lg["password"]}
             servers = list(lg["servers"])
             got: list[list[Any] | None] = []
@@ -916,13 +929,14 @@ class TvCatalog:
                 continue
             counts = f"{len(doc['channels'])} channels, {len(doc['movies'])} films, {len(doc['series'])} series"
             result[pid] = f"partly read: {'; '.join(failed)} (kept the last copy); {counts}" if failed else counts
+            read_any = True
             log.info("provider %s: %s", pid, result[pid])
         self._extra_result = result
         try:
             self.db.kv_set(KV_EXTRA_RESULT, result)  # list_status reads it in the hub when a child did the read
         except Exception:  # noqa: BLE001
             pass
-        if logins:
+        if read_any:  # nothing new was read: the fold would only make the same state again
             await asyncio.to_thread(self.fold)
         await asyncio.to_thread(self.write_playlist_report)
         return result

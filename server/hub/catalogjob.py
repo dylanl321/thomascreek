@@ -98,8 +98,8 @@ def child_main(job: str) -> int:
         if job == "refresh":
             asyncio.run(catalog.refresh_here(settle=False))
             extras = catalog.__dict__.get("_extra_result") or {}
-        elif job == "extras":
-            extras = asyncio.run(catalog.refresh_extras_here())
+        elif job in ("extras", "extras-due"):
+            extras = asyncio.run(catalog.refresh_extras_here(only_stale=job == "extras-due"))
         elif job == "report":  # count the stored lists again; nothing is downloaded
             catalog.write_playlist_report()
             extras = {}

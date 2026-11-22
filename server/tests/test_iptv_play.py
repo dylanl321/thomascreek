@@ -249,7 +249,7 @@ def test_a_fresh_main_list_still_reads_a_provider_added_since(hub):
     iptvplay.add_provider(hub, "Other", "http://other.test", "spare", "pw")
     calls = []
 
-    async def fake():
+    async def fake(**kw):
         calls.append(1)
         return {}
     hub.tv_catalog.refresh_extras = fake  # type: ignore[method-assign]
