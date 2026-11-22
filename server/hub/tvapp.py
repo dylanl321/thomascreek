@@ -191,13 +191,15 @@ class TvApp(BuildsMixin, EnrolMixin, ConfigMixin):
     def _watcher(self, raw: object, tv: dict[str, Any] | None = None) -> str | None:
         """A household person the TV says is watching. Anything else is ignored, never an error.
 
-        With no person in the heartbeat, a claim made on purpose (the TV's picker, "I'm watching" on a phone, or
-        a phone that sent the show) still counts, so older TV builds follow the person too. A guess from who is
-        home does not. A kids' TV only ever records a child."""
+        With no person in the heartbeat, a claim made from a phone ("I'm watching", or a phone that sent the show)
+        still counts. The TV's own picker does not: a TV build reports its picked person in every heartbeat, so a
+        heartbeat without one means a local profile or nobody (Nov 22 2026: the Shield on "Main profile" kept
+        playing as Dylan for hours from an earlier pick and put a Now playing card on his phone while he was away).
+        A guess from who is home does not count either. A kids' TV only ever records a child."""
         kids = (tv or {}).get("profile") == "kids"
         if not isinstance(raw, str) or not _PERSON_ID.fullmatch(raw):
             claim = (tv or {}).get("watching")
-            if not isinstance(claim, dict) or not claim.get("person_id") or claim.get("by") not in ("tv", "phone", "play"):
+            if not isinstance(claim, dict) or not claim.get("person_id") or claim.get("by") not in ("phone", "play"):
                 return None
             if time.time() - float(claim.get("at") or 0) > WATCHING_CLAIM_S:
                 return None

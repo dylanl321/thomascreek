@@ -63,6 +63,11 @@ def tvs_for(h: Any, person: dict[str, Any]) -> list[dict[str, Any]]:
         home = True if seen is None else bool(seen)
     except Exception:  # noqa: BLE001 - presence is a nicety here
         pass
+    if not home:
+        # Someone the hub knows is away isn't watching a TV in the house: whoever is (a test run on a real TV, a
+        # child on a parent's profile) must not light up their phone, and a card already up ends (Dylan, Nov 22
+        # 2026, away from home: "why am I seeing this when I'm not even home doing anything").
+        return []
     subject = h.subject_for_person(person, home)
     out = []
     for row in devices(h, subject):
