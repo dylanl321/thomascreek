@@ -209,3 +209,38 @@ def test_a_launcher_tv_on_a_new_build_gets_home_and_guard_again(hub, people, hom
     tvlauncher.set_launcher(hub, TV_ID, {"on": False}, apply=False)
     beat("1.4.1-tc.36")
     assert started == [TV_ID]  # not a launcher: nothing to set
+
+
+def test_a_launcher_tv_whose_guard_is_off_gets_it_set_again_at_most_every_ten_minutes(hub, people, home_client, monkeypatch):
+    """Reinstalling the same build turns the guard off with no version change (office Hisense, Nov 22 2026)."""
+    _key, headers = _tv(hub, home_client)
+    tvlauncher.set_launcher(hub, TV_ID, {"on": True, "person_id": None, "apps": [], "guard": False}, apply=False)
+    started: list[str] = []
+    monkeypatch.setattr(tvlauncher, "start_apply", lambda h, install_id: started.append(install_id))
+    tvlauncher._guard_fix.clear()
+    clock = [1000.0]
+    monkeypatch.setattr(tvlauncher.time, "monotonic", lambda: clock[0])
+
+    def beat(guard: object) -> None:
+        health: dict[str, object] = {"app_version": "1.4.1-tc.35"}
+        if guard is not None:
+            health["launcher_guard"] = guard
+        sent = home_client.post("/v1/tv/state", headers=headers, json={"foreground": True, "health": health})
+        assert sent.status_code == 200, sent.text
+
+    beat(True)
+    beat(None)  # an older build says nothing
+    assert started == []
+    beat(False)
+    assert started == [TV_ID]
+    clock[0] += 60
+    beat(False)
+    assert started == [TV_ID]  # not again within ten minutes
+    clock[0] += tvlauncher.GUARD_RETRY_S
+    beat(False)
+    assert started == [TV_ID, TV_ID]
+
+    tvlauncher.set_launcher(hub, TV_ID, {"on": False}, apply=False)
+    clock[0] += tvlauncher.GUARD_RETRY_S
+    beat(False)
+    assert started == [TV_ID, TV_ID]  # not a launcher: nothing to set
