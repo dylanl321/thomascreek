@@ -622,7 +622,11 @@ async def tv_state(body: StateIn, c: Caller = Depends(caller), h: Hub = Depends(
     install_id = _own_tv(c)
     try:
         tvwho.refresh(h, install_id, body.person_id)
+        version_before = (h.tv_app.tvs().get(install_id) or {}).get("app_version")
         data = h.tv_app.record_state(install_id, body.model_dump())
+        from .. import tvlauncher
+
+        tvlauncher.after_install(h, install_id, version_before)
         data["watching"] = tvwho.current(h, install_id)
         if body.playing is not None:
             # Only a TV that is playing keeps its login; one that stopped frees it after iptvplay.IDLE_S.
