@@ -397,6 +397,23 @@ def test_the_timings_page_counts_catalog_index_builds(hub):
     body = home.get("/v1/ping/timings").json()
     assert set(body["canon"]) >= {"n", "max_ms", "last_ms", "last_at"}
     assert set(body["canon"]["catalog"]) >= {"fetched_at", "guide_at", "guide_channels", "reads", "extras_tried"}
+    assert {"builds", "pid", "writer"} <= set(body["canon"])
+
+
+def test_each_index_build_says_why_and_the_state_names_its_writer(hub):
+    """Nov 22 2026: the folded catalog was parsed again every 30 min with no provider read. Each build now says why
+    it ran and when the state it read was written, and each write leaves which process and step wrote it."""
+    import os
+
+    from hub import iptvcanon
+
+    iptvcanon._put_state(hub.db, {"items": [{"id": "a", "kind": "movie", "title": "Up", "sources": []}]})
+    writer = hub.db.kv_get(iptvcanon.KV_WRITER)
+    assert writer["pid"] == os.getpid() and writer["step"].startswith("test_each_index_build")
+    iptvcanon._INDEX.pop(id(hub.db), None)
+    iptvcanon.index(hub.db)
+    last = iptvcanon.tally(hub.db)["builds"][-1]
+    assert last["why"] == "first" and last["written_at"] >= writer["at"] - 1
 
 
 def test_a_provider_that_never_reads_is_tried_again_once_an_hour_not_on_every_call(hub, monkeypatch):
