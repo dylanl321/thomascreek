@@ -185,3 +185,57 @@ def _model(hub, tv_id, model):
     tvs = hub.tv_app.tvs()
     tvs[tv_id]["model"] = model
     hub.tv_app._save_tvs(tvs)
+
+
+def test_a_person_who_is_away_gets_no_card_and_a_running_one_ends(hub, home_client, people, monkeypatch):
+    """Nov 22 2026: a real-TV test run playing as Dylan put a Now playing card on his phone while he was away.
+    Someone the hub knows is away isn't watching a TV in the house: nothing starts, and a card already up ends."""
+    monkeypatch.setattr(nowplaying_live, "kick", lambda h: None)
+    _, tv_headers = _tv(hub, home_client)
+    apns = FakeApns()
+    hub.apns = apns  # type: ignore[assignment]
+    dylan = people["phones"]["Dylan"]
+    home_client.post("/v1/devices/live-activity", headers=dylan.h,
+                     json={"now_playing_start_token": "aa11", "env": "sandbox"})
+    where = {"home": False}
+    real = hub.household.presence
+    monkeypatch.setattr(hub.household, "presence",
+                        lambda p: {**real(p), "home": where["home"]} if p["id"] == people["dylan"]["id"] else real(p))
+
+    _playing(home_client, tv_headers, "AT&T: ABC", people["dylan"]["id"])
+    asyncio.run(nowplaying_live.sync(hub))
+    assert apns.sent == []
+
+    # Back home: it starts; the phone sends its activity token; he leaves: the card ends.
+    where["home"] = True
+    asyncio.run(nowplaying_live.sync(hub))
+    assert _starts(apns) == ["aa11"]
+    home_client.post("/v1/devices/live-activity", headers=dylan.h,
+                     json={"now_playing_activity_token": "bb22", "activity_id": "act1", "env": "sandbox"})
+    apns.sent.clear()
+    where["home"] = False
+    asyncio.run(nowplaying_live.sync(hub))
+    assert [t for t, p, _ in apns.sent if p["aps"]["event"] == "end"] == ["bb22"]
+
+
+def test_a_tv_on_a_local_profile_does_not_play_as_the_last_person_picked(hub, home_client, people, monkeypatch):
+    """Nov 22 2026: the Shield moved from Dylan to "Main profile"; its heartbeats carried no person, and the hub kept
+    using the earlier pick, so live channels played as Dylan and reached his phone."""
+    from hub import tvwho
+
+    monkeypatch.setattr(nowplaying_live, "kick", lambda h: None)
+    _, tv_headers = _tv(hub, home_client)
+    apns = FakeApns()
+    hub.apns = apns  # type: ignore[assignment]
+    dylan = people["phones"]["Dylan"]
+    home_client.post("/v1/devices/live-activity", headers=dylan.h, json={"now_playing_start_token": "aa11"})
+    install_id = next(iter(hub.tv_app.tvs()))
+    tvwho.claim(hub, install_id, people["dylan"]["id"], by="tv")
+    _playing(home_client, tv_headers, "AT&T: A3 SERIES")  # no person in the heartbeat
+    assert hub.tv_app.tvs()[install_id]["watcher"] is None
+    asyncio.run(nowplaying_live.sync(hub))
+    assert apns.sent == []
+    # A phone that sent the show still names the person for builds that don't say.
+    tvwho.claim(hub, install_id, people["dylan"]["id"], by="play")
+    _playing(home_client, tv_headers, "Bluey")
+    assert hub.tv_app.tvs()[install_id]["watcher"] == people["dylan"]["id"]
