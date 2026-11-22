@@ -103,3 +103,39 @@ def test_a_list_reads_the_kids_categories_once_not_per_row(hub, people, monkeypa
     hub.tv_catalog.kids_categories = lambda: reads.append(1) or real()
     hub.tv_catalog.series(q=None, category=None, kids_only=False, limit=60)
     assert len(reads) <= 1
+
+
+def test_after_the_ten_minute_mark_the_last_lineup_answers_and_the_next_is_built_behind(hub, monkeypatch):
+    """Nov 22 2026: a TV that started after the lineup's ten-minute mark waited for the whole build (1.2 to 1.4 s
+    live). The last lineup answers at once; the new one is built in a worker. A lineup edit still answers at once
+    with the edit."""
+    import threading
+    import time as _time
+
+    from hub import tvcatalog
+
+    _ingest(hub, 50)
+    cat = hub.tv_catalog
+    first = cat.lineup_stamp(False)
+    now = [_time.time()]
+    monkeypatch.setattr(tvcatalog.time, "time", lambda: now[0])
+    gate = threading.Event()
+    built = []
+    real = cat._build_lineup
+
+    def slow(*a, **k):
+        built.append(1)
+        gate.wait(5)
+        return real(*a, **k)
+
+    monkeypatch.setattr(cat, "_build_lineup", slow)
+    now[0] += 601
+    began = _time.perf_counter()
+    assert cat.lineup_stamp(False) == first  # the last one, without waiting for the build
+    assert _time.perf_counter() - began < 0.5
+    gate.set()
+    for _ in range(100):
+        if cat.lineup_stamp(False) != first:
+            break
+        _time.sleep(0.02)
+    assert cat.lineup_stamp(False) != first and len(built) == 1

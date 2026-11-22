@@ -180,6 +180,7 @@ class TvCatalog:
         self.index = catalogdb.Reader(Path(data) / "tvapp" / "catalog.db")
         self._index_building = threading.Lock()
         self._lineup_building = threading.Lock()
+        self._lineup_guard = threading.Lock()
         self._transport = transport
         self.kids_categories: KidsFn = lambda: []
         self._lock = asyncio.Lock()
@@ -1287,16 +1288,48 @@ class TvCatalog:
             cache = {}
             self._lineup_cache = cache
         hit = cache.get(kids_only)
+        if hit is not None and hit[0] != stamp and _same_edits(hit[0], stamp):
+            # Only the snapshot, the folded ids or the ten-minute mark moved: the last lineup answers at once and
+            # the next is built behind it. A TV that started after the ten-minute mark waited for the whole build
+            # (1.2 to 1.4 s live, Nov 22 2026). A lineup edit still answers with the edit.
+            self._lineup_behind(kids_only)
+            return hit
         if hit is None or hit[0] != stamp:
-            with self._lineup_building:  # callers run in worker threads now: one build per change, not one each
-                hit = cache.get(kids_only)
-                if hit is None or hit[0] != stamp:
-                    started = time.monotonic()
-                    body = self._build_lineup(doc, self._overlay(), self._live_canon(), kids_only=kids_only)
-                    hit = cache[kids_only] = (stamp, body)
-                    log.info("live lineup built: %d channels in %.2fs", len(body["channels"]),
-                             time.monotonic() - started)
+            hit = self._build_lineup_now(kids_only, doc, stamp)
         return hit
+
+    def _build_lineup_now(self, kids_only: bool, doc: dict[str, Any], stamp: Any) -> tuple[Any, dict[str, Any]]:
+        cache: dict[bool, tuple[Any, dict[str, Any]]] = self._lineup_cache
+        with self._lineup_building:  # callers run in worker threads now: one build per change, not one each
+            hit = cache.get(kids_only)
+            if hit is None or hit[0] != stamp:
+                started = time.monotonic()
+                body = self._build_lineup(doc, self._overlay(), self._live_canon(), kids_only=kids_only)
+                hit = cache[kids_only] = (stamp, body)
+                log.info("live lineup built: %d channels in %.2fs", len(body["channels"]),
+                         time.monotonic() - started)
+        return hit
+
+    def _lineup_behind(self, kids_only: bool) -> None:
+        """Build the lineup again in a worker thread, unless one is already on it."""
+        running: set[bool] = self.__dict__.setdefault("_lineup_behind_running", set())
+        with self._lineup_guard:
+            if kids_only in running:
+                return
+            running.add(kids_only)
+
+        def run() -> None:
+            try:
+                doc = self.load()
+                if doc.get("channels"):
+                    self._build_lineup_now(kids_only, doc, self._lineup_stamp(kids_only))
+            except Exception as exc:  # noqa: BLE001 - the last lineup keeps answering; the next call tries again
+                log.info("live lineup rebuild failed (%s)", type(exc).__name__)
+            finally:
+                with self._lineup_guard:
+                    running.discard(kids_only)
+
+        threading.Thread(target=run, name="lineup-behind", daemon=True).start()
 
     def lineup(self, *, kids_only: bool) -> dict[str, Any] | None:
         """The live lineup, worked out once per snapshot and edit (17k channels took about 6 s a call). Each
@@ -1768,6 +1801,14 @@ def _mark_canonical(db: Any, rows: list[dict[str, Any]], kind: str, found: Any =
             item = next(iter(found.by_title(want, key)), None)
         if item is not None and item.get("id"):
             row["canonical_id"] = item["id"]
+
+
+def _same_edits(old: Any, new: Any) -> bool:
+    """Two lineup stamps (`_lineup_stamp`) with the same lineup edits and the same kids' filter."""
+    try:
+        return bool(old[1] == new[1] and old[3] == new[3])
+    except (TypeError, IndexError):
+        return False
 
 
 def _categories(rows: list[dict[str, Any]] | None) -> dict[str, str]:
