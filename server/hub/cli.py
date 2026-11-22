@@ -214,7 +214,7 @@ def main(argv: list[str] | None = None) -> None:
     d.add_argument("device", nargs="?")
     d.add_argument("person", nargs="?")
     cj = sub.add_parser("catalog")
-    cj.add_argument("job", choices=["refresh", "extras", "report"])
+    cj.add_argument("job", choices=["refresh", "extras", "extras-due", "report"])
     b = sub.add_parser("bootstrap-admin")
     b.add_argument("name")
     b.add_argument("device")
