@@ -78,7 +78,11 @@ here behind an endpoint.
   route is `/v1/tv/phone/play` with `direct: true` on a grown-up's own phone: the Android travel phone (Dylan,
   Nov 2026) and the iPhone and iPad media app (Dylan, Nov 20 2026). The address goes only to that signed-in
   admin's or adult's phone, is never logged, and its login is leased like a TV's. A child, a guest or a kids'
-  device that asks for `direct` is relayed by the hub instead and never sees the address.
+  device that asks for `direct` is relayed by the hub instead and never sees the address. The third route is
+  `/v1/cloud/open`, to the house's cloud media worker only (Dylan, Nov 23 2026: lighter streams for slow
+  connections, `hub/cloudmedia.py`, `cloud/worker`). The worker joined with a code an admin approved on the hub web
+  page, signs every call with a secret the hub keeps only as a hash, gets the address only for a phone pass whose
+  login that phone holds, never logs it, and serves the phone a converted stream, never the address.
 - A grown-up's own phone (admin or adult, never a TV, a child or a kids' device) may read film and series lists,
   pages and episodes straight from the provider (Dylan, Nov 19 2026: "fine for our highly controlled list of
   devices connected to the home"). It gets the logins from `GET /v1/tv/phone/logins`, keeps them in memory
