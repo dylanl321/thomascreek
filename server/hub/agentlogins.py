@@ -3,8 +3,10 @@
 Routine admin steps (reading the admin pages, approving the house's cloud media worker) kept waiting for Dylan's
 Face ID sign-in. An agent login lets a Claude session on the home network do just those steps, and nothing else:
 
-  - It is made inside the hub container (`hub agent-login create NAME`); the key is printed once and only its
-    SHA-256 is kept. There is no route that makes one, so a key can't make another key.
+  - It is made inside the hub container (`hub agent-login create NAME`; the key is printed once), or by whoever
+    edits the hub's app on the NAS: `HUB_AGENT_LOGINS=name:sha256` in its environment adds that login at start
+    (the key stays on the agent's machine, the NAS only holds its hash). Only the SHA-256 is kept. There is no
+    route that makes one, so a key can't make another key. A login turned off is never brought back by the env.
   - It is sent as `Authorization: Bearer tcagent_...` and works only from where the web page opens (home network
     or home VPN), never from away.
   - Scopes: `admin.read` (GET of the /admin pages and their JSON status, never a form post) and `cloud.approve`
@@ -58,6 +60,33 @@ def create(db: Any, name: str, days: int | None = DEFAULT_DAYS, scopes: tuple[st
     shown = dict(row)
     shown.pop("hash")
     return shown, key
+
+
+def seed_from_env(db: Any, value: str | None = None) -> list[str]:
+    """Add the logins named in HUB_AGENT_LOGINS ("name:sha256hex", comma separated) that the hub hasn't seen."""
+    import os
+    import re
+
+    value = os.environ.get("HUB_AGENT_LOGINS", "") if value is None else value
+    rows = list(db.kv_get(KV) or [])
+    known = {str(r.get("hash")) for r in rows}
+    made: list[str] = []
+    for item in (v.strip() for v in value.split(",")):
+        name, _, digest = item.rpartition(":")
+        digest = digest.strip().lower()
+        if not name.strip() or not re.fullmatch(r"[0-9a-f]{64}", digest) or digest in known:
+            continue
+        now = time.time()
+        row = {"id": new_id("ag"), "name": name.strip()[:60], "hash": digest, "scopes": list(SCOPES),
+               "created_at": now, "expires_at": None, "last_used_at": None, "revoked_at": None}
+        rows.append(row)
+        known.add(digest)
+        made.append(str(row["id"]))
+        db.log("agent.login_create", "ok", target=row["id"], params={"name": row["name"], "scopes": row["scopes"],
+                                                                      "from": "env"}, source="nas")
+    if made:
+        db.kv_set(KV, rows)
+    return made
 
 
 def revoke(db: Any, login_id: str, by: str = "web") -> bool:

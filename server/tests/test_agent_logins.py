@@ -88,3 +88,15 @@ def test_the_cli_makes_lists_and_turns_off(hub, capsys, monkeypatch):
     except SystemExit:
         pass
     assert agentlogins.check(hub.db, key, "cloud.approve") is None
+
+
+def test_the_nas_env_adds_a_login_once_and_never_brings_back_one_turned_off(hub):
+    key = agentlogins.PREFIX + "from-the-mac-for-tests"
+    env = f"claude-mac:{agentlogins._hash(key)},bad:nothex"
+    assert len(agentlogins.seed_from_env(hub.db, env)) == 1
+    assert agentlogins.seed_from_env(hub.db, env) == []
+    row = agentlogins.check(hub.db, key, "cloud.approve")
+    assert row and row["name"] == "claude-mac"
+    agentlogins.revoke(hub.db, row["id"])
+    assert agentlogins.seed_from_env(hub.db, env) == []
+    assert agentlogins.check(hub.db, key, "cloud.approve") is None
