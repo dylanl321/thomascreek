@@ -10,7 +10,7 @@ from urllib.parse import quote
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
-from .. import cloudmedia
+from .. import agentlogins, cloudmedia
 from ..cloudmedia import CloudError
 from ..state import Hub
 from .admin_web import _csrf, _form_session, _headers, _home_only, _login_page, _nav, _page, _session
@@ -107,6 +107,59 @@ async def touch(body: dict[str, Any], h: Hub = Depends(hub)) -> dict[str, Any]:
         if held_elsewhere(h, provider, login, holder):
             raise error(409, "moved", "This stream moved on")
         keep(h, holder)
+    return {"ok": True}
+
+
+# -- agent login (hub/agentlogins.py) --------------------------------------------------------------------------------
+def _agent(request: Request, h: Hub, scope: str) -> dict[str, Any]:
+    """A Claude agent's login, home network or home VPN only, holding `scope`. Every refusal is logged too."""
+    _home_only(request, h)
+    row = agentlogins.check(h.db, agentlogins.bearer(request.headers), scope)
+    if row is None:
+        h.db.log("agent.cloud", "refused", target=request.url.path, params={"scope": scope}, source="agent")
+        raise error(401, "unauthorized", "This agent login is unknown, turned off, expired or not allowed to do this")
+    return row
+
+
+def _by_code(h: Hub, code: str) -> dict[str, Any]:
+    want = "".join(ch for ch in code.upper() if ch.isalnum())
+    row = next((r for r in cloudmedia.pending(h) if str(r["code"]).upper() == want), None) if want else None
+    if row is None:
+        raise error(404, "not_found", "No worker is waiting with that code. Read /v1/agent/cloud for the current one.")
+    return row
+
+
+@router.get("/v1/agent/cloud")
+async def agent_cloud(request: Request, h: Hub = Depends(hub)) -> dict[str, Any]:
+    """What the Cloud media page shows: the worker's state and who is waiting to join (codes, names, when)."""
+    row = _agent(request, h, "admin.read")
+    h.db.log("agent.read", "ok", target="/v1/agent/cloud", params={"agent": row["name"], "agent_id": row["id"]},
+             source="agent")
+    return {"status": cloudmedia.status(h), "waiting": cloudmedia.pending(h), "enabled": cloudmedia.enabled(h)}
+
+
+@router.post("/v1/agent/cloud/approve")
+async def agent_approve(request: Request, body: dict[str, Any], h: Hub = Depends(hub)) -> dict[str, Any]:
+    """Approve the waiting worker that shows this code, as an admin would on the page. Logged with the agent's name."""
+    row = _agent(request, h, "cloud.approve")
+    wait = _by_code(h, str(body.get("code") or ""))
+    try:
+        cloudmedia.approve(h, wait["id"])
+    except CloudError as exc:
+        raise _err(exc) from None
+    h.db.log("agent.cloud_approve", "ok", target=wait["id"],
+             params={"agent": row["name"], "agent_id": row["id"], "code": wait["code"], "name": wait["name"]},
+             source="agent")
+    return {"ok": True, "approved": {"code": wait["code"], "name": wait["name"]}}
+
+
+@router.post("/v1/agent/cloud/deny")
+async def agent_deny(request: Request, body: dict[str, Any], h: Hub = Depends(hub)) -> dict[str, Any]:
+    row = _agent(request, h, "cloud.approve")
+    wait = _by_code(h, str(body.get("code") or ""))
+    cloudmedia.deny(h, wait["id"])
+    h.db.log("agent.cloud_deny", "ok", target=wait["id"],
+             params={"agent": row["name"], "agent_id": row["id"], "code": wait["code"]}, source="agent")
     return {"ok": True}
 
 

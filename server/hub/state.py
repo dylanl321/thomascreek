@@ -385,6 +385,9 @@ class Hub:
     async def start(self) -> None:
         self.bootstrap_admin()
         self.seed_people()
+        from . import agentlogins
+
+        agentlogins.seed_from_env(self.db)
         if self.onepassword.enabled:
             await self.onepassword.sync_safely()
             self.onepassword.start()
