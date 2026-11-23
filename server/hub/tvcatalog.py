@@ -1595,7 +1595,10 @@ class TvCatalog:
                 return page
         found: list[tuple[dict[str, Any], bool]] = []
         names: set[str] = set()
-        for row in self.load().get(kind) or []:  # the provider's order: the index is the "added" fallback
+        twins: set[str] = set()
+        for ord_, row in enumerate(self.load().get(kind) or []):  # the provider's order: the "added" fallback
+            if not isinstance(row, dict):
+                continue
             kids = self._is_kids(row.get("category"))
             if kids_only and not kids:
                 continue
@@ -1607,6 +1610,10 @@ class TvCatalog:
                 continue
             if hidden and str(row.get("category") or "").casefold() in hidden:
                 continue
+            twin = catalogdb.twin_key(row, ord_)
+            if twin in twins:
+                continue  # another copy of a title already in the list (the index does the same)
+            twins.add(twin)
             if row.get("category"):
                 names.add(row["category"])
             found.append((row, kids))

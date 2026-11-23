@@ -305,3 +305,42 @@ def test_the_snapshot_is_parsed_once_however_many_ask_at_once(hub, monkeypatch):
     for w in workers:
         w.join()
     assert len(calls) == 1 and cat.parsed()
+
+
+def test_a_list_shows_each_title_once(hub, monkeypatch):
+    """Nov 23 2026: the 4K films showed "Dept. Q 4K" twice side by side, two provider rows of one title with
+    different posters. A page now holds one card per title (cleaned name and year), the first in the provider's
+    order, and `total` counts titles. A remake (another year) stays, and so do two same-named titles without a year
+    in different categories. The index and the snapshot path agree."""
+    cat = hub.tv_catalog
+    cat.kids_categories = lambda: ["Kids"]
+    doc = _doc(0)
+    rows = [
+        ("EN - Dept. Q 4K (2025)", "4K", "2025"),
+        ("Dept. Q 4K", "4K", "2025"),
+        ("|EN| Murderbot 4K", "4K", "2025"),
+        ("Murderbot 4K (2025)", "4K", None),
+        ("Dune (1984)", "4K", None),
+        ("Dune (2021)", "4K", None),
+        ("The Office", "Comedy", None),
+        ("The Office", "British", None),
+        ("The Office", "Comedy", None),
+        ("Dept. Q", "Drama", "2025"),
+    ]
+    doc["movies"] = [{"id": f"vod:thomas-creek:{i}", "name": n, "category": c, "year": y} for i, (n, c, y) in
+                     enumerate(rows)]
+    cat._write(doc)
+    assert cat.index_ready()
+    for sort in ("name", "year", "added"):
+        kw = dict(kind="movies", q=None, category="4K", kids_only=False, limit=50, offset=0, sort=sort)
+        fast, slow = _both(cat, monkeypatch, **kw)
+        assert fast == slow
+        assert fast["total"] == 4
+        assert sorted(row["id"] for row in fast["movies"]) == [
+            "vod:thomas-creek:0", "vod:thomas-creek:2", "vod:thomas-creek:4", "vod:thomas-creek:5"]
+    every = cat.movies(q=None, category=None, kids_only=False, limit=50, sort="name")
+    ids = {row["id"].rsplit(":", 1)[1] for row in every["movies"]}
+    assert ids == {"0", "2", "4", "5", "6", "7"}  # Dept. Q in Drama is the 4K copy's twin; the Offices by category
+    assert every["total"] == 6
+    page = cat.movies(q=None, category=None, kids_only=False, limit=2, offset=4, sort="name")
+    assert len(page["movies"]) == 2 and page["total"] == 6
