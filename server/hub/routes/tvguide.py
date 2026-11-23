@@ -631,7 +631,7 @@ async def _title_page(request: Request, h: Hub, c: Caller, kind: str, *, q: str 
         certs_seen = kidcerts.store(h).version if kids else 0  # a page changes as certifications arrive
         # "one-each": pages fold copies of a title since Nov 23 2026, so a page an app kept from before isn't a 304.
         seed = json.dumps([kind, stamp, sorted(cat._kid_names()) if kids else [], sorted(allowed or []), certs_seen, args,
-                           "one-each"],
+                           "one-each-2"],
                           sort_keys=True)
         tag = 'W/"' + hashlib.sha256(seed.encode()).hexdigest()[:20] + '"'
         if request.headers.get("if-none-match") == tag:
