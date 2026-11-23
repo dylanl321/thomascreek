@@ -8,6 +8,7 @@
   hub people list | add NAME ROLE
   hub devices list | assign DEVICE PERSON | revoke DEVICE
   hub bootstrap-admin NAME DEVICE    make the first admin (Dylan) from an enrolled phone
+  hub agent-login list | create NAME [--days N] | revoke ID   Claude agent logins (hub/agentlogins.py)
 
 Secret values are read from stdin without echo and are never printed.
 """
@@ -151,6 +152,31 @@ def cmd_bootstrap(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_agent_login(args: argparse.Namespace) -> int:
+    from . import agentlogins
+
+    db = _db()
+    if args.action == "list":
+        for a in agentlogins.logins(db):
+            state = "off" if a.get("revoked_at") else "on"
+            print(f"{a['id']}  {state:<3} {','.join(a.get('scopes') or [])}  {a['name']}")
+        return 0
+    if args.action == "create":
+        if not args.arg:
+            print("give the login a name, e.g. hub agent-login create claude-mac", file=sys.stderr)
+            return 2
+        row, key = agentlogins.create(db, args.arg, days=args.days or None)
+        print(f"{row['id']}  {row['name']}  scopes: {', '.join(row['scopes'])}", file=sys.stderr)
+        print("The key is shown only now. Keep it in a file only you can read.", file=sys.stderr)
+        print(key)
+        return 0
+    if not args.arg:
+        print("which login? see hub agent-login list", file=sys.stderr)
+        return 2
+    print("turned off" if agentlogins.revoke(db, args.arg, by="cli") else "no such live login")
+    return 0
+
+
 def cmd_check(_args: argparse.Namespace) -> int:
     from .main import default_hub
 
@@ -195,6 +221,12 @@ def cmd_check(_args: argparse.Namespace) -> int:
     return asyncio.run(run())
 
 
+def agentlogins_days() -> int:
+    from .agentlogins import DEFAULT_DAYS
+
+    return DEFAULT_DAYS
+
+
 def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(prog="hub", description="Thomas Creek Hub")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -218,6 +250,10 @@ def main(argv: list[str] | None = None) -> None:
     b = sub.add_parser("bootstrap-admin")
     b.add_argument("name")
     b.add_argument("device")
+    ag = sub.add_parser("agent-login")
+    ag.add_argument("action", choices=["list", "create", "revoke"])
+    ag.add_argument("arg", nargs="?")
+    ag.add_argument("--days", type=int, default=agentlogins_days())
     args = ap.parse_args(argv)
 
     if args.cmd == "catalog":
@@ -230,7 +266,7 @@ def main(argv: list[str] | None = None) -> None:
         run()
         return
     handlers = {"init-key": cmd_init_key, "secrets": cmd_secrets, "check": cmd_check, "people": cmd_people,
-                "devices": cmd_devices, "bootstrap-admin": cmd_bootstrap}
+                "devices": cmd_devices, "bootstrap-admin": cmd_bootstrap, "agent-login": cmd_agent_login}
     sys.exit(handlers[args.cmd](args))
 
 

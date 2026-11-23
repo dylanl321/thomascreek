@@ -31,7 +31,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from pydantic import BaseModel, Field
 
-from .. import __version__, aikeys, bambu_cloud, testkeys
+from .. import __version__, agentlogins, aikeys, bambu_cloud, testkeys
 from ..iptvcanon import fold_stats as catalog_fold_stats
 from ..iptvplay import accounts as iptv_accounts
 from ..iptvplay import add_login
@@ -136,7 +136,7 @@ def _expected(h: Hub) -> list[str]:
 def _session(request: Request, h: Hub) -> dict[str, Any] | None:
     token = request.cookies.get(COOKIE)
     if not token:
-        return None
+        return _agent_session(request, h)
     try:
         claims = h.tokens.verify(token, audience=AUD)
     except CryptoError:
@@ -158,6 +158,26 @@ def _session(request: Request, h: Hub) -> dict[str, Any] | None:
     if sid and time.time() - claims.get("iat", 0) > SESSION_RENEW_S:
         request.state.admin_renew = claims
     return claims
+
+
+def _agent_session(request: Request, h: Hub) -> dict[str, Any] | None:
+    """A Claude agent's read-only look at the admin pages (hub/agentlogins.py): GET only, home only, logged.
+
+    Form posts never take an agent login, so it can't change keys, people or settings from the page."""
+    key = agentlogins.bearer(request.headers)
+    if not key:
+        return None
+    if request.method not in ("GET", "HEAD") or not h.can_open_web(caller_ip(request, h)):
+        return None
+    row = agentlogins.check(h.db, key, "admin.read")
+    if row is None:
+        log.info("admin web: agent login refused (unknown, off, expired or without admin.read)")
+        h.db.log("agent.read", "refused", target=request.url.path, source="agent")
+        return None
+    h.db.log("agent.read", "ok", target=request.url.path, params={"agent": row["name"], "agent_id": row["id"]},
+             source="agent")
+    return {"agent": row["id"], "agent_name": row["name"], "sid": f"agent:{row['id']}", "_token": "",
+            "dev": None, "per": None}
 
 
 def _csrf(claims: dict[str, Any]) -> str:
@@ -923,6 +943,30 @@ Turning a key off removes every simulator it let in.</div>{shown}
 </div></details></div>"""
 
 
+def _agent_logins_html(h: Hub, csrf: str) -> str:
+    """Agent logins (hub/agentlogins.py): Claude on the home network reading these pages and approving the cloud
+    worker. Made inside the hub container; turned off here."""
+    e = html.escape
+    rows = []
+    for a in agentlogins.logins(h.db):
+        off = bool(a.get("revoked_at"))
+        expired = bool(a.get("expires_at") and a["expires_at"] < time.time())
+        state = "<b>off</b>" if off else "<b>expired</b>" if expired else "on"
+        button = "" if off else (
+            f"<form method=post action=/admin/agent-login-revoke><input type=hidden name=csrf value={csrf}>"
+            f"<input type=hidden name=id value={e(a['id'])}><button class=ghost>Turn off</button></form>")
+        rows.append(f"<div class=row><div><b>{e(a['name'])}</b> <span class=dim>{e(', '.join(a.get('scopes') or []))} · "
+                    f"{state} · made {_ago(a.get('created_at'))} · last used {_ago(a.get('last_used_at'))}</span></div>"
+                    f"{button}</div>")
+    live = sum(1 for a in agentlogins.logins(h.db) if not a.get("revoked_at"))
+    pill = f"<span class=pill-ok>{live} on</span>" if live else "<span class=dim>none</span>"
+    return f"""<div class=card style="margin-top:10px"><details class=key><summary><span>Agent logins</span>{pill}</summary>
+<div class=kbody><div class=dim>Claude agents on the home network can read these pages and approve the cloud media worker.
+They can't post any form here, see a key, or change people. Every use is in the activity log as "agent".
+New ones are made inside the hub container: <code>hub agent-login create NAME</code>.</div>
+{''.join(rows) or '<div class=row><div class=dim>None yet</div></div>'}</div></details></div>"""
+
+
 def _ai_keys_html(h: Hub, csrf: str, new_ai_key: str | None = None) -> str:
     """AI connections: keys that let an AI app (Claude and other MCP clients) control the house as one person."""
     e = html.escape
@@ -1160,6 +1204,7 @@ or text files named after a key (for example trek.api_key.txt). Each goes to the
 <div class=row><div>TLS pin</div><div class=dim><code>{e(pin or '')}</code></div></div>
 <div class=row><div>This sign-in</div><form method=post action=/admin/logout>
 <input type=hidden name=csrf value={csrf}><button class=ghost>Sign out</button></form></div></div>
+{_agent_logins_html(h, csrf)}
 {admin_health.speed_html(h)}
 {admin_health.warnings_html(h)}
 {sections}"""
@@ -1776,6 +1821,13 @@ async def revoke_ai_key(request: Request, h: Hub = Depends(hub)) -> Response:
     claims, form = await _form_session(request, h)
     ok = aikeys.revoke(h, str(form.get("id") or ""), by=claims.get("per"))
     return _back("Turned the AI connection off." if ok else "That AI connection was already off.")
+
+
+@pages.post("/admin/agent-login-revoke")
+async def revoke_agent_login(request: Request, h: Hub = Depends(hub)) -> Response:
+    claims, form = await _form_session(request, h)
+    ok = agentlogins.revoke(h.db, str(form.get("id") or ""), by="web")
+    return _back("Turned the agent login off." if ok else "That agent login was already off.")
 
 
 @pages.post("/admin/test-key-revoke")
