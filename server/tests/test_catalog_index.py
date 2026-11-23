@@ -326,6 +326,8 @@ def test_a_list_shows_each_title_once(hub, monkeypatch):
         ("The Office", "British", None),
         ("The Office", "Comedy", None),
         ("Dept. Q", "Drama", "2025"),
+        ("Happy Endings (2011-2020)", "4K", "2011"),  # one copy carries its run of years, the other not
+        ("Happy Endings", "4K", "2011"),
     ]
     doc["movies"] = [{"id": f"vod:thomas-creek:{i}", "name": n, "category": c, "year": y} for i, (n, c, y) in
                      enumerate(rows)]
@@ -335,12 +337,12 @@ def test_a_list_shows_each_title_once(hub, monkeypatch):
         kw = dict(kind="movies", q=None, category="4K", kids_only=False, limit=50, offset=0, sort=sort)
         fast, slow = _both(cat, monkeypatch, **kw)
         assert fast == slow
-        assert fast["total"] == 4
-        assert sorted(row["id"] for row in fast["movies"]) == [
-            "vod:thomas-creek:0", "vod:thomas-creek:2", "vod:thomas-creek:4", "vod:thomas-creek:5"]
+        assert fast["total"] == 5
+        assert sorted(row["id"].rsplit(":", 1)[1] for row in fast["movies"]) == ["0", "10", "2", "4", "5"]
     every = cat.movies(q=None, category=None, kids_only=False, limit=50, sort="name")
     ids = {row["id"].rsplit(":", 1)[1] for row in every["movies"]}
-    assert ids == {"0", "2", "4", "5", "6", "7"}  # Dept. Q in Drama is the 4K copy's twin; the Offices by category
-    assert every["total"] == 6
+    # Dept. Q in Drama is the 4K copy's twin; the Offices by category.
+    assert ids == {"0", "2", "4", "5", "6", "7", "10"}
+    assert every["total"] == 7
     page = cat.movies(q=None, category=None, kids_only=False, limit=2, offset=4, sort="name")
-    assert len(page["movies"]) == 2 and page["total"] == 6
+    assert len(page["movies"]) == 2 and page["total"] == 7

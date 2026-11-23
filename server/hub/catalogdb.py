@@ -31,8 +31,8 @@ from . import tvnames
 
 log = logging.getLogger("hub.catalogdb")
 
-VERSION = 3  # 2: programme words in their own narrow table (ptext), so a search scans words, not JSON;
-# 3: `twin`, so a list shows one card per title (Nov 23 2026)
+VERSION = 4  # 2: programme words in their own narrow table (ptext), so a search scans words, not JSON;
+# 3: `twin`, so a list shows one card per title (Nov 23 2026); 4: a bracketed run of years leaves the twin key
 KINDS = ("movies", "series")
 SORTS = {
     "name": "sort_key, ord",
@@ -69,6 +69,9 @@ def _added(value: object) -> float:
 
 # Picture and feed words a provider adds to one title's copies ("Dept. Q 4K", "Dune UHD"), as the phones' PlaylistFold.
 _COPY_WORDS = re.compile(r"\b(8k|4k|uhd|fhd|hd|sd|hq|hevc|h265|h264|1080p|2160p|720p|hdr|hdr10|dv|multi|multisub)\b")
+# A run of years in brackets after a series name ("Happy Endings (2011-2020)", "(2019- )"): one copy has it, the
+# other not.
+_YEAR_RUN = re.compile(r"[(\[]\s*(?:19|20)\d{2}\s*[-–]\s*(?:(?:19|20)\d{2})?\s*[)\]]")
 
 
 def twin_key(row: dict[str, Any], ord_: int) -> str:
@@ -78,7 +81,8 @@ def twin_key(row: dict[str, Any], ord_: int) -> str:
     the same category count as one: "The Office" in two categories may be the American and the British one. A name
     that cleans to nothing is never folded."""
     name, year = tvnames.polish(row.get("name"))
-    clean = " ".join(_COPY_WORDS.sub(" ", re.sub(r"[\W_]+", " ", str(name or "").casefold())).split())
+    bare = _YEAR_RUN.sub(" ", str(name or ""))
+    clean = " ".join(_COPY_WORDS.sub(" ", re.sub(r"[\W_]+", " ", bare.casefold())).split())
     if not clean:
         return f"#{ord_}"
     year = year or _year(row.get("year")) or None
