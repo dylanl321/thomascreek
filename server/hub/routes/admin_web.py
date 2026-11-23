@@ -352,7 +352,7 @@ AREAS = (("/admin", "Overview"), ("/admin/devices", "TVs"), ("/admin/people", "P
 AREA_PATHS = {path for path, _ in AREAS}
 CSS = CSS + SUITE_CSS
 # Pages that sit under an area in the menu.
-UNDER = {"/admin/downloads": "/admin/watching", "/admin/playlists": "/admin/watching"}
+UNDER = {"/admin/downloads": "/admin/watching", "/admin/playlists": "/admin/watching", "/admin/cloud": "/admin/watching"}
 
 
 def _counts(h: Hub) -> dict[str, tuple[int, str]]:
@@ -1126,7 +1126,10 @@ or text files named after a key (for example trek.api_key.txt). Each goes to the
 <a class='btn light small' href=/admin/playlists>Open</a></div></div>
 <h3>Downloads</h3><div class=card><div class=row><div>Kids' YouTube and saved films
 <div class=dim>Queue, failures and space used</div></div>
-<a class='btn light small' href=/admin/downloads>Open</a></div></div>"""
+<a class='btn light small' href=/admin/downloads>Open</a></div></div>
+<h3>Cloud media</h3><div class=card><div class=row><div>Lighter streams for slow connections
+<div class=dim>The worker on the cloud server: approve it, see how busy it is, switch it off</div></div>
+<a class='btn light small' href=/admin/cloud>Open</a></div></div>"""
     elif area == "ai":
         body = f"""{admin_health.ai_html(h)}
 {_ai_keys_html(h, csrf, new_ai_key)}

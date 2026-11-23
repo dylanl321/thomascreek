@@ -33,6 +33,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
+from .. import cloudmedia
 from ..crypto import CryptoError
 from ..state import Hub
 from ..tvapp import TvAppError
@@ -102,6 +103,11 @@ async def phone_play(body: dict[str, Any], response: Response, c: Caller = Depen
     `direct: true` (optional, a grown-up's Android phone, iPhone or iPad) answers the provider's own address
     instead of a hub pass: a free login is held for this phone like a TV's, kept by `/hold` and freed by
     `/hold {"stop":true}`. A child, a guest or a kids' device that asks gets the relayed answer instead.
+
+    `data_saver: true` (optional) asks for the lighter stream the cloud worker makes (hub/cloudmedia.py): while
+    the worker is up, `url` is that stream, `lite: true`, and the full one stays as `full_url`. Without the flag
+    the answer still carries `lite_url` (and `lite_note`) to switch to when the player sees a slow connection.
+    No worker, no `lite_url`: everything plays as before.
 
     `person` (optional) is who is watching on a grown-up's phone: one of the children, so only kids' titles play
     and the place is kept for them (see tvguide.watcher).
@@ -211,6 +217,7 @@ async def phone_play(body: dict[str, Any], response: Response, c: Caller = Depen
         if alternates:
             # The same stream on the provider's backup addresses (same login), to try in order when `url` won't play.
             out_direct["alternates"] = alternates
+        cloudmedia.offer(h, out_direct, relay, data_saver=body.get("data_saver") is True)
         _resume(h, person, body, mode, key, row, out_direct)
         lap("resume")
         await _episode(h, mode, key, row, out_direct, kids_only)
@@ -251,6 +258,8 @@ async def phone_play(body: dict[str, Any], response: Response, c: Caller = Depen
         if no_hls(h, str(held["provider"]), stream):
             out["hls"] = False  # the provider answered 405 to its `.m3u8` lately: open `ts_url` first
     _cast_fields(out, mode, ext, token, cast=body.get("cast") is True)
+    if not out.get("converted"):
+        cloudmedia.offer(h, out, path, data_saver=body.get("data_saver") is True)
     source = await asyncio.to_thread(_source, h, holder, title, row, "relay", None)
     if source:
         out["source"] = source
