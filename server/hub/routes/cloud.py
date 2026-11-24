@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import html
 import time
 from typing import Any
@@ -54,7 +55,9 @@ async def poll(join_id: str, request: Request, h: Hub = Depends(hub)) -> dict[st
 
 @router.post("/v1/cloud/beat", dependencies=[Depends(worker)])
 async def beat(body: dict[str, Any], h: Hub = Depends(hub)) -> dict[str, Any]:
-    return cloudmedia.beat(h, body)
+    # A beat saves a row. On Nov 24 2026 that small write waited four seconds on a busy disk and every other
+    # route waited with it (/v1/ping/stalls), so it runs in a worker thread.
+    return await asyncio.to_thread(cloudmedia.beat, h, body)
 
 
 def _pass_claims(h: Hub, body: dict[str, Any]) -> dict[str, Any]:

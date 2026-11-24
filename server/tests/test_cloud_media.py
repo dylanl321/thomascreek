@@ -177,3 +177,28 @@ def test_the_web_page_shows_a_waiting_code(hub, home_client):
     made = _join(home_client).json()
     page = _page_html(hub, {"sid": "test-session"}, None)
     assert made["code"] in page and "Approve" in page and SECRET not in page
+
+
+def test_a_beat_saves_its_row_off_the_event_loop(hub, home_client, monkeypatch):
+    import asyncio
+    import threading
+
+    made = _join(home_client).json()
+    cloudmedia.approve(hub, made["join_id"])
+    where: list[tuple[str, bool]] = []
+    real = cloudmedia.beat
+
+    def beat(h, body, now=None):
+        try:
+            asyncio.get_running_loop()
+            on_loop = True
+        except RuntimeError:
+            on_loop = False
+        where.append((threading.current_thread().name, on_loop))
+        return real(h, body, now)
+
+    monkeypatch.setattr(cloudmedia, "beat", beat)
+    r = home_client.post("/v1/cloud/beat", headers={"x-tc-worker": SECRET}, json={"public_url": PUBLIC})
+    assert r.status_code == 200 and r.json()["ok"] is True
+    assert where and where[0][1] is False
+    assert cloudmedia.status(hub)["up"] is True
