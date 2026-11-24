@@ -171,3 +171,42 @@ def test_the_nas_env_gives_an_existing_login_the_new_scope_but_not_one_turned_of
     agentlogins.revoke(hub.db, "ag_old")
     agentlogins.seed_from_env(hub.db, env)
     assert agentlogins.check(hub.db, key, "test.pair") is None
+
+
+def test_an_agent_removes_only_the_test_tvs_an_agent_let_in(hub, home_client, away_client):
+    from tests.test_tv_api import TV_ID, Key, _enroll
+
+    _, key = agentlogins.create(hub.db, "claude-mac")
+    _enroll(home_client, Key(), TV_ID, "Living room")
+    hub.tv_app.set_tv(TV_ID, status="approved", room="living_room")  # a person's TV, approved an hour ago
+    tvs = hub.tv_app.tvs()
+    tvs[TV_ID]["approved_at"] -= 3600
+    hub.tv_app._save_tvs(tvs)
+    pair = _tv_waiting(home_client)
+    approve = f"/v1/agent/tv/pair/{pair['pair_id']}/approve"
+    assert home_client.post(approve, headers=_h(key), json={}).status_code == 200
+
+    listed = home_client.get("/v1/agent/tvs", headers=_h(key)).json()["tvs"]
+    assert [t["install_id"] for t in listed] == ["tv_emulator_0123456789"]
+    assert home_client.delete(f"/v1/agent/tv/{TV_ID}", headers=_h(key)).status_code == 404
+    assert TV_ID in hub.tv_app.tvs()
+    assert away_client.delete("/v1/agent/tv/tv_emulator_0123456789", headers=_h(key)).status_code in (401, 403, 404)
+    assert home_client.delete("/v1/agent/tv/tv_emulator_0123456789").status_code == 401
+    assert "tv_emulator_0123456789" in hub.tv_app.tvs()
+
+    gone = home_client.delete("/v1/agent/tv/tv_emulator_0123456789", headers=_h(key))
+    assert gone.status_code == 200 and gone.json()["ok"] is True
+    assert "tv_emulator_0123456789" not in hub.tv_app.tvs() and TV_ID in hub.tv_app.tvs()
+    entry = next(e for e in _log(hub) if e["action"] == "agent.tv_remove" and e["outcome"] == "ok")
+    assert entry["source"] == "agent" and json.loads(entry["params"])["agent"] == "claude-mac"
+
+
+def test_a_test_tv_let_in_before_the_mark_is_known_by_the_log(hub, home_client):
+    _, key = agentlogins.create(hub.db, "claude-mac")
+    pair = _tv_waiting(home_client)
+    approve = f"/v1/agent/tv/pair/{pair['pair_id']}/approve"
+    assert home_client.post(approve, headers=_h(key), json={}).status_code == 200
+    tvs = hub.tv_app.tvs()
+    tvs["tv_emulator_0123456789"]["approved_by"] = "admin"  # as rows written before the mark existed
+    hub.tv_app._save_tvs(tvs)
+    assert home_client.delete("/v1/agent/tv/tv_emulator_0123456789", headers=_h(key)).status_code == 200

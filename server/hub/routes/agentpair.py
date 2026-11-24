@@ -5,6 +5,10 @@ Dylan asked (Nov 24 2026) that Claude agents stop asking him to approve their ow
 is written to the activity log with source "agent" and the login's name, so Dylan can see and undo each one on the web
 page. A phone let in this way is a test device for Dylan (kind "test", the "Test" tag in People), the same as a
 Simulator that enrolls with a test key; it never gets a child's or another person's access.
+
+An agent also takes its test TVs away again (`GET /v1/agent/tvs`, `DELETE /v1/agent/tv/{install_id}`, Nov 24 2026:
+test TVs piled up on the hub and only the web page could remove them). It can remove only a TV an agent login let
+in, never one a person approved, and each removal is in the activity log.
 """
 
 from __future__ import annotations
@@ -48,6 +52,64 @@ def _pending_phones(h: Hub) -> list[dict[str, Any]]:
     return [dict(r) for r in rows]
 
 
+APPROVALS = ("agent.tv_pair_approve", "agent.tv_approve")
+NEAR_S = 2.0
+
+
+def _mark(h: Hub, install_id: str, row: dict[str, Any]) -> None:
+    """Write on the TV's row that an agent login let it in, so only such a TV can be removed by an agent."""
+    tvs = h.tv_app.tvs()
+    tv = tvs.get(install_id)
+    if tv is None:
+        return
+    tv["approved_by"] = f"agent:{row['id']}"
+    tvs[install_id] = tv
+    h.tv_app._save_tvs(tvs)
+
+
+def _let_in_by_agent(h: Hub, tv: dict[str, Any]) -> bool:
+    """True for a TV an agent login approved: marked so, or (TVs let in before the mark existed) approved at the
+    moment the activity log has an agent's approval."""
+    if str(tv.get("approved_by") or "").startswith("agent:"):
+        return True
+    at = float(tv.get("approved_at") or 0)
+    if not at:
+        return False
+    marks = ",".join("?" for _ in APPROVALS)
+    found = h.db.all(f"SELECT 1 FROM activity WHERE source='agent' AND outcome='ok' AND action IN ({marks})"
+                     " AND ts BETWEEN ? AND ? LIMIT 1", [*APPROVALS, at - NEAR_S, at + NEAR_S])
+    return bool(found)
+
+
+def _test_tvs(h: Hub) -> dict[str, dict[str, Any]]:
+    return {tid: tv for tid, tv in h.tv_app.tvs().items() if _let_in_by_agent(h, tv)}
+
+
+@router.get("/tvs")
+async def test_tvs(request: Request, h: Hub = Depends(hub)) -> dict[str, Any]:
+    """The TVs and emulators an agent login let in: the ones an agent may remove."""
+    row = _agent(request, h)
+    _log(h, row, "agent.read", "/v1/agent/tvs")
+    return {"tvs": [{"install_id": tid, "name": tv.get("name"), "room": tv.get("room"), "model": tv.get("model"),
+                     "status": tv.get("status")} for tid, tv in _test_tvs(h).items()]}
+
+
+@router.delete("/tv/{install_id}")
+async def remove_test_tv(install_id: str, request: Request, h: Hub = Depends(hub)) -> dict[str, Any]:
+    """Forget a test TV an agent login let in. A TV a person approved is never removed here."""
+    row = _agent(request, h)
+    tv = _test_tvs(h).get(install_id)
+    if tv is None:
+        h.db.log("agent.tv_remove", "refused", target=install_id, params={"agent": row["name"]}, source="agent")
+        raise error(404, "not_found", "No test TV with that id. Read /v1/agent/tvs for the ones an agent let in.")
+    try:
+        h.tv_app.remove_tv(install_id)
+    except TvAppError as exc:
+        raise _err(exc) from None
+    _log(h, row, "agent.tv_remove", install_id, name=tv.get("name"))
+    return {"ok": True, "install_id": install_id}
+
+
 @router.get("/pairings")
 async def pairings(request: Request, h: Hub = Depends(hub)) -> dict[str, Any]:
     """Everything waiting to join: TVs and emulators (by pair id), and phones or emulators (by device id)."""
@@ -61,11 +123,15 @@ async def approve_tv(pair_id: str, request: Request, body: dict[str, Any] | None
                      h: Hub = Depends(hub)) -> dict[str, Any]:
     """Let in the TV or emulator that asked to join. Body as on the phone: optional profile, room, name."""
     row = _agent(request, h)
+    install_id = next((str(p.get("install_id") or "") for p in h.tv_pair.pending()["pending"]
+                       if p.get("pair_id") == pair_id), "")
     try:
         out = h.tv_pair.approve(pair_id, body or {})
     except TvAppError as exc:
         raise _err(exc) from None
-    _log(h, row, "agent.tv_pair_approve", pair_id, status=out.get("status"))
+    if install_id and out.get("ok") and out.get("status") == "approved":
+        _mark(h, install_id, row)
+    _log(h, row, "agent.tv_pair_approve", pair_id, status=out.get("status"), install_id=install_id or None)
     return out
 
 
@@ -86,6 +152,8 @@ async def approve_tv_code(request: Request, body: dict[str, Any], h: Hub = Depen
         tv = h.tv_app.approve_code(code, room=body.get("room"), profile=body.get("profile"))
     except TvAppError as exc:
         raise _err(exc) from None
+    if tv.get("id"):
+        _mark(h, str(tv["id"]), row)
     _log(h, row, "agent.tv_approve", str(tv.get("id") or code.upper()))
     return tv
 
