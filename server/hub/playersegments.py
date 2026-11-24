@@ -5,7 +5,10 @@ answer, so no screen calls an outside service (rule 2) and every screen shows th
 TMDB id or the service down all give an empty list: the player just shows no button.
 
 Only plausible sections are kept (the same rules the Android TV used on its own): a recap or intro needs an end,
-lasts 5 seconds to 3 or 4 minutes and sits early in the episode; credits start in its last quarter."""
+lasts 5 seconds to 3 or 4 minutes and sits early in the episode; credits start in its last quarter.
+
+An episode nobody marked the credits of gets a guessed one (`with_credits_guess`): the players offer the next
+episode when the credits start, and without a mark they could only do so in the last 20 seconds."""
 
 from __future__ import annotations
 
@@ -50,6 +53,20 @@ def clean(kind: str, start_ms: object, end_ms: object, duration_ms: int) -> tupl
             return None   # credits without an end need the length to mean anything
         return start, min(end, limit)
     return None
+
+
+GUESS_MIN_EPISODE_S = 600     # shorter than ten minutes: a clip or a short, nothing to guess
+GUESS_SHARE = 0.015           # credits run about 1.5 % of an episode: 40 s of 45 minutes
+
+
+def with_credits_guess(segments: list[dict[str, Any]], duration_s: int | None) -> list[dict[str, Any]]:
+    """`segments`, with a guessed credits section at the end of an episode of `duration_s` when none is known.
+    The guess is 30 to 60 seconds long, marked `"guess": true`, and never stored: a real mark replaces it."""
+    if not duration_s or duration_s < GUESS_MIN_EPISODE_S or any(s.get("kind") == "credits" for s in segments):
+        return segments
+    length = min(60.0, max(30.0, duration_s * GUESS_SHARE))
+    return [*segments, {"kind": "credits", "start_s": round(duration_s - length, 1), "end_s": float(duration_s),
+                        "guess": True}]
 
 
 def parse(body: object, duration_ms: int) -> list[dict[str, Any]]:
