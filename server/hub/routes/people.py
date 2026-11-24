@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 
 import time
@@ -323,9 +324,36 @@ ACTIVITY_CATEGORIES = {
 DOOR_CLASSES = {"door", "garage_door", "window", "opening"}
 
 
-def _readable(item: dict[str, Any], names: dict[str, str]) -> dict[str, Any]:
+_TV_WORDS = {
+    "tvapp.state": "{tv} checked in", "tvapp.token": "{tv} signed in", "tvapp.remove_tv": "Removed {tv}",
+    "tvapp.launcher": "Changed the home screen on {tv}", "agent.tv_remove": "A test removed {tv}",
+    "agent.tv_approve": "A test let in {tv}",
+}
+
+
+def _tv_words(item: dict[str, Any], tvs: dict[str, str]) -> str | None:
+    """A TV row in words, with the TV's name instead of its id (Nov 24 2026: the log said "State Tv <id>")."""
+    words = _TV_WORDS.get(item.get("action") or "")
+    if not words:
+        return None
+    params = item.get("params")
+    if isinstance(params, str):
+        try:
+            params = json.loads(params)
+        except ValueError:
+            params = None
+    kept = params.get("name") if isinstance(params, dict) else None
+    name = tvs.get(str(item.get("target") or "")) or (kept if isinstance(kept, str) else None)
+    return words.format(tv=name or "A TV")
+
+
+def _readable(item: dict[str, Any], names: dict[str, str], tvs: dict[str, str] | None = None) -> dict[str, Any]:
     """A hub action row in words people read, with what it opens in the app (`ref`)."""
     action, target = item.get("action") or "", item.get("target")
+    if not item.get("detail"):
+        tv = _tv_words(item, tvs or {})
+        if tv:
+            item["detail"] = tv
     if not item.get("detail"):
         who = names.get(target or "", "")
         words = {
@@ -516,11 +544,12 @@ async def activity(before: str | None = None, person: str | None = None, limit: 
     rows = [] if category == "automation" else h.db.activity(limit=limit, person_id=person, prefixes=prefixes,
                                                               before_ts=before_ts)
     names = {p["id"]: p["name"] for p in h.db.people()}
+    tvs = {tid: str(tv.get("name") or "") for tid, tv in h.tv_app.tvs().items() if tv.get("name")}
     items = [_readable({
         "id": str(r["id"]), "t": r["ts"], "at": iso(r["ts"]), "who": names.get(r["person_id"] or "", None),
         "person_id": r["person_id"], "device_id": r["device_id"], "action": r["action"], "target": r["target"],
         "params": r["params"], "outcome": r["outcome"], "detail": r["detail"], "source": r["source"],
-    }, names) for r in rows]
+    }, names, tvs) for r in rows]
     if not person:
         now = time.time()
         newest = before_ts or now

@@ -210,3 +210,16 @@ def test_a_test_tv_let_in_before_the_mark_is_known_by_the_log(hub, home_client):
     tvs["tv_emulator_0123456789"]["approved_by"] = "admin"  # as rows written before the mark existed
     hub.tv_app._save_tvs(tvs)
     assert home_client.delete("/v1/agent/tv/tv_emulator_0123456789", headers=_h(key)).status_code == 200
+
+
+def test_the_activity_log_names_the_tv_instead_of_its_id(hub, home_client, people):
+    from tests.test_tv_api import TV_ID, Key, _enroll
+
+    _enroll(home_client, Key(), TV_ID, "Living room")
+    hub.tv_app.set_tv(TV_ID, status="approved", name="Den TV")
+    hub.db.log("tvapp.state", "ok", device_id=f"tv:{TV_ID}", target=TV_ID, params={"foreground": True}, source="tv")
+    hub.db.log("agent.tv_remove", "ok", target="tv_gone_0123456789", params={"name": "QA TV (test)"}, source="agent")
+    dylan = people["phones"]["Dylan"]
+    items = dylan.client.get("/v1/activity", headers=dylan.h, params={"limit": "20"}).json()["items"]
+    said = {i["action"]: i["detail"] for i in items if i["action"] in ("tvapp.state", "agent.tv_remove")}
+    assert said == {"tvapp.state": "Den TV checked in", "agent.tv_remove": "A test removed QA TV (test)"}

@@ -238,8 +238,18 @@ struct ChoresManageView: View {
 struct InventoryView: View {
     @State private var query = ""
     @State private var items: [InventoryItem] = []
+    /// The last search did not come back (the hub has no inventory set up, or it could not be reached).
+    @State private var failed = false
     var body: some View {
         List {
+            // Search-only: with nothing typed the page said nothing at all.
+            if query.isEmpty {
+                ContentUnavailableView("Find anything in the house", systemImage: "shippingbox",
+                                       description: Text("Type what you're looking for, like a drill or the passports, and where it is shows here."))
+            } else if failed {
+                ContentUnavailableView("The inventory didn't answer", systemImage: "exclamationmark.magnifyingglass",
+                                       description: Text("The hub couldn't search it just now. If nothing is set up there yet, things added to the house inventory show here."))
+            }
             ForEach(items) { i in
                 VStack(alignment: .leading, spacing: 3) {
                     Text(i.name).font(.body.weight(.medium))
@@ -248,15 +258,20 @@ struct InventoryView: View {
                     if let s = i.lastService { Text("Last serviced \(s)").font(.caption2).foregroundStyle(Theme.dim) }
                 }
             }
-            if items.isEmpty && !query.isEmpty { ContentUnavailableView.search(text: query) }
+            if items.isEmpty && !query.isEmpty && !failed { ContentUnavailableView.search(text: query) }
         }
         .scrollContentBackground(.hidden).background(Backdrop())
         .navigationTitle("Inventory")
         .searchable(text: $query, prompt: "Where is the…")
         .task(id: query) {
-            guard !query.isEmpty else { items = []; return }
+            guard !query.isEmpty else { items = []; failed = false; return }
             try? await Task.sleep(for: .milliseconds(300))
-            if let l: InventoryList = await hubQuiet("inventory/search", { try await HubClient.shared.get("/v1/inventory/search", ["q": query]) }) { items = l.items }
+            guard !Task.isCancelled else { return }
+            if let l: InventoryList = await hubQuiet("inventory/search", { try await HubClient.shared.get("/v1/inventory/search", ["q": query]) }) {
+                items = l.items; failed = false
+            } else {
+                items = []; failed = true
+            }
         }
     }
 }

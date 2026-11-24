@@ -10,11 +10,15 @@ struct House3DScreen: View {
     @StateObject private var lights = LightsModel.shared
     @State private var scene: SCNScene?
     @State private var error: String?
+    /// The hub has no house model: the same 3D house House > Property shows, from the app's own model.
+    @State private var property: DollhouseRoom?
 
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
-            if let scene {
+            if let property {
+                DollhouseRoomView(roomID: property.id)
+            } else if let scene {
                 SceneView(scene: scene, pointOfView: scene.rootNode.childNode(withName: "camera", recursively: false),
                           options: [.allowsCameraControl, .autoenablesDefaultLighting])
                     .ignoresSafeArea(edges: .bottom)
@@ -38,6 +42,8 @@ struct House3DScreen: View {
             scene = s
         } catch is DecodingError {
             self.error = "The hub's 3D model is in a format this version of the app doesn't understand."
+        } catch HouseModelError.notOnHub {
+            if let lot = DollhouseCatalog.rooms.first(where: \.isProperty) { property = lot } else { error = HouseModelError.notOnHub.localizedDescription }
         } catch let e as HouseModelError {
             self.error = e.localizedDescription
         } catch {
