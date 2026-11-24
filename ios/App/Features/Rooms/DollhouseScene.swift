@@ -57,23 +57,42 @@ final class DollhouseController {
             error = "The room model isn't in the app bundle."
             return
         }
-        do {
-            let loaded = try SCNScene(url: url, options: [
-                SCNSceneSource.LoadingOption.animationImportPolicy: SCNSceneSource.AnimationImportPolicy.doNotPlay
-            ])
-            scene = loaded
-            Self.dropSurroundings(loaded.rootNode)
-            DollhouseCat.hidePoses(in: loaded.rootNode)
-            index(loaded.rootNode)
-            buildHitNames()
-            prepareMaterials()
-            addDeviceLights()
-            addStudio(to: loaded)
-            place(.dollhouse, animated: false)
-        } catch {
-            self.error = "The room model couldn't be opened."
-        }
+        do { adopt(try Self.open(url)) } catch { self.error = "The room model couldn't be opened." }
     }
+
+    /// The slow part, safe off the main thread: reading the USDZ and trimming it. Touches only the new scene,
+    /// never this controller, so a page can show its controls while it runs.
+    static func open(_ url: URL) throws -> SCNScene {
+        let loaded = try SCNScene(url: url, options: [
+            SCNSceneSource.LoadingOption.animationImportPolicy: SCNSceneSource.AnimationImportPolicy.doNotPlay
+        ])
+        dropSurroundings(loaded.rootNode)
+        DollhouseCat.hidePoses(in: loaded.rootNode)
+        return loaded
+    }
+
+    /// On the main thread: the controller's own state (device index, hit names, lights, the camera).
+    func adopt(_ loaded: SCNScene) {
+        guard scene == nil else { return }
+        scene = loaded
+        index(loaded.rootNode)
+        buildHitNames()
+        prepareMaterials()
+        addDeviceLights()
+        addStudio(to: loaded)
+        place(.dollhouse, animated: false)
+    }
+
+    /// The model file for this room, or nil (with [error] set) when the app has none.
+    func modelURL() -> URL? {
+        guard let url = DollhouseFiles.url(room.model) else {
+            error = "The room model isn't in the app bundle."
+            return nil
+        }
+        return url
+    }
+
+    func failed() { error = "The room model couldn't be opened." }
 
     /// Forgiving: looks through props, the cat and glow decals, walks up to the mapped device node, and
     /// if the finger landed just beside a lamp, tries a small ring of points around it.

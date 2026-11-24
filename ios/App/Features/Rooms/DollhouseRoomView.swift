@@ -96,10 +96,14 @@ private struct DollhouseRoomPage: View {
         .task {
             guard !loaded else { return }
             visible = true
-            // The model takes seconds to open; off the main thread the room's controls below are usable at once
-            // and the 3D view fills in when it is ready (it was a frozen page for up to 6 s).
-            let model = controller
-            await Task.detached(priority: .userInitiated) { model.load() }.value
+            // The model takes seconds to open. Only the file is read off the main thread (it was a frozen page for
+            // up to 6 s); the controller adopts it here on the main thread, so the controls below are usable at once
+            // and nothing else touches the controller while it loads.
+            if let url = controller.modelURL() {
+                let opened = await Task.detached(priority: .userInitiated) { try? DollhouseController.open(url) }.value
+                guard !Task.isCancelled else { return }
+                if let opened { controller.adopt(opened) } else { controller.failed() }
+            }
             failure = controller.error
             loaded = true
             controller.setReduceMotion(reduceMotion)
