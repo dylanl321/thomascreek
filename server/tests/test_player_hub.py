@@ -590,3 +590,77 @@ def test_pages_are_kept_in_the_database_and_an_old_details_file_moves_in_once(hu
     doc = fresh._details()
     assert "vod:thomas-creek:5" in doc["movies"] and "ep:thomas-creek:3" in doc["episodes"]
     assert "series:thomas-creek:3" in doc["series"]
+
+
+def test_an_episode_without_a_credits_mark_gets_a_guessed_one_and_a_film_never_does():
+    from hub.playersegments import with_credits_guess
+
+    intro = {"kind": "intro", "start_s": 45.0, "end_s": 105.0}
+    # 45 minutes: 1.5 % is 40.5 s; 22 minutes: the 30 s floor; two hours: the 60 s cap.
+    assert with_credits_guess([intro], 2700) == [intro, {"kind": "credits", "start_s": 2659.5, "end_s": 2700.0,
+                                                         "guess": True}]
+    assert with_credits_guess([], 1320)[0]["start_s"] == 1290.0
+    assert with_credits_guess([], 7200)[0]["start_s"] == 7140.0
+    # A real mark is kept as it is; no length or a clip gives nothing.
+    real = {"kind": "credits", "start_s": 2600.0, "end_s": 2700.0}
+    assert with_credits_guess([real], 2700) == [real]
+    assert with_credits_guess([], None) == [] and with_credits_guess([], 300) == []
+
+
+def test_segments_route_guesses_credits_for_an_episode_with_a_length_only(hub, people, monkeypatch):
+    import httpx
+    import respx
+
+    from hub.playersegments import API
+
+    _library(hub)
+    _two_episodes(hub)
+    _with_tmdb(hub, monkeypatch)
+    dylan = people["phones"]["Dylan"]
+    with respx.mock(assert_all_called=False) as mock:
+        mock.get(API).mock(return_value=httpx.Response(404))
+        got = dylan.client.get("/v1/tv/phone/segments?episode_id=ep:thomas-creek:901&duration_s=1500",
+                               headers=dylan.h).json()
+        assert got == {"segments": [{"kind": "credits", "start_s": 1470.0, "end_s": 1500.0, "guess": True}]}
+        # The guess is not kept: the stored answer stays empty, so a real mark shows as soon as there is one.
+        assert hub.db.kv_get("player.segments")["tv:1396:1:2:25"]["segments"] == []
+
+
+def test_a_nameless_episode_gets_its_name_from_the_house_once_tmdb_was_asked(hub, monkeypatch):
+    import asyncio
+
+    import httpx
+    import respx
+
+    from hub import episodenames
+    from hub.playernext import next_episode
+
+    assert episodenames.nameless("Episode 3") and episodenames.nameless("episode")
+    assert not episodenames.nameless("Pilot")
+    assert episodenames.parse({"episodes": [{"episode_number": 1, "name": "Pilot"},
+                                            {"episode_number": 2, "name": "Episode 2"},
+                                            {"episode_number": "x", "name": "Bad"}]}) == {"1": "Pilot"}
+
+    def ep(i, n):
+        return {"id": str(i), "episode_num": n, "title": f"Show S01 E0{n}", "container_extension": "mp4"}
+
+    _library(hub)
+    cat = hub.tv_catalog
+    cat.store_series({"info": {"name": "Cartoon Show"}, "episodes": {"1": [ep(11, 1), ep(12, 2)]}},
+                     "series:thomas-creek:50")
+    _with_tmdb(hub, monkeypatch, "1396")
+    # No key in the vault: the plain name, and nothing is asked.
+    assert next_episode(cat, "ep:thomas-creek:11")["title"] == "Episode 2"
+    with respx.mock(assert_all_called=False) as mock:
+        route = mock.get("https://api.themoviedb.org/3/tv/1396/season/1").mock(return_value=httpx.Response(200, json={
+            "episodes": [{"episode_number": 1, "name": "Pilot"}, {"episode_number": 2, "name": "The Second One"}]}))
+        asyncio.run(episodenames.store(cat).drain())
+        assert not route.called
+        hub.vault.set("tmdb.api_key", "tmdb-test")
+        assert next_episode(cat, "ep:thomas-creek:11")["title"] == "Episode 2"   # queued by this ask
+        asyncio.run(episodenames.store(cat).drain())
+        assert route.call_count == 1 and dict(route.calls.last.request.url.params) == {"api_key": "tmdb-test"}
+        assert next_episode(cat, "ep:thomas-creek:11")["title"] == "The Second One"
+        asyncio.run(episodenames.store(cat).drain())
+        assert route.call_count == 1                                           # kept for the house
+    assert hub.db.kv_get("tv.episode_names")["1396:1"]["n"] == {"1": "Pilot", "2": "The Second One"}

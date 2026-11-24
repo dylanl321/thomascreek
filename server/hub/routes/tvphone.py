@@ -33,7 +33,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
-from .. import cloudmedia
+from .. import cloudmedia, episodenames
 from ..crypto import CryptoError
 from ..state import Hub
 from ..tvapp import TvAppError
@@ -426,6 +426,7 @@ async def _episode(h: Hub, mode: str, key: str, row: dict[str, Any], out: dict[s
     except Exception as exc:  # noqa: BLE001 - the episode still plays without its "next"
         note("tv.phone.play: finding the next episode", exc)
         return
+    episodenames.kick(h.tv_catalog)
     if nxt:
         out["next"] = nxt
 
@@ -649,6 +650,7 @@ async def phone_next(episode_id: str, person: str | None = None, c: Caller = Dep
     else:
         kids_only = watcher(h, c, person[:64] if person else None)[1]
     nxt = await asyncio.to_thread(next_episode, h.tv_catalog, title_id, kids_only=kids_only)
+    episodenames.kick(h.tv_catalog)
     return {"next": nxt} if nxt else {}
 
 
@@ -716,6 +718,7 @@ async def phone_queue(person: str | None = None, c: Caller = Depends(caller), h:
     owner, allowed = _queue_of(h, c, person[:64] if person else None)
     await _ready(h)
     items = await asyncio.to_thread(lambda: playerqueue.present(h.tv_catalog, playerqueue.ids(h, owner), allowed))
+    episodenames.kick(h.tv_catalog)
     return {"items": items}
 
 
@@ -737,7 +740,9 @@ async def phone_queue_change(body: QueueChange, c: Caller = Depends(caller), h: 
         kept = playerqueue.change(h, owner, add=body.add, first=body.first, remove=body.remove, order=body.order,
                                   clear=body.clear)
         return playerqueue.present(cat, kept, allowed)
-    return {"items": await asyncio.to_thread(work)}
+    items = await asyncio.to_thread(work)
+    episodenames.kick(cat)
+    return {"items": items}
 
 
 @router.get("/segments")
@@ -745,10 +750,12 @@ async def phone_segments(episode_id: str | None = None, movie_id: str | None = N
                          person: str | None = None, c: Caller = Depends(caller),
                          h: Hub = Depends(hub)) -> dict[str, Any]:
     """Where the recap, intro and credits of an episode (or the credits of a film) are, for the player's Skip
-    button: `{"segments":[{"kind":"recap"|"intro"|"credits","start_s","end_s"}]}`, in play order and empty when
-    nothing is known. The player asks once after the stream starts, with the length it measured (`duration_s`),
+    button: `{"segments":[{"kind":"recap"|"intro"|"credits","start_s","end_s","guess"?}]}`, in play order and
+    empty when nothing is known. An episode nobody marked the credits of gets a short guessed one at its end
+    (`"guess": true`), so the "Next episode" card comes before the last seconds. The player asks once after the
+    stream starts, with the length it measured (`duration_s`),
     so a slow answer never delays the picture. The hub asks the outside service and keeps the answer."""
-    from ..playersegments import segments
+    from ..playersegments import segments, with_credits_guess
 
     if getattr(c.subject, "tv", False):
         kids_only, who = _media(h, c), c.subject.person_id
@@ -767,14 +774,14 @@ async def phone_segments(episode_id: str | None = None, movie_id: str | None = N
         raise error(400, "bad_params", "Pick a film or an episode")
     if row is None or (kids_only and (not row.get("kids") or not _level_allows(h, c, who, row))):
         raise error(404, "not_found", "That isn't in the library")
-    if episode_id and not (isinstance(season, int) and isinstance(number, int)):
-        return {"segments": []}
     length = duration_s if duration_s and 0 < duration_s < 86400 else row.get("duration_s")
+    seconds = int(length) if isinstance(length, (int, float)) and length > 0 else None
+    if episode_id and not (isinstance(season, int) and isinstance(number, int)):
+        return {"segments": with_credits_guess([], seconds)}
     async with _client(h, 6) as client:
         found = await segments(h, tmdb=str(tmdb) if tmdb else None, season=season, number=number,
-                               duration_s=int(length) if isinstance(length, (int, float)) and length > 0 else None,
-                               client=client)
-    return {"segments": found}
+                               duration_s=seconds, client=client)
+    return {"segments": with_credits_guess(found, seconds) if episode_id else found}
 
 
 def _level_allows(h: Hub, c: Caller, person: str | None, row: dict[str, Any]) -> bool:

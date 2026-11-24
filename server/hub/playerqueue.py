@@ -57,6 +57,7 @@ def change(h: Any, who: str, *, add: str | None = None, first: bool = False, rem
 
 def present(cat: Any, item_ids: list[str], allowed: Callable[[dict[str, Any]], bool]) -> list[dict[str, Any]]:
     """What the tray draws for each queued id, leaving out what is gone or not `allowed`."""
+    from .episodenames import better
     from .playernext import episode_name
     from .tvnames import title
 
@@ -67,7 +68,7 @@ def present(cat: Any, item_ids: list[str], allowed: Callable[[dict[str, Any]], b
             if not row or not allowed(row):
                 continue
             item: dict[str, Any] = {"id": item_id, "kind": "episode", "series_id": row.get("series_id"),
-                                    "title": episode_name(row.get("title"), row.get("number"))}
+                                    "title": better(cat, row, episode_name(row.get("title"), row.get("number")))}
             numbers = [row.get("season"), row.get("number")]
             if all(isinstance(n, int) for n in numbers):
                 item["season"], item["number"] = numbers
