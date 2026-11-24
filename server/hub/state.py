@@ -141,6 +141,9 @@ class Hub:
         from .channelhealth import SourceHealth
 
         self.source_health = SourceHealth(self)
+        from .keepyoung import KeepYoung
+
+        self.keep_young = KeepYoung(self)
         from .tvbedtime import TvBedtime
 
         self.tv_bedtime = TvBedtime(self)
@@ -423,6 +426,7 @@ class Hub:
         self.app_update.start()
         self.tv_app.start()
         self.source_health.start()
+        self.keep_young.start()
         self.tv_bedtime.start()
         self._explore = asyncio.create_task(self._explore_loop())
         self._fleet = asyncio.create_task(self._fleet_loop())
@@ -677,6 +681,7 @@ class Hub:
                 self._frigate_seen.pop(key, None)
 
     async def stop(self) -> None:
+        await self.keep_young.stop()
         await self.ha_ws.stop()
         await self.home.stop()
         await self.timers.stop()
