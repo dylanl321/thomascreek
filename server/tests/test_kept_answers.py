@@ -80,3 +80,37 @@ def test_a_forecast_that_aged_out_is_shown_while_a_new_one_is_read_but_never_old
         assert await f._cached("alerts:1,2", TTL["alerts"], load) == 4  # waited for
 
     asyncio.run(run())
+
+
+def test_the_slow_pages_are_read_without_anyone_asking_and_a_failed_read_stops_nothing():
+    from hub.keepyoung import KeepYoung
+
+    async def run():
+        read = []
+
+        async def overview():
+            read.append("nas")
+            return {}
+
+        async def page(subject, place):
+            read.append(f"forecast:{subject.role}:{place}")
+            raise RuntimeError("the forecast service is away")
+
+        h = types.SimpleNamespace(
+            config=types.SimpleNamespace(truenas=types.SimpleNamespace(enabled=True)),
+            truenas=types.SimpleNamespace(overview=overview),
+            forecasts=types.SimpleNamespace(page=page),
+        )
+        keeper = KeepYoung(h)
+
+        async def pipeline():
+            read.append("pipeline")
+            return {}
+
+        keeper._pipeline = pipeline  # type: ignore[method-assign]
+        assert await keeper.once() == {"nas": True, "pipeline": True, "forecast": False}
+        assert sorted(read) == ["forecast:admin:home", "nas", "pipeline"]
+        h.config.truenas.enabled = False
+        assert "nas" not in await keeper.once()
+
+    asyncio.run(run())
