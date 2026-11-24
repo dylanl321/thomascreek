@@ -143,9 +143,13 @@ async def redeem(reward_id: str, c: Caller = Depends(caller), h: Hub = Depends(h
 @router.get("/calendar")
 async def calendar(days: int = 7, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> Any:
     need(h, c, "family.view")
+    return await calendar_for(h, c, max(1, min(days, 31)))
+
+
+async def calendar_for(h: Hub, c: Caller, days: int) -> Any:
+    """The kept calendar of one person. The hub also reads it ahead for each person (`hub/keepyoung.py`)."""
     from .. import kept
 
-    days = max(1, min(days, 31))
     # Trip days differ by person (some trips are hidden from children), so each person has their own answer.
     key = f"calendar:{c.subject.person_id}:{c.subject.role}:{days}"
     return await kept.answer(h, key, 30, 1800, lambda: _calendar(h, c, days))

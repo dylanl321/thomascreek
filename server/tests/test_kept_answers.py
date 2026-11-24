@@ -107,9 +107,13 @@ def test_the_slow_pages_are_read_without_anyone_asking_and_a_failed_read_stops_n
             read.append("pipeline")
             return {}
 
+        async def calendars():
+            read.append("calendar")
+
         keeper._pipeline = pipeline  # type: ignore[method-assign]
-        assert await keeper.once() == {"nas": True, "pipeline": True, "forecast": False}
-        assert sorted(read) == ["forecast:admin:home", "nas", "pipeline"]
+        keeper._calendars = calendars  # type: ignore[method-assign]
+        assert await keeper.once() == {"nas": True, "pipeline": True, "calendar": True, "forecast": False}
+        assert sorted(read) == ["calendar", "forecast:admin:home", "nas", "pipeline"]
         h.config.truenas.enabled = False
         assert "nas" not in await keeper.once()
 

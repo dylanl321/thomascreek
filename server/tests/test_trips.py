@@ -100,3 +100,21 @@ def test_trips_routes_by_role(hub, people, home_client):
 def test_trips_off_until_configured(hub, people, home_client):
     r = home_client.get("/v1/trips", headers=people["phones"]["Dylan"].h)
     assert r.status_code == 503 and r.json()["message"] == "Trips aren't set up yet"
+
+
+@respx.mock
+def test_each_persons_calendar_is_read_ahead_and_a_child_never_gets_the_hidden_trip(hub, people, home_client):
+    """The Family tab's first open was 1.2 s (Nov 24 2026): the hub reads each person's week before they ask."""
+    import asyncio
+
+    _trek(hub)
+    lst = respx.get(f"{BASE}/api/v1/trips").mock(return_value=httpx.Response(200, json=LIST))
+    hub.policy.now = lambda: datetime(2026, 12, 1, 9, tzinfo=ZoneInfo("America/New_York"))
+    asyncio.run(hub.keep_young._calendars())
+    read = lst.call_count
+    assert read >= 1
+    grown = home_client.get("/v1/calendar?days=7", headers=people["phones"]["Dylan"].h).json()["events"]
+    assert any(e["id"].startswith("trek-20-") for e in grown)
+    assert lst.call_count == read  # answered from what was read ahead
+    kid = home_client.get("/v1/calendar?days=7", headers=people["phones"]["Theo"].h)
+    assert "trek-20-" not in kid.text  # a child's own answer, never a grown-up's
