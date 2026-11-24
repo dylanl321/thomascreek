@@ -96,7 +96,10 @@ private struct DollhouseRoomPage: View {
         .task {
             guard !loaded else { return }
             visible = true
-            controller.load()
+            // The model takes seconds to open; off the main thread the room's controls below are usable at once
+            // and the 3D view fills in when it is ready (it was a frozen page for up to 6 s).
+            let model = controller
+            await Task.detached(priority: .userInitiated) { model.load() }.value
             failure = controller.error
             loaded = true
             controller.setReduceMotion(reduceMotion)
