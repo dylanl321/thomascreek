@@ -130,6 +130,13 @@ final class AssistantModel {
             let session = AVAudioSession.sharedInstance()
             try session.setCategory(.playAndRecord, mode: .measurement, options: [.duckOthers, .defaultToSpeaker])
             try session.setActive(true, options: .notifyOthersOnDeactivation)
+            // No usable input (none at all, or a Simulator with no microphone): say so instead of opening the
+            // audio engine, which aborts the app when the input never answers.
+            guard session.isInputAvailable, session.inputNumberOfChannels > 0 else {
+                try? session.setActive(false, options: .notifyOthersOnDeactivation)
+                lines.append(Line(kind: .error, text: "There's no microphone to listen with right now. Type your question instead."))
+                return
+            }
             let req = SFSpeechAudioBufferRecognitionRequest()
             req.shouldReportPartialResults = true
             // Keep audio on the phone where the phone can do it.
@@ -137,8 +144,16 @@ final class AssistantModel {
             req.addsPunctuation = true
             request = req
             let input = engine.inputNode
+            let format = input.outputFormat(forBus: 0)
+            // A format with no channels or no rate means the input did not start; a tap on it would fail.
+            guard format.channelCount > 0, format.sampleRate > 0 else {
+                request = nil
+                try? session.setActive(false, options: .notifyOthersOnDeactivation)
+                lines.append(Line(kind: .error, text: "The microphone didn't start. Try again in a moment, or type your question."))
+                return
+            }
             input.removeTap(onBus: 0)
-            input.installTap(onBus: 0, bufferSize: 1024, format: input.outputFormat(forBus: 0)) { buf, _ in req.append(buf) }
+            input.installTap(onBus: 0, bufferSize: 1024, format: format) { buf, _ in req.append(buf) }
             engine.prepare()
             try engine.start()
             partial = ""
@@ -231,7 +246,9 @@ struct AskButton: View {
                 .accessibilityHint("Double-tap to open. Touch and hold to talk.")
                 .accessibilityAddTraits(.isButton)
                 .padding(.trailing, 16)
-                .padding(.bottom, 64)
+                // Above the "New version ready" banner while it shows: the button sat on the banner's close mark,
+                // so the banner could not be put away.
+                .padding(.bottom, AppUpdate.shared.showBanner ? 132 : 64)
                 .transition(.scale.combined(with: .opacity))
         }
     }
