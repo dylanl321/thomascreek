@@ -95,6 +95,10 @@ here behind an endpoint.
   `hub/joincodes.py`); without one, enrolling stays home-only. The Android phone app is handed out from away only
   to someone holding such a live code (`/phone?code=…`, `hub/phoneapp.py`), never on an open link.
 - Pairing approval is an explicit admin action; a push or phone answer that is not "Approve" never approves.
+  The one other approver is a Claude agent login with the `test.pair` scope (Dylan, Nov 24 2026: agents approve
+  their own test TVs, emulators and phones, `hub/routes/agentpair.py`). It works only from the home network or
+  home VPN, a phone it lets in is only Dylan's test device, and every approval is in the activity log with the
+  login's name. Dylan turns the login off on the web page (Security, Agent logins).
 - Alert media (doorbell, cameras) follows the person's role. Phone pushes with a picture, the doorbell Live
   Activity and camera history go to admins and adults only (`ALERT_ROLES`); a Home Assistant alert sent to
   the kids reaches them as words, without the picture or the camera link. TV door alerts and their picture,
