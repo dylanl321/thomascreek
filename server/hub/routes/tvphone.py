@@ -569,6 +569,22 @@ async def phone_progress(body: dict[str, Any], c: Caller = Depends(caller), h: H
     return {"ok": True, "position_s": position}
 
 
+async def _learn_episode(h: Hub, episode_id: str | None, series_id: str | None) -> None:
+    """A TV or phone that read a series straight from the provider plays episodes the hub has not seen. With the
+    `series_id` it sends, the hub reads that series' page once, so the episode is known for the kids' rule, the
+    next episode and the skip marks. Anything that goes wrong leaves the episode unknown (the caller's 404)."""
+    sid = str(series_id or "")[:120]
+    cat = h.tv_catalog
+    if not episode_id or not sid.startswith("series:") or cat.episode(episode_id) is not None:
+        return
+    if cat.known_row("series", sid) is None:
+        return
+    try:
+        await cat.fetch_series(sid)
+    except Exception as exc:  # noqa: BLE001 - the provider or its answer: the episode stays unknown
+        log.info("tvphone: series page for an unknown episode failed (%s)", type(exc).__name__)
+
+
 def _subtitle_title(h: Hub, c: Caller, episode_id: str | None, movie_id: str | None,
                     person: str | None) -> tuple[str, dict[str, Any], dict[str, Any]]:
     """The title a subtitle call is about (its id, its row and, for an episode, its series row), after the same
@@ -636,14 +652,16 @@ async def phone_subtitle_file(file_id: str, episode_id: str | None = None, movie
 
 
 @router.get("/next")
-async def phone_next(episode_id: str, person: str | None = None, c: Caller = Depends(caller),
-                     h: Hub = Depends(hub)) -> dict[str, Any]:
+async def phone_next(episode_id: str, person: str | None = None, series_id: str | None = None,
+                     c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
     """The episode after `episode_id`, for a player that did not start through `/play` (the TVs):
     `{"next": {episode_id, series_id, title, season?, number?, still_url?}}`, or `{}` at the end of the series.
-    The same pick and the same kids' rule as `next` on a play answer."""
+    The same pick and the same kids' rule as `next` on a play answer. `series_id` (optional) lets the hub read
+    the series when it has not seen this episode yet."""
     from ..playernext import next_episode
 
     await _ready(h)
+    await _learn_episode(h, episode_id, series_id)
     title_id, _row, _series = _subtitle_title(h, c, episode_id, None, person)
     if getattr(c.subject, "tv", False):
         kids_only = _media(h, c)
@@ -747,8 +765,8 @@ async def phone_queue_change(body: QueueChange, c: Caller = Depends(caller), h: 
 
 @router.get("/segments")
 async def phone_segments(episode_id: str | None = None, movie_id: str | None = None, duration_s: int | None = None,
-                         person: str | None = None, c: Caller = Depends(caller),
-                         h: Hub = Depends(hub)) -> dict[str, Any]:
+                         person: str | None = None, series_id: str | None = None,
+                         c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
     """Where the recap, intro and credits of an episode (or the credits of a film) are, for the player's Skip
     button: `{"segments":[{"kind":"recap"|"intro"|"credits","start_s","end_s","guess"?}]}`, in play order and
     empty when nothing is known. An episode nobody marked the credits of gets a short guessed one at its end
@@ -762,6 +780,7 @@ async def phone_segments(episode_id: str | None = None, movie_id: str | None = N
     else:
         who, kids_only = watcher(h, c, person[:64] if person else None)
     await _ready(h)
+    await _learn_episode(h, episode_id, series_id)
     cat = h.tv_catalog
     if episode_id:
         row = cat.episode(episode_id)
