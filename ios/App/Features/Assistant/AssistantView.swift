@@ -130,8 +130,15 @@ final class AssistantModel {
             let session = AVAudioSession.sharedInstance()
             try session.setCategory(.playAndRecord, mode: .measurement, options: [.duckOthers, .defaultToSpeaker])
             try session.setActive(true, options: .notifyOthersOnDeactivation)
-            // No usable input (none at all, or a Simulator with no microphone): say so instead of opening the
-            // audio engine, which aborts the app when the input never answers.
+            // The Simulator's audio input times out inside AVAudioEngine and aborts the app (seen twice, even with an
+            // input reported available); that abort cannot be caught, so there Talk only says so.
+            #if targetEnvironment(simulator)
+            try? session.setActive(false, options: .notifyOthersOnDeactivation)
+            lines.append(Line(kind: .error, text: "Talking isn't available in the Simulator. Type your question instead."))
+            return
+            #endif
+            // No usable input: say so instead of opening the audio engine, which aborts the app when the input
+            // never answers.
             guard session.isInputAvailable, session.inputNumberOfChannels > 0 else {
                 try? session.setActive(false, options: .notifyOthersOnDeactivation)
                 lines.append(Line(kind: .error, text: "There's no microphone to listen with right now. Type your question instead."))
