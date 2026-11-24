@@ -9,8 +9,11 @@ Face ID sign-in. An agent login lets a Claude session on the home network do jus
     route that makes one, so a key can't make another key. A login turned off is never brought back by the env.
   - It is sent as `Authorization: Bearer tcagent_...` and works only from where the web page opens (home network
     or home VPN), never from away.
-  - Scopes: `admin.read` (GET of the /admin pages and their JSON status, never a form post) and `cloud.approve`
-    (approve or turn away a waiting cloud worker, by the code its page shows). No secrets, no people, no keys.
+  - Scopes: `admin.read` (GET of the /admin pages and their JSON status, never a form post), `cloud.approve`
+    (approve or turn away a waiting cloud worker, by the code its page shows) and `test.pair` (let in a TV,
+    emulator or phone that is waiting to join, a phone only as Dylan's test device; routes/agentpair.py, Dylan,
+    Nov 24 2026). No secrets, no people, no keys.
+  - A login the NAS env names is given any scope added since it was made (never one turned off).
   - Every use is written to the activity log with source "agent" and the login's name.
   - Dylan turns one off on the hub web page (Security, Agent logins) or with `hub agent-login revoke ID`.
 """
@@ -27,7 +30,7 @@ from .db import new_id
 
 PREFIX = "tcagent_"
 KV = "agent.logins"
-SCOPES = ("admin.read", "cloud.approve")
+SCOPES = ("admin.read", "cloud.approve", "test.pair")
 DEFAULT_DAYS = 180
 
 
@@ -71,10 +74,19 @@ def seed_from_env(db: Any, value: str | None = None) -> list[str]:
     rows = list(db.kv_get(KV) or [])
     known = {str(r.get("hash")) for r in rows}
     made: list[str] = []
+    grown = False
     for item in (v.strip() for v in value.split(",")):
         name, _, digest = item.rpartition(":")
         digest = digest.strip().lower()
-        if not name.strip() or not re.fullmatch(r"[0-9a-f]{64}", digest) or digest in known:
+        if not name.strip() or not re.fullmatch(r"[0-9a-f]{64}", digest):
+            continue
+        if digest in known:
+            for r in rows:
+                if r.get("hash") == digest and not r.get("revoked_at") and not set(SCOPES) <= set(r.get("scopes", [])):
+                    r["scopes"] = [*r.get("scopes", []), *(s for s in SCOPES if s not in r.get("scopes", []))]
+                    grown = True
+                    db.log("agent.login_scopes", "ok", target=r["id"], params={"name": r["name"],
+                                                                                "scopes": r["scopes"]}, source="nas")
             continue
         now = time.time()
         row = {"id": new_id("ag"), "name": name.strip()[:60], "hash": digest, "scopes": list(SCOPES),
@@ -84,7 +96,7 @@ def seed_from_env(db: Any, value: str | None = None) -> list[str]:
         made.append(str(row["id"]))
         db.log("agent.login_create", "ok", target=row["id"], params={"name": row["name"], "scopes": row["scopes"],
                                                                       "from": "env"}, source="nas")
-    if made:
+    if made or grown:
         db.kv_set(KV, rows)
     return made
 
