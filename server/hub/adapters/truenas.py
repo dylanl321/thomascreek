@@ -14,6 +14,7 @@ deletes apps, datasets or pools, edits compose files, or upgrades/reboots the OS
 from __future__ import annotations
 
 import asyncio
+import copy
 import itertools
 import json
 import re
@@ -70,9 +71,25 @@ def _date(v: Any) -> float | None:
     return None
 
 
+OVERVIEW_FRESH_S = 10
+OVERVIEW_KEEP_S = 300
+OS_UPDATE_KEEP_S = 6 * 3600
+AFTER_CHANGE_S = 120
+
+
+def _new_version(os_update: Any) -> Any:
+    new = ((os_update or {}).get("status") or {}).get("new_version") or {}
+    return new.get("version") if isinstance(new, dict) else None
+
+
 class TrueNAS(Adapter):
     name = "truenas"
     title = "NAS"
+    _ov: tuple[float, dict[str, Any]] | None = None
+    _ov_task: "asyncio.Task[None] | None" = None
+    _os: tuple[float, Any] | None = None
+    _os_task: "asyncio.Task[None] | None" = None
+    _live_until = 0.0
 
     def _ws_url(self) -> str:
         url = (self.cfg.url or "").rstrip("/")
@@ -302,6 +319,46 @@ class TrueNAS(Adapter):
         }
 
     async def overview(self) -> dict[str, Any]:
+        """The NAS page's first answer. The page waited 9.5 s on Nov 24 2026: logging in costs about a second and
+        `update.status` asks the update server (8 s). So the last answer is kept: young, it is the answer; older,
+        it is still the answer and a new one is read behind it. After a change made from the app nothing kept is
+        used for a while, so a restart shows as it happens. The update check runs on its own, a few times a day."""
+        now = time.time()
+        kept = self._ov
+        if kept and now >= self._live_until and now - kept[0] < OVERVIEW_KEEP_S:
+            if now - kept[0] >= OVERVIEW_FRESH_S and (self._ov_task is None or self._ov_task.done()):
+                self._ov_task = asyncio.create_task(self._overview_behind())
+            return copy.deepcopy(kept[1])
+        return copy.deepcopy(await self._overview_now())
+
+    async def _overview_behind(self) -> None:
+        try:
+            await self._overview_now()
+        except AdapterError:
+            pass  # the adapter keeps the reason (last_error); the kept answer ages out on its own
+
+    def _os_status(self) -> Any:
+        kept = self._os
+        old = kept is None or time.time() - kept[0] > OS_UPDATE_KEEP_S
+        if old and (self._os_task is None or self._os_task.done()):
+            self._os_task = asyncio.create_task(self._os_read())
+        return kept[1] if kept else None
+
+    async def _os_read(self) -> None:
+        try:
+            self._os = (time.time(), await self.call("update.status", []))
+        except AdapterError:
+            # Ask again in ten minutes, and keep what was known.
+            self._os = (time.time() - OS_UPDATE_KEEP_S + 600, self._os[1] if self._os else None)
+            return
+        if self._ov:
+            self._ov[1]["system"]["os_update"] = _new_version(self._os[1])
+
+    def _changed(self) -> None:
+        """A change was sent to the NAS: read it live for a while."""
+        self._live_until = time.time() + AFTER_CHANGE_S
+
+    async def _overview_now(self) -> dict[str, Any]:
         async with self.session() as (call, _ws):
             info = await call("system.info", [])
             pools = await call("pool.query", [])
@@ -312,14 +369,9 @@ class TrueNAS(Adapter):
                 services = await call("service.query", [[["service", "in", list(SERVICES)]]])
             except AdapterError:
                 services = []
-            try:
-                os_update = await call("update.status", [])
-            except AdapterError:
-                os_update = None
+        os_update = self._os_status()
         rows = [self._app(a) for a in apps or []]
-        status = (os_update or {}).get("status") or {}
-        new = status.get("new_version") or {}
-        return {
+        out = {
             "system": {
                 "hostname": info.get("hostname"),
                 "version": info.get("version"),
@@ -330,7 +382,7 @@ class TrueNAS(Adapter):
                 "ecc": info.get("ecc_memory"),
                 "load": info.get("loadavg"),
                 "uptime_s": int(info.get("uptime_seconds") or 0),
-                "os_update": new.get("version") if isinstance(new, dict) else None,
+                "os_update": _new_version(os_update),
             },
             "pools": [self._pool(p) for p in pools or []],
             "disks": [{"name": d.get("name"), "model": (d.get("model") or "").replace("_", " "), "serial": d.get("serial"),
@@ -345,6 +397,8 @@ class TrueNAS(Adapter):
             "services": [{"service": s.get("service"), "title": SERVICE_TITLES.get(s.get("service"), s.get("service")),
                           "running": s.get("state") == "RUNNING", "enabled": s.get("enable")} for s in services or []],
         }
+        self._ov = (time.time(), out)
+        return out
 
     async def apps(self) -> list[dict[str, Any]]:
         apps = await self.call("app.query", [])
@@ -423,6 +477,7 @@ class TrueNAS(Adapter):
 
     # -- writes (called only by ActionRunner after policy + Face ID) ---------
     async def app_op(self, name: str, op: str) -> Any:
+        self._changed()
         if op == "start":
             return await self.call("app.start", [name])
         if op == "stop":
@@ -439,13 +494,17 @@ class TrueNAS(Adapter):
         return await self.app_op(app_name, "restart")
 
     async def dismiss_alert(self, uuid: str) -> None:
+        self._changed()
         await self.call("alert.dismiss", [uuid])
 
     async def scrub(self, pool: str, action: str) -> Any:
+        self._changed()
         return await self.call("pool.scrub.scrub", [pool, action])
 
     async def snapshot(self, dataset: str, name: str) -> Any:
+        self._changed()
         return await self.call("pool.snapshot.create", [{"dataset": dataset, "name": name}])
 
     async def service(self, service: str, on: bool) -> Any:
+        self._changed()
         return await self.call("service.control", ["START" if on else "STOP", service, {"silent": False}])

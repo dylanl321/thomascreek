@@ -135,6 +135,31 @@ def test_adapter_overview_and_detail(nas):
     assert d["upgrade"]["changelog"] == "Fixes" and d["container_details"][0]["id"] == "c-plex"
 
 
+def test_the_overview_never_waits_for_the_update_check_and_keeps_its_last_answer(nas, fake_nas):
+    import time
+
+    async def run():
+        fake_nas.calls.clear()
+        first = await nas.overview()
+        asked = [m for m, _ in fake_nas.calls]
+        assert "system.info" in asked and first["system"]["os_update"] is None
+        await nas._os_task  # the update check runs on its own
+        assert [m for m, _ in fake_nas.calls].count("update.status") == 1
+        fake_nas.calls.clear()
+        assert (await nas.overview())["system"]["hostname"] == "nas" and not fake_nas.calls  # young: kept
+        nas._ov = (time.time() - 60, nas._ov[1])
+        assert (await nas.overview())["apps"]["total"] == 3  # shown at once
+        await nas._ov_task
+        assert [m for m, _ in fake_nas.calls].count("system.info") == 1  # and read again behind it
+        assert "update.status" not in [m for m, _ in fake_nas.calls]  # asked a few times a day only
+        fake_nas.calls.clear()
+        await nas.dismiss_alert("a-1")
+        await nas.overview()  # after a change the page is read live
+        assert [m for m, _ in fake_nas.calls].count("system.info") == 1
+
+    asyncio.run(run())
+
+
 def test_adapter_reads_logs_from_the_follow_event(nas, fake_nas):
     out = asyncio.run(nas.logs("dispatcharr", "c-redis", tail=50, wait_s=1.0))
     assert out["container"] == "c-redis" and [c["service"] for c in out["containers"]] == ["web", "redis"]
