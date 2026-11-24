@@ -252,7 +252,14 @@ def _clean_title(raw: object) -> str:
     return name or str(raw)
 
 
+_ROWS: tuple[Any, dict[str, dict[str, Any]]] | None = None  # (the snapshot it was made from, id -> row)
+
+
 def _catalog_rows(h: Any) -> dict[str, dict[str, Any]]:
+    """Every film and series row by id, made once per snapshot. `/v1/tv/explore` asks for it in a worker thread
+    first (`warm_rows`), so the personal rows never parse the snapshot or walk the whole library on the loop
+    (Nov 24 2026: that held every call up for seconds after each catalog rewrite)."""
+    global _ROWS
     catalog = getattr(h, "tv_catalog", None)
     if catalog is None:
         return {}
@@ -260,12 +267,21 @@ def _catalog_rows(h: Any) -> dict[str, dict[str, Any]]:
         doc = catalog.load()
     except Exception:  # noqa: BLE001
         return {}
+    kept = _ROWS
+    if kept is not None and kept[0] is doc:
+        return kept[1]
     out = {}
     for bucket in ("movies", "series"):
         for row in doc.get(bucket) or []:
             if isinstance(row, dict) and row.get("id"):
                 out[str(row["id"])] = row
+    _ROWS = (doc, out)
     return out
+
+
+def warm_rows(h: Any) -> None:
+    """For a worker thread: has the rows by id ready before the personal feed is built on the loop."""
+    _catalog_rows(h)
 
 
 def taste(watched: list[dict[str, Any]], now: float) -> dict[str, float]:

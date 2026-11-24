@@ -233,6 +233,7 @@ async def explore(profile: str | None = None, person: str | None = None, c: Call
         kids = kids or narrowed
         who = who_key(person=watching)
         person = watching
+    await asyncio.to_thread(tvpicks.warm_rows, h)  # the snapshot is read off the loop; the feed then finds it ready
     body = tvpicks.personal_feed(h, "kids" if kids else "adult", who)
     return _polished(_narrow(h, c, body, person, kids=True) if kids else body)
 
