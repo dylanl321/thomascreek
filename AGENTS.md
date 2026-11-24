@@ -99,6 +99,8 @@ here behind an endpoint.
   their own test TVs, emulators and phones, `hub/routes/agentpair.py`). It works only from the home network or
   home VPN, a phone it lets in is only Dylan's test device, and every approval is in the activity log with the
   login's name. Dylan turns the login off on the web page (Security, Agent logins).
+  The same login takes its test TVs away again (`DELETE /v1/agent/tv/<id>`): only a TV an agent login let in,
+  never one a person approved, and each removal is in the activity log.
 - Alert media (doorbell, cameras) follows the person's role. Phone pushes with a picture, the doorbell Live
   Activity and camera history go to admins and adults only (`ALERT_ROLES`); a Home Assistant alert sent to
   the kids reaches them as words, without the picture or the camera link. TV door alerts and their picture,
