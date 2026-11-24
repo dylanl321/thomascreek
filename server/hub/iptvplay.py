@@ -360,7 +360,7 @@ def tune(h: Any, canonical_id: str, tv_id: str, *, avoid: set[str] | None = None
     """Give this TV one stream. The previous session for that TV is released."""
     now = time.time() if now is None else now
     _release_idle(h, now)
-    item = _canonical(h, canonical_id) or _episode(h, canonical_id)
+    item = _canonical(h, canonical_id) or _episode(h, canonical_id) or _film(h, canonical_id)
     if item is None:
         return {"ok": False, "message": "That title isn't in the catalog."}
     _release_tv(h, tv_id)
@@ -969,6 +969,25 @@ def _episode(h: Any, ref: str) -> dict[str, Any] | None:
                 for twin, name in _named_twins(h, known)]
     _step("ep.twins", clock)
     return {"id": ref, "sources": sources}
+
+
+def _film(h: Any, ref: str) -> dict[str, Any] | None:
+    """A film by its own provider id (`vod:<provider>:<id>`), for one the catalog lists but has not folded into a
+    title yet (Nov 24 2026: such a film had no id `tune` took, so a TV could not play it while a phone could).
+    Its folded title with every copy when there is one, otherwise the film from its own provider."""
+    if not ref.startswith("vod:"):
+        return None
+    folded = _holding(h, ref)
+    if folded is not None:
+        return folded
+    catalog = getattr(h, "tv_catalog", None)
+    try:
+        known = catalog.movie(ref) if catalog is not None else None
+    except Exception:  # noqa: BLE001 - a catalog read must not stop playback
+        known = None
+    if not known:
+        return None
+    return {"id": ref, "sources": [{"provider": _split_ref(ref)[1], "ref": ref, "quality": None}]}
 
 
 def _series_name(h: Any, series_id: str) -> str | None:

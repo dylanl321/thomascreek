@@ -42,6 +42,10 @@ async def tv_tune(body: dict[str, Any], c: Caller = Depends(caller), h=Depends(h
         episode = h.tv_catalog.episode(canonical_id) if h.tv_catalog else None
         if not episode or not episode.get("kids"):
             return {"ok": False, "message": "That show isn't in the kids' library."}
+    if canonical_id.startswith("vod:") and kids:
+        film = h.tv_catalog.movie(canonical_id) if h.tv_catalog else None
+        if not film or not film.get("kids"):
+            return {"ok": False, "message": "That film isn't in the kids' library."}
     if c.subject.tv and c.subject.tv_id:
         tv_id = c.subject.tv_id
     else:
