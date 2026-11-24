@@ -346,3 +346,19 @@ def test_a_list_shows_each_title_once(hub, monkeypatch):
     assert every["total"] == 7
     page = cat.movies(q=None, category=None, kids_only=False, limit=2, offset=4, sort="name")
     assert len(page["movies"]) == 2 and page["total"] == 7
+
+
+def test_a_search_reads_the_wide_rows_for_its_page_only(tmp_path):
+    # Nov 24 2026: a search scanned the films table three times with every match's JSON (1.1 s on the live hub).
+    path = tmp_path / "catalog.db"
+    catalogdb.build(path, _doc(), "s1")
+    reader = catalogdb.Reader(path)
+    seen: list[str] = []
+    reader._conn().set_trace_callback(seen.append)
+    rows, total, names = reader.titles("movies", needle="star", category=None, kids=None, limit=5, offset=0,
+                                       sort="name", skip={"vod:thomas-creek:0"}, skip_categories={"comedy"})
+    assert len(rows) == 5 and total > 5 and "Comedy" not in names
+    assert all("star" in row["name"].casefold() and row["id"] != "vod:thomas-creek:0" for row in rows)
+    wide = [sql for sql in seen if "FROM titles" in sql]
+    assert len(wide) == 1 and "ord IN" in wide[0]  # the page's rows, by their place
+    assert sum("FROM tscan" in sql for sql in seen) == 1  # one pass finds the matches

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from fastapi import APIRouter, Body, Depends
@@ -26,7 +27,8 @@ def _see(h: Hub, c: Caller) -> None:
 async def ambient(device: str | None = None, c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[str, Any]:
     """The scene for today, plus weather, the day, a few cameras and whatever art is already cached."""
     _see(h, c)
-    return h.ambient.view(device)
+    # The art walks the whole guide for what is on now: in a worker thread, so other calls are not held up.
+    return await asyncio.to_thread(h.ambient.view, device)
 
 
 @router.get("/library")

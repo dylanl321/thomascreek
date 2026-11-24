@@ -31,8 +31,9 @@ from . import tvnames
 
 log = logging.getLogger("hub.catalogdb")
 
-VERSION = 4  # 2: programme words in their own narrow table (ptext), so a search scans words, not JSON;
-# 3: `twin`, so a list shows one card per title (Nov 23 2026); 4: a bracketed run of years leaves the twin key
+VERSION = 5  # 2: programme words in their own narrow table (ptext), so a search scans words, not JSON;
+# 3: `twin`, so a list shows one card per title (Nov 23 2026); 4: a bracketed run of years leaves the twin key;
+# 5: `tscan`, what a search or a filtered list needs to pick its page, without the JSON rows (Nov 24 2026)
 KINDS = ("movies", "series")
 SORTS = {
     "name": "sort_key, ord",
@@ -48,6 +49,10 @@ CREATE TABLE titles (
   twin TEXT NOT NULL, lead INTEGER NOT NULL, PRIMARY KEY (kind, ord));
 CREATE INDEX titles_sort ON titles (kind, sort_key, ord);
 CREATE INDEX titles_category ON titles (kind, category_cf);
+CREATE TABLE tscan (
+  kind TEXT NOT NULL, ord INTEGER NOT NULL, name_cf TEXT NOT NULL, category TEXT, category_cf TEXT,
+  twin TEXT NOT NULL, sort_key TEXT NOT NULL, year INTEGER NOT NULL, added REAL NOT NULL, id TEXT NOT NULL,
+  PRIMARY KEY (kind, ord)) WITHOUT ROWID;
 CREATE TABLE progs (chan_ord INTEGER NOT NULL, item_ord INTEGER NOT NULL, channel TEXT NOT NULL,
   text_cf TEXT NOT NULL, row TEXT NOT NULL, PRIMARY KEY (chan_ord, item_ord));
 CREATE TABLE ptext (chan_ord INTEGER NOT NULL, item_ord INTEGER NOT NULL, text_cf TEXT NOT NULL,
@@ -104,6 +109,7 @@ def build(path: Path, doc: dict[str, Any], stamp: str) -> None:
         conn.executescript(_SCHEMA)
         for kind in KINDS:
             rows = []
+            ids: dict[int, str] = {}
             seen: set[str] = set()
             for ord_, row in enumerate(doc.get(kind) or []):
                 if not isinstance(row, dict):
@@ -112,11 +118,14 @@ def build(path: Path, doc: dict[str, Any], stamp: str) -> None:
                 sort_key = (tvnames.polish(row.get("name"))[0] or name).casefold()
                 category = row.get("category") or None
                 twin = twin_key(row, ord_)
+                ids[ord_] = str(row.get("id") or "")
                 rows.append((kind, ord_, name.casefold(), sort_key, _year(row.get("year")), _added(row.get("added")),
                              category, str(category).casefold() if category else None, json.dumps(row),
                              twin, int(twin not in seen)))  # lead: the first copy, for a whole unfiltered list
                 seen.add(twin)
             conn.executemany("INSERT INTO titles VALUES (?,?,?,?,?,?,?,?,?,?,?)", rows)
+            conn.executemany("INSERT INTO tscan VALUES (?,?,?,?,?,?,?,?,?,?)",
+                             [(r[0], r[1], r[2], r[6], r[7], r[9], r[3], r[4], r[5], ids[r[1]]) for r in rows])
         progs = []
         guide = doc.get("guide") or {}
         for chan_ord, channel in enumerate(doc.get("channels") or []):
@@ -199,6 +208,20 @@ class Reader:
         conn = self._conn()
         if conn is None:
             raise sqlite3.OperationalError("no catalog index")
+        order = SORTS.get(sort, SORTS["name"])
+        whole = not (needle or category or kids is not None or skip_categories or skip)
+        if whole:  # the whole list: the copies were picked when the index was built
+            names = [r[0] for r in conn.execute(
+                "SELECT DISTINCT category FROM titles WHERE kind=? AND category IS NOT NULL", [kind])]
+            total = conn.execute("SELECT count(*) FROM titles WHERE kind=? AND lead=1", [kind]).fetchone()[0]
+            page = conn.execute(f"SELECT row FROM titles WHERE kind=? AND lead=1 ORDER BY {order} "  # noqa: S608
+                                "LIMIT ? OFFSET ?", [kind, max(0, limit), max(0, offset)]).fetchall()
+            return [json.loads(r[0]) for r in page], int(total), sorted(names)
+        if kids is not None and not kids:
+            return [], 0, []
+        # A category, a search or a child's list. One pass over the narrow `tscan` table finds the matches; the
+        # wide JSON rows are read for the page only. (Three scans of `titles`, each dragging every match's JSON
+        # along, took 1.1 s per search on the live hub, Nov 24 2026.)
         where, args = ["kind=?"], [kind]
         if needle:
             where.append("instr(name_cf, ?) > 0")
@@ -207,30 +230,31 @@ class Reader:
             where.append("category_cf=?")
             args.append(category.casefold())
         if kids is not None:
-            if not kids:
-                return [], 0, []
-            where.append(f"category_cf IN ({','.join('?' * len(kids))})")
-            args.extend(sorted(kids))
+            where.append("category_cf IN (SELECT value FROM json_each(?))")
+            args.append(json.dumps(sorted(kids)))
         if skip_categories:
             where.append("(category_cf IS NULL OR category_cf NOT IN (SELECT value FROM json_each(?)))")
             args.append(json.dumps(sorted(skip_categories)))
         if skip:
-            where.append("json_extract(row, '$.id') NOT IN (SELECT value FROM json_each(?))")
+            where.append("id NOT IN (SELECT value FROM json_each(?))")
             args.append(json.dumps(sorted(skip)))
-        whole = len(where) == 1  # the whole list: the copies were picked when the index was built
-        clause = " AND ".join(where)
-        names = [r[0] for r in conn.execute(
-            f"SELECT DISTINCT category FROM titles WHERE {clause} AND category IS NOT NULL", args)]  # noqa: S608
-        order = SORTS.get(sort, SORTS["name"])
-        if whole:
-            source = f"titles WHERE {clause} AND lead=1"  # noqa: S608
-        else:  # a category, a search or a child's list: the first copy among the matches
-            source = (f"(SELECT row, sort_key, ord, year, added, row_number() OVER (PARTITION BY twin ORDER BY ord) "
-                      f"AS rn FROM titles WHERE {clause}) WHERE rn=1")  # noqa: S608
-        total = conn.execute(f"SELECT count(*) FROM {source}", args).fetchone()[0]  # noqa: S608
-        page = conn.execute(f"SELECT row FROM {source} ORDER BY {order} LIMIT ? OFFSET ?",  # noqa: S608
-                            [*args, max(0, limit), max(0, offset)]).fetchall()
-        return [json.loads(r[0]) for r in page], int(total), sorted(names)
+        found = conn.execute("SELECT ord, twin, category, sort_key, year, added FROM tscan "  # noqa: S608
+                             f"WHERE {' AND '.join(where)} ORDER BY ord", args).fetchall()
+        cats = {r[2] for r in found if r[2] is not None}
+        firsts: dict[str, tuple[Any, ...]] = {}
+        for r in found:  # copies of one title: the first in the provider's order stays
+            firsts.setdefault(r[1], r)
+        picked = list(firsts.values())
+        if sort == "year":
+            picked.sort(key=lambda r: (-r[4], r[3], r[0]))
+        elif sort == "added":
+            picked.sort(key=lambda r: (-r[5], -r[0]))
+        else:
+            picked.sort(key=lambda r: (r[3], r[0]))
+        ords = [r[0] for r in picked[max(0, offset):max(0, offset) + max(0, limit)]]
+        rows = dict(conn.execute("SELECT ord, row FROM titles WHERE kind=? AND ord IN "
+                                 "(SELECT value FROM json_each(?))", [kind, json.dumps(ords)]).fetchall())
+        return [json.loads(rows[o]) for o in ords if o in rows], len(picked), sorted(cats)
 
     def programmes(self, needle: str, *, limit: int = 400) -> list[tuple[str, dict[str, Any]]]:
         """(channel key, programme) matching the words, in lineup then guide order."""

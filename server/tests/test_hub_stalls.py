@@ -492,3 +492,73 @@ def test_the_hourly_retry_reads_only_the_provider_that_is_due_and_folds_only_aft
     assert got["fresh"] == "10 channels, 0 films, 0 series" and got["eagle"].startswith("not read")
     asyncio.run(cat.refresh_extras_here())  # the full read (keys saved on the admin page) still asks everyone
     assert {"fresh", "eagle"} <= set(asked)
+
+
+# -- the snapshot is never parsed on the loop (Nov 24 2026: 5 to 12 s on every route after a catalog rewrite) ----
+def _loads_on(cat, monkeypatch) -> list[str]:
+    """Names of the threads that asked the catalog for its snapshot."""
+    import threading
+
+    asked: list[str] = []
+    real = cat.load
+
+    def load():
+        asked.append(threading.current_thread().name)
+        return real()
+
+    monkeypatch.setattr(cat, "load", load)
+    return asked
+
+
+def test_recording_rules_read_the_snapshot_off_the_loop_and_not_at_all_without_rules(hub, monkeypatch):
+    import threading
+
+    asked = _loads_on(hub.tv_catalog, monkeypatch)
+    asyncio.run(hub.dvr._apply_rules())
+    assert asked == []  # no rules: nothing to look for
+    hub.dvr.add_rule(channel_key=None, title_match="news", new_only=False)
+    asyncio.run(hub.dvr._apply_rules())
+    assert asked and threading.main_thread().name not in asked
+
+
+def test_the_personal_rows_get_their_library_rows_once_per_snapshot(hub, monkeypatch):
+    cat = hub.tv_catalog
+    cat.ingest(vod=[{"stream_id": 7, "name": "Old Film"}], series=[{"series_id": 3, "name": "A Show"}])
+    first = tvpicks._catalog_rows(hub)
+    assert {row["name"] for row in first.values()} == {"Old Film", "A Show"}
+    assert tvpicks._catalog_rows(hub) is first  # the same snapshot: not walked again
+    cat.ingest(vod=[{"stream_id": 8, "name": "New Film"}], series=[])
+    assert {row["name"] for row in tvpicks._catalog_rows(hub).values()} == {"New Film"}
+
+
+def test_explore_and_the_idle_screen_read_the_snapshot_in_a_worker(hub, people, monkeypatch):
+    import threading
+
+    hub.tv_catalog.ingest(vod=[{"stream_id": 7, "name": "Old Film"}], series=[])
+    phone = next(iter(people["phones"].values()))
+    loop_threads: list[str] = []
+    seen: list[str] = []
+    real_feed, real_view, real_warm = tvpicks.personal_feed, hub.ambient.view, tvpicks.warm_rows
+
+    def feed(*a, **kw):
+        loop_threads.append(threading.current_thread().name)
+        return real_feed(*a, **kw)
+
+    def warm(h):
+        seen.append("warm:" + threading.current_thread().name)
+        return real_warm(h)
+
+    def view(*a, **kw):
+        seen.append("view:" + threading.current_thread().name)
+        return real_view(*a, **kw)
+
+    monkeypatch.setattr(tvpicks, "personal_feed", feed)
+    monkeypatch.setattr(tvpicks, "warm_rows", warm)
+    monkeypatch.setattr(hub.ambient, "view", view)
+    assert phone.client.get("/v1/tv/explore", headers=phone.h).status_code == 200
+    assert phone.client.get("/v1/ambient", headers=phone.h).status_code == 200
+    warmed = [name for name in seen if name.startswith("warm:")]
+    viewed = [name for name in seen if name.startswith("view:")]
+    assert warmed and viewed and loop_threads
+    # The feed itself stays on the loop (it may start the curator's task); the heavy reads do not.
+    assert all(name.split(":", 1)[1] not in loop_threads for name in warmed + viewed)

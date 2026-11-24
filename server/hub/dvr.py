@@ -216,10 +216,15 @@ class Dvr:
                     self._publish(row)
 
     async def _apply_rules(self) -> None:
-        guide = (self.hub.tv_catalog.load().get("guide") or {}) if self.hub.tv_catalog else {}
+        rules = self.rules()
+        if not rules or not self.hub.tv_catalog:
+            return  # nothing to look for: the snapshot is not read at all
+        # Reading a new snapshot parses the whole library; on the loop that froze every call for seconds each
+        # time the catalog was rewritten (Nov 24 2026). A worker thread reads it; the loop only waits.
+        guide = (await asyncio.to_thread(self.hub.tv_catalog.load)).get("guide") or {}
         now = self.now()
         existing = {(row.get("channel_key"), row.get("start")) for row in self.recordings()}
-        for rule in self.rules():
+        for rule in rules:
             needle = rule["title_match"].casefold()
             for channel_key, items in guide.items():
                 if rule.get("channel_key") and rule["channel_key"] != channel_key:
