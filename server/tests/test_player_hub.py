@@ -664,3 +664,44 @@ def test_a_nameless_episode_gets_its_name_from_the_house_once_tmdb_was_asked(hub
         asyncio.run(episodenames.store(cat).drain())
         assert route.call_count == 1                                           # kept for the house
     assert hub.db.kv_get("tv.episode_names")["1396:1"]["n"] == {"1": "Pilot", "2": "The Second One"}
+
+
+def test_an_episode_the_hub_has_not_seen_is_read_with_its_series_id(hub, people, monkeypatch):
+    """A TV that read the series from the provider plays an episode the hub does not know yet."""
+    _library(hub)
+    dylan = people["phones"]["Dylan"]
+    asked = []
+
+    async def fetch(series_id):
+        asked.append(series_id)
+        hub.tv_catalog.store_series({"info": {"name": "Cartoon Show"}, "episodes": {"3": [
+            {"id": "7700", "episode_num": 1, "title": "Later"}, {"id": "7701", "episode_num": 2, "title": "Last"}]}},
+            series_id)
+        return {}
+
+    monkeypatch.setattr(hub.tv_catalog, "fetch_series", fetch)
+    nxt = "/v1/tv/phone/next?episode_id=ep:thomas-creek:7700"
+    seg = "/v1/tv/phone/segments?episode_id=ep:thomas-creek:7700"
+    # Without the series, or with one that is not in the library, it stays unknown and nothing is read.
+    assert dylan.client.get(nxt, headers=dylan.h).status_code == 404
+    assert dylan.client.get(nxt + "&series_id=series:thomas-creek:nope", headers=dylan.h).status_code == 404
+    assert dylan.client.get(seg + "&series_id=vod:thomas-creek:100", headers=dylan.h).status_code == 404
+    assert asked == []
+    got = dylan.client.get(nxt + "&series_id=series:thomas-creek:50", headers=dylan.h)
+    assert got.status_code == 200 and got.json()["next"]["episode_id"] == "ep:thomas-creek:7701", got.text
+    assert dylan.client.get(seg + "&duration_s=1500&series_id=series:thomas-creek:50",
+                            headers=dylan.h).json()["segments"][-1]["guess"] is True
+    assert asked == ["series:thomas-creek:50"]          # read once; the second ask knew the episode
+
+
+def test_a_series_page_that_fails_leaves_the_episode_unknown(hub, people, monkeypatch):
+    _library(hub)
+    dylan = people["phones"]["Dylan"]
+
+    async def fetch(series_id):
+        raise RuntimeError("provider down")
+
+    monkeypatch.setattr(hub.tv_catalog, "fetch_series", fetch)
+    r = dylan.client.get("/v1/tv/phone/next?episode_id=ep:thomas-creek:7700&series_id=series:thomas-creek:50",
+                         headers=dylan.h)
+    assert r.status_code == 404 and r.json()["error"] == "not_found"
