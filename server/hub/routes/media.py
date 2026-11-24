@@ -528,9 +528,15 @@ async def pipeline(c: Caller = Depends(caller), h: Hub = Depends(hub)) -> dict[s
 
     Each section is filled independently; a service that fails is listed in
     `failures` instead of emptying the whole screen."""
-    import asyncio
+    from .. import kept
 
     need(h, c, "pipeline")
+    return await kept.answer(h, "pipeline", 10, 300, lambda: _pipeline(h))  # type: ignore[no-any-return]
+
+
+async def _pipeline(h: Hub) -> dict[str, Any]:
+    import asyncio
+
     downloads: list[dict[str, Any]] = []
     failures: list[dict[str, Any]] = []
     upcoming: list[dict[str, Any]] = []

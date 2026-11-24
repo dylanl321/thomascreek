@@ -52,6 +52,8 @@ RAINVIEWER = "https://api.rainviewer.com/public/weather-maps.json"
 
 TTL = {"forecast": 600, "air": 1800, "alerts": 120, "text": 1800, "outlook": 6 * 3600, "points": 7 * 86400,
        "radar": 120}
+# How long past its time a kept answer may still be shown while a new one is read (never alerts or radar).
+LATE_OK = {"forecast": 3 * 3600, "air": 6 * 3600, "text": 6 * 3600, "outlook": 24 * 3600}
 NEAR_HOME_MILES = 25
 # Germany's radar composite (DWD) covers roughly this box.
 DE_BOX = (47.0, 55.2, 5.5, 15.5)
@@ -529,6 +531,7 @@ class Forecasts:
         self.cache_dir = cache_dir
         self._c: dict[str, tuple[float, Any]] = {}
         self._locks: dict[str, asyncio.Lock] = {}
+        self._behind: dict[str, asyncio.Task[None]] = {}
         self._client: httpx.AsyncClient | None = None
         self.last_error: str | None = None
         self._pruned = 0.0
@@ -547,6 +550,25 @@ class Forecasts:
         hit = self._c.get(key)
         if hit and time.time() - hit[0] < ttl:
             return hit[1]
+        # A forecast that just aged out is still shown, and a new one is read behind it: the Forecast page waited
+        # two to five seconds on these reads (Nov 24 2026). Alerts and radar are never shown old.
+        late = LATE_OK.get(key.split(":", 1)[0])
+        if hit and late and time.time() - hit[0] < ttl + late:
+            if key not in self._behind:
+                self._behind[key] = asyncio.create_task(self._read_behind(key, ttl, fn))
+            return hit[1]
+        return await self._read(key, ttl, fn)
+
+    async def _read_behind(self, key: str, ttl: float, fn) -> None:
+        try:
+            await self._read(key, ttl, fn)
+        except Exception:  # noqa: BLE001  logged in _read; the page keeps what it has
+            pass
+        finally:
+            self._behind.pop(key, None)
+
+    async def _read(self, key: str, ttl: float, fn) -> Any:
+        hit = self._c.get(key)
         lock = self._locks.setdefault(key, asyncio.Lock())
         async with lock:
             hit = self._c.get(key)
