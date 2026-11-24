@@ -75,8 +75,10 @@ def next_episode(cat: Any, episode_id: str, *, kids_only: bool = False) -> dict[
     nxt = min(later, key=_order)
     if kids_only and not (cat.episode(str(nxt["id"])) or {}).get("kids"):
         return None
-    out: dict[str, Any] = {"episode_id": nxt["id"], "series_id": series_id,
-                           "title": episode_name(nxt.get("title"), nxt.get("number"))}
+    from .episodenames import better
+
+    name = better(cat, {**nxt, "series_id": series_id}, episode_name(nxt.get("title"), nxt.get("number")))
+    out: dict[str, Any] = {"episode_id": nxt["id"], "series_id": series_id, "title": name}
     for field in ("season", "number"):
         if isinstance(nxt.get(field), int):
             out[field] = nxt[field]
