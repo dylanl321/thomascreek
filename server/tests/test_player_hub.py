@@ -694,6 +694,29 @@ def test_an_episode_the_hub_has_not_seen_is_read_with_its_series_id(hub, people,
     assert asked == ["series:thomas-creek:50"]          # read once; the second ask knew the episode
 
 
+def test_a_tv_without_the_series_id_sends_the_name_and_the_hub_finds_the_series(hub, people, monkeypatch):
+    """A series the TV built from loose episodes has no id of the hub's: its name is enough."""
+    _library(hub)
+    dylan = people["phones"]["Dylan"]
+    asked = []
+
+    async def fetch(series_id):
+        asked.append(series_id)
+        hub.tv_catalog.store_series({"info": {"name": "Cartoon Show"}, "episodes": {"3": [
+            {"id": "7700", "episode_num": 1, "title": "Later"}, {"id": "7701", "episode_num": 2, "title": "Last"}]}},
+            series_id)
+        return {}
+
+    monkeypatch.setattr(hub.tv_catalog, "fetch_series", fetch)
+    nxt = "/v1/tv/phone/next?episode_id=ep:thomas-creek:7700"
+    assert dylan.client.get(nxt + "&series_name=No such show", headers=dylan.h).status_code == 404
+    assert dylan.client.get(nxt + "&series_name=x", headers=dylan.h).status_code == 404
+    assert asked == []
+    got = dylan.client.get(nxt + "&series_name=EN - Cartoon Show (2009)", headers=dylan.h)
+    assert got.status_code == 200 and got.json()["next"]["episode_id"] == "ep:thomas-creek:7701", got.text
+    assert asked == ["series:thomas-creek:50"]
+
+
 def test_a_series_page_that_fails_leaves_the_episode_unknown(hub, people, monkeypatch):
     _library(hub)
     dylan = people["phones"]["Dylan"]
