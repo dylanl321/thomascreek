@@ -13,6 +13,7 @@ import time
 from typing import Any
 from urllib.parse import quote
 
+import anyio
 import httpx
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
@@ -216,8 +217,11 @@ async def stream(key: str, request: Request, token: str | None = None, h: Hub = 
                 touch(h, holder)  # at most every 15 s (iptvplay.TOUCH_EVERY_S)
                 yield chunk
         finally:
-            await opened.aclose()
-            await client.aclose()
-            await asyncio.to_thread(release_tv, h, holder)
+            # Threadfin hanging up cancels this body, and every await in a cancelled scope ends at once: the login
+            # stayed leased until the 90 s idle timeout on the live hub (Nov 25 2026). Shielded, so it is freed now.
+            with anyio.CancelScope(shield=True):
+                await asyncio.to_thread(release_tv, h, holder)
+                await opened.aclose()
+                await client.aclose()
 
     return StreamingResponse(body(), media_type="video/mp2t", headers={"Cache-Control": "no-store"})

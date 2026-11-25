@@ -229,9 +229,15 @@ def _stamp(h: Any, which: str, home: Any, groups: Any) -> Any:
             h.db.kv_stamp("tvapp.lineup"), cat.lineup_stamp(False))
 
 
+KV_WANTED = "threadfin.wanted"
+_WANTED_MAX = 8
+
+
 def reply(h: Any, kind: str, which: str, home: tuple[float, float] | None, groups: set[str] | None,
           base: str) -> Reply:
-    """The playlist or guide, built once per lineup, guide and caller address (run off the hub's loop)."""
+    """The playlist or guide, built once per lineup, guide and caller address (run off the hub's loop). What was
+    asked is remembered, so `rewarm` builds it again after a provider refresh before Threadfin asks (the whole
+    guide took 2 s to build on the live hub, Nov 25 2026)."""
     tok = token(h)
     frozen = frozenset(groups) if groups else None
     key = (kind, base, _stamp(h, which, home, frozen))
@@ -244,12 +250,41 @@ def reply(h: Any, kind: str, which: str, home: tuple[float, float] | None, group
             built = Reply(playlist(rows, base, tok).encode(), "audio/x-mpegurl")
         else:
             built = Reply(guide(h, rows, base, tok).encode(), "application/xml")
-        for old in [k for k in _CACHE if k[0] == kind and k[1] == base]:
+        same = key[:2] + key[2][:3]  # the same answer for an older lineup or guide
+        for old in [k for k in _CACHE if k[:2] + k[2][:3] == same]:
             _CACHE.pop(old, None)
         if len(_CACHE) > 16:
             _CACHE.clear()
         _CACHE[key] = built
-        return built
+    _remember(h, kind, which, home, groups, base)
+    return built
+
+
+def _remember(h: Any, kind: str, which: str, home: Any, groups: set[str] | None, base: str) -> None:
+    entry = {"kind": kind, "list": which, "home": list(home) if home else None,
+             "groups": sorted(groups) if groups else None, "base": base}
+    wanted = [w for w in (h.db.kv_get(KV_WANTED) or []) if isinstance(w, dict)]
+    if wanted and wanted[0] == entry:
+        return
+    wanted = [entry, *[w for w in wanted if w != entry]][:_WANTED_MAX]
+    h.db.kv_set(KV_WANTED, wanted)
+
+
+def rewarm(h: Any) -> int:
+    """Build every playlist and guide Threadfin asked for lately, for the catalog as it is now (hub/warm.py runs it
+    after a refresh and at start, in a worker). How many were built."""
+    if not h.vault.has(SECRET):
+        return 0
+    done = 0
+    for w in list(h.db.kv_get(KV_WANTED) or []):
+        try:
+            home = tuple(w["home"]) if w.get("home") else None
+            reply(h, str(w["kind"]), str(w["list"]), home, set(w["groups"]) if w.get("groups") else None,
+                  str(w["base"]))
+            done += 1
+        except Exception as exc:  # noqa: BLE001 - the next ask builds it instead
+            log.info("threadfin: rebuilding a feed answer failed (%s)", type(exc).__name__)
+    return done
 
 
 # -- the connection budget ----------------------------------------------------------------------------------------
