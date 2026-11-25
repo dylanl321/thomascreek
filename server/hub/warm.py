@@ -93,6 +93,10 @@ def _from_disk(h: Any, plex: bool = True) -> None:
     library = getattr(h, "plex_library", None) if plex else None
     if library is not None:
         steps.append(("plex", library._read_saved))
+    if cat is not None:
+        from . import threadfin
+
+        steps.append(("threadfin", lambda: threadfin.rewarm(h)))  # the feed Plex reads (hub/threadfin.py), last
     for name, step in steps:
         began = time.monotonic()
         try:

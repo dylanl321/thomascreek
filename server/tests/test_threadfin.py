@@ -162,3 +162,60 @@ def test_the_web_page_shows_the_links_and_an_agent_never_sees_the_token(hub, peo
     assert "Plex Live TV feed" in seen and threadfin.token(hub) not in seen
     # The agent login reads the feed itself (to time it after a deploy), never through the token.
     assert home_client.get("/v1/threadfin/status", headers={"Authorization": f"Bearer {key}"}).status_code == 200
+
+
+def test_hanging_up_frees_the_login_at_once(hub, app):
+    """Threadfin closing the connection cancels the stream; the login is freed then, not at the idle timeout."""
+    import asyncio
+
+    tok = _ready(hub)
+
+    async def endless():
+        while True:
+            yield b"\x47" * 188 * 8
+            await asyncio.sleep(0.01)
+
+    def threadfin_streams():
+        return [row for row in hub.db.kv_get(KV_SESSIONS) or [] if str(row["tv"]).startswith("threadfin:")]
+
+    async def run() -> list[list[dict]]:
+        playing = asyncio.Event()
+        seen: list[list[dict]] = []
+        sent = [False]
+
+        async def receive():
+            if not sent[0]:
+                sent[0] = True
+                return {"type": "http.request", "body": b"", "more_body": False}
+            await playing.wait()
+            return {"type": "http.disconnect"}
+
+        async def send(message):
+            if message["type"] == "http.response.body" and message.get("body") and not playing.is_set():
+                seen.append(threadfin_streams())
+                playing.set()
+
+        scope = {"type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1", "method": "GET",
+                 "scheme": "http", "path": "/v1/threadfin/stream/xc:thomas-creek:10.ts", "raw_path": b"",
+                 "query_string": f"token={tok}".encode(), "headers": [(b"host", b"hub.test")],
+                 "client": ("192.168.1.60", 5000), "server": ("hub.test", 80), "root_path": ""}
+        await asyncio.wait_for(app(scope, receive, send), 10)
+        return seen
+
+    with respx.mock(assert_all_called=False) as mock:
+        mock.get(f"{SERVER}/live/household/{PASSWORD}/10.ts").mock(
+            return_value=httpx.Response(200, content=endless(), headers={"content-type": "video/mp2t"}))
+        seen = asyncio.run(run())
+    assert len(seen) == 1 and len(seen[0]) == 1  # leased while it played
+    assert threadfin_streams() == []  # and freed the moment Threadfin hung up
+
+
+def test_what_threadfin_asked_for_is_built_again_after_a_refresh(hub, home_client):
+    tok = _ready(hub)
+    for path in ("guide.xml?list=all", "playlist.m3u?list=all", "playlist.m3u"):
+        assert home_client.get(f"/v1/threadfin/{path}&token={tok}" if "?" in path
+                               else f"/v1/threadfin/{path}?token={tok}").status_code == 200
+    assert len(hub.db.kv_get(threadfin.KV_WANTED)) == 3
+    threadfin._CACHE.clear()
+    assert threadfin.rewarm(hub) == 3
+    assert len(threadfin._CACHE) == 3  # the basic and whole lists are kept side by side
