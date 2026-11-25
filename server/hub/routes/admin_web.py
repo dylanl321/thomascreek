@@ -967,6 +967,40 @@ New ones are made inside the hub container: <code>hub agent-login create NAME</c
 {''.join(rows) or '<div class=row><div class=dim>None yet</div></div>'}</div></details></div>"""
 
 
+def _threadfin_html(h: Hub, csrf: str, claims: dict[str, Any], host: str | None) -> str:
+    """The Threadfin feed (hub/threadfin.py): the two links to paste into Threadfin, with the token, and the
+    connection budget to size its tuners. An agent login sees the links without the token."""
+    from .. import threadfin
+
+    e = html.escape
+    agent = bool(claims.get("agent"))
+    tok = "TOKEN" if agent else threadfin.token(h)
+    port = int(getattr(h.config.hub, "feed_port", 0) or 0)
+    where = host or "HUB"
+    base = f"http://{where}:{port}" if port else f"https://{where}:{h.config.hub.listen_port}"
+    try:
+        b = threadfin.budget(h)
+        money = (f"{b['free']} of {b['total']} provider connections free · {b['threadfin']} open by Threadfin · "
+                 f"set Threadfin's tuners to {b['suggested_tuners']} or fewer")
+    except Exception as exc:  # noqa: BLE001 - the links still show
+        money = f"Connection count unavailable ({type(exc).__name__})"
+    links = "".join(
+        f"<div class=row><div>{label}<div class=dim><code>{e(base)}/v1/threadfin/{path}?token={e(tok)}</code>"
+        "</div></div></div>"
+        for label, path in (("M3U playlist", "playlist.m3u"), ("XMLTV guide", "guide.xml"),
+                            ("Connections", "status")))
+    renew = "" if agent else (
+        f"<form method=post action=/admin/threadfin/renew><input type=hidden name=csrf value={csrf}>"
+        f"<button class=ghost>Make a new token</button></form>")
+    return f"""<h3>Threadfin</h3><div class=card><details class=key><summary><span>Plex Live TV feed</span>
+<span class=dim>{e(money)}</span></summary><div class=kbody><div class=dim>Paste the playlist and guide links into
+Threadfin. The basic lineup is the default; add <code>&amp;list=all</code> for every channel (and
+<code>&amp;group=Sports,News</code> to keep some groups). Each stream takes a provider login from the same pool as the
+TVs and phones and frees it when it stops. The links only open from home and over Tailscale. A new token stops the
+old links.</div>
+{links}<div class=row><div class=dim>Token</div>{renew}</div></div></details></div>"""
+
+
 def _ai_keys_html(h: Hub, csrf: str, new_ai_key: str | None = None) -> str:
     """AI connections: keys that let an AI app (Claude and other MCP clients) control the house as one person."""
     e = html.escape
@@ -1146,7 +1180,7 @@ AREA_TEXT = {
 
 
 def _area_html(h: Hub, claims: dict[str, Any], area: str, flash: str | None, new_key: str | None = None,
-               new_ai_key: str | None = None) -> str:
+               new_ai_key: str | None = None, host: str | None = None) -> str:
     e = html.escape
     csrf = _csrf(claims)
     title, lede = AREA_TEXT[area]
@@ -1173,7 +1207,8 @@ or text files named after a key (for example trek.api_key.txt). Each goes to the
 <a class='btn light small' href=/admin/downloads>Open</a></div></div>
 <h3>Cloud media</h3><div class=card><div class=row><div>Lighter streams for slow connections
 <div class=dim>The worker on the cloud server: approve it, see how busy it is, switch it off</div></div>
-<a class='btn light small' href=/admin/cloud>Open</a></div></div>"""
+<a class='btn light small' href=/admin/cloud>Open</a></div></div>
+{_threadfin_html(h, csrf, claims, host)}"""
     elif area == "ai":
         body = f"""{admin_health.ai_html(h)}
 {_ai_keys_html(h, csrf, new_ai_key)}
@@ -1292,7 +1327,8 @@ async def _area(request: Request, h: Hub, area: str) -> Response:
     claims = _session(request, h)
     if not claims:
         return HTMLResponse(_login_page(), headers=_headers())
-    return HTMLResponse(_area_html(h, claims, area, request.query_params.get("m")), headers=_headers())
+    return HTMLResponse(_area_html(h, claims, area, request.query_params.get("m"), host=request.url.hostname),
+                        headers=_headers())
 
 
 @pages.get("/admin/connections")
@@ -1821,6 +1857,16 @@ async def revoke_ai_key(request: Request, h: Hub = Depends(hub)) -> Response:
     claims, form = await _form_session(request, h)
     ok = aikeys.revoke(h, str(form.get("id") or ""), by=claims.get("per"))
     return _back("Turned the AI connection off." if ok else "That AI connection was already off.")
+
+
+@pages.post("/admin/threadfin/renew")
+async def renew_threadfin(request: Request, h: Hub = Depends(hub)) -> Response:
+    claims, form = await _form_session(request, h)
+    from .. import threadfin
+
+    threadfin.renew(h)
+    h.db.log("threadfin.token", "renewed", person_id=claims.get("per"), source="web")
+    return _back("Made a new Threadfin token. Paste the new links into Threadfin.")
 
 
 @pages.post("/admin/agent-login-revoke")
