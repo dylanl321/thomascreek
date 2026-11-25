@@ -441,6 +441,9 @@ class HubSettings(BaseModel):
     # The Threadfin feed (hub/threadfin.py) is also served on this plain-HTTP port, feed paths only: Threadfin and
     # Plex don't trust the hub's own certificate. Home network and Tailscale only; 0 turns the port off.
     feed_port: int = 8780
+    # Tailscale addresses (100.64/10 only) that read the Threadfin feed without its token: the cloud server's
+    # Threadfin (Dylan, Nov 25 2026, decision card). Set in the NAS app's config, never in the repository.
+    feed_trusted: list[str] = []
     # First admin without a shell on the NAS: on start, if nobody is admin yet and
     # exactly one phone has enrolled (still pending) since `enrolled_after` (Unix
     # time), that phone becomes this person's, as admin. Remove it afterwards.

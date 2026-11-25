@@ -1,6 +1,7 @@
 """The Threadfin feed: playlist, guide, stream relay, logos and the connection budget (see hub/threadfin.py).
 
-Every route takes `?token=` (Threadfin can't send headers) and refuses callers from the public internet. A Claude
+Every route takes `?token=` (Threadfin can't send headers) and refuses callers from the public internet.
+A Tailscale address in `hub.feed_trusted` (the cloud server's Threadfin) needs no token; its links carry none. A Claude
 agent login with `admin.read` on the home network may read them too (Bearer), to time the feed after a deploy.
 """
 
@@ -34,15 +35,19 @@ router = APIRouter(prefix="/v1/threadfin", tags=["tv"])
 TRIES = 3
 
 
-def _allowed(request: Request, h: Hub, token: str | None) -> None:
+def _allowed(request: Request, h: Hub, token: str | None) -> bool:
+    """Lets the caller in or refuses it. True when it is a trusted Tailscale address that came without the token:
+    its playlist and guide carry links without the token too."""
     ip = caller_ip(request, h)
     if not threadfin.allowed_from(h, ip):
         raise error(404, "not_found", "Not here")
     if threadfin.check(h, token):
-        return
+        return False
+    if threadfin.trusted(h, ip):
+        return True
     key = agentlogins.bearer(request.headers)
     if key and agentlogins.check(h.db, key, "admin.read") is not None:
-        return
+        return False
     raise error(401, "unauthorized", "The Threadfin token is missing or was replaced. Copy the link again from the "
                                      "hub web page (Watching, Threadfin).")
 
@@ -75,7 +80,7 @@ def _send(request: Request, body: threadfin.Reply, started: float) -> Response:
 
 async def _feed(request: Request, h: Hub, kind: str, token: str | None, which: str, group: str | None) -> Response:
     started = time.perf_counter()
-    _allowed(request, h, token)
+    keyless = _allowed(request, h, token)
     feed = threadfin.feed_name(which)
     if feed is None:
         raise error(404, "not_found", "No such feed. The feeds are " + ", ".join(threadfin.FEEDS) + ".")
@@ -83,7 +88,8 @@ async def _feed(request: Request, h: Hub, kind: str, token: str | None, which: s
 
     await _ready(h)
     home = await _home(h) if feed in ("plex", "sports", "news") else None
-    body = await asyncio.to_thread(threadfin.reply, h, kind, feed, home, _groups(group), _base(request))
+    body = await asyncio.to_thread(threadfin.reply, h, kind, feed, home, _groups(group), _base(request),
+                                   keyless)
     return _send(request, body, started)
 
 
