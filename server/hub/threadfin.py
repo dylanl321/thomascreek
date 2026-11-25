@@ -116,6 +116,19 @@ def allowed_from(h: Any, ip: str | None) -> bool:
     return h.is_home(ip) or h.can_open_web(ip) or addr in TAILSCALE
 
 
+def trusted(h: Any, ip: str | None) -> bool:
+    """A Tailscale address the config lets read the feed without the token (hub.feed_trusted). Tailscale proves
+    which machine is calling; an address outside 100.64/10 never counts, whatever the config says."""
+    if not ip:
+        return False
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return False
+    listed = getattr(h.config.hub, "feed_trusted", None) or []
+    return addr in TAILSCALE and any(str(addr) == str(x).strip() for x in listed)
+
+
 def redact(text: str) -> str:
     """A request line with the token taken out (uvicorn's access log)."""
     return _TOKEN_IN_QUERY.sub(r"\1…", text)
@@ -205,19 +218,25 @@ def _attr(value: object) -> str:
     return re.sub(r"[\"\r\n]+", " ", str(value or "")).strip()
 
 
+def _q(tok: str) -> str:
+    """The query that carries the token, or nothing for a trusted caller's links."""
+    return f"?token={tok}" if tok else ""
+
+
 def playlist(rows: list[dict[str, Any]], base: str, tok: str, feed: str = "plex",
              groups: set[str] | None = None) -> str:
     """M3U with `tvg-id` = the channel key (the XMLTV ids), `tvg-chno`, `group-title`, a logo and the relay; its
-    `url-tvg` is the same feed's guide."""
-    pick = f"&group={quote(','.join(sorted(groups)))}" if groups else ""
-    lines = [f'#EXTM3U url-tvg="{base}/v1/threadfin/{feed}.xml?token={tok}{pick}"']
+    `url-tvg` is the same feed's guide. An empty `tok` makes links without a token (a trusted caller's)."""
+    pick = f"group={quote(','.join(sorted(groups)))}" if groups else ""
+    guide_q = _q(tok) + (("&" if tok else "?") + pick if pick else "")
+    lines = [f'#EXTM3U url-tvg="{base}/v1/threadfin/{feed}.xml{guide_q}"']
     for row in rows:
         key = row["key"]
         number = f' tvg-chno="{_attr(row["number"])}"' if row.get("number") is not None else ""
-        logo = f' tvg-logo="{base}/v1/threadfin/logo/{key}?token={tok}"' if row.get("logo") else ""
+        logo = f' tvg-logo="{base}/v1/threadfin/logo/{key}{_q(tok)}"' if row.get("logo") else ""
         lines.append(f'#EXTINF:-1 tvg-id="{_attr(key)}" tvg-name="{_attr(row["name"])}"{number}{logo} '
                      f'group-title="{_attr(row["group"])}",{_attr(row["name"])}')
-        lines.append(f"{base}/v1/threadfin/stream/{key}.ts?token={tok}")
+        lines.append(f"{base}/v1/threadfin/stream/{key}.ts{_q(tok)}")
     return "\n".join(lines) + "\n"
 
 
@@ -240,7 +259,7 @@ def guide(h: Any, rows: list[dict[str, Any]], base: str, tok: str, now: float | 
     for row in rows:
         out.append(f"<channel id={quoteattr(row['key'])}><display-name>{_text(row['name'])}</display-name>"
                    + (f"<display-name>{_text(row['number'])}</display-name>" if row.get("number") is not None else "")
-                   + (f"<icon src={quoteattr(f'{base}/v1/threadfin/logo/{row['key']}?token={tok}')}/>"
+                   + (f"<icon src={quoteattr(f'{base}/v1/threadfin/logo/{row['key']}{_q(tok)}')}/>"
                       if row.get("logo") else "")
                    + "</channel>")
     since = now - GUIDE_BACK_S
@@ -294,15 +313,16 @@ _WANTED_MAX = 16
 
 
 def reply(h: Any, kind: str, which: str, home: tuple[float, float] | None, groups: set[str] | None,
-          base: str) -> Reply:
+          base: str, keyless: bool = False) -> Reply:
     """The playlist or guide, built once per lineup, guide and caller address (run off the hub's loop). What was
     asked is remembered, so `rewarm` builds it again after a provider refresh before Threadfin asks (the whole
-    guide took 2 s to build on the live hub, Nov 25 2026)."""
-    tok = token(h)
+    guide took 2 s to build on the live hub, Nov 25 2026). `keyless`: links without the token, for a trusted
+    caller (the token never reaches it)."""
+    tok = "" if keyless else token(h)
     which = feed_name(which) or "plex"
     home = home if which in ("plex", "sports", "news") else None
     frozen = frozenset(groups) if groups else None
-    key = (kind, base, _stamp(h, which, home, frozen))
+    key = (kind, base, keyless, _stamp(h, which, home, frozen))
     with _LOCK:
         hit = _CACHE.get(key)
         if hit is not None:
@@ -312,19 +332,22 @@ def reply(h: Any, kind: str, which: str, home: tuple[float, float] | None, group
             built = Reply(playlist(rows, base, tok, which, groups).encode(), "audio/x-mpegurl")
         else:
             built = Reply(guide(h, rows, base, tok).encode(), "application/xml")
-        same = key[:2] + key[2][:3]  # the same answer for an older lineup or guide
-        for old in [k for k in _CACHE if k[:2] + k[2][:3] == same]:
+        same = key[:3] + key[3][:3]  # the same answer for an older lineup or guide
+        for old in [k for k in _CACHE if k[:3] + k[3][:3] == same]:
             _CACHE.pop(old, None)
         if len(_CACHE) > 32:
             _CACHE.clear()
         _CACHE[key] = built
-    _remember(h, kind, which, home, groups, base)
+    _remember(h, kind, which, home, groups, base, keyless)
     return built
 
 
-def _remember(h: Any, kind: str, which: str, home: Any, groups: set[str] | None, base: str) -> None:
-    entry = {"kind": kind, "list": which, "home": list(home) if home else None,
+def _remember(h: Any, kind: str, which: str, home: Any, groups: set[str] | None, base: str,
+              keyless: bool = False) -> None:
+    entry: dict[str, Any] = {"kind": kind, "list": which, "home": list(home) if home else None,
              "groups": sorted(groups) if groups else None, "base": base}
+    if keyless:
+        entry["keyless"] = True
     wanted = [w for w in (h.db.kv_get(KV_WANTED) or []) if isinstance(w, dict)]
     if wanted and wanted[0] == entry:
         return
@@ -342,7 +365,7 @@ def rewarm(h: Any) -> int:
         try:
             home = tuple(w["home"]) if w.get("home") else None
             reply(h, str(w["kind"]), str(w["list"]), home, set(w["groups"]) if w.get("groups") else None,
-                  str(w["base"]))
+                  str(w["base"]), bool(w.get("keyless")))
             done += 1
         except Exception as exc:  # noqa: BLE001 - the next ask builds it instead
             log.info("threadfin: rebuilding a feed answer failed (%s)", type(exc).__name__)

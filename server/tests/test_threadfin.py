@@ -261,3 +261,25 @@ def test_what_threadfin_asked_for_is_built_again_after_a_refresh(hub, home_clien
     threadfin._CACHE.clear()
     assert threadfin.rewarm(hub) == 3
     assert len(threadfin._CACHE) == 3  # the basic and whole lists are kept side by side
+
+
+def test_a_trusted_tailscale_address_needs_no_token_and_never_gets_it(hub, app):
+    tok = _ready(hub)
+    vps, other = "100.106.114.22", "100.90.1.2"
+    hub.config.hub.feed_trusted = [vps, "10.0.0.5"]  # an address outside Tailscale never counts
+    with TestClient(app, client=(vps, 5000), base_url="http://hub.test") as cloud:
+        m3u = cloud.get("/v1/threadfin/kids.m3u")
+        assert m3u.status_code == 200 and tok not in m3u.text and "token=" not in m3u.text
+        assert 'url-tvg="http://hub.test/v1/threadfin/kids.xml"' in m3u.text
+        assert "http://hub.test/v1/threadfin/stream/xc:thomas-creek:11.ts\n" in m3u.text
+        xml = cloud.get("/v1/threadfin/kids.xml")
+        assert xml.status_code == 200 and tok not in xml.text
+        assert cloud.get("/v1/threadfin/status").status_code == 200
+    with TestClient(app, client=(other, 5000), base_url="http://hub.test") as stranger:
+        assert stranger.get("/v1/threadfin/kids.m3u").status_code == 401
+    with TestClient(app, client=("10.0.0.5", 5000), base_url="http://hub.test") as lan:
+        assert lan.get("/v1/threadfin/kids.m3u").status_code in (401, 404)
+    assert not threadfin.trusted(hub, "10.0.0.5")
+    # A token caller still gets the token in its links, kept apart from the trusted answer.
+    with TestClient(app, client=(other, 5000), base_url="http://hub.test") as with_token:
+        assert f"?token={tok}" in with_token.get(f"/v1/threadfin/kids.m3u?token={tok}").text
