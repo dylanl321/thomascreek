@@ -968,7 +968,7 @@ New ones are made inside the hub container: <code>hub agent-login create NAME</c
 
 
 def _threadfin_html(h: Hub, csrf: str, claims: dict[str, Any], host: str | None) -> str:
-    """The Threadfin feed (hub/threadfin.py): the two links to paste into Threadfin, with the token, and the
+    """The Threadfin feeds (hub/threadfin.py): each feed's playlist and guide link to copy into Threadfin, and the
     connection budget to size its tuners. An agent login sees the links without the token."""
     from .. import threadfin
 
@@ -984,21 +984,32 @@ def _threadfin_html(h: Hub, csrf: str, claims: dict[str, Any], host: str | None)
                  f"set Threadfin's tuners to {b['suggested_tuners']} or fewer")
     except Exception as exc:  # noqa: BLE001 - the links still show
         money = f"Connection count unavailable ({type(exc).__name__})"
-    links = "".join(
-        f"<div class=row><div>{label}<div class=dim><code>{e(base)}/v1/threadfin/{path}?token={e(tok)}</code>"
-        "</div></div></div>"
-        for label, path in (("M3U playlist", "playlist.m3u"), ("XMLTV guide", "guide.xml"),
-                            ("Connections", "status")))
+    copy = ("navigator.clipboard.writeText(this.dataset.u).then(()=>{let t=this.textContent;this.textContent='Copied';"
+            "setTimeout(()=>this.textContent=t,1500)})")
+
+    def link(path: str, label: str) -> str:
+        url = f"{base}/v1/threadfin/{path}?token={tok}"
+        return (f"<button type=button class='ghost small' data-u=\"{html.escape(url, quote=True)}\" "
+                f"onclick=\"{copy}\">{label}</button>")
+
+    rows = "".join(
+        f"<div class=row><div><b>{e(title)}</b><div class=dim>{e(what)}</div>"
+        f"<div class=dim><code>{e(base)}/v1/threadfin/{name}.m3u</code></div></div>"
+        f"<div style='display:flex;gap:6px'>{link(name + '.m3u', 'Copy M3U')}{link(name + '.xml', 'Copy XMLTV')}"
+        "</div></div>"
+        for name, (title, what) in threadfin.FEEDS.items())
+    status = (f"<div class=row><div>Connections<div class=dim><code>{e(base)}/v1/threadfin/status</code></div></div>"
+              f"{link('status', 'Copy')}</div>")
     renew = "" if agent else (
         f"<form method=post action=/admin/threadfin/renew><input type=hidden name=csrf value={csrf}>"
         f"<button class=ghost>Make a new token</button></form>")
-    return f"""<h3>Threadfin</h3><div class=card><details class=key><summary><span>Plex Live TV feed</span>
-<span class=dim>{e(money)}</span></summary><div class=kbody><div class=dim>Paste the playlist and guide links into
-Threadfin. The basic lineup is the default; add <code>&amp;list=all</code> for every channel (and
-<code>&amp;group=Sports,News</code> to keep some groups). Each stream takes a provider login from the same pool as the
-TVs and phones and frees it when it stops. The links only open from home and over Tailscale. A new token stops the
-old links.</div>
-{links}<div class=row><div class=dim>Token</div>{renew}</div></div></details></div>"""
+    return f"""<h3>Threadfin</h3><div class=card><details class=key><summary><span>Plex Live TV feeds</span>
+<span class=dim>{e(money)}</span></summary><div class=kbody><div class=dim>Each feed is a playlist and its guide: add it
+in Threadfin as one M3U and one XMLTV (the buttons copy the link with the token). Add <code>&amp;group=Sports,News</code>
+to keep only some groups. Every stream takes a provider login from the same pool as the TVs and phones and frees it when
+it stops, so all feeds together share the connections above. The links only open from home and over Tailscale. A new
+token stops the old links.</div>
+{rows}{status}<div class=row><div class=dim>Token</div>{renew}</div></div></details></div>"""
 
 
 def _ai_keys_html(h: Hub, csrf: str, new_ai_key: str | None = None) -> str:
