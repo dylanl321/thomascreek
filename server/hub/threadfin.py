@@ -2,7 +2,10 @@
 
 Dylan, Nov 25 2026: the cloud server's Plex and the home Plex take live TV from Threadfin, which reads this feed.
 
-- `GET /v1/threadfin/playlist.m3u?token=…`: the hub's curated lineup. `list=basic` (the default) is the basic
+- `GET /v1/threadfin/<feed>.m3u?token=…` and `<feed>.xml`: one named feed (FEEDS: plex, kids, sports, news,
+  everything), each a playlist and its guide; `group=` keeps only the named groups.
+- `GET /v1/threadfin/playlist.m3u?token=…`: the first link, the same as `plex.m3u` (`list=all` is `everything`).
+  The hub's curated lineup. `list=basic` (the default) is the basic
   cable lineup (hub/tvbasic.py: the home market's locals and one copy of each standard network, numbered, with
   the hub's cleaned names) in groups by kind; `list=all` is the whole lineup with the guide editor's edits, cleaned
   names and category labels, without the provider's grown-up section (`group=` keeps only the named labels).
@@ -32,13 +35,36 @@ import threading
 import time
 from datetime import datetime, timezone
 from typing import Any
+from urllib.parse import quote
 from xml.sax.saxutils import escape, quoteattr
 
 log = logging.getLogger("hub.threadfin")
 
 SECRET = "threadfin.token"
 HOLDER_PREFIX = "threadfin:"
-LISTS = ("basic", "all")
+# The named feeds, each a playlist and a guide with the same channel ids (Dylan, Nov 25 2026: "a playlist
+# specifically for Plex, then kids, then everything normalized"). Threadfin takes each as its own playlist.
+FEEDS: dict[str, tuple[str, str]] = {
+    "plex": ("Plex", "The basic lineup: the home market's locals and one copy of each network, numbered like "
+                     "cable."),
+    "kids": ("Kids", "Only the channels a kids' TV gets, with the hub's names and guide."),
+    "sports": ("Sports", "The basic lineup's sports networks first, then every sports channel the provider has."),
+    "news": ("News", "The basic lineup's news networks first, then every news channel the provider has."),
+    "everything": ("Everything", "Every channel with the hub's cleaned names and groups, without the grown-up "
+                                 "section."),
+}
+ALIASES = {"basic": "plex", "all": "everything"}  # the first links (?list=basic|all) keep working
+LISTS = (*FEEDS, *ALIASES)
+# Channels a combined feed adds after the basic lineup's are numbered from here, so no two share a number.
+EXTRA_FROM = 1000
+_TOPIC = {
+    "sports": re.compile(r"\b(?:sports?|espn\w*|nfl|nba|mlb|nhl|mls|ncaa\w*|f1|formula\s*1|nascar|indycar|"
+                         r"motor\s*sports?|racing|golf|tennis|soccer|football|futbol|rugby|cricket|ufc|boxing|wwe|fight\w*|ppv|"
+                         r"bein|dazn|tsn|sky\s*sports?|game\s*pass|sunday\s*ticket)\b", re.I),
+    "news": re.compile(r"\b(?:news\w*|cnn|msnbc|cnbc|bloomberg|c-?span|weather|newsmax|fox\s*business|bbc\s*world|"
+                       r"sky\s*news|al\s*jazeera|euronews|france\s*24|dw)\b", re.I),
+}
+_TOPIC_GROUP = {"sports": "Sports", "news": "News"}
 # Programmes kept in the XMLTV: from a little before now (Plex shows what is on) to as far as the guide goes.
 GUIDE_BACK_S = 2 * 3600
 _GZIP_FROM = 32 * 1024
@@ -115,31 +141,62 @@ def basic_group(number: object) -> str:
     return next(name for start, name in reversed(_BASIC_GROUPS) if n >= start)
 
 
-def channels(h: Any, which: str, home: tuple[float, float] | None,
-             groups: set[str] | None = None) -> list[dict[str, Any]]:
-    """The feed's channels: {key, name, number, group, logo (has art)}, in lineup order."""
+def feed_name(which: str) -> str | None:
+    """The feed a name or an old `list=` value means, or None."""
+    which = (which or "").strip().lower()
+    which = ALIASES.get(which, which)
+    return which if which in FEEDS else None
+
+
+def _basic_rows(h: Any, home: tuple[float, float] | None) -> list[dict[str, Any]]:
     cat = h.tv_catalog
     shown = cat._shown_channels(cat.load())
     out: list[dict[str, Any]] = []
-    if which == "basic":
-        body = cat.basic(home) or {"channels": []}
-        for row in body.get("channels") or []:
-            key = str(row.get("key") or "")
-            if key not in shown:
-                continue
-            out.append({"key": key, "name": str(row.get("name") or shown[key].get("name") or key),
-                        "number": row.get("number"), "group": basic_group(row.get("number")),
-                        "logo": bool(shown[key].get("logo"))})
-    else:
-        lineup = cat.lineup(kids_only=False) or {"channels": []}
-        for row in lineup.get("channels") or []:
-            label = str(row.get("group_label") or row.get("group") or "Other")
-            if _ADULT.search(f"{row.get('group') or ''} {label}"):
-                continue  # the provider's grown-up section never reaches Plex
-            if groups and label.casefold() not in groups:
-                continue
-            out.append({"key": str(row["key"]), "name": str(row.get("display_name") or row.get("name") or row["key"]),
-                        "number": row.get("number"), "group": label, "logo": bool(row.get("logo"))})
+    for row in (cat.basic(home) or {}).get("channels") or []:
+        key = str(row.get("key") or "")
+        if key not in shown:
+            continue
+        out.append({"key": key, "name": str(row.get("name") or shown[key].get("name") or key),
+                    "number": row.get("number"), "group": basic_group(row.get("number")),
+                    "logo": bool(shown[key].get("logo"))})
+    return out
+
+
+def _lineup_rows(h: Any, kids: bool, groups: set[str] | None) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for row in (h.tv_catalog.lineup(kids_only=kids) or {}).get("channels") or []:
+        label = str(row.get("group_label") or row.get("group") or "Other")
+        if _ADULT.search(f"{row.get('group') or ''} {label}"):
+            continue  # the provider's grown-up section never reaches Plex
+        if groups and label.casefold() not in groups:
+            continue
+        out.append({"key": str(row["key"]), "name": str(row.get("display_name") or row.get("name") or row["key"]),
+                    "number": row.get("number"), "group": label, "logo": bool(row.get("logo"))})
+    return out
+
+
+def channels(h: Any, which: str, home: tuple[float, float] | None,
+             groups: set[str] | None = None) -> list[dict[str, Any]]:
+    """The feed's channels: {key, name, number, group, logo (has art)}, in lineup order."""
+    feed = feed_name(which) or "plex"
+    if feed == "plex":
+        return [r for r in _basic_rows(h, home) if not groups or r["group"].casefold() in groups]
+    if feed == "everything":
+        return _lineup_rows(h, False, groups)
+    if feed == "kids":
+        return _lineup_rows(h, True, groups)
+    # A topic feed: the basic lineup's networks of that kind with their cable numbers, then every other channel
+    # whose group or name says so, numbered from EXTRA_FROM so no two share a number in Plex.
+    topic, label = _TOPIC[feed], _TOPIC_GROUP[feed]
+    out = [r for r in _basic_rows(h, home) if r["group"] == label]
+    seen = {r["key"] for r in out}
+    number = EXTRA_FROM
+    for row in _lineup_rows(h, False, groups):
+        if row["key"] in seen or not topic.search(f"{row['group']} {row['name']}"):
+            continue
+        seen.add(row["key"])
+        out.append({**row, "number": number})
+        number += 1
     return out
 
 
@@ -148,9 +205,12 @@ def _attr(value: object) -> str:
     return re.sub(r"[\"\r\n]+", " ", str(value or "")).strip()
 
 
-def playlist(rows: list[dict[str, Any]], base: str, tok: str) -> str:
-    """M3U with `tvg-id` = the channel key (the XMLTV ids), `tvg-chno`, `group-title`, a logo and the relay."""
-    lines = [f'#EXTM3U url-tvg="{base}/v1/threadfin/guide.xml?token={tok}"']
+def playlist(rows: list[dict[str, Any]], base: str, tok: str, feed: str = "plex",
+             groups: set[str] | None = None) -> str:
+    """M3U with `tvg-id` = the channel key (the XMLTV ids), `tvg-chno`, `group-title`, a logo and the relay; its
+    `url-tvg` is the same feed's guide."""
+    pick = f"&group={quote(','.join(sorted(groups)))}" if groups else ""
+    lines = [f'#EXTM3U url-tvg="{base}/v1/threadfin/{feed}.xml?token={tok}{pick}"']
     for row in rows:
         key = row["key"]
         number = f' tvg-chno="{_attr(row["number"])}"' if row.get("number") is not None else ""
@@ -226,11 +286,11 @@ def _stamp(h: Any, which: str, home: Any, groups: Any) -> Any:
     cat = h.tv_catalog
     doc = cat.load()
     return (which, home, groups, id(doc), doc.get("fetched_at"), doc.get("guide_at"),
-            h.db.kv_stamp("tvapp.lineup"), cat.lineup_stamp(False))
+            h.db.kv_stamp("tvapp.lineup"), cat.lineup_stamp(which == "kids"))
 
 
 KV_WANTED = "threadfin.wanted"
-_WANTED_MAX = 8
+_WANTED_MAX = 16
 
 
 def reply(h: Any, kind: str, which: str, home: tuple[float, float] | None, groups: set[str] | None,
@@ -239,6 +299,8 @@ def reply(h: Any, kind: str, which: str, home: tuple[float, float] | None, group
     asked is remembered, so `rewarm` builds it again after a provider refresh before Threadfin asks (the whole
     guide took 2 s to build on the live hub, Nov 25 2026)."""
     tok = token(h)
+    which = feed_name(which) or "plex"
+    home = home if which in ("plex", "sports", "news") else None
     frozen = frozenset(groups) if groups else None
     key = (kind, base, _stamp(h, which, home, frozen))
     with _LOCK:
@@ -247,13 +309,13 @@ def reply(h: Any, kind: str, which: str, home: tuple[float, float] | None, group
             return hit
         rows = channels(h, which, home, groups)
         if kind == "m3u":
-            built = Reply(playlist(rows, base, tok).encode(), "audio/x-mpegurl")
+            built = Reply(playlist(rows, base, tok, which, groups).encode(), "audio/x-mpegurl")
         else:
             built = Reply(guide(h, rows, base, tok).encode(), "application/xml")
         same = key[:2] + key[2][:3]  # the same answer for an older lineup or guide
         for old in [k for k in _CACHE if k[:2] + k[2][:3] == same]:
             _CACHE.pop(old, None)
-        if len(_CACHE) > 16:
+        if len(_CACHE) > 32:
             _CACHE.clear()
         _CACHE[key] = built
     _remember(h, kind, which, home, groups, base)

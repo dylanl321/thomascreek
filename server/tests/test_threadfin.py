@@ -60,7 +60,47 @@ def test_playlist_and_guide_ids_match_and_carry_no_provider_secret(hub, home_cli
     only = home_client.get(f"/v1/threadfin/playlist.m3u?token={tok}&list=all&group=news")
     assert re.findall(r'tvg-id="([^"]+)"', only.text) == ["xc:thomas-creek:10"]
     assert home_client.get(f"/v1/threadfin/playlist.m3u?token={tok}").status_code == 200  # the basic lineup
-    assert home_client.get(f"/v1/threadfin/playlist.m3u?token={tok}&list=nope").status_code == 400
+    assert home_client.get(f"/v1/threadfin/playlist.m3u?token={tok}&list=nope").status_code == 404
+
+
+def test_each_named_feed_has_its_own_playlist_and_guide(hub, home_client):
+    tok = _ready(hub)
+
+    def ids(path):
+        r = home_client.get(f"/v1/threadfin/{path}?token={tok}")
+        assert r.status_code == 200, path
+        return r, (re.findall(r'tvg-id="([^"]+)"', r.text) or re.findall(r'<channel id="([^"]+)"', r.text))
+
+    r, kids = ids("kids.m3u")
+    assert kids == ["xc:thomas-creek:11"]  # only what a kids' TV gets
+    assert f'url-tvg="https://hub.test/v1/threadfin/kids.xml?token={tok}"' in r.text
+    assert ids("kids.xml")[1] == kids
+    assert ids("news.m3u")[1] == ids("news.xml")[1] == ["xc:thomas-creek:10"]
+    assert set(ids("everything.m3u")[1]) == {"xc:thomas-creek:10", "xc:thomas-creek:11"}
+    assert ids("everything.m3u")[0].text == home_client.get(f"/v1/threadfin/playlist.m3u?token={tok}&list=all").text
+    assert ids("plex.m3u")[0].text == home_client.get(f"/v1/threadfin/playlist.m3u?token={tok}").text
+    assert home_client.get(f"/v1/threadfin/nope.m3u?token={tok}").status_code == 404
+    assert home_client.get("/v1/threadfin/kids.m3u").status_code == 401
+
+
+def test_a_topic_feed_numbers_its_extra_channels_apart(hub):
+    _ready(hub)
+    hub.tv_catalog.ingest(
+        live=[{"stream_id": 10, "name": "CNN", "num": 20, "category_id": "1"},
+              {"stream_id": 30, "name": "ESPN", "num": 31, "category_id": "5"},
+              {"stream_id": 31, "name": "NFL Game 1", "num": 32, "category_id": "6"},
+              {"stream_id": 32, "name": "Sky Sports F1", "num": 33, "category_id": "7"},
+              {"stream_id": 33, "name": "Cooking", "num": 34, "category_id": "7"}],
+        live_categories=[{"category_id": "1", "category_name": "News"},
+                         {"category_id": "5", "category_name": "US Sports"},
+                         {"category_id": "6", "category_name": "NFL Sunday"},
+                         {"category_id": "7", "category_name": "Lifestyle"}])
+    rows = threadfin.channels(hub, "sports", None)
+    keys = [r["key"] for r in rows]
+    assert set(keys) == {"xc:thomas-creek:30", "xc:thomas-creek:31", "xc:thomas-creek:32"}
+    numbers = [r["number"] for r in rows]
+    assert len(set(numbers)) == len(numbers)  # no two share a number in Plex
+    assert [r["key"] for r in threadfin.channels(hub, "news", None)] == ["xc:thomas-creek:10"]
 
 
 def test_the_grown_up_section_never_reaches_the_feed(hub):
@@ -152,8 +192,10 @@ def test_the_web_page_shows_the_links_and_an_agent_never_sees_the_token(hub, peo
     tok = _ready(hub)
     csrf = _sign_in(people, home_client)
     page = home_client.get("/admin/watching").text
-    assert "Plex Live TV feed" in page and f"/v1/threadfin/playlist.m3u?token={tok}" in page
-    assert "http://hub.test:8780/v1/threadfin/guide.xml" in page
+    assert "Plex Live TV feed" in page
+    for name in threadfin.FEEDS:
+        assert f"http://hub.test:8780/v1/threadfin/{name}.m3u?token={tok}" in page
+        assert f"http://hub.test:8780/v1/threadfin/{name}.xml?token={tok}" in page
     r = home_client.post("/admin/threadfin/renew", data={"csrf": csrf}, follow_redirects=False)
     assert r.status_code == 303 and threadfin.token(hub) != tok
     _, key = agentlogins.create(hub.db, "claude-mac")

@@ -76,13 +76,14 @@ def _send(request: Request, body: threadfin.Reply, started: float) -> Response:
 async def _feed(request: Request, h: Hub, kind: str, token: str | None, which: str, group: str | None) -> Response:
     started = time.perf_counter()
     _allowed(request, h, token)
-    if which not in threadfin.LISTS:
-        raise error(400, "bad_params", "list is basic or all")
+    feed = threadfin.feed_name(which)
+    if feed is None:
+        raise error(404, "not_found", "No such feed. The feeds are " + ", ".join(threadfin.FEEDS) + ".")
     from .tvguide import _ready
 
     await _ready(h)
-    home = await _home(h) if which == "basic" else None
-    body = await asyncio.to_thread(threadfin.reply, h, kind, which, home, _groups(group), _base(request))
+    home = await _home(h) if feed in ("plex", "sports", "news") else None
+    body = await asyncio.to_thread(threadfin.reply, h, kind, feed, home, _groups(group), _base(request))
     return _send(request, body, started)
 
 
@@ -98,6 +99,20 @@ async def guide(request: Request, token: str | None = None, list: str = "basic",
                 h: Hub = Depends(hub)) -> Response:
     """XMLTV for the same channels; channel ids are the playlist's `tvg-id`."""
     return await _feed(request, h, "xml", token, list, group)
+
+
+@router.get("/{feed}.m3u")
+async def feed_playlist(feed: str, request: Request, token: str | None = None, group: str | None = None,
+                        h: Hub = Depends(hub)) -> Response:
+    """One named feed's playlist (threadfin.FEEDS: plex, kids, sports, news, everything)."""
+    return await _feed(request, h, "m3u", token, feed, group)
+
+
+@router.get("/{feed}.xml")
+async def feed_guide(feed: str, request: Request, token: str | None = None, group: str | None = None,
+                     h: Hub = Depends(hub)) -> Response:
+    """The same feed's XMLTV; its channel ids are the playlist's `tvg-id`."""
+    return await _feed(request, h, "xml", token, feed, group)
 
 
 @router.get("/status")
