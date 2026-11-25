@@ -117,7 +117,8 @@ def accounts(h: Any, now: float | None = None) -> dict[str, Any]:
     for row in sessions:
         playing.append({
             "tv": row.get("tv"),
-            "name": names.get(row.get("tv"), row.get("tv")),
+            "name": "Plex Live TV" if str(row.get("tv") or "").startswith("threadfin:")
+            else names.get(row.get("tv"), row.get("tv")),
             "provider": row.get("provider"),
             "login": row.get("login"),
             "canonical_id": row.get("canonical_id"),
@@ -509,7 +510,8 @@ def busy_reason(h: Any, ref: str) -> str:
     for row in _sessions(h):
         if row.get("provider") in providers:
             who = str(row.get("tv") or "")
-            holders.append("a phone" if who.startswith("phone:") else names.get(who, "a TV"))
+            holders.append("a phone" if who.startswith("phone:") else "Plex Live TV" if who.startswith("threadfin:")
+                           else names.get(who, "a TV"))
     known = {lg["provider"]: lg.get("name") or lg["provider"] for lg in logins(h)}
     known.update(provider_names(h))
     pnames = sorted({str(known.get(p) or p) for p in providers})
@@ -595,6 +597,8 @@ def holders(h: Any, ref: str, *, titles: bool = True) -> list[dict[str, Any]]:
             entry: dict[str, Any] = {"kind": "phone", "name": str((device or {}).get("name") or "A phone")}
         elif who.startswith("hub:"):
             entry = {"kind": "hub", "name": HUB_HOLDERS.get(who, "The hub")}
+        elif who.startswith("threadfin:"):
+            entry = {"kind": "hub", "name": "Plex Live TV (Threadfin)"}  # routes/threadfin.py, one per stream
         else:
             tv = tvs.get(who) or {}
             entry = {"kind": "tv", "name": str(tv.get("name") or "A TV")}

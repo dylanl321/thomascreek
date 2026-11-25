@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
 import sys
@@ -19,6 +20,7 @@ from . import kidcerts  # noqa: F401 - imported at start so its quiet window cou
 from .config import Config, data_dir, load_config, master_key_path
 from .db import DB
 from .routes import mcp as mcp_routes
+from .routes import threadfin as threadfin_routes
 from .routes import admin_web, agentpair, alerts, ambient, cloud, people_web, playlists_web, appupdate, art, assistant, auth, brain, cameras, catalog, climate, downloads, dvr, family, feasts, fleet_web, home, home_alerts, household, iptvplay, kitchen, layout, lights, me, media, media_requests, nas, network, people, printers, recipes, remotes, search, smart, titles, trips, tvapp, tvfleet, tvguide, tvcameras, tvpair, tvphone, tvs, weather, youtube
 from .routes.deps import http_error_handler
 from .state import Hub
@@ -42,6 +44,7 @@ def build_app(hub: Hub | None = None, *, start_background: bool = True) -> FastA
         certs_task = None
         thumbs_task = None
         report_task = None
+        feed_task = None
         if start_background:
             # A hub whose loop is stuck restarts itself and leaves a note on where (see watchdog.py).
             from .watchdog import Watchdog
@@ -82,6 +85,12 @@ def build_app(hub: Hub | None = None, *, start_background: bool = True) -> FastA
                 from .bonjour import advertise
 
                 zc = await advertise(h)
+            # The Threadfin feed's token rides in its query string (Threadfin can't send headers): kept out of the
+            # access log. Added here, after uvicorn set up its loggers.
+            from .threadfin import RedactToken
+
+            logging.getLogger("uvicorn.access").addFilter(RedactToken())
+            feed_task = _start_feed_port(app, h)
         yield
         warm_after = getattr(app.state, "warm_after", None)
         if warm_after is not None:
@@ -94,6 +103,8 @@ def build_app(hub: Hub | None = None, *, start_background: bool = True) -> FastA
             thumbs_task.cancel()
         if report_task is not None:
             report_task.cancel()
+        if feed_task is not None:
+            feed_task.cancel()
         if zc is not None:
             await zc.async_close()
         await h.stop()
@@ -303,12 +314,69 @@ def build_app(hub: Hub | None = None, *, start_background: bool = True) -> FastA
     app.include_router(mcp_routes.router)  # MCP for outside AI apps, and its OAuth sign-in
     app.include_router(sends_routes.router)  # films and shows sent to the kids' iPads
     for r in (auth.router, alerts.router, home.router, people.router, media_requests.router, media.router, family.router, feasts.router, trips.router, network.router,
-              cameras.router, kitchen.router, nas.router, printers.router, remotes.router, tvapp.router, tvapp.tv_router, tvguide.router, tvphone.router, tvpress.router, phonelogs.router, phoneproviders.router, catalog.router, iptvplay.router, tvfleet.router, tvpair.router, tvs.router, tvs.tv_router, home_alerts.router, tvcameras.router, ambient.router, art.router, dvr.router, titles.router, layout.router, recipes.router, search.router, lights.router, appupdate.router, lights.pages, admin_web.api, admin_web.pages, people_web.pages, playlists_web.pages, fleet_web.pages, downloads.router, cloud.router, agentpair.router,
+              cameras.router, kitchen.router, nas.router, printers.router, remotes.router, tvapp.router, tvapp.tv_router, tvguide.router, tvphone.router, tvpress.router, phonelogs.router, phoneproviders.router, catalog.router, iptvplay.router, tvfleet.router, tvpair.router, tvs.router, tvs.tv_router, home_alerts.router, tvcameras.router, ambient.router, art.router, dvr.router, titles.router, layout.router, recipes.router, search.router, lights.router, appupdate.router, lights.pages, admin_web.api, admin_web.pages, people_web.pages, playlists_web.pages, fleet_web.pages, downloads.router, cloud.router, agentpair.router, threadfin_routes.router,
               assistant.router, brain.router, youtube.router, smart.router, weather.router, climate.router, me.router, household.router, household.pages):
         app.include_router(r)
     # Outermost, so its time covers every other middleware too.
     app.add_middleware(TimingMiddleware, timings=app.state.timings)
     return app
+
+
+FEED_PATHS = ("/v1/threadfin/",)
+
+
+def feed_only(app: Any) -> Any:
+    """The ASGI app of the plain-HTTP feed port: the Threadfin feed paths, answered by the hub's own app; every
+    other path is a 404, so nothing else on the hub is ever served without TLS."""
+
+    async def serve(scope: Any, receive: Any, send: Any) -> None:
+        if scope.get("type") == "http" and str(scope.get("path") or "").startswith(FEED_PATHS):
+            await app(scope, receive, send)
+            return
+        if scope.get("type") == "lifespan":  # the hub's own app already started; this port has nothing to start
+            while True:
+                message = await receive()
+                if message["type"] == "lifespan.startup":
+                    await send({"type": "lifespan.startup.complete"})
+                elif message["type"] == "lifespan.shutdown":
+                    await send({"type": "lifespan.shutdown.complete"})
+                    return
+        if scope.get("type") != "http":
+            return
+        await send({"type": "http.response.start", "status": 404,
+                    "headers": [(b"content-type", b"text/plain"), (b"cache-control", b"no-store")]})
+        await send({"type": "http.response.body", "body": b"Only the Threadfin feed is served on this port.\n"})
+
+    return serve
+
+
+def _start_feed_port(app: Any, h: Hub) -> asyncio.Task[None] | None:
+    """Serve the Threadfin feed on `hub.feed_port` without TLS (Threadfin and Plex don't trust the hub's own
+    certificate), next to the main port. A port already taken only logs; the feed still answers on the main port."""
+    port = int(getattr(h.config.hub, "feed_port", 0) or 0)
+    if port <= 0:
+        return None
+    import uvicorn
+
+    class _Quiet(uvicorn.Server):
+        @contextlib.contextmanager
+        def capture_signals(self):  # type: ignore[override]  # the main server handles the signals
+            yield
+
+    server = _Quiet(uvicorn.Config(feed_only(app), host=h.config.hub.listen_host, port=port, lifespan="off",
+                                   proxy_headers=False, server_header=False, access_log=False, log_level="warning"))
+
+    async def run() -> None:
+        try:
+            await server.serve()
+        except (OSError, SystemExit) as exc:
+            log.warning("threadfin feed port %s didn't open (%s); the feed still answers on the main port",
+                        port, type(exc).__name__)
+        except asyncio.CancelledError:
+            server.should_exit = True
+            raise
+
+    return asyncio.create_task(run())
 
 
 def default_hub(config: Config | None = None) -> Hub:
