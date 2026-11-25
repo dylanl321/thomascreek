@@ -82,15 +82,20 @@ def test_basic_numbers_name_their_groups():
 
 def test_a_stream_leases_its_own_login_and_frees_it_on_hang_up(hub, home_client):
     tok = _ready(hub)
+    seen: list[list[dict]] = []
+
+    def provider(request):
+        # What the pool holds while the provider is asked (the test client may read the whole body before the
+        # test looks, so the lease is checked here, at the moment the stream opens).
+        seen.append([row for row in hub.db.kv_get(KV_SESSIONS) or [] if str(row["tv"]).startswith("threadfin:")])
+        return httpx.Response(200, content=b"\x47" * 188 * 4, headers={"content-type": "video/mp2t"})
+
     with respx.mock(assert_all_called=False) as mock:
-        route = mock.get(f"{SERVER}/live/household/{PASSWORD}/10.ts").mock(
-            return_value=httpx.Response(200, content=b"\x47" * 188 * 4, headers={"content-type": "video/mp2t"}))
+        mock.get(f"{SERVER}/live/household/{PASSWORD}/10.ts").mock(side_effect=provider)
         with home_client.stream("GET", f"/v1/threadfin/stream/xc:thomas-creek:10.ts?token={tok}") as r:
             assert r.status_code == 200 and r.headers["content-type"] == "video/mp2t"
-            held = [row for row in hub.db.kv_get(KV_SESSIONS) or [] if str(row["tv"]).startswith("threadfin:")]
-            assert len(held) == 1 and held[0]["login"] == "main"
             assert b"".join(r.iter_bytes()) == b"\x47" * 188 * 4
-        assert route.called
+    assert len(seen) == 1 and len(seen[0]) == 1 and seen[0][0]["login"] == "main"
     assert not [row for row in hub.db.kv_get(KV_SESSIONS) or [] if str(row["tv"]).startswith("threadfin:")]
 
 
