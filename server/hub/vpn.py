@@ -153,7 +153,7 @@ class Vpn:
                 return name, pool[name]
         raise VpnError("every VPN client is in use; add another one on the Firewalla")
 
-    def _pool_config(self, device: dict[str, Any]) -> dict[str, Any]:
+    def _pool_config(self, device: dict[str, Any], role: str | None = None) -> dict[str, Any]:
         name, conf = self._pool_slot(device)
         i, p = conf["interface"], conf["peer"]
         addresses = _split(i.get("address"))
@@ -161,7 +161,11 @@ class Vpn:
         log.info("VPN pool: %s given to device %s", name, device["id"])
         dns = _split(i.get("dns")) or self.cfg.dns
         allowed = self.cfg.allowed_ips or _split(p.get("allowedips")) or ["0.0.0.0/0"]
-        if self.cfg.allowed_ips:
+        if role and role in self.cfg.full_tunnel_roles:
+            # Everything through home: the Firewalla sends it out from the house. ::/0 too, so a phone
+            # on an IPv6 network abroad does not leak its own address past the tunnel.
+            allowed = ["0.0.0.0/0", "::/0"]
+        elif self.cfg.allowed_ips:
             # Split tunnel: home ranges only, plus the VPN's own DNS servers so names still resolve.
             allowed = allowed + [f"{d}/32" for d in dns if "." in d and f"{d}/32" not in allowed]
         peer = {
@@ -274,11 +278,13 @@ class Vpn:
             self._wg("set", iface, "peer", d["wg_public_key"], "allowed-ips", f"{d['wg_address']}/32")
         log.info("WireGuard interface %s is up", iface)
 
-    def config_for(self, device: dict[str, Any], wg_public_key: str | None) -> dict[str, Any]:
+    def config_for(self, device: dict[str, Any], wg_public_key: str | None,
+                   role: str | None = None) -> dict[str, Any]:
+        """The Home exit for one phone. `role` picks full or split tunnel (pool provider only)."""
         if not self.enabled:
             raise VpnError("the built-in VPN is not set up yet")
         if self.cfg.provider == "pool":
-            return self._pool_config(device)
+            return self._pool_config(device, role)
         if not wg_public_key or not valid_wg_key(wg_public_key):
             raise VpnError("wg_public_key must be a base64 Curve25519 public key")
         old = device.get("wg_public_key")

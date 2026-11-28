@@ -432,11 +432,14 @@ def test_vpn_pool_hands_out_firewalla_clients(hub, people, home_client, tmp_path
     a = home_client.post("/v1/vpn/config", json={}, headers=avery.h).json()
     assert a["interface"]["addresses"] == ["10.11.12.2/32"] and a["interface"]["private_key"]
     assert a["peer"]["endpoint"] == "home.example.invalid:51820"
-    assert a["peer"]["allowed_ips"] == ["10.0.0.0/22", "10.11.12.1/32"]
+    # A grown-up's phone sends everything through home (the house's address abroad, no IPv6 leak).
+    assert a["peer"]["allowed_ips"] == ["0.0.0.0/0", "::/0"] and a["all_traffic"] is True
     # Asking again returns the same client; a second phone gets the other one.
     assert home_client.post("/v1/vpn/config", json={}, headers=avery.h).json() == a
     t = home_client.post("/v1/vpn/config", json={}, headers=theo.h).json()
     assert t["interface"]["addresses"] == ["10.11.12.3/32"]
+    # A child keeps the split tunnel: home ranges plus the VPN's DNS.
+    assert t["peer"]["allowed_ips"] == ["10.0.0.0/22", "10.11.12.1/32"] and t["all_traffic"] is False
     assert not hub.is_home("10.11.12.2")
     # Pool used up.
     others = [p for name, p in people["phones"].items() if name not in ("Avery", "Theo")]
