@@ -668,11 +668,13 @@ async def vpn_config(body: VpnBody, c: Caller = Depends(caller), h: Hub = Depend
                  target=f"private:{cfg['region']['id']}")
         return cfg
     try:
-        cfg = h.vpn.config_for(c.device, body.wg_public_key)
+        cfg = h.vpn.config_for(c.device, body.wg_public_key, c.subject.role)
     except VpnError as exc:
         raise error(503 if not h.vpn.enabled else 400, "vpn_unavailable", str(exc)) from None
-    h.db.log("vpn.config", "ok", person_id=c.subject.person_id, device_id=c.device["id"])
-    return {**cfg, "exit": "home"}
+    full = cfg["peer"]["allowed_ips"] == ["0.0.0.0/0", "::/0"]
+    h.db.log("vpn.config", "ok", person_id=c.subject.person_id, device_id=c.device["id"],
+             target="home:all" if full else "home:split")
+    return {**cfg, "exit": "home", "all_traffic": full}
 
 
 @router.post("/push/test")

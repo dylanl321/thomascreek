@@ -145,6 +145,9 @@ class VpnConfig(BaseModel):
     subnet: str = "10.77.0.0/24"
     dns: list[str] = Field(default_factory=list)
     allowed_ips: list[str] = Field(default_factory=list)  # home LAN ranges
+    # provider "pool": these roles get the whole phone's traffic through home (0.0.0.0/0 and ::/0), so
+    # they show the house's address abroad. Everyone else keeps the split tunnel above (allowed_ips).
+    full_tunnel_roles: list[str] = Field(default_factory=lambda: ["admin", "adult"])
     home_ssids: list[str] = Field(default_factory=list)
     persistent_keepalive: int = 25
     server_key_secret: str = "wireguard.server_private_key"
